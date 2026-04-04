@@ -7,10 +7,10 @@ describe('createAIProvider', () => {
     expect(provider).toBeDefined();
   });
 
-  it('stub updateProjectFile returns string containing [AI STUB]', async () => {
+  it('stub updateProjectFile returns string starting with [AI STUB]', async () => {
     const provider = createAIProvider({ AI_PROVIDER: 'stub' });
     const result = await provider.updateProjectFile('# Old Content', 'Add a summary');
-    expect(result).toContain('[AI STUB]');
+    expect(result).toMatch(/^\[AI STUB\]/);
   });
 
   it('stub generateCoverLetter returns non-empty string', async () => {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { generateCoverLetter } from '../api/client.js';
+import CoverLetter from '../components/CoverLetter.js';
 
 export default function CoverLetterPage() {
   const [jobDesc, setJobDesc] = useState('');
@@ -45,20 +46,7 @@ export default function CoverLetterPage() {
         placeholder="e.g. I am applying for a senior role..."
       />
       <button onClick={handleGenerate} disabled={loading}>{loading ? 'Generating...' : 'Generate Cover Letter'}</button>
-      {coverLetter && (
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3>Cover Letter</h3>
-            <button onClick={handleCopy}>{copied ? 'Copied!' : 'Copy to Clipboard'}</button>
-          </div>
-          <textarea
-            readOnly
-            value={coverLetter}
-            rows={20}
-            style={{ width: '100%', fontFamily: 'serif', lineHeight: '1.6' }}
-          />
-        </div>
-      )}
+      <CoverLetter coverLetter={coverLetter} copied={copied} onCopy={handleCopy} />
     </div>
   );
 }

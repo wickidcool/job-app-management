@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import slugify from 'slugify';
 
 export class NotFoundError extends Error {
@@ -40,20 +40,28 @@ export class ProjectStore {
     return slug;
   }
 
+  private resolveSlugPath(slug: string): string {
+    const filePath = resolve(join(this.projectsDir, `${slug}.md`));
+    if (!filePath.startsWith(resolve(this.projectsDir) + '/')) {
+      throw new NotFoundError(slug);
+    }
+    return filePath;
+  }
+
   getProject(slug: string): string {
-    const filePath = join(this.projectsDir, `${slug}.md`);
+    const filePath = this.resolveSlugPath(slug);
     if (!existsSync(filePath)) throw new NotFoundError(slug);
     return readFileSync(filePath, 'utf8');
   }
 
   updateProject(slug: string, content: string): void {
-    const filePath = join(this.projectsDir, `${slug}.md`);
+    const filePath = this.resolveSlugPath(slug);
     if (!existsSync(filePath)) throw new NotFoundError(slug);
     writeFileSync(filePath, content, 'utf8');
   }
 
   deleteProject(slug: string): void {
-    const filePath = join(this.projectsDir, `${slug}.md`);
+    const filePath = this.resolveSlugPath(slug);
     if (!existsSync(filePath)) throw new NotFoundError(slug);
     unlinkSync(filePath);
   }
@@ -64,8 +72,7 @@ export class ProjectStore {
       .map(f => {
         const slug = f.replace(/\.md$/, '');
         const stat = statSync(join(this.projectsDir, f));
-        const name = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        return { slug, name, size: stat.size, mtime: stat.mtime };
+        return { slug, name: slug, size: stat.size, mtime: stat.mtime };
       });
   }
 }

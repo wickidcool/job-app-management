@@ -35,14 +35,13 @@ describe('matchJobDescription', () => {
 
   it('partial match returns Jaccard similarity', () => {
     // Job: TypeScript, React (2 terms).
-    // Acme keywords after tokenization: typescript, react, node.js, rest, api, authentication, oauth (7 terms)
-    // (multi-word phrases like "REST API" are tokenized into individual words for consistent matching)
-    // Intersection: TypeScript, React (2). Union: 2 + 7 - 2 = 7
-    // Jaccard = 2/7 ≈ 0.286
+    // Acme keywords after comma-split: typescript, react, node.js, rest api, authentication, oauth (6 terms)
+    // Intersection: TypeScript, React (2). Union: 2 + 6 - 2 = 6
+    // Jaccard = 2/6 ≈ 0.333
     const result = matchJobDescription('TypeScript React', sampleIndex);
     const acme = result.projectScores.find(p => p.slug === 'acme-corp');
     expect(acme).toBeDefined();
-    expect(acme!.score).toBeCloseTo(2 / 7, 2);
+    expect(acme!.score).toBeCloseTo(2 / 6, 2);
   });
 
   it('returns matched and missed keywords', () => {
