@@ -1,0 +1,14 @@
+{
+  "name": "job-app-management",
+  "private": true,
+  "workspaces": ["packages/backend", "packages/frontend"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=packages/backend\" \"npm run dev --workspace=packages/frontend\"",
+    "build": "npm run build --workspace=packages/backend && npm run build --workspace=packages/frontend",
+    "test": "npm run test --workspace=packages/backend && npm run test --workspace=packages/frontend",
+    "lint": "npm run lint --workspace=packages/backend && npm run lint --workspace=packages/frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.0"
+  }
+}

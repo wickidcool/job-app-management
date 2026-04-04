@@ -1,4 +1,8 @@
-.worktrees
-node_modules
-dist
+data/
+node_modules/
+dist/
 .env
+*.env.local
+e2e-screenshots/
+playwright-report/
+test-results/
