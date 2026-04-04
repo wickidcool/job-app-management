@@ -57,7 +57,11 @@ export interface MatchResult {
   projectScores: Array<{ slug: string; name: string; score: number; matchedKeywords: string[] }>;
 }
 
-export function matchJobDescription(jobDescription: string, indexContent: string): MatchResult {
+export function matchJobDescription(
+  jobDescription: string,
+  indexContent: string,
+  projectMtimes?: Map<string, Date>,
+): MatchResult {
   const jobTokens = tokenize(jobDescription);
   const sections = parseIndexSections(indexContent);
 
@@ -76,8 +80,20 @@ export function matchJobDescription(jobDescription: string, indexContent: string
     };
   }).sort((a, b) => b.score - a.score);
 
-  const totalWeight = projectScores.length;
-  const overallScore = totalWeight === 0 ? 0 : projectScores.reduce((sum, p) => sum + p.score, 0) / totalWeight;
+  // Compute recency-weighted average: newer projects get higher weight.
+  // Weight = (mtime_ms - min_mtime_ms + 1). If no mtime info, equal weights.
+  let overallScore = 0;
+  if (projectScores.length > 0) {
+    if (projectMtimes && projectMtimes.size > 0) {
+      const mtimes = projectScores.map(p => (projectMtimes.get(p.slug)?.getTime() ?? 0));
+      const minMtime = Math.min(...mtimes);
+      const weights = mtimes.map(t => t - minMtime + 1);
+      const totalWeight = weights.reduce((s, w) => s + w, 0);
+      overallScore = projectScores.reduce((sum, p, i) => sum + p.score * weights[i], 0) / totalWeight;
+    } else {
+      overallScore = projectScores.reduce((sum, p) => sum + p.score, 0) / projectScores.length;
+    }
+  }
 
   return { score: overallScore, matchedKeywords, missedKeywords, projectScores };
 }

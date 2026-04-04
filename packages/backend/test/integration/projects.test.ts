@@ -27,6 +27,15 @@ describe('Projects routes', () => {
     expect(body.slug).toBe('test-co');
   });
 
+  it('POST /api/v1/projects triggers index regeneration (index contains new slug)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Index Trigger Co', content: '# Index Trigger Co\n\nTypeScript Node.js' } });
+    expect(res.statusCode).toBe(201);
+    const slug = res.json().slug;
+    const indexRes = await app.inject({ method: 'GET', url: '/api/v1/index' });
+    expect(indexRes.statusCode).toBe(200);
+    expect(indexRes.json().content).toContain(slug);
+  });
+
   it('GET /api/v1/projects returns array', async () => {
     await app.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Alpha', content: '# Alpha' } });
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects' });

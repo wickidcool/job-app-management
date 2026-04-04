@@ -41,7 +41,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(resumeRoutes, { prefix: '/api/v1', projectStore, indexStore });
   await app.register(indexRoutes, { prefix: '/api/v1', projectStore, indexStore });
   await app.register(aiRoutes, { prefix: '/api/v1', projectStore, indexStore, aiProvider });
-  await app.register(matchRoutes, { prefix: '/api/v1', indexStore });
+  await app.register(matchRoutes, { prefix: '/api/v1', indexStore, projectStore });
 
   return app;
 }

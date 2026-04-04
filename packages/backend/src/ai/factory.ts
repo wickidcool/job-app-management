@@ -12,7 +12,10 @@ interface AIConfig {
 
 export function createAIProvider(config: AIConfig): AIProvider {
   const provider = config.AI_PROVIDER;
-  if (provider === 'stub' || !provider) {
+  if (!provider) {
+    throw new Error('AI_PROVIDER is required. Valid values: anthropic, openai, stub');
+  }
+  if (provider === 'stub') {
     return new StubAIProvider();
   }
   if (provider === 'anthropic') {

@@ -23,6 +23,10 @@ describe('createAIProvider', () => {
     expect(() => createAIProvider({ AI_PROVIDER: 'unknown' as 'stub' })).toThrow();
   });
 
+  it('throws for undefined AI_PROVIDER', () => {
+    expect(() => createAIProvider({ AI_PROVIDER: undefined })).toThrow(/AI_PROVIDER is required/i);
+  });
+
   it('throws for anthropic without API key', () => {
     expect(() => createAIProvider({ AI_PROVIDER: 'anthropic', AI_API_KEY: undefined })).toThrow(/API key/i);
   });
