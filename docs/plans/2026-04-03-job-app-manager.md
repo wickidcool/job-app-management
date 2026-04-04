@@ -262,8 +262,8 @@ Factory reads `AI_PROVIDER` env var (`anthropic` | `openai`). Both implementatio
 |---|---|---|
 | `PORT` | `3001` | Backend port |
 | `STORAGE_DIR` | `./data` | Root directory for project files and index |
-| `AI_PROVIDER` | _(required for AI features)_ | `anthropic` or `openai` |
-| `AI_API_KEY` | _(required for AI features)_ | Provider API key |
+| `AI_PROVIDER` | _(required for AI features)_ | `anthropic`, `openai`, or `stub` (stub requires no key; used in tests/E2E) |
+| `AI_API_KEY` | _(required for real AI providers)_ | Provider API key (not required when `AI_PROVIDER=stub`) |
 | `VITE_API_BASE_URL` | `http://localhost:3001` | Backend URL for frontend |
 
 ---
@@ -277,8 +277,8 @@ Factory reads `AI_PROVIDER` env var (`anthropic` | `openai`). Both implementatio
 **Steps:**
 
 1. Create root `package.json` with workspaces `["packages/backend", "packages/frontend"]`, scripts `dev`, `build`, `test`, `lint`.
-2. Create `packages/backend/package.json` with deps: `fastify`, `@fastify/multipart`, `@fastify/cors`, `@fastify/static`, `pdf-parse`, `@anthropic-ai/sdk`, `openai`, `zod`, `slugify`. DevDeps: `typescript`, `tsx`, `vitest`, `@types/node`, `@types/pdf-parse`.
-3. Create `packages/frontend/package.json` with deps: `react`, `react-dom`, `react-router-dom`, `@codemirror/...` (markdown editor), `react-markdown`. DevDeps: `vite`, `@vitejs/plugin-react`, `typescript`, `vitest`, `@testing-library/react`, `playwright`, `@playwright/test`.
+2. Create `packages/backend/package.json` with deps: `fastify`, `@fastify/multipart`, `@fastify/cors`, `@fastify/static`, `pdf-parse`, `@anthropic-ai/sdk`, `openai`, `zod`, `slugify`. DevDeps: `typescript`, `tsx`, `vitest`, `@types/node`. Note: `pdf-parse` does not ship usable TypeScript declarations — add a `src/types/pdf-parse.d.ts` shim (`declare module 'pdf-parse'`) rather than relying on a non-existent `@types/pdf-parse`.
+3. Create `packages/frontend/package.json` with deps: `react`, `react-dom`, `react-router-dom`, `codemirror`, `@codemirror/state`, `@codemirror/view`, `@codemirror/lang-markdown`, `@codemirror/commands`, `@codemirror/theme-one-dark`, `react-markdown`, `remark-gfm`. DevDeps: `vite`, `@vitejs/plugin-react`, `typescript`, `vitest`, `@testing-library/react`, `@playwright/test`.
 4. Create `tsconfig.json` files for both packages (strict mode, ES2022 target, module NodeNext for backend, ESNext for frontend).
 5. Create `packages/backend/src/config.ts` — read and validate env vars with zod, export typed config object.
 6. Create `.gitignore` additions: `data/`, `node_modules/`, `dist/`, `.env`.
@@ -406,7 +406,8 @@ Factory reads `AI_PROVIDER` env var (`anthropic` | `openai`). Both implementatio
    - Model: `gpt-4o-mini` — configurable via `OPENAI_MODEL` env var
 7. Implement `packages/backend/src/ai/factory.ts`:
    - Reads `AI_PROVIDER` and `AI_API_KEY` from config
-   - Returns appropriate implementation; throws clear error if provider unknown or key missing
+   - Valid values for `AI_PROVIDER`: `anthropic`, `openai`, `stub`. When `AI_PROVIDER=stub`, return `StubAIProvider` without requiring `AI_API_KEY` — this is the value used in all automated tests and E2E runs.
+   - Throws a clear error if provider is unknown or key is missing for a real provider
 8. Run all tests — green.
 9. Refactor: extract shared prompt strings into a `prompts.ts` file imported by both providers.
 
@@ -459,15 +460,23 @@ Factory reads `AI_PROVIDER` env var (`anthropic` | `openai`). Both implementatio
 
 **Steps:**
 
-1. Run `npm create vite@latest packages/frontend -- --template react-ts` (or manually create the structure).
-2. Configure `vite.config.ts` with proxy: `/api` → `http://localhost:${PORT}` so frontend dev server proxies API calls.
+1. Create the frontend source structure manually (do NOT run `npm create vite` — the `packages/frontend/package.json` and `tsconfig.json` were already created in Task 1; running `create vite` would overwrite them). Create `packages/frontend/src/main.tsx`, `packages/frontend/src/App.tsx`, and `packages/frontend/index.html` by hand.
+2. Configure `vite.config.ts` with proxy: `/api` → `http://localhost:${PORT}` so frontend dev server proxies API calls. Because the dev server proxies all `/api` requests, the API client should use relative paths (no host prefix) in dev; `VITE_API_BASE_URL` is used in production builds only — default to `''` (empty string) so requests are relative.
 3. Set up `react-router-dom` with routes: `/` (projects list), `/upload`, `/index`, `/match`, `/cover-letter`.
 4. Implement `packages/frontend/src/api/client.ts`:
    - Typed functions for each backend endpoint (matching the API contract above)
    - All functions use `fetch` with `VITE_API_BASE_URL` base
    - Return typed response objects; throw on non-2xx with error message from response body
-5. Write basic Vitest smoke test: `client.ts` exports expected function names.
-6. Run — green (smoke test only).
+5. Configure `packages/frontend/playwright.config.ts` with a `webServer` stanza that starts **both** the backend and the frontend before Playwright runs:
+   ```ts
+   webServer: [
+     { command: 'tsx ../../packages/backend/src/index.ts', port: 3001, env: { AI_PROVIDER: 'stub', STORAGE_DIR: '/tmp/e2e-data' } },
+     { command: 'vite --port 5173', port: 5173, reuseExistingServer: !process.env.CI },
+   ]
+   ```
+   Tests hit `http://localhost:5173`. The backend uses `AI_PROVIDER=stub` so no real API key is needed.
+6. Write basic Vitest smoke test: `client.ts` exports expected function names.
+7. Run — green (smoke test only).
 
 **Verification:** `npm run dev --workspace=packages/frontend` starts; `npm run build --workspace=packages/frontend` produces `dist/`.
 
