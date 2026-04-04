@@ -34,8 +34,11 @@ function parseIndexSections(indexContent: string): ProjectSection[] {
       const kwMatch = line.match(/\*\*Keywords:\*\*\s*(.+)/);
       const terms = techMatch?.[1] ?? kwMatch?.[1];
       if (terms) {
-        for (const term of terms.split(',').map(t => t.trim().toLowerCase())) {
-          if (term) keywords.add(term);
+        // Tokenize using the same function as job descriptions so multi-word
+        // terms (e.g. "rest api", "github actions") split consistently into
+        // individual tokens, preventing mismatches from phrase-level comparisons.
+        for (const token of tokenize(terms)) {
+          keywords.add(token);
         }
       }
     }

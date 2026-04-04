@@ -22,8 +22,8 @@ test('zero-match job description shows score of 0 or no matches', async ({ page 
   await page.goto('/match');
   await page.getByRole('textbox').fill('Cobol Fortran Assembly');
   await page.getByRole('button', { name: /match/i }).click();
-  // Should see a score indicator — either "0" displayed or a "No matches" style message
-  await expect(page.locator('body')).toContainText(/score|match/i, { timeout: 10000 });
+  // Wait for the result section to appear (Overall Score heading, not the button)
+  await expect(page.getByRole('heading', { name: /overall score/i })).toBeVisible({ timeout: 10000 });
   // The score shown should be 0 or results list should be empty
   const bodyText = await page.locator('body').innerText();
   const hasZeroScore = /\b0\.?0*\b/.test(bodyText) || /no match/i.test(bodyText) || /0%/.test(bodyText);
@@ -53,29 +53,29 @@ test('navigation links reach all five pages', async ({ page }) => {
 
   // Projects page (home)
   await expect(page.locator('body')).not.toBeEmpty();
-  await expect(page.locator('h1, h2, nav')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('h1, h2, nav').first()).toBeVisible({ timeout: 5000 });
 
   // Upload Resume page
   await page.goto('/upload');
   await expect(page.locator('body')).not.toBeEmpty();
-  await expect(page.locator('h1, h2, button, input')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('h1, h2, button, input').first()).toBeVisible({ timeout: 5000 });
   await page.screenshot({ path: 'e2e-screenshots/nav-upload.png' });
 
   // Index page
   await page.goto('/index');
   await expect(page.locator('body')).not.toBeEmpty();
-  await expect(page.locator('h1, h2, button')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('h1, h2, button').first()).toBeVisible({ timeout: 5000 });
   await page.screenshot({ path: 'e2e-screenshots/nav-index.png' });
 
   // Job Match page
   await page.goto('/match');
   await expect(page.locator('body')).not.toBeEmpty();
-  await expect(page.locator('h1, h2, textarea, input')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('h1, h2, textarea, input').first()).toBeVisible({ timeout: 5000 });
   await page.screenshot({ path: 'e2e-screenshots/nav-match.png' });
 
   // Cover Letter page
   await page.goto('/cover-letter');
   await expect(page.locator('body')).not.toBeEmpty();
-  await expect(page.locator('h1, h2, textarea, button')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('h1, h2, textarea, button').first()).toBeVisible({ timeout: 5000 });
   await page.screenshot({ path: 'e2e-screenshots/nav-cover-letter.png' });
 });

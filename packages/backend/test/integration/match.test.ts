@@ -30,5 +30,8 @@ describe('Match routes', () => {
     expect(body).toHaveProperty('matchedKeywords');
     expect(body).toHaveProperty('missedKeywords');
     expect(body).toHaveProperty('projectScores');
+    // Test plan Test 40: matchedKeywords should contain 'typescript' and/or 'react'
+    const matchedLower = (body.matchedKeywords as string[]).map((k: string) => k.toLowerCase());
+    expect(matchedLower.some(k => k === 'typescript' || k === 'react')).toBe(true);
   });
 });

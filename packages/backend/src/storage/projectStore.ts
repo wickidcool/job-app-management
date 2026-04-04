@@ -64,7 +64,8 @@ export class ProjectStore {
       .map(f => {
         const slug = f.replace(/\.md$/, '');
         const stat = statSync(join(this.projectsDir, f));
-        return { slug, name: slug, size: stat.size, mtime: stat.mtime };
+        const name = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        return { slug, name, size: stat.size, mtime: stat.mtime };
       });
   }
 }
