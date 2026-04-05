@@ -25,12 +25,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const storageDir = options.storageDir ?? config.STORAGE_DIR;
   const projectStore = new ProjectStore(storageDir);
   const indexStore = new IndexStore(storageDir);
-  const aiProvider = createAIProvider({
-    AI_PROVIDER: options.aiProvider ?? config.AI_PROVIDER,
-    AI_API_KEY: options.aiApiKey ?? config.AI_API_KEY,
-    ANTHROPIC_MODEL: options.anthropicModel ?? config.ANTHROPIC_MODEL,
-    OPENAI_MODEL: options.openaiModel ?? config.OPENAI_MODEL,
-  });
+  const aiProviderName = options.aiProvider ?? config.AI_PROVIDER;
+  const aiProvider = aiProviderName
+    ? createAIProvider({
+        AI_PROVIDER: aiProviderName,
+        AI_API_KEY: options.aiApiKey ?? config.AI_API_KEY,
+        ANTHROPIC_MODEL: options.anthropicModel ?? config.ANTHROPIC_MODEL,
+        OPENAI_MODEL: options.openaiModel ?? config.OPENAI_MODEL,
+      })
+    : null;
 
   const app = Fastify({ logger: false });
 

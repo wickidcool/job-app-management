@@ -5,7 +5,7 @@ interface Props {
   onUploaded: () => void;
 }
 
-export default function MarkdownUpload({ onUploaded }: Props) {
+export default function ResumeUpload({ onUploaded }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = async () => {

@@ -6,13 +6,14 @@ import type { AIProvider } from '../ai/interface.js';
 interface AIPluginOptions extends FastifyPluginOptions {
   projectStore: ProjectStore;
   indexStore: IndexStore;
-  aiProvider: AIProvider;
+  aiProvider: AIProvider | null;
 }
 
 export async function aiRoutes(app: FastifyInstance, opts: AIPluginOptions): Promise<void> {
   const { projectStore, indexStore, aiProvider } = opts;
 
   app.post('/ai/update/:slug', async (request, reply) => {
+    if (!aiProvider) return reply.status(503).send({ error: 'Service Unavailable', message: 'AI provider not configured' });
     const { slug } = request.params as { slug: string };
     const { instruction } = request.body as { instruction: string };
     if (!instruction) return reply.status(400).send({ error: 'Bad Request', message: 'instruction is required' });
@@ -29,6 +30,7 @@ export async function aiRoutes(app: FastifyInstance, opts: AIPluginOptions): Pro
   });
 
   app.post('/ai/cover-letter', async (request, reply) => {
+    if (!aiProvider) return reply.status(503).send({ error: 'Service Unavailable', message: 'AI provider not configured' });
     const { jobDescription, additionalContext } = request.body as { jobDescription: string; additionalContext?: string };
     if (!jobDescription) return reply.status(400).send({ error: 'Bad Request', message: 'jobDescription is required' });
     const indexContent = indexStore.getIndex();

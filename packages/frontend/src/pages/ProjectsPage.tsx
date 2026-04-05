@@ -3,7 +3,7 @@ import { getProject } from '../api/client.js';
 import { useProjects } from '../hooks/useProjects.js';
 import FileList from '../components/FileList.js';
 import MarkdownEditor from '../components/MarkdownEditor.js';
-import MarkdownUpload from '../components/ResumeUpload.js';
+import ResumeUpload from '../components/ResumeUpload.js';
 
 export default function ProjectsPage() {
   const { projects, refresh } = useProjects();
@@ -25,7 +25,7 @@ export default function ProjectsPage() {
   return (
     <div>
       <h1>Projects</h1>
-      <MarkdownUpload onUploaded={refreshProjects} />
+      <ResumeUpload onUploaded={refreshProjects} />
       <div style={{ display: 'flex', gap: 24 }}>
         <div style={{ width: 240, flexShrink: 0 }}>
           <FileList projects={projects} selectedSlug={selectedSlug} onSelect={handleSelect} onDeleted={() => { refreshProjects(); setSelectedSlug(null); }} />

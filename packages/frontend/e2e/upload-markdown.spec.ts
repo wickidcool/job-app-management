@@ -20,8 +20,14 @@ test('upload markdown file appears in file list', async ({ page }) => {
 
 test('clicking project file shows content in editor', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByText('e2e-test-project')).toBeVisible({ timeout: 5000 });
-  await page.getByText('e2e-test-project').click();
-  await expect(page.getByText('E2E Test Project')).toBeVisible({ timeout: 5000 });
+  // Upload independently so this test does not depend on the previous test's state
+  const tmpPath2 = join(tmpdir(), 'e2e-view-project.md');
+  writeFileSync(tmpPath2, '# View Project Test\n\nContent for view test.');
+  const fileInput = page.locator('input[type="file"]').first();
+  await fileInput.setInputFiles(tmpPath2);
+  await page.getByRole('button', { name: /upload/i }).click();
+  await expect(page.getByText('e2e-view-project')).toBeVisible({ timeout: 5000 });
+  await page.getByText('e2e-view-project').click();
+  await expect(page.getByText('View Project Test')).toBeVisible({ timeout: 5000 });
   await page.screenshot({ path: 'e2e-screenshots/view-project.png' });
 });
