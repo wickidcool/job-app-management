@@ -1,0 +1,28 @@
+John Doe
+john@example.com | (555) 123-4567
+
+EXPERIENCE
+
+Acme Corp
+Senior Software Engineer
+2020 - 2023
+- Led migration of legacy monolith to microservices architecture
+- Reduced API latency by 40% through caching with Redis
+- Mentored team of 4 junior engineers
+
+Beta Inc
+Software Engineer
+2017 - 2020
+- Built customer-facing React dashboard serving 50k users
+- Integrated third-party OAuth providers (Google, GitHub)
+- Wrote automated test suite with 85% coverage using Jest
+
+EDUCATION
+
+State University
+B.S. Computer Science
+2013 - 2017
+
+SKILLS
+
+TypeScript, JavaScript, React, Node.js, PostgreSQL, Redis, Docker, AWS, Git
