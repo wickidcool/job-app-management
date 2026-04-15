@@ -1,0 +1,211 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { formatDistanceToNow } from 'date-fns';
+import { mockApplicationService } from '../services/mockApplicationService';
+import { StatusBadge } from '../components/StatusBadge';
+import { StatusDropdown } from '../components/StatusDropdown';
+import type { Application, ApplicationStatus } from '../types/application';
+
+export function ApplicationDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [application, setApplication] = useState<Application | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadApplication();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const loadApplication = async () => {
+    if (!id) return;
+
+    setLoading(true);
+    try {
+      const app = await mockApplicationService.getById(id);
+      setApplication(app);
+    } catch (error) {
+      console.error('Failed to load application:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStatusChange = async (newStatus: ApplicationStatus) => {
+    if (!application) return;
+
+    try {
+      await mockApplicationService.updateStatus(application.id, newStatus);
+      await loadApplication();
+    } catch (error) {
+      console.error('Failed to update status:', error);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!application) return;
+
+    if (confirm(`Are you sure you want to delete the application for ${application.jobTitle}?`)) {
+      try {
+        await mockApplicationService.delete(application.id);
+        navigate('/');
+      } catch (error) {
+        console.error('Failed to delete application:', error);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!application) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-4xl mx-auto px-6 py-12">
+          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+            <p className="text-gray-500 mb-4">Application not found</p>
+            <Link to="/" className="text-blue-600 hover:text-blue-700">
+              ← Back to Dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="max-w-4xl mx-auto">
+          <Link to="/" className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block">
+            ← Back to Dashboard
+          </Link>
+        </div>
+      </header>
+
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        {/* Application Header */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">{application.jobTitle}</h1>
+              <p className="text-xl text-gray-600 mb-4">{application.company}</p>
+
+              {/* Status Badge */}
+              <div className="flex items-center gap-4">
+                <StatusBadge status={application.status} variant="filled" />
+                <StatusDropdown
+                  currentStatus={application.status}
+                  onStatusChange={handleStatusChange}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => navigate('/')}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Edit
+              </button>
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-md hover:bg-red-50"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Details Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          {/* Basic Info */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Details</h2>
+            <dl className="space-y-3">
+              {application.location && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Location</dt>
+                  <dd className="text-sm text-gray-900">{application.location}</dd>
+                </div>
+              )}
+              {application.salaryRange && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Salary Range</dt>
+                  <dd className="text-sm text-gray-900">{application.salaryRange}</dd>
+                </div>
+              )}
+              {application.url && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Job Posting</dt>
+                  <dd className="text-sm">
+                    <a
+                      href={application.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-700"
+                    >
+                      View Posting →
+                    </a>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </div>
+
+          {/* Timeline */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Timeline</h2>
+            <dl className="space-y-3">
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Created</dt>
+                <dd className="text-sm text-gray-900">
+                  {formatDistanceToNow(application.createdAt, { addSuffix: true })}
+                </dd>
+              </div>
+              {application.appliedAt && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Applied</dt>
+                  <dd className="text-sm text-gray-900">
+                    {formatDistanceToNow(application.appliedAt, { addSuffix: true })}
+                  </dd>
+                </div>
+              )}
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
+                <dd className="text-sm text-gray-900">
+                  {formatDistanceToNow(application.updatedAt, { addSuffix: true })}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        {/* Job Description */}
+        {application.jobDescription && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Job Description</h2>
+            <div className="text-sm text-gray-700 whitespace-pre-wrap">
+              {application.jobDescription}
+            </div>
+          </div>
+        )}
+
+        {/* Documents Section (Placeholder) */}
+        {application.hasDocuments && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Documents</h2>
+            <p className="text-sm text-gray-500">Document management coming soon...</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
