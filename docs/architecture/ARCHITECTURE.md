@@ -2,46 +2,42 @@
 
 ## Executive Summary
 
-This document describes the serverless backend architecture for the Job Application Manager, designed to integrate with the existing React/Vite frontend. The architecture uses AWS CDK for infrastructure-as-code, providing a scalable, cost-effective solution for tracking job applications.
+This document describes the local-first backend architecture for the Job Application Manager. The application runs entirely on the user's machine with a Node.js/Fastify backend, PostgreSQL database, and local filesystem storage for documents. This design prioritizes simplicity, offline capability, and data privacy.
 
 ## Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Frontend (React/Vite)                          │
-│                          Static hosting on CloudFront/S3                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       │
-                                       │ HTTPS
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            Amazon API Gateway                                │
-│                           (REST API with CORS)                               │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────────────────┐│
-│  │ /applications│ │ /applications│ │/cover-letters│ │ /dashboard             ││
-│  │   CRUD      │ │ /{id}/status │ │   (read)    │ │   (aggregations)       ││
-│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       │
-                           ┌───────────┼───────────┐
-                           │           │           │
-                           ▼           ▼           ▼
-              ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-              │ Applications   │ │ Status         │ │ Dashboard      │
-              │ Lambda         │ │ Lambda         │ │ Lambda         │
-              │ (CRUD ops)     │ │ (transitions)  │ │ (aggregations) │
-              └────────────────┘ └────────────────┘ └────────────────┘
-                           │           │           │
-                           └───────────┼───────────┘
-                                       │
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Amazon DynamoDB                                    │
-│  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │                    ApplicationsTable (Single-Table Design)              ││
-│  │  PK: USER#{userId}                                                      ││
-│  │  SK: APP#{applicationId} | STATUS#{status}#APP#{id} | STATS             ││
-│  └─────────────────────────────────────────────────────────────────────────┘│
+│                         User's Local Machine                                 │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     Frontend (React/Vite)                              │  │
+│  │                     http://localhost:5173                              │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                    │                                         │
+│                                    │ HTTP (localhost)                        │
+│                                    ▼                                         │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     Backend (Node.js/Fastify)                          │  │
+│  │                     http://localhost:3000/api                          │  │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐  │  │
+│  │  │/applications│ │  /status    │ │/cover-letters│ │   /dashboard   │  │  │
+│  │  │   CRUD      │ │ transitions │ │  (existing) │ │  aggregations  │  │  │
+│  │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                          │                    │                              │
+│              ┌───────────┘                    └───────────┐                  │
+│              ▼                                            ▼                  │
+│  ┌─────────────────────────────┐          ┌─────────────────────────────┐   │
+│  │        PostgreSQL           │          │     Local Filesystem         │   │
+│  │   localhost:5432            │          │     ./data/                  │   │
+│  │                             │          │     ├── resumes/             │   │
+│  │   Tables:                   │          │     ├── cover-letters/       │   │
+│  │   - applications            │          │     └── projects/            │   │
+│  │   - status_history          │          │                              │   │
+│  │   - users (optional)        │          │                              │   │
+│  └─────────────────────────────┘          └─────────────────────────────┘   │
+│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -49,199 +45,352 @@ This document describes the serverless backend architecture for the Job Applicat
 
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
-| **Frontend** | React 18, TypeScript, Vite | Existing scaffold |
-| **API** | Amazon API Gateway (REST) | Managed, scalable, integrated auth |
-| **Compute** | AWS Lambda (Node.js 20) | Serverless, pay-per-use, TypeScript support |
-| **Database** | Amazon DynamoDB | Serverless, single-digit ms latency, flexible schema |
-| **Auth** | Amazon Cognito | Managed user pools, OAuth2/OIDC support |
-| **IaC** | AWS CDK (TypeScript) | Type-safe infrastructure, same language as app |
-| **Hosting** | CloudFront + S3 | Global CDN, low latency for static assets |
+| **Frontend** | React 18, TypeScript, Vite | Existing scaffold, hot reload for development |
+| **Backend** | Node.js 20, Fastify, TypeScript | Fast, low-overhead, excellent TypeScript support |
+| **Database** | PostgreSQL 15+ | Robust, relational, excellent for structured data |
+| **ORM** | Drizzle ORM | Type-safe, lightweight, SQL-like syntax |
+| **Documents** | Local filesystem | Simple, no external dependencies, user owns data |
+| **Dev Server** | Vite (frontend) + tsx (backend) | Fast iteration with hot reload |
 
 ## Design Decisions
 
-### Why Serverless?
+### Why Local-First?
 
-1. **Cost-effective**: Pay only for actual usage; ideal for variable workloads
-2. **Scalable**: Automatic scaling from 0 to millions of requests
-3. **Operational**: No servers to manage, patch, or monitor
-4. **Fast iteration**: Deploy new features without infrastructure changes
+1. **Privacy**: User data never leaves their machine
+2. **Offline**: Works without internet connection
+3. **Simplicity**: No cloud infrastructure to manage or pay for
+4. **Speed**: No network latency for API calls
+5. **Ownership**: Users have full control of their data
 
-### Why DynamoDB over RDS/PostgreSQL?
+### Why PostgreSQL?
 
-1. **Serverless model**: No connection pooling issues with Lambda
-2. **Performance**: Single-digit millisecond latency at any scale
-3. **Cost**: Pay-per-request pricing for unpredictable workloads
-4. **Simplicity**: No schema migrations for MVP iteration
-5. **Single-table design**: Efficient access patterns with minimal queries
+1. **Relational model**: Natural fit for applications with status history
+2. **ACID transactions**: Safe status transitions with history logging
+3. **Rich queries**: Complex filtering, sorting, and aggregations
+4. **Mature ecosystem**: Excellent tooling, backups, migrations
+5. **Local installation**: Easy setup via Docker or native install
 
 See [ADR-001: Database Selection](./adr/ADR-001-database-selection.md) for full analysis.
 
-### Why Cognito for Auth?
+### Why Fastify?
 
-1. **Integrated**: Native integration with API Gateway
-2. **Standards-based**: OAuth 2.0 / OpenID Connect
-3. **Features**: Email verification, password policies, MFA
-4. **Cost**: Free tier covers 50,000 MAU
+1. **Performance**: Fastest Node.js framework
+2. **TypeScript**: First-class support with type providers
+3. **Schema validation**: Built-in JSON Schema validation
+4. **Plugin system**: Modular, testable architecture
+5. **Existing codebase**: Aligns with current project patterns
+
+### Why Filesystem for Documents?
+
+1. **Existing feature**: Resume/cover letter storage already file-based
+2. **Simplicity**: No blob storage configuration needed
+3. **Portability**: Easy backup (just copy the folder)
+4. **Direct access**: Users can browse/edit files directly if needed
 
 ## Component Details
 
-### API Gateway
+### Backend Server
 
-- **Type**: REST API (not HTTP API) for request validation and usage plans
-- **Authorization**: Cognito User Pool Authorizer
-- **CORS**: Configured for frontend domain
-- **Throttling**: 1000 requests/second default, burst 2000
+**Framework**: Fastify 4.x with TypeScript
 
-### Lambda Functions
-
-| Function | Purpose | Memory | Timeout |
-|----------|---------|--------|---------|
-| `ApplicationsHandler` | CRUD operations on applications | 256 MB | 10s |
-| `StatusHandler` | Status transitions with validation | 256 MB | 10s |
-| `DashboardHandler` | Aggregation queries for stats | 512 MB | 15s |
-
-**Runtime**: Node.js 20.x with ESM modules
-**Bundling**: esbuild via CDK's NodejsFunction construct
-
-### DynamoDB Table
-
-**Table Name**: `JobApplicationManager-Applications`
-
-**Capacity Mode**: On-demand (pay-per-request)
-
-**Key Schema**:
-- Partition Key (PK): `String`
-- Sort Key (SK): `String`
-
-**Global Secondary Index (GSI1)**:
-- GSI1PK: `String`
-- GSI1SK: `String`
-- Purpose: Query applications by status across users (admin) or by date
-
-See [DATA_MODEL.md](./DATA_MODEL.md) for entity definitions and access patterns.
-
-## Security
-
-### Authentication Flow
+**Project Structure**:
 
 ```
-┌─────────┐     ┌─────────┐     ┌──────────┐     ┌─────────┐
-│ Frontend│────▶│ Cognito │────▶│API Gateway│────▶│ Lambda  │
-│         │     │  Login  │     │ Authorizer│     │         │
-└─────────┘     └─────────┘     └──────────┘     └─────────┘
-     │               │                │               │
-     │  1. Login     │                │               │
-     │──────────────▶│                │               │
-     │               │                │               │
-     │  2. JWT Token │                │               │
-     │◀──────────────│                │               │
-     │               │                │               │
-     │  3. API Request + Bearer Token │               │
-     │───────────────────────────────▶│               │
-     │               │                │               │
-     │               │  4. Validate   │               │
-     │               │◀───────────────│               │
-     │               │                │               │
-     │               │  5. Claims     │               │
-     │               │───────────────▶│               │
-     │               │                │  6. Execute   │
-     │               │                │──────────────▶│
+backend/
+├── src/
+│   ├── index.ts                 # Server entry point
+│   ├── app.ts                   # Fastify app configuration
+│   ├── config.ts                # Environment configuration
+│   ├── db/
+│   │   ├── client.ts            # PostgreSQL connection
+│   │   ├── schema.ts            # Drizzle schema definitions
+│   │   └── migrations/          # SQL migrations
+│   ├── routes/
+│   │   ├── applications.ts      # /api/applications routes
+│   │   ├── dashboard.ts         # /api/dashboard routes
+│   │   └── cover-letters.ts     # /api/cover-letters routes
+│   ├── services/
+│   │   ├── application.service.ts
+│   │   ├── status.service.ts
+│   │   └── dashboard.service.ts
+│   └── types/
+│       └── index.ts             # Shared TypeScript types
+├── package.json
+├── tsconfig.json
+└── drizzle.config.ts
 ```
 
-### Security Controls
+**Key Dependencies**:
 
-| Control | Implementation |
-|---------|----------------|
-| **Transport** | TLS 1.2+ enforced |
-| **Authentication** | JWT tokens via Cognito |
-| **Authorization** | User ID extracted from JWT claims |
-| **Data isolation** | Partition key includes user ID |
-| **Input validation** | API Gateway request validators |
-| **Rate limiting** | API Gateway throttling |
-
-## Deployment Architecture
-
-### Environments
-
-| Environment | Purpose | Domain |
-|-------------|---------|--------|
-| `dev` | Development/testing | `dev.jobapp.example.com` |
-| `staging` | Pre-production validation | `staging.jobapp.example.com` |
-| `prod` | Production | `app.jobapp.example.com` |
-
-### CI/CD Pipeline
-
-```
-┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│  Push   │────▶│  Build  │────▶│  Test   │────▶│ Deploy  │
-│ to main │     │  & Lint │     │  Suite  │     │  (CDK)  │
-└─────────┘     └─────────┘     └─────────┘     └─────────┘
+```json
+{
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "@fastify/cors": "^9.0.0",
+    "drizzle-orm": "^0.29.0",
+    "postgres": "^3.4.0",
+    "zod": "^3.22.0",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.20.0",
+    "tsx": "^4.7.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
 ```
 
-1. **Build**: TypeScript compilation, Lambda bundling
-2. **Test**: Unit tests, integration tests with local DynamoDB
-3. **Deploy**: `cdk deploy` to target environment
+### PostgreSQL Database
 
-### CDK Stack Structure
+**Connection**: `postgresql://localhost:5432/job_app_manager`
+
+**Tables**:
+
+| Table | Purpose |
+|-------|---------|
+| `applications` | Core job application records |
+| `status_history` | Audit trail of status changes |
+| `app_settings` | User preferences (optional) |
+
+See [DATA_MODEL.md](./DATA_MODEL.md) for full schema definitions.
+
+### Local Filesystem Structure
 
 ```
-lib/
-├── job-app-manager-stack.ts    # Main stack
-├── constructs/
-│   ├── api.ts                  # API Gateway + Lambda
-│   ├── database.ts             # DynamoDB table
-│   ├── auth.ts                 # Cognito resources
-│   └── frontend.ts             # CloudFront + S3
-└── lambda/
-    ├── applications/           # CRUD handlers
-    ├── status/                 # Status transition handler
-    └── dashboard/              # Aggregation handler
+data/
+├── resumes/
+│   └── {userId}/
+│       └── {resumeId}.pdf
+├── cover-letters/
+│   └── {userId}/
+│       └── {coverLetterId}.md
+└── projects/
+    └── {projectId}/
+        └── notes.md
 ```
 
-## Cost Estimation (Monthly)
+## API Design
 
-Assuming 1,000 active users, 10,000 applications, 100,000 API requests/month:
+### Base URL
 
-| Service | Estimated Cost |
-|---------|---------------|
-| API Gateway | $3.50 |
-| Lambda | $0.50 |
-| DynamoDB | $2.00 |
-| Cognito | $0.00 (free tier) |
-| CloudFront + S3 | $1.00 |
-| **Total** | **~$7/month** |
+```
+http://localhost:3000/api
+```
 
-## Monitoring & Observability
+### Endpoints
 
-| Aspect | Tool |
-|--------|------|
-| **Logs** | CloudWatch Logs (Lambda) |
-| **Metrics** | CloudWatch Metrics (API Gateway, Lambda, DynamoDB) |
-| **Tracing** | AWS X-Ray |
-| **Alarms** | CloudWatch Alarms (error rate, latency) |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/applications` | List all applications |
+| GET | `/applications/:id` | Get single application |
+| POST | `/applications` | Create application |
+| PATCH | `/applications/:id` | Update application |
+| DELETE | `/applications/:id` | Delete application |
+| POST | `/applications/:id/status` | Update status |
+| GET | `/dashboard` | Get dashboard stats |
+| GET | `/cover-letters` | List available cover letters |
 
-### Key Metrics to Monitor
+See [API_CONTRACTS.md](./API_CONTRACTS.md) for full specification.
 
-- API Gateway: 4xx/5xx error rates, latency p50/p99
-- Lambda: Duration, errors, throttles, concurrent executions
-- DynamoDB: Consumed capacity, throttled requests, latency
+## Development Setup
+
+### Prerequisites
+
+1. **Node.js 20+**: JavaScript runtime
+2. **PostgreSQL 15+**: Database (via Docker or native)
+3. **pnpm** (recommended): Package manager
+
+### Quick Start
+
+```bash
+# 1. Start PostgreSQL (Docker)
+docker run -d \
+  --name job-app-postgres \
+  -e POSTGRES_DB=job_app_manager \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 \
+  postgres:15
+
+# 2. Install dependencies
+pnpm install
+
+# 3. Run database migrations
+pnpm db:migrate
+
+# 4. Start backend
+pnpm dev:backend   # Runs on http://localhost:3000
+
+# 5. Start frontend (separate terminal)
+pnpm dev           # Runs on http://localhost:5173
+```
+
+### Environment Variables
+
+```bash
+# .env.local
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/job_app_manager
+DATA_DIR=./data
+PORT=3000
+```
+
+## Data Flow
+
+### Create Application
+
+```
+Frontend                    Backend                     PostgreSQL
+   │                          │                            │
+   │  POST /api/applications  │                            │
+   │─────────────────────────▶│                            │
+   │                          │  BEGIN TRANSACTION         │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │                          │  INSERT application        │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │                          │  INSERT status_history     │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │                          │  COMMIT                    │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │  201 { application }     │                            │
+   │◀─────────────────────────│                            │
+```
+
+### Update Status (with validation)
+
+```
+Frontend                    Backend                     PostgreSQL
+   │                          │                            │
+   │  POST /status            │                            │
+   │─────────────────────────▶│                            │
+   │                          │                            │
+   │                          │  Validate transition       │
+   │                          │  (saved → applied OK)      │
+   │                          │  (saved → offer INVALID)   │
+   │                          │                            │
+   │                          │  BEGIN TRANSACTION         │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │                          │  UPDATE application.status │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │                          │  INSERT status_history     │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │                          │  COMMIT                    │
+   │                          │───────────────────────────▶│
+   │                          │                            │
+   │  200 { application }     │                            │
+   │◀─────────────────────────│                            │
+```
+
+## Security Considerations
+
+### Local-First Security Model
+
+Since this is a local application, security focuses on:
+
+| Concern | Approach |
+|---------|----------|
+| **Data at rest** | Filesystem permissions, optional encryption |
+| **Database access** | Local-only binding (localhost:5432) |
+| **API access** | Local-only binding (localhost:3000) |
+| **Input validation** | Zod schemas on all inputs |
+| **SQL injection** | Parameterized queries via Drizzle ORM |
+
+### Optional: Multi-User Mode
+
+For shared machines, an optional authentication layer can be added:
+
+- Simple username/password stored in PostgreSQL
+- Session-based auth with secure cookies
+- User ID scoping on all queries
+
+## Testing Strategy
+
+### Unit Tests
+
+```bash
+pnpm test:unit
+```
+
+- Service layer logic
+- Status transition validation
+- Data transformation functions
+
+### Integration Tests
+
+```bash
+pnpm test:integration
+```
+
+- API endpoint testing with supertest
+- Database operations with test database
+- Full request/response validation
+
+### E2E Tests
+
+```bash
+pnpm test:e2e
+```
+
+- Playwright tests against running app
+- Critical user flows (create, update status, filter)
+
+## Backup & Data Portability
+
+### Manual Backup
+
+```bash
+# Database backup
+pg_dump job_app_manager > backup.sql
+
+# Documents backup
+cp -r ./data ./data-backup
+
+# Full backup
+tar -czf job-app-backup-$(date +%Y%m%d).tar.gz backup.sql data/
+```
+
+### Restore
+
+```bash
+# Database restore
+psql job_app_manager < backup.sql
+
+# Documents restore
+cp -r ./data-backup ./data
+```
+
+### Export to JSON
+
+For data portability, an export endpoint provides all data as JSON:
+
+```bash
+GET /api/export
+# Returns: { applications: [...], statusHistory: [...] }
+```
 
 ## Future Considerations
 
 ### Phase 2+ Features
 
-| Feature | Architecture Impact |
-|---------|-------------------|
-| **Reminders (US-7.1)** | EventBridge scheduled rules + SNS/SES |
-| **Notes (US-8.1)** | Additional DynamoDB entity |
-| **Contacts (US-8.2)** | Additional DynamoDB entity |
-| **Multi-device sync** | Already supported via cloud-first design |
+| Feature | Implementation |
+|---------|---------------|
+| **Reminders (US-7.1)** | node-cron for local scheduling, system notifications |
+| **Notes (US-8.1)** | New `notes` table, rich text with Markdown |
+| **Contacts (US-8.2)** | New `contacts` table, linked to applications |
+| **Cloud sync (optional)** | Future consideration for multi-device users |
 
-### Scaling Considerations
+### Potential Enhancements
 
-- DynamoDB auto-scales with on-demand mode
-- Lambda concurrent execution limits (default 1000)
-- Consider provisioned concurrency for consistent latency at scale
+- **Electron wrapper**: Desktop app with system tray
+- **SQLite option**: Even simpler single-file database
+- **Browser extension**: Quick-save jobs from listing sites
 
 ## References
 

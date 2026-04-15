@@ -3,6 +3,7 @@
 ## Status
 
 **Accepted** (2026-04-15)
+**Revised** (2026-04-15) — Updated for local-first requirements
 
 ## Context
 
@@ -10,167 +11,146 @@ The Job Application Manager requires persistent storage for user application tra
 
 > **Database:** SQLite (simpler, local-first) or PostgreSQL (scalable, cloud-ready)?
 
-Additional context from requirements:
-- MVP scope: ~1,000 active users, ~10,000 applications
-- Core operations: CRUD on applications, status transitions, dashboard aggregations
-- Future features: reminders, notes, contacts
-- Existing tech: React frontend, considering Node.js backend
+**Critical constraint from board (2026-04-15)**:
+> "This is not a deployed application and only runs locally using postgres and local directories"
 
-The task description ([WIC-17](/WIC/issues/WIC-17)) specified AWS CDK infrastructure with Lambda, API Gateway, and DynamoDB.
+This clarifies that:
+1. The application runs entirely on the user's local machine
+2. PostgreSQL is the required database
+3. Local filesystem storage for documents (existing pattern)
 
 ## Decision Drivers
 
-1. **Serverless compatibility**: Must work well with AWS Lambda (connection management)
-2. **Cost efficiency**: Minimize costs for variable/low traffic patterns
-3. **Operational simplicity**: Reduce infrastructure management burden
-4. **Performance**: Sub-100ms response times for dashboard views
-5. **Scalability**: Support growth without re-architecture
-6. **Developer experience**: Type-safe, easy to work with from TypeScript
+1. **Local-first**: Must run entirely on user's machine
+2. **Board directive**: PostgreSQL is specified
+3. **Relational model**: Natural fit for applications + status history
+4. **Developer experience**: Type-safe ORM, good tooling
+5. **Data ownership**: User controls their own data
+6. **Offline capability**: Works without internet
 
 ## Options Considered
 
-### Option A: SQLite (Local-First)
+### Option A: SQLite
 
-**Description**: Embedded database stored on local filesystem.
+**Description**: Embedded database stored in a single file.
 
 **Pros**:
 - Zero configuration
-- No network latency
+- Single file backup
+- No separate process
 - Works offline
-- Simple development
 
 **Cons**:
-- Not compatible with serverless (Lambda has ephemeral filesystems)
-- No multi-device sync without additional infrastructure
-- Backup/restore complexity
-- Single-user per device model
+- Limited concurrent access
+- Fewer data types
+- Less familiar to some developers
+- Migration tooling less mature
 
-**Assessment**: Rejected. Incompatible with serverless architecture.
+**Assessment**: Viable, but not what the board specified.
 
-### Option B: PostgreSQL (RDS)
+### Option B: PostgreSQL (Local)
 
-**Description**: Managed relational database via Amazon RDS.
+**Description**: PostgreSQL server running locally (via Docker or native install).
 
 **Pros**:
-- Rich query capabilities
+- Full SQL capabilities
 - ACID transactions
-- Familiar SQL model
-- Strong ecosystem (ORMs, migrations)
+- Rich data types (JSONB, arrays, enums)
+- Mature ecosystem (Drizzle, Prisma, etc.)
+- Easy Docker setup
+- Familiar to most developers
+- Board-specified requirement
 
 **Cons**:
-- Connection pooling issues with Lambda (requires RDS Proxy)
-- Always-on costs (~$15-50/month minimum)
-- Cold start impact from connection establishment
-- Schema migrations required for changes
+- Requires separate process
+- Slightly more setup than SQLite
+- ~100MB Docker image
 
-**Assessment**: Viable but more complex and costly for MVP.
+**Assessment**: Best fit — matches board requirement and provides robust features.
 
-### Option C: DynamoDB (Serverless NoSQL)
+### Option C: DynamoDB (Cloud)
 
-**Description**: Fully managed NoSQL database with on-demand pricing.
+**Description**: AWS managed NoSQL database (original design).
 
 **Pros**:
-- True serverless (no connection management)
-- On-demand pricing (pay per request)
-- Single-digit millisecond latency
-- Auto-scaling built in
-- Native AWS integration (IAM, Lambda, CDK)
-- No cold start connection overhead
+- Serverless, auto-scaling
+- Pay-per-request
 
 **Cons**:
-- Learning curve for single-table design
-- Less flexible querying (must design for access patterns)
-- No joins (denormalization required)
-- Transactions limited to 25 items
+- **Rejected by board**: Not local-first
+- Requires internet connection
+- Cloud costs
+- Data leaves user's machine
 
-**Assessment**: Best fit for serverless MVP.
-
-### Option D: Serverless PostgreSQL (Aurora Serverless v2, Neon)
-
-**Description**: PostgreSQL with serverless scaling.
-
-**Pros**:
-- SQL flexibility
-- Scales to zero (Aurora Serverless v2 doesn't fully)
-- Familiar model
-
-**Cons**:
-- Aurora Serverless v2: higher minimum cost, doesn't scale to zero
-- Neon: third-party, additional vendor relationship
-- Still has connection overhead vs native DynamoDB
-
-**Assessment**: Over-engineered for MVP, consider for Phase 2+ if needed.
+**Assessment**: Rejected. Does not meet local-first requirement.
 
 ## Decision
 
-**Adopt DynamoDB with single-table design.**
+**Adopt PostgreSQL running locally.**
 
 ### Rationale
 
-1. **Native serverless**: DynamoDB is purpose-built for Lambda workloads with no connection management overhead.
+1. **Board directive**: The board explicitly specified PostgreSQL and local operation.
 
-2. **Cost model**: On-demand pricing means we pay ~$0 during development and scale costs linearly with usage. For 100,000 reads + 10,000 writes/month, cost is under $2.
+2. **Local-first architecture**: PostgreSQL runs on `localhost:5432`, keeping all data on the user's machine.
 
-3. **Performance**: Single-digit millisecond latency meets dashboard performance requirements without caching layer.
+3. **Relational model**: Applications with status history is a natural 1:N relationship that benefits from foreign keys, joins, and cascading deletes.
 
-4. **Access patterns are known**: The requirements clearly define our access patterns:
-   - List applications by user
-   - Filter by status
-   - Get single application with history
-   - Dashboard aggregations
-   
-   These patterns map well to DynamoDB's key-based access.
+4. **Transactions**: Status updates that need to atomically create history entries are straightforward with PostgreSQL transactions.
 
-5. **AWS CDK integration**: First-class CDK constructs with type-safe definitions.
+5. **Developer experience**: Drizzle ORM provides type-safe queries with excellent TypeScript integration.
 
-6. **Future-proof**: DynamoDB handles millions of requests per second if we grow.
+6. **Docker simplicity**: One-liner to start PostgreSQL:
+   ```bash
+   docker run -d -p 5432:5432 -e POSTGRES_DB=job_app_manager postgres:15
+   ```
 
 ### Trade-offs Accepted
 
-- **Learning curve**: Team needs to understand single-table design patterns
-- **Query flexibility**: Complex ad-hoc queries require application-side filtering
-- **Denormalization**: Status history stored alongside applications
+- **Setup step**: Users need Docker or native PostgreSQL installed
+- **Resource usage**: PostgreSQL uses ~50-100MB RAM when idle
+- **No cloud sync**: Single-device by default (acceptable for MVP)
 
 ### Migration Path
 
-If we later need SQL capabilities (complex reporting, ad-hoc queries), we can:
-1. Add DynamoDB Streams → Lambda → PostgreSQL for analytics
-2. Use Amazon Athena for S3-exported data analysis
-3. Migrate to Aurora Serverless v2 with data export/import
+If future requirements include multi-device sync:
+1. Add optional cloud sync layer (e.g., CRDTs, or simple REST sync)
+2. Or provide export/import to move data between machines
+3. PostgreSQL schema remains unchanged
 
 ## Consequences
 
 ### Positive
 
-- Zero connection management code
-- Near-zero cost during development
-- Sub-10ms API responses without caching
-- Automatic scaling and backup
-- Infrastructure-as-code via CDK
+- User owns their data locally
+- Works offline
+- Full SQL query capability
+- Type-safe ORM with Drizzle
+- Simple backup (pg_dump)
+- No ongoing cloud costs
 
 ### Negative
 
-- Must design access patterns upfront
-- Complex queries require multiple requests or filtering in Lambda
-- Team learning investment for DynamoDB patterns
+- Requires Docker or PostgreSQL installation
+- Single-device only (MVP scope)
+- User responsible for backups
 
 ### Neutral
 
-- TypeScript types will model DynamoDB entities
-- Point-in-time recovery provides backup strategy
+- Standard relational schema design
+- Migrations via Drizzle Kit
 
 ## Implementation Notes
 
-See [DATA_MODEL.md](../DATA_MODEL.md) for the single-table design implementing this decision.
+See [DATA_MODEL.md](../DATA_MODEL.md) for the PostgreSQL schema implementing this decision.
 
-Key entities:
-- `APPLICATION`: Core application records
-- `STATUS_HISTORY`: Transition audit trail
-- `USER_STATS`: Pre-aggregated dashboard statistics
+Key tables:
+- `applications`: Core application records with status enum
+- `status_history`: Audit trail with foreign key to applications
 
 ## References
 
-- [AWS DynamoDB Best Practices](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/best-practices.html)
-- [The DynamoDB Book](https://www.dynamodbbook.com/) by Alex DeBrie
-- [Single-Table Design with DynamoDB](https://www.alexdebrie.com/posts/dynamodb-single-table/)
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
+- [Drizzle ORM](https://orm.drizzle.team/)
+- [Docker PostgreSQL](https://hub.docker.com/_/postgres)
 - [Requirements Plan (WIC-15)](/WIC/issues/WIC-15#document-plan)

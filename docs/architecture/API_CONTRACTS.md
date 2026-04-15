@@ -2,25 +2,25 @@
 
 ## Overview
 
-This document defines the REST API contracts for the Job Application Manager backend. All endpoints require authentication via Cognito JWT tokens.
+This document defines the REST API contracts for the Job Application Manager backend. The API runs locally on the user's machine via a Fastify server.
 
 ## Base URL
 
-| Environment | Base URL |
-|-------------|----------|
-| Development | `https://api-dev.jobapp.example.com/v1` |
-| Staging | `https://api-staging.jobapp.example.com/v1` |
-| Production | `https://api.jobapp.example.com/v1` |
+```
+http://localhost:3000/api
+```
+
+The API runs entirely locally. No cloud endpoints or external authentication required.
 
 ## Authentication
 
-All requests must include a valid JWT token in the Authorization header:
+**Single-user mode (default)**: No authentication required. The application runs locally and serves one user.
+
+**Optional multi-user mode**: If enabled, use session-based auth:
 
 ```
-Authorization: Bearer <cognito_id_token>
+Cookie: session=<session_token>
 ```
-
-The user ID is extracted from the `sub` claim in the JWT token.
 
 ## Common Response Codes
 
@@ -30,11 +30,8 @@ The user ID is extracted from the `sub` claim in the JWT token.
 | 201 | Created |
 | 204 | No Content (successful delete) |
 | 400 | Bad Request (validation error) |
-| 401 | Unauthorized (missing/invalid token) |
-| 403 | Forbidden (accessing another user's data) |
 | 404 | Not Found |
-| 409 | Conflict (version mismatch) |
-| 429 | Too Many Requests |
+| 409 | Conflict (version mismatch or invalid status transition) |
 | 500 | Internal Server Error |
 
 ## Error Response Format
