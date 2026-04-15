@@ -15,21 +15,18 @@
 
 import { createAPIClient } from './apiClient';
 import { createApplicationService } from './applicationService';
+import { createDashboardService } from './dashboardService';
 
 // API Configuration
-// TODO: Replace with actual API URL when backend is deployed
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api-dev.jobapp.example.com/v1';
+// Local backend runs on port 3000
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 /**
  * Get authentication token
- * TODO: Implement actual Cognito authentication
+ * Single-user mode: no authentication required for local backend
  */
 async function getAuthToken(): Promise<string | null> {
-  // For now, return null (will fail auth-required requests)
-  // When backend is ready, integrate with Cognito:
-  // 1. Use AWS Amplify or similar
-  // 2. Return the ID token from authenticated user
-  // 3. Handle token refresh
+  // Local single-user mode - no auth required
   return null;
 }
 
@@ -39,10 +36,12 @@ export const apiClient = createAPIClient({
   getAuthToken,
 });
 
-// Create application service
+// Create services
 export const applicationService = createApplicationService(apiClient);
+export const dashboardService = createDashboardService(apiClient);
 
 // Re-export types for convenience
 export type { ApplicationService } from './applicationService';
 export type { APIClient, APIError } from './apiClient';
+export type { DashboardService } from './dashboardService';
 export type * from './types';

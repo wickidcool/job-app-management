@@ -1,48 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KanbanBoard } from '../components/KanbanBoard';
-import { FilterPanel, FilterOptions } from '../components/FilterPanel';
+import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { ApplicationForm } from '../components/ApplicationForm';
 import { DashboardStats } from '../components/DashboardStats';
-import { mockApplicationService } from '../services/mockApplicationService';
+import {
+  useApplications,
+  useCreateApplication,
+  useUpdateApplication,
+  useUpdateApplicationStatus,
+  useDeleteApplication,
+} from '../hooks/useApplications';
+import { useDashboard } from '../hooks/useDashboard';
 import type { Application, ApplicationFormData, ApplicationStatus } from '../types/application';
 
 type ViewMode = 'kanban' | 'table';
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [filteredApplications, setFilteredApplications] = useState<Application[]>([]);
   const [filters, setFilters] = useState<FilterOptions>({});
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
-  const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingApplication, setEditingApplication] = useState<Application | null>(null);
 
-  // Load applications
-  useEffect(() => {
-    loadApplications();
-  }, []);
+  // Fetch data using React Query
+  const { data: applications = [], isLoading: applicationsLoading } = useApplications();
+  const { data: dashboardData, isLoading: dashboardLoading } = useDashboard();
+  const createMutation = useCreateApplication();
+  const updateMutation = useUpdateApplication();
+  const updateStatusMutation = useUpdateApplicationStatus();
+  const deleteMutation = useDeleteApplication();
 
-  // Apply filters
-  useEffect(() => {
-    applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applications, filters]);
+  const loading = applicationsLoading || dashboardLoading;
 
-  const loadApplications = async () => {
-    setLoading(true);
-    try {
-      const apps = await mockApplicationService.getAll();
-      setApplications(apps);
-    } catch (error) {
-      console.error('Failed to load applications:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const applyFilters = () => {
+  // Apply filters using useMemo
+  const filteredApplications = useMemo(() => {
     let filtered = [...applications];
 
     // Search filter
@@ -65,16 +57,22 @@ export function Dashboard() {
       filtered = filtered.filter((app) => filters.company!.includes(app.company));
     }
 
-    setFilteredApplications(filtered);
-  };
+    return filtered;
+  }, [applications, filters]);
 
-  const handleStatusChange = async (appId: string, newStatus: ApplicationStatus) => {
-    try {
-      await mockApplicationService.updateStatus(appId, newStatus);
-      await loadApplications();
-    } catch (error) {
-      console.error('Failed to update status:', error);
-    }
+  const handleStatusChange = (appId: string, newStatus: ApplicationStatus) => {
+    const app = applications.find((a) => a.id === appId);
+    if (!app) return;
+
+    updateStatusMutation.mutate(
+      { id: appId, status: newStatus, version: app.version },
+      {
+        onError: (error) => {
+          console.error('Failed to update status:', error);
+          // TODO: Show error toast
+        },
+      }
+    );
   };
 
   const handleCardClick = (appId: string) => {
@@ -89,23 +87,28 @@ export function Dashboard() {
     }
   };
 
-  const handleDelete = async (appId: string) => {
-    try {
-      await mockApplicationService.delete(appId);
-      await loadApplications();
-    } catch (error) {
-      console.error('Failed to delete application:', error);
+  const handleDelete = (appId: string) => {
+    if (confirm('Are you sure you want to delete this application?')) {
+      deleteMutation.mutate(appId, {
+        onError: (error) => {
+          console.error('Failed to delete application:', error);
+          // TODO: Show error toast
+        },
+      });
     }
   };
 
   const handleFormSubmit = async (data: ApplicationFormData) => {
     try {
       if (editingApplication) {
-        await mockApplicationService.update(editingApplication.id, data);
+        await updateMutation.mutateAsync({
+          id: editingApplication.id,
+          data,
+          version: editingApplication.version,
+        });
       } else {
-        await mockApplicationService.create(data);
+        await createMutation.mutateAsync(data);
       }
-      await loadApplications();
       setIsFormOpen(false);
       setEditingApplication(null);
     } catch (error) {
@@ -119,22 +122,21 @@ export function Dashboard() {
     setIsFormOpen(true);
   };
 
-  // Calculate stats
-  const stats = {
+  // Use stats from dashboard API or fallback to calculated stats
+  const stats = dashboardData?.stats || {
     total: applications.length,
-    appliedThisWeek: applications.filter((app) => {
-      if (!app.appliedAt) return false;
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      return app.appliedAt >= weekAgo;
-    }).length,
-    responseRate:
-      applications.filter((app) => ['phone_screen', 'interview', 'offer'].includes(app.status))
-        .length /
-        applications.filter((app) => app.status !== 'saved').length || 0,
-    inReview: applications.filter((app) =>
-      ['phone_screen', 'interview'].includes(app.status)
-    ).length,
+    byStatus: {} as Record<ApplicationStatus, number>,
+    appliedThisWeek: 0,
+    appliedThisMonth: 0,
+    responseRate: 0,
+  };
+
+  // Transform stats for DashboardStats component
+  const displayStats = {
+    total: stats.total,
+    appliedThisWeek: stats.appliedThisWeek,
+    responseRate: stats.responseRate,
+    inReview: stats.byStatus.phone_screen + stats.byStatus.interview || 0,
   };
 
   const availableCompanies = Array.from(new Set(applications.map((app) => app.company))).sort();
@@ -166,7 +168,7 @@ export function Dashboard() {
       <div className="max-w-7xl mx-auto px-6 py-6">
         {/* Dashboard Stats */}
         <div className="mb-6">
-          <DashboardStats stats={stats} loading={loading} />
+          <DashboardStats stats={displayStats} loading={loading} />
         </div>
 
         {/* View Toggle and Filter */}

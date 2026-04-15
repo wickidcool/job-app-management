@@ -22,7 +22,9 @@ export interface Application {
   salaryRange?: string;
   status: ApplicationStatus;
   hasDocuments: boolean;
+  version: number; // For optimistic locking
   createdAt: Date;
+  updatedAt: Date;
   appliedAt?: Date;
   url?: string;
   jobDescription?: string;

@@ -22,6 +22,7 @@ function transformAPIApplication(apiApp: APIApplication): Application {
     jobDescription: apiApp.jobDescription,
     status: apiApp.status,
     hasDocuments: !!(apiApp.coverLetterId || apiApp.resumeVersionId),
+    version: apiApp.version,
     createdAt: new Date(apiApp.createdAt),
     updatedAt: new Date(apiApp.updatedAt),
     appliedAt: apiApp.appliedAt ? new Date(apiApp.appliedAt) : undefined,
@@ -34,7 +35,11 @@ function transformAPIApplication(apiApp: APIApplication): Application {
  * for easy drop-in replacement
  */
 export class ApplicationService {
-  constructor(private client: APIClient) {}
+  client: APIClient;
+
+  constructor(client: APIClient) {
+    this.client = client;
+  }
 
   /**
    * Get all applications
@@ -85,7 +90,11 @@ export class ApplicationService {
   /**
    * Update existing application
    */
-  async update(id: string, data: Partial<ApplicationFormData>): Promise<Application> {
+  async update(
+    id: string,
+    data: Partial<ApplicationFormData>,
+    version: number
+  ): Promise<Application> {
     const request: UpdateApplicationRequest = {
       jobTitle: data.jobTitle,
       company: data.company,
@@ -95,6 +104,7 @@ export class ApplicationService {
       jobDescription: data.jobDescription,
       status: data.status,
       coverLetterId: data.coverLetterId,
+      version,
     };
 
     const response = await this.client.patch<{ application: APIApplication }>(
@@ -107,10 +117,15 @@ export class ApplicationService {
   /**
    * Update application status
    */
-  async updateStatus(id: string, status: ApplicationStatus): Promise<Application> {
+  async updateStatus(
+    id: string,
+    status: ApplicationStatus,
+    version: number,
+    note?: string
+  ): Promise<Application> {
     const response = await this.client.patch<{ application: APIApplication }>(
       `/applications/${id}/status`,
-      { status }
+      { status, version, note }
     );
     return transformAPIApplication(response.application);
   }

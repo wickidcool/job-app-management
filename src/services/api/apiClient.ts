@@ -1,19 +1,21 @@
 import type { APIConfig, APIErrorResponse } from './types';
 
 export class APIError extends Error {
-  constructor(
-    public code: string,
-    message: string,
-    public status: number,
-    public details?: unknown
-  ) {
+  code: string;
+  status: number;
+  details?: unknown;
+
+  constructor(code: string, message: string, status: number, details?: unknown) {
     super(message);
     this.name = 'APIError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
   }
 }
 
 export class APIClient {
-  private config: APIConfig;
+  config: APIConfig;
 
   constructor(config: APIConfig) {
     this.config = config;
@@ -22,15 +24,12 @@ export class APIClient {
   /**
    * Make an authenticated API request
    */
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
+  async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const token = await this.config.getAuthToken();
 
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string>),
     };
 
     if (token) {

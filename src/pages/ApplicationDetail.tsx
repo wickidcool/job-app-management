@@ -1,57 +1,46 @@
-import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { mockApplicationService } from '../services/mockApplicationService';
+import { useApplication, useUpdateApplicationStatus, useDeleteApplication } from '../hooks/useApplications';
 import { StatusBadge } from '../components/StatusBadge';
 import { StatusDropdown } from '../components/StatusDropdown';
-import type { Application, ApplicationStatus } from '../types/application';
+import type { ApplicationStatus } from '../types/application';
 
 export function ApplicationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [application, setApplication] = useState<Application | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadApplication();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  // Fetch data using React Query
+  const { data: application, isLoading: loading } = useApplication(id);
+  const updateStatusMutation = useUpdateApplicationStatus();
+  const deleteMutation = useDeleteApplication();
 
-  const loadApplication = async () => {
-    if (!id) return;
+  const handleStatusChange = (newStatus: ApplicationStatus) => {
+    if (!id || !application) return;
 
-    setLoading(true);
-    try {
-      const app = await mockApplicationService.getById(id);
-      setApplication(app);
-    } catch (error) {
-      console.error('Failed to load application:', error);
-    } finally {
-      setLoading(false);
-    }
+    updateStatusMutation.mutate(
+      { id, status: newStatus, version: application.version },
+      {
+        onError: (error) => {
+          console.error('Failed to update status:', error);
+          // TODO: Show error toast
+        },
+      }
+    );
   };
 
-  const handleStatusChange = async (newStatus: ApplicationStatus) => {
-    if (!application) return;
-
-    try {
-      await mockApplicationService.updateStatus(application.id, newStatus);
-      await loadApplication();
-    } catch (error) {
-      console.error('Failed to update status:', error);
-    }
-  };
-
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!application) return;
 
     if (confirm(`Are you sure you want to delete the application for ${application.jobTitle}?`)) {
-      try {
-        await mockApplicationService.delete(application.id);
-        navigate('/');
-      } catch (error) {
-        console.error('Failed to delete application:', error);
-      }
+      deleteMutation.mutate(id!, {
+        onSuccess: () => {
+          navigate('/');
+        },
+        onError: (error) => {
+          console.error('Failed to delete application:', error);
+          // TODO: Show error toast
+        },
+      });
     }
   };
 

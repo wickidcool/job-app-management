@@ -26,6 +26,7 @@ export interface APIApplication {
   status: ApplicationStatus;
   coverLetterId?: string;
   resumeVersionId?: string;
+  version: number; // For optimistic locking
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
   appliedAt?: string; // ISO 8601
@@ -84,6 +85,16 @@ export interface UpdateApplicationRequest {
   jobDescription?: string;
   status?: ApplicationStatus;
   coverLetterId?: string;
+  version: number; // Required for optimistic locking
+}
+
+/**
+ * Update status request
+ */
+export interface UpdateStatusRequest {
+  status: ApplicationStatus;
+  note?: string;
+  version: number; // Required for optimistic locking
 }
 
 /**
@@ -103,4 +114,36 @@ export interface APIErrorResponse {
 export interface APIConfig {
   baseURL: string;
   getAuthToken: () => Promise<string | null>;
+}
+
+/**
+ * Dashboard Statistics
+ */
+export interface DashboardStats {
+  total: number;
+  byStatus: Record<ApplicationStatus, number>;
+  appliedThisWeek: number;
+  appliedThisMonth: number;
+  responseRate: number;
+}
+
+/**
+ * Activity Item
+ */
+export interface ActivityItem {
+  applicationId: string;
+  jobTitle: string;
+  company: string;
+  action: 'created' | 'status_changed';
+  fromStatus?: ApplicationStatus;
+  toStatus: ApplicationStatus;
+  timestamp: string; // ISO 8601
+}
+
+/**
+ * Dashboard Response
+ */
+export interface DashboardResponse {
+  stats: DashboardStats;
+  recentActivity: ActivityItem[];
 }
