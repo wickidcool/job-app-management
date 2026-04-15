@@ -107,7 +107,7 @@ export function useUpdateApplicationStatus() {
         queryClient.setQueryData<Application[]>(
           applicationKeys.lists(),
           previousApplications.map((app) =>
-            app.id === id ? { ...app, status, updatedAt: new Date(), version: app.version + 1 } : app
+            app.id === id ? { ...app, status, updatedAt: new Date().toISOString(), version: app.version + 1 } : app
           )
         );
       }
@@ -116,7 +116,7 @@ export function useUpdateApplicationStatus() {
         queryClient.setQueryData<Application>(applicationKeys.detail(id), {
           ...previousApplication,
           status,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
           version: previousApplication.version + 1,
         });
       }
