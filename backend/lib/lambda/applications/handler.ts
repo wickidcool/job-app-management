@@ -55,12 +55,19 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     // GET /applications — list
     if (method === 'GET' && !appId) {
       const qs = event.queryStringParameters ?? {};
+      const VALID_SORT_BY = ['createdAt', 'updatedAt', 'company'] as const;
+      type SortBy = typeof VALID_SORT_BY[number];
+      const rawSortBy = qs['sortBy'];
+      const sortBy: SortBy = VALID_SORT_BY.includes(rawSortBy as SortBy)
+        ? (rawSortBy as SortBy)
+        : 'updatedAt';
+      const sortOrder = qs['sortOrder'] === 'asc' ? 'asc' : 'desc';
       const result = await repo.list(userId, {
         status: qs['status'] ?? undefined,
         company: qs['company'] ?? undefined,
         search: qs['search'] ?? undefined,
-        sortBy: (qs['sortBy'] as 'createdAt' | 'updatedAt' | 'company') ?? 'updatedAt',
-        sortOrder: (qs['sortOrder'] as 'asc' | 'desc') ?? 'desc',
+        sortBy,
+        sortOrder,
         limit: qs['limit'] ? parseInt(qs['limit'], 10) : 50,
         cursor: qs['cursor'] ?? undefined,
       });

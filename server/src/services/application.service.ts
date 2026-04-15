@@ -106,7 +106,7 @@ export async function getApplication(
 
 export async function listApplications(params: ListApplicationsParams): Promise<{
   applications: ApplicationDTO[];
-  nextCursor?: string;
+  nextPage?: string;
   totalCount: number;
 }> {
   const db = getDb();
@@ -115,7 +115,17 @@ export async function listApplications(params: ListApplicationsParams): Promise<
   const conditions = [];
 
   if (params.status) {
-    const statuses = params.status.split(',').map((s) => s.trim()) as ApplicationStatus[];
+    const VALID_STATUSES: ApplicationStatus[] = [
+      'saved', 'applied', 'phone_screen', 'interview', 'offer', 'rejected', 'withdrawn',
+    ];
+    const statuses = params.status
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s): s is ApplicationStatus => VALID_STATUSES.includes(s as ApplicationStatus));
+    if (statuses.length === 0) {
+      // No valid status values — return empty result
+      return { applications: [], totalCount: 0 };
+    }
     if (statuses.length === 1) {
       conditions.push(eq(applications.status, statuses[0]));
     } else {
@@ -138,13 +148,13 @@ export async function listApplications(params: ListApplicationsParams): Promise<
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  // Cursor-based pagination: decode cursor as offset
+  // Offset-based pagination: decode page token as offset
   let offset = 0;
-  if (params.cursor) {
+  if (params.page) {
     try {
-      offset = parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10);
+      offset = parseInt(Buffer.from(params.page, 'base64url').toString('utf-8'), 10);
     } catch {
-      // Invalid cursor — start from beginning
+      // Invalid page token — start from beginning
     }
   }
 
@@ -179,14 +189,14 @@ export async function listApplications(params: ListApplicationsParams): Promise<
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
 
-  let nextCursor: string | undefined;
+  let nextPage: string | undefined;
   if (hasMore) {
-    nextCursor = Buffer.from(String(offset + limit)).toString('base64url');
+    nextPage = Buffer.from(String(offset + limit)).toString('base64url');
   }
 
   return {
     applications: page.map(toDTO),
-    nextCursor,
+    nextPage,
     totalCount: count,
   };
 }
@@ -209,7 +219,7 @@ export async function updateApplication(
 
   const [updated] = await db
     .update(applications)
-    .set({ ...updates, version: sql`${applications.version} + 1` })
+    .set({ ...updates, updatedAt: new Date(), version: sql`${applications.version} + 1` })
     .where(and(eq(applications.id, id), eq(applications.version, input.version)))
     .returning();
 

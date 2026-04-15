@@ -47,7 +47,7 @@ export interface StatusHistoryEntry {
  */
 export interface ListApplicationsResponse {
   applications: APIApplication[];
-  nextCursor?: string;
+  nextPage?: string;
   totalCount: number;
 }
 

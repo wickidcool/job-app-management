@@ -56,7 +56,7 @@ const listQuerySchema = z.object({
   sortBy: z.enum(['createdAt', 'updatedAt', 'company']).optional(),
   sortOrder: z.enum(['asc', 'desc']).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
-  cursor: z.string().optional(),
+  page: z.string().optional(),
 });
 
 export async function applicationsRoutes(fastify: FastifyInstance) {

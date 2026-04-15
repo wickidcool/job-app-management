@@ -65,7 +65,7 @@ export interface ListApplicationsParams {
   sortBy?: 'createdAt' | 'updatedAt' | 'company';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
-  cursor?: string;
+  page?: string;
 }
 
 export interface DashboardStats {
