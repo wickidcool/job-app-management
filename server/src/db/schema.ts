@@ -1,0 +1,44 @@
+import { pgTable, text, timestamp, integer, pgEnum } from 'drizzle-orm/pg-core';
+
+export const appStatusEnum = pgEnum('app_status', [
+  'saved',
+  'applied',
+  'phone_screen',
+  'interview',
+  'offer',
+  'rejected',
+  'withdrawn',
+]);
+
+export const applications = pgTable('applications', {
+  id: text('id').primaryKey(),
+  jobTitle: text('job_title').notNull(),
+  company: text('company').notNull(),
+  url: text('url'),
+  location: text('location'),
+  salaryRange: text('salary_range'),
+  status: appStatusEnum('status').notNull().default('saved'),
+  coverLetterId: text('cover_letter_id'),
+  resumeVersionId: text('resume_version_id'),
+  appliedAt: timestamp('applied_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export const statusHistory = pgTable('status_history', {
+  id: text('id').primaryKey(),
+  applicationId: text('application_id')
+    .notNull()
+    .references(() => applications.id, { onDelete: 'cascade' }),
+  fromStatus: appStatusEnum('from_status'),
+  toStatus: appStatusEnum('to_status').notNull(),
+  note: text('note'),
+  changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Application = typeof applications.$inferSelect;
+export type NewApplication = typeof applications.$inferInsert;
+export type StatusHistoryEntry = typeof statusHistory.$inferSelect;
+export type NewStatusHistoryEntry = typeof statusHistory.$inferInsert;
+export type ApplicationStatus = (typeof appStatusEnum.enumValues)[number];

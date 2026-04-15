@@ -1,71 +1,85 @@
 # Job Application Manager
 
-A full-stack web app for managing job-application materials: upload/edit project markdown files, parse resumes, maintain a keyword index, match against job descriptions, and generate cover letters with AI.
+A modern web application for managing job applications built with React and TypeScript.
 
 ## Tech Stack
 
-- **Frontend**: React 18, TypeScript, Vite, CodeMirror 6, React Markdown, React Router
-- **Backend**: Node.js, Fastify, TypeScript, `pdf-parse`, `slugify`, `zod`
-- **AI**: Anthropic Claude or OpenAI (optional; deterministic stub for tests)
-- **Testing**: Vitest (unit + integration), Playwright (E2E)
+- **Framework:** React 18
+- **Language:** TypeScript
+- **Build Tool:** Vite
+- **Linting:** ESLint (TypeScript + React rules)
+- **Formatting:** Prettier
 
-## Prerequisites
+## Project Structure
 
-- Node.js 20+
-- npm 9+
-
-## Setup
-
-```bash
-npm install
-cp .env.example .env
-# Edit .env — set AI_PROVIDER if you want AI features
+```
+src/
+├── components/    # Reusable UI components
+├── pages/         # Page-level components
+├── hooks/         # Custom React hooks
+├── utils/         # Utility functions
+├── types/         # TypeScript type definitions
+├── services/      # API service layer
+└── assets/        # Static assets (images, fonts, etc.)
 ```
 
-## Running
+## Getting Started
 
-```bash
-# Development (backend + frontend concurrently)
-npm run dev
+### Prerequisites
 
-# Backend only (port 3001)
-npm run dev --workspace=packages/backend
+- Node.js (v18 or higher)
+- npm or yarn
 
-# Frontend only (port 5173, proxies /api to backend)
-npm run dev --workspace=packages/frontend
-```
+### Installation
 
-## Testing
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-```bash
-# All unit + integration tests
-npm test
+2. Start the development server:
+   ```bash
+   npm run dev
+   ```
 
-# Backend tests only
-npm test --workspace=packages/backend
+3. Open [http://localhost:5173](http://localhost:5173) in your browser
 
-# Frontend unit tests only
-npm test --workspace=packages/frontend
+## Available Scripts
 
-# E2E tests (requires backend + frontend running, or uses playwright webServer)
-npm run test:e2e --workspace=packages/frontend
-```
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build
+- `npm run lint` - Run ESLint
 
-## Environment Variables
+## Development Guidelines
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3001` | Backend port |
-| `STORAGE_DIR` | `./data` | Root directory for project files and index |
-| `AI_PROVIDER` | _(optional)_ | `anthropic`, `openai`, or `stub` |
-| `AI_API_KEY` | _(optional)_ | Provider API key (not required for `stub`) |
-| `ANTHROPIC_MODEL` | `claude-3-5-haiku-20241022` | Anthropic model override |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model override |
-| `VITE_API_BASE_URL` | `''` | Backend URL for production frontend builds |
+### Code Style
 
-## Architecture Notes
+- Follow TypeScript best practices
+- Use functional components with hooks
+- Keep components small and focused
+- Write descriptive variable and function names
+- Add comments for complex logic
 
-- All AI calls go through the `AIProvider` interface. Use `AI_PROVIDER=stub` for tests.
-- Project files are stored as plain markdown in `STORAGE_DIR/projects/`. The `index.md` is auto-regenerated on every project create/update/delete.
-- Concurrent writes are not safe (single-user local app, no file locking).
-- Changing `AI_PROVIDER` requires a server restart.
+### Formatting
+
+Code formatting is enforced with Prettier. Configuration is in `.prettierrc`.
+
+### Linting
+
+ESLint is configured with TypeScript and React rules. The configuration includes:
+- TypeScript recommended rules
+- React Hooks rules
+- React Refresh rules (Vite HMR)
+- Prettier integration (no conflicting rules)
+
+## Project Status
+
+🚧 **In Development** - Project scaffolding complete. Waiting for:
+- BA requirements ([WIC-15](/WIC/issues/WIC-15))
+- UI/UX specifications ([WIC-16](/WIC/issues/WIC-16))
+- Architecture and API contracts ([WIC-17](/WIC/issues/WIC-17))
+
+## License
+
+Proprietary - All rights reserved
