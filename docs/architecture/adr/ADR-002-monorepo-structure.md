@@ -3,6 +3,7 @@
 ## Status
 
 **Accepted** (2026-04-17)
+**Revised** (2026-04-17) — Simplified to two packages (web + api) for standalone local app
 
 ## Context
 
@@ -103,17 +104,16 @@ This structure has several problems:
 ```
 packages/
 ├── web/          # Vite/React frontend (was: root src/)
-├── api/          # Fastify local backend (was: server/)
-├── infra/        # AWS CDK infrastructure (was: backend/)
-└── shared/       # Shared types and utilities (future)
+└── api/          # Fastify local backend with Drizzle/PostgreSQL (was: server/)
 ```
+
+Note: The original `backend/` directory contained AWS CDK infrastructure for cloud deployment. Since this is a standalone local application (per [ADR-001](./ADR-001-database-selection.md)), cloud infrastructure is not needed and was removed.
 
 ### Package Naming Convention
 
 Each package will be scoped under `@wic/`:
 - `@wic/web` — Frontend application
 - `@wic/api` — Local backend API server
-- `@wic/infra` — AWS CDK infrastructure
 
 ### Rationale
 
@@ -122,7 +122,6 @@ Each package will be scoped under `@wic/`:
 2. **Clear package purposes**:
    - `web` = user-facing frontend (what you see in the browser)
    - `api` = local backend API (what the frontend talks to)
-   - `infra` = cloud infrastructure (deployment/CDK)
 
 3. **Hoisted dependencies**: Shared dependencies like TypeScript are installed once at the root.
 
@@ -143,7 +142,7 @@ Each package will be scoped under `@wic/`:
 ### Trade-offs Accepted
 
 - **No parallel builds**: We accept sequential builds. Add Turborepo later if this becomes a bottleneck.
-- **No build caching**: Acceptable for a 3-package monorepo.
+- **No build caching**: Acceptable for a 2-package monorepo.
 - **Basic task orchestration**: npm workspace scripts are sufficient for now.
 
 ## Consequences
@@ -172,7 +171,7 @@ Each package will be scoped under `@wic/`:
 1. Create `packages/` directory structure
 2. Move `src/` content to `packages/web/src/`
 3. Move `server/` to `packages/api/`
-4. Move `backend/` to `packages/infra/`
+4. Remove `backend/` (CDK infrastructure not needed for standalone local app)
 5. Update root package.json with workspace configuration
 6. Update all import paths as needed
 7. Verify builds for all packages

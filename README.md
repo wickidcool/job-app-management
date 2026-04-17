@@ -4,13 +4,12 @@ A modern web application for managing job applications built with React and Type
 
 ## Project Structure
 
-This is a monorepo using npm workspaces with three packages:
+This is a standalone local application using npm workspaces:
 
 ```
 packages/
 ├── web/          # Vite/React frontend (@wic/web)
-├── api/          # Fastify local backend with Drizzle/PostgreSQL (@wic/api)
-└── infra/        # AWS CDK infrastructure (@wic/infra)
+└── api/          # Fastify local backend with Drizzle/PostgreSQL (@wic/api)
 ```
 
 ## Tech Stack
@@ -28,11 +27,6 @@ packages/
 - **ORM:** Drizzle
 - **Database:** PostgreSQL (local)
 - **Language:** TypeScript
-
-### Infrastructure (`@wic/infra`)
-- **IaC:** AWS CDK
-- **Runtime:** Lambda (Node.js)
-- **Database:** DynamoDB (cloud deployment)
 
 ## Getting Started
 
@@ -91,7 +85,6 @@ Run commands in specific packages:
 # Run any script in a specific package
 npm run <script> --workspace=@wic/web
 npm run <script> --workspace=@wic/api
-npm run <script> --workspace=@wic/infra
 ```
 
 ## Architecture
