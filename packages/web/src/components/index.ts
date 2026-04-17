@@ -11,3 +11,6 @@ export type { EmptyStateProps } from './EmptyState';
 
 export { DashboardStats } from './DashboardStats';
 export type { DashboardStatsProps } from './DashboardStats';
+
+export { ResumeUpload } from './ResumeUpload';
+export { ResumeExportList } from './ResumeExportList';
