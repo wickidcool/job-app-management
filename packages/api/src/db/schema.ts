@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, pgEnum, jsonb } from 'drizzle-orm/pg-core';
 
 export const appStatusEnum = pgEnum('app_status', [
   'saved',
@@ -36,6 +36,32 @@ export const statusHistory = pgTable('status_history', {
   note: text('note'),
   changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const resumes = pgTable('resumes', {
+  id: text('id').primaryKey(),
+  fileName: text('file_name').notNull(),
+  fileSize: integer('file_size').notNull(),
+  mimeType: text('mime_type').notNull(),
+  filePath: text('file_path').notNull(),
+  uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export const resumeExports = pgTable('resume_exports', {
+  id: text('id').primaryKey(),
+  resumeId: text('resume_id')
+    .notNull()
+    .references(() => resumes.id, { onDelete: 'cascade' }),
+  exportType: text('export_type').notNull().default('star_markdown'),
+  filePath: text('file_path').notNull(),
+  generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
+  metadata: jsonb('metadata'),
+});
+
+export type Resume = typeof resumes.$inferSelect;
+export type NewResume = typeof resumes.$inferInsert;
+export type ResumeExport = typeof resumeExports.$inferSelect;
+export type NewResumeExport = typeof resumeExports.$inferInsert;
 
 export type Application = typeof applications.$inferSelect;
 export type NewApplication = typeof applications.$inferInsert;

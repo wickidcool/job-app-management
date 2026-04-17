@@ -86,6 +86,29 @@ export interface ActivityItem {
   timestamp: string;
 }
 
+export interface ResumeDTO {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  uploadedAt: string;
+  version: number;
+}
+
+export interface ResumeExportDTO {
+  id: string;
+  resumeId: string;
+  exportType: string;
+  filePath: string;
+  generatedAt: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface UploadResumeResult {
+  resume: ResumeDTO;
+  export: ResumeExportDTO;
+}
+
 export class AppError extends Error {
   constructor(
     public readonly code: string,
