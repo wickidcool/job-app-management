@@ -1,5 +1,6 @@
 {
-  "name": "job-app-manager-server",
+  "name": "@wic/api",
+  "private": true,
   "version": "1.0.0",
   "description": "Local Fastify backend for Job Application Manager",
   "type": "module",

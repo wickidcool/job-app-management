@@ -2,54 +2,106 @@
 
 A modern web application for managing job applications built with React and TypeScript.
 
-## Tech Stack
-
-- **Framework:** React 18
-- **Language:** TypeScript
-- **Build Tool:** Vite
-- **Linting:** ESLint (TypeScript + React rules)
-- **Formatting:** Prettier
-
 ## Project Structure
 
+This is a monorepo using npm workspaces with three packages:
+
 ```
-src/
-├── components/    # Reusable UI components
-├── pages/         # Page-level components
-├── hooks/         # Custom React hooks
-├── utils/         # Utility functions
-├── types/         # TypeScript type definitions
-├── services/      # API service layer
-└── assets/        # Static assets (images, fonts, etc.)
+packages/
+├── web/          # Vite/React frontend (@wic/web)
+├── api/          # Fastify local backend with Drizzle/PostgreSQL (@wic/api)
+└── infra/        # AWS CDK infrastructure (@wic/infra)
 ```
+
+## Tech Stack
+
+### Frontend (`@wic/web`)
+- **Framework:** React 19
+- **Language:** TypeScript
+- **Build Tool:** Vite
+- **Styling:** Tailwind CSS
+- **State:** TanStack Query
+- **Forms:** React Hook Form + Zod
+
+### Backend (`@wic/api`)
+- **Framework:** Fastify
+- **ORM:** Drizzle
+- **Database:** PostgreSQL (local)
+- **Language:** TypeScript
+
+### Infrastructure (`@wic/infra`)
+- **IaC:** AWS CDK
+- **Runtime:** Lambda (Node.js)
+- **Database:** DynamoDB (cloud deployment)
 
 ## Getting Started
 
 ### Prerequisites
 
 - Node.js (v18 or higher)
-- npm or yarn
+- npm (v7 or higher for workspaces support)
+- Docker (for PostgreSQL)
 
 ### Installation
 
-1. Install dependencies:
+1. Install dependencies (all packages):
    ```bash
    npm install
    ```
 
-2. Start the development server:
+2. Start PostgreSQL:
    ```bash
-   npm run dev
+   docker compose up -d
    ```
 
-3. Open [http://localhost:5173](http://localhost:5173) in your browser
+3. Run database migrations:
+   ```bash
+   npm run db:migrate
+   ```
+
+4. Start development servers:
+   ```bash
+   # Start frontend (http://localhost:5173)
+   npm run dev
+
+   # In another terminal, start API (http://localhost:3000)
+   npm run dev:api
+   ```
 
 ## Available Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
-- `npm run lint` - Run ESLint
+### Root Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start frontend dev server |
+| `npm run dev:api` | Start API dev server |
+| `npm run build` | Build all packages |
+| `npm run lint` | Lint all packages |
+| `npm run test` | Run tests in all packages |
+| `npm run format` | Format all code with Prettier |
+| `npm run db:migrate` | Run database migrations |
+| `npm run db:push` | Push schema changes to database |
+
+### Package-Specific Commands
+
+Run commands in specific packages:
+
+```bash
+# Run any script in a specific package
+npm run <script> --workspace=@wic/web
+npm run <script> --workspace=@wic/api
+npm run <script> --workspace=@wic/infra
+```
+
+## Architecture
+
+See [docs/architecture/](docs/architecture/) for detailed documentation:
+- [Architecture Overview](docs/architecture/ARCHITECTURE.md)
+- [API Contracts](docs/architecture/API_CONTRACTS.md)
+- [Data Model](docs/architecture/DATA_MODEL.md)
+- [ADR-001: Database Selection](docs/architecture/adr/ADR-001-database-selection.md)
+- [ADR-002: Monorepo Structure](docs/architecture/adr/ADR-002-monorepo-structure.md)
 
 ## Development Guidelines
 
@@ -59,26 +111,19 @@ src/
 - Use functional components with hooks
 - Keep components small and focused
 - Write descriptive variable and function names
-- Add comments for complex logic
 
-### Formatting
+### Formatting & Linting
 
-Code formatting is enforced with Prettier. Configuration is in `.prettierrc`.
+Code formatting is enforced with Prettier and ESLint:
 
-### Linting
-
-ESLint is configured with TypeScript and React rules. The configuration includes:
-- TypeScript recommended rules
-- React Hooks rules
-- React Refresh rules (Vite HMR)
-- Prettier integration (no conflicting rules)
+```bash
+npm run format      # Auto-fix formatting
+npm run lint        # Check for lint errors
+```
 
 ## Project Status
 
-🚧 **In Development** - Project scaffolding complete. Waiting for:
-- BA requirements ([WIC-15](/WIC/issues/WIC-15))
-- UI/UX specifications ([WIC-16](/WIC/issues/WIC-16))
-- Architecture and API contracts ([WIC-17](/WIC/issues/WIC-17))
+In Development - See architecture documentation for current status.
 
 ## License
 

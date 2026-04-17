@@ -1,7 +1,8 @@
 {
-  "name": "job-app-manager-backend",
+  "name": "@wic/infra",
+  "private": true,
   "version": "1.0.0",
-  "description": "Backend infrastructure and Lambda functions for Job Application Manager",
+  "description": "AWS CDK infrastructure and Lambda functions for Job Application Manager",
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
