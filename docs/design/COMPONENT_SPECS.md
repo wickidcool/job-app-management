@@ -607,6 +607,305 @@ For implementation, consider using:
 
 ---
 
+## 11. ResumeUpload
+
+### Purpose
+Upload and parse resume files to automatically extract work experience, education, and skills.
+
+### Props
+
+```tsx
+interface ResumeUploadProps {
+  onUploadComplete: (resumeId: string, parsedData: ParsedResume) => void
+  onUploadError: (error: Error) => void
+  maxFileSizeMB?: number
+  acceptedFormats?: string[]
+  existingResumeId?: string
+}
+
+interface ParsedResume {
+  id: string
+  fileName: string
+  uploadedAt: Date
+  parsedExperiences: STARExperience[]
+  education: Education[]
+  skills: string[]
+}
+
+interface STARExperience {
+  id: string
+  company: string
+  role: string
+  startDate: Date
+  endDate?: Date
+  bullets: STARBullet[]
+}
+
+interface STARBullet {
+  situation: string
+  task: string
+  action: string
+  result: string
+  originalText: string
+}
+```
+
+### Variants
+
+| Variant | Trigger | Use Case |
+|---------|---------|----------|
+| Empty | No file uploaded | Initial state, encourages upload |
+| Uploading | File selected, upload in progress | Shows progress bar |
+| Processing | Upload complete, parsing in progress | Shows spinner with "Analyzing..." |
+| Complete | Parsing finished | Shows preview of extracted data |
+| Error | Upload/parse failed | Shows error message with retry option |
+
+### Visual States
+
+#### Empty State
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│            📄                           │
+│                                         │
+│    Drag & drop your resume here        │
+│    or click to browse                   │
+│                                         │
+│    PDF, DOCX, TXT (Max 10MB)            │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+#### Uploading State
+```
+┌─────────────────────────────────────────┐
+│  resume.pdf                         ✕   │
+│  ████████████░░░░░░░░░░░░░  62%         │
+│  1.2 MB / 1.9 MB                        │
+└─────────────────────────────────────────┘
+```
+
+#### Processing State
+```
+┌─────────────────────────────────────────┐
+│  🔄 Analyzing resume...                 │
+│                                         │
+│  Extracting work experience             │
+│  Identifying STAR accomplishments       │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+#### Complete State
+```
+┌─────────────────────────────────────────┐
+│  ✅ Resume parsed successfully!         │
+│                                         │
+│  📊 3 work experiences                  │
+│  🎓 2 education entries                 │
+│  💼 12 skills identified                │
+│                                         │
+│  [View Details]  [Upload New]          │
+└─────────────────────────────────────────┘
+```
+
+### Behavior
+
+| Action | Trigger | Response |
+|--------|---------|----------|
+| Drag Over | File dragged into zone | Border highlights (primary-500), background: primary-50 |
+| Drop | File dropped | Validate → Start upload → Show progress |
+| Click Zone | Click anywhere in drop zone | Open file picker dialog |
+| Cancel Upload | Click ✕ during upload | Abort request, return to empty state |
+| Invalid File Type | Drop .exe, .zip, etc. | Show error toast: "Please upload PDF, DOCX, or TXT" |
+| File Too Large | Drop 15MB file (max 10MB) | Show error toast: "File must be under 10MB" |
+| Parse Error | Server fails to extract data | Show error state with retry button |
+
+### File Validation
+
+```typescript
+const validationRules = {
+  maxFileSizeMB: 10,
+  acceptedFormats: ['.pdf', '.docx', '.txt'],
+  mimeTypes: [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/plain'
+  ]
+}
+```
+
+### Upload Flow
+
+1. **File Selection** → Validate format and size
+2. **Upload** → POST to `/api/resumes/upload` with multipart/form-data
+3. **Server Processing** → Parse resume, extract STAR experiences
+4. **Response** → Return parsed data + resume ID
+5. **UI Update** → Show complete state, fire `onUploadComplete`
+
+### Error Handling
+
+| Error Type | User Message | Recovery Action |
+|------------|--------------|-----------------|
+| Network Error | "Upload failed. Check your connection." | [Retry] button |
+| Parse Error | "Couldn't parse resume. Try a different format." | [Upload Different File] |
+| Server Error | "Something went wrong. Please try again." | [Retry] + contact support link |
+| Timeout | "Upload timed out. Try a smaller file." | Return to empty state |
+
+### Accessibility
+
+- **ARIA Role:** `region` with `aria-label="Resume upload area"`
+- **Drag State:** Announce "Drop file to upload" to screen readers
+- **Upload Progress:** `role="progressbar"` with `aria-valuenow`, `aria-valuemin`, `aria-valuemax`
+- **Error Announcement:** `role="alert"` for error messages
+- **Keyboard:** Tab to focus zone, Enter/Space to open file picker
+
+### Responsive
+
+- **Desktop (>768px):** Full-width drop zone, 200px min height
+- **Mobile (<768px):** Smaller drop zone (150px height), hide drag text, show "Tap to upload"
+
+---
+
+## 12. ResumeExportList
+
+### Purpose
+Display and manage exported resume versions tailored to specific job applications.
+
+### Props
+
+```tsx
+interface ResumeExportListProps {
+  exports: ResumeExport[]
+  onPreview: (exportId: string) => void
+  onDownload: (exportId: string, format: ExportFormat) => void
+  onDelete: (exportId: string) => void
+  onCreateNew: () => void
+  loading?: boolean
+}
+
+interface ResumeExport {
+  id: string
+  name: string
+  createdAt: Date
+  linkedApplicationId?: string
+  linkedApplicationTitle?: string
+  experienceIds: string[]
+  format: ExportFormat
+  fileSize: number
+}
+
+type ExportFormat = 'markdown' | 'pdf' | 'docx'
+```
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Resume Exports                      [+ Create New]     │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  ┌────────────────────────────────────────────────┐    │
+│  │  📄 Software Engineer - TechCo                 │    │
+│  │  Linked to: TechCo Senior Developer           │    │
+│  │  Created: Apr 15, 2026 • 3 experiences        │    │
+│  │                                                │    │
+│  │  [👁 Preview]  [⬇ Download]  [🗑 Delete]       │    │
+│  └────────────────────────────────────────────────┘    │
+│                                                         │
+│  ┌────────────────────────────────────────────────┐    │
+│  │  📄 Product Manager - StartupX                 │    │
+│  │  Not linked to application                     │    │
+│  │  Created: Apr 12, 2026 • 5 experiences        │    │
+│  │                                                │    │
+│  │  [👁 Preview]  [⬇ Download]  [🗑 Delete]       │    │
+│  └────────────────────────────────────────────────┘    │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Export Card States
+
+| State | Visual | Available Actions |
+|-------|--------|-------------------|
+| Default | Border: neutral-200, Shadow: sm | Preview, Download, Delete |
+| Hover | Border: primary-300, Shadow: md | All actions visible |
+| Loading | Skeleton with shimmer | No actions |
+| Error | Border: red-300, background: red-50 | Retry download, Delete |
+
+### Behavior
+
+| Action | Trigger | Response |
+|--------|---------|----------|
+| Preview | Click Preview button | Open modal with markdown preview |
+| Download | Click Download | Show format picker (MD/PDF/DOCX) → Download file |
+| Delete | Click Delete | Confirm dialog → DELETE `/api/resumes/exports/{id}` |
+| Create New | Click + Create New button | Navigate to resume builder/editor |
+| Link to Application | Drag export onto ApplicationCard | Link export to that application |
+
+### Download Format Picker
+
+When user clicks Download, show dropdown:
+
+```
+┌──────────────┐
+│ ⬇ Download as│
+├──────────────┤
+│ ○ Markdown   │
+│ ○ PDF        │
+│ ○ Word (DOCX)│
+└──────────────┘
+```
+
+### Empty State
+
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│            📄                           │
+│                                         │
+│    No resume exports yet                │
+│                                         │
+│    Create a tailored resume for each    │
+│    job application                      │
+│                                         │
+│    [+ Create Your First Export]        │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### Preview Modal
+
+Opens full-screen modal showing:
+- **Left Panel:** Markdown editor (if editable)
+- **Right Panel:** Live preview rendering
+- **Header:** Export name, format selector, close button
+- **Footer:** [Save Changes] [Download] [Cancel]
+
+### Accessibility
+
+- **ARIA Role:** `list` for export list, `listitem` for each card
+- **Card Label:** "{exportName}, created {date}, {count} experiences"
+- **Button Labels:** Clear action labels (not just icons)
+- **Focus Management:** Focus trap in preview modal
+- **Keyboard:** Tab through actions, Enter to activate, Escape to close modal
+
+### Sorting & Filtering
+
+| Filter | Options | Default |
+|--------|---------|---------|
+| Sort By | Recent, Oldest, Name (A-Z) | Recent |
+| Linked | All, Linked to App, Standalone | All |
+| Format | All, Markdown, PDF, DOCX | All |
+
+### Responsive
+
+- **Desktop (>1024px):** 2-column grid layout
+- **Tablet (768-1024px):** Single column, cards full width
+- **Mobile (<768px):** Compact cards, action buttons as icon-only
+
+---
+
 ## Testing Checklist
 
 For each component:
