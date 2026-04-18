@@ -1,71 +1,123 @@
 # Job Application Manager
 
-A full-stack web app for managing job-application materials: upload/edit project markdown files, parse resumes, maintain a keyword index, match against job descriptions, and generate cover letters with AI.
+A modern web application for managing job applications built with React and TypeScript.
+
+## Project Structure
+
+This is a standalone local application using npm workspaces:
+
+```
+packages/
+├── web/          # Vite/React frontend (@wic/web)
+└── api/          # Fastify local backend with Drizzle/PostgreSQL (@wic/api)
+```
 
 ## Tech Stack
 
-- **Frontend**: React 18, TypeScript, Vite, CodeMirror 6, React Markdown, React Router
-- **Backend**: Node.js, Fastify, TypeScript, `pdf-parse`, `slugify`, `zod`
-- **AI**: Anthropic Claude or OpenAI (optional; deterministic stub for tests)
-- **Testing**: Vitest (unit + integration), Playwright (E2E)
+### Frontend (`@wic/web`)
+- **Framework:** React 19
+- **Language:** TypeScript
+- **Build Tool:** Vite
+- **Styling:** Tailwind CSS
+- **State:** TanStack Query
+- **Forms:** React Hook Form + Zod
 
-## Prerequisites
+### Backend (`@wic/api`)
+- **Framework:** Fastify
+- **ORM:** Drizzle
+- **Database:** PostgreSQL (local)
+- **Language:** TypeScript
 
-- Node.js 20+
-- npm 9+
+## Getting Started
 
-## Setup
+### Prerequisites
+
+- Node.js (v18 or higher)
+- npm (v7 or higher for workspaces support)
+- Docker (for PostgreSQL)
+
+### Installation
+
+1. Install dependencies (all packages):
+   ```bash
+   npm install
+   ```
+
+2. Start PostgreSQL:
+   ```bash
+   docker compose up -d
+   ```
+
+3. Run database migrations:
+   ```bash
+   npm run db:migrate
+   ```
+
+4. Start development servers:
+   ```bash
+   # Start frontend (http://localhost:5173)
+   npm run dev
+
+   # In another terminal, start API (http://localhost:3000)
+   npm run dev:api
+   ```
+
+## Available Scripts
+
+### Root Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start frontend dev server |
+| `npm run dev:api` | Start API dev server |
+| `npm run build` | Build all packages |
+| `npm run lint` | Lint all packages |
+| `npm run test` | Run tests in all packages |
+| `npm run format` | Format all code with Prettier |
+| `npm run db:migrate` | Run database migrations |
+| `npm run db:push` | Push schema changes to database |
+
+### Package-Specific Commands
+
+Run commands in specific packages:
 
 ```bash
-npm install
-cp .env.example .env
-# Edit .env — set AI_PROVIDER if you want AI features
+# Run any script in a specific package
+npm run <script> --workspace=@wic/web
+npm run <script> --workspace=@wic/api
 ```
 
-## Running
+## Architecture
+
+See [docs/architecture/](docs/architecture/) for detailed documentation:
+- [Architecture Overview](docs/architecture/ARCHITECTURE.md)
+- [API Contracts](docs/architecture/API_CONTRACTS.md)
+- [Data Model](docs/architecture/DATA_MODEL.md)
+- [ADR-001: Database Selection](docs/architecture/adr/ADR-001-database-selection.md)
+- [ADR-002: Monorepo Structure](docs/architecture/adr/ADR-002-monorepo-structure.md)
+
+## Development Guidelines
+
+### Code Style
+
+- Follow TypeScript best practices
+- Use functional components with hooks
+- Keep components small and focused
+- Write descriptive variable and function names
+
+### Formatting & Linting
+
+Code formatting is enforced with Prettier and ESLint:
 
 ```bash
-# Development (backend + frontend concurrently)
-npm run dev
-
-# Backend only (port 3001)
-npm run dev --workspace=packages/backend
-
-# Frontend only (port 5173, proxies /api to backend)
-npm run dev --workspace=packages/frontend
+npm run format      # Auto-fix formatting
+npm run lint        # Check for lint errors
 ```
 
-## Testing
+## Project Status
 
-```bash
-# All unit + integration tests
-npm test
+In Development - See architecture documentation for current status.
 
-# Backend tests only
-npm test --workspace=packages/backend
+## License
 
-# Frontend unit tests only
-npm test --workspace=packages/frontend
-
-# E2E tests (requires backend + frontend running, or uses playwright webServer)
-npm run test:e2e --workspace=packages/frontend
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3001` | Backend port |
-| `STORAGE_DIR` | `./data` | Root directory for project files and index |
-| `AI_PROVIDER` | _(optional)_ | `anthropic`, `openai`, or `stub` |
-| `AI_API_KEY` | _(optional)_ | Provider API key (not required for `stub`) |
-| `ANTHROPIC_MODEL` | `claude-3-5-haiku-20241022` | Anthropic model override |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model override |
-| `VITE_API_BASE_URL` | `''` | Backend URL for production frontend builds |
-
-## Architecture Notes
-
-- All AI calls go through the `AIProvider` interface. Use `AI_PROVIDER=stub` for tests.
-- Project files are stored as plain markdown in `STORAGE_DIR/projects/`. The `index.md` is auto-regenerated on every project create/update/delete.
-- Concurrent writes are not safe (single-user local app, no file locking).
-- Changing `AI_PROVIDER` requires a server restart.
+Proprietary - All rights reserved

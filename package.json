@@ -1,14 +1,24 @@
 {
-  "name": "job-app-management",
+  "name": "job-application-manager",
   "private": true,
-  "workspaces": ["packages/backend", "packages/frontend"],
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace=packages/backend\" \"npm run dev --workspace=packages/frontend\"",
-    "build": "npm run build --workspace=packages/backend && npm run build --workspace=packages/frontend",
-    "test": "npm run test --workspace=packages/backend && npm run test --workspace=packages/frontend",
-    "lint": "npm run lint --workspace=packages/backend && npm run lint --workspace=packages/frontend"
+    "dev": "npm run dev --workspace=@wic/web",
+    "dev:api": "npm run dev --workspace=@wic/api",
+    "build": "npm run build --workspaces --if-present",
+    "build:web": "npm run build --workspace=@wic/web",
+    "build:api": "npm run build --workspace=@wic/api",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "format": "prettier --write \"packages/**/*.{ts,tsx,css,md}\"",
+    "format:check": "prettier --check \"packages/**/*.{ts,tsx,css,md}\"",
+    "db:migrate": "npm run db:migrate --workspace=@wic/api",
+    "db:push": "npm run db:push --workspace=@wic/api"
   },
   "devDependencies": {
-    "concurrently": "^8.0.0"
+    "prettier": "^3.8.3"
   }
 }
