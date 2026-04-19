@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ParsedResume, UploadState, UploadProgress } from '../types/resume';
 
 interface ResumeUploadProps {
@@ -36,6 +36,11 @@ export function ResumeUpload({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const uploadStartTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    console.log('[ResumeUpload] uploadState changed to:', uploadState);
+  }, [uploadState]);
 
   const validateFile = (file: File): string | null => {
     // Check file size
@@ -54,9 +59,12 @@ export function ResumeUpload({
   };
 
   const uploadFile = async (file: File) => {
+    console.log('[ResumeUpload] Starting upload for file:', file.name);
     setFileName(file.name);
+    console.log('[ResumeUpload] Setting uploadState to uploading');
     setUploadState('uploading');
     setProgress({ bytesUploaded: 0, totalBytes: file.size, percentage: 0 });
+    uploadStartTimeRef.current = Date.now();
 
     const formData = new FormData();
     formData.append('file', file);
@@ -69,6 +77,7 @@ export function ResumeUpload({
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           const percentage = Math.round((e.loaded / e.total) * 100);
+          console.log('[ResumeUpload] Upload progress:', percentage + '%');
           setProgress({
             bytesUploaded: e.loaded,
             totalBytes: e.total,
@@ -78,22 +87,33 @@ export function ResumeUpload({
       });
 
       xhr.addEventListener('load', () => {
+        console.log('[ResumeUpload] XHR load event fired, status:', xhr.status);
         if (xhr.status >= 200 && xhr.status < 300) {
-          setUploadState('processing');
+          // Ensure uploading state is visible for at least 500ms
+          const MIN_UPLOAD_DISPLAY_MS = 500;
+          const elapsedTime = Date.now() - uploadStartTimeRef.current;
+          const remainingTime = Math.max(0, MIN_UPLOAD_DISPLAY_MS - elapsedTime);
 
-          const response = JSON.parse(xhr.responseText);
-          const parsed: ParsedResume = {
-            id: response.id,
-            fileName: file.name,
-            uploadedAt: new Date(response.uploadedAt),
-            parsedExperiences: response.experiences || [],
-            education: response.education || [],
-            skills: response.skills || [],
-          };
+          console.log('[ResumeUpload] Upload elapsed time:', elapsedTime, 'ms, waiting', remainingTime, 'ms more');
 
-          setParsedData(parsed);
-          setUploadState('complete');
-          onUploadComplete(response.id, parsed);
+          setTimeout(() => {
+            console.log('[ResumeUpload] Setting uploadState to processing');
+            setUploadState('processing');
+
+            const response = JSON.parse(xhr.responseText);
+            const parsed: ParsedResume = {
+              id: response.id,
+              fileName: file.name,
+              uploadedAt: new Date(response.uploadedAt),
+              parsedExperiences: response.experiences || [],
+              education: response.education || [],
+              skills: response.skills || [],
+            };
+
+            setParsedData(parsed);
+            setUploadState('complete');
+            onUploadComplete(response.id, parsed);
+          }, remainingTime);
         } else {
           throw new Error(`Upload failed with status ${xhr.status}`);
         }
