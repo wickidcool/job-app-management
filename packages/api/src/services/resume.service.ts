@@ -201,23 +201,39 @@ export function generateProjectMarkdown(entry: ExperienceEntry): string {
     lines.push(`**Role:** ${entry.role} | **Period:** ${entry.period}`);
   }
   lines.push('');
-  lines.push('---');
-  lines.push('');
-  lines.push('## ⭐ Key Accomplishments');
-  lines.push('');
-  lines.push('| | |');
-  lines.push('|---|---|');
-  lines.push('| **Situation** | _[Describe the context and company challenge]_ |');
-  lines.push('| **Task** | _[Describe your responsibility]_ |');
 
   if (entry.bullets.length > 0) {
-    const actionText = entry.bullets.map((b) => `- ${b}`).join('<br>');
-    lines.push(`| **Action** | ${actionText} |`);
+    lines.push('## Index');
+    lines.push('');
+    entry.bullets.forEach((b, i) => {
+      lines.push(`${i + 1}. ${b}`);
+    });
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    entry.bullets.forEach((b, i) => {
+      lines.push(`## ⭐ STAR ${i + 1}: ${b}`);
+      lines.push('');
+      lines.push('| | |');
+      lines.push('|---|---|');
+      lines.push('| **Situation** | _[Describe the context and company challenge]_ |');
+      lines.push('| **Task** | _[Describe your responsibility]_ |');
+      lines.push(`| **Action** | ${b} |`);
+      lines.push('| **Result** | _[Quantify the outcome: metrics, impact, improvements]_ |');
+      lines.push('');
+    });
   } else {
+    lines.push('---');
+    lines.push('');
+    lines.push('## ⭐ Key Accomplishments');
+    lines.push('');
+    lines.push('| | |');
+    lines.push('|---|---|');
+    lines.push('| **Situation** | _[Describe the context and company challenge]_ |');
+    lines.push('| **Task** | _[Describe your responsibility]_ |');
     lines.push('| **Action** | _[Describe the specific steps you took]_ |');
+    lines.push('| **Result** | _[Quantify the outcome: metrics, impact, improvements]_ |');
   }
-
-  lines.push('| **Result** | _[Quantify the outcome: metrics, impact, improvements]_ |');
 
   return lines.join('\n');
 }

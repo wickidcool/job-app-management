@@ -163,17 +163,23 @@ describe('generateProjectMarkdown', () => {
     expect(md).not.toContain('period:');
   });
 
-  it('includes bullets in the Action row', () => {
+  it('includes numbered index and per-bullet STAR sections', () => {
     const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: ['Built APIs', 'Led migrations'] };
     const md = generateProjectMarkdown(entry);
-    expect(md).toContain('Built APIs');
-    expect(md).toContain('Led migrations');
+    expect(md).toContain('## Index');
+    expect(md).toContain('1. Built APIs');
+    expect(md).toContain('2. Led migrations');
+    expect(md).toContain('## ⭐ STAR 1: Built APIs');
+    expect(md).toContain('## ⭐ STAR 2: Led migrations');
+    expect(md).toContain('| **Action** | Built APIs |');
+    expect(md).toContain('| **Action** | Led migrations |');
   });
 
   it('uses placeholder Action text when no bullets', () => {
     const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: [] };
     const md = generateProjectMarkdown(entry);
     expect(md).toContain('_[Describe the specific steps you took]_');
+    expect(md).not.toContain('## Index');
   });
 });
 
