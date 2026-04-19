@@ -191,6 +191,9 @@ export function generateProjectMarkdown(entry: ExperienceEntry): string {
   lines.push(`company: ${entry.company}`);
   if (entry.role) lines.push(`role: ${entry.role}`);
   if (entry.period) lines.push(`period: ${entry.period}`);
+  lines.push('industry: _[Industry / sector]_');
+  lines.push('tech: []');
+  lines.push('job_fit: []');
   lines.push('tags: [star, resume, interview, prep]');
   lines.push('---');
   lines.push('');
@@ -198,21 +201,16 @@ export function generateProjectMarkdown(entry: ExperienceEntry): string {
   const title = entry.role ? `${entry.company} — ${entry.role}` : entry.company;
   lines.push(`# ${title}`);
   if (entry.role && entry.period) {
-    lines.push(`**Role:** ${entry.role} | **Period:** ${entry.period}`);
+    lines.push(`**Role:** ${entry.role} | **Period:** ${entry.period} | **Industry:** _[Industry / sector]_`);
   }
   lines.push('');
 
   if (entry.bullets.length > 0) {
-    lines.push('## Index');
-    lines.push('');
-    entry.bullets.forEach((b, i) => {
-      lines.push(`${i + 1}. ${b}`);
-    });
-    lines.push('');
     lines.push('---');
     lines.push('');
-    entry.bullets.forEach((b, i) => {
-      lines.push(`## ⭐ STAR ${i + 1}: ${b}`);
+    entry.bullets.forEach((b) => {
+      lines.push(`## ⭐ ${b}`);
+      lines.push('**Tech:** _[List relevant technologies]_');
       lines.push('');
       lines.push('| | |');
       lines.push('|---|---|');

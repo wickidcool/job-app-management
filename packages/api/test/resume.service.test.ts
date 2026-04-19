@@ -146,12 +146,15 @@ describe('extractExperienceEntries', () => {
 });
 
 describe('generateProjectMarkdown', () => {
-  it('renders frontmatter with company, role, and period', () => {
+  it('renders frontmatter with company, role, period, industry, tech, and job_fit', () => {
     const entry = { company: 'Acme Corp', role: 'Senior Engineer', period: '2021-2023', bullets: [] };
     const md = generateProjectMarkdown(entry);
     expect(md).toContain('company: Acme Corp');
     expect(md).toContain('role: Senior Engineer');
     expect(md).toContain('period: 2021-2023');
+    expect(md).toContain('industry: _[Industry / sector]_');
+    expect(md).toContain('tech: []');
+    expect(md).toContain('job_fit: []');
     expect(md).toContain('tags: [star, resume, interview, prep]');
   });
 
@@ -163,14 +166,19 @@ describe('generateProjectMarkdown', () => {
     expect(md).not.toContain('period:');
   });
 
-  it('includes numbered index and per-bullet STAR sections', () => {
+  it('includes header line with Role, Period, and Industry', () => {
+    const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: [] };
+    const md = generateProjectMarkdown(entry);
+    expect(md).toContain('**Role:** Dev | **Period:** 2022 | **Industry:** _[Industry / sector]_');
+  });
+
+  it('includes per-bullet STAR sections without numbered prefix or Index', () => {
     const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: ['Built APIs', 'Led migrations'] };
     const md = generateProjectMarkdown(entry);
-    expect(md).toContain('## Index');
-    expect(md).toContain('1. Built APIs');
-    expect(md).toContain('2. Led migrations');
-    expect(md).toContain('## ⭐ STAR 1: Built APIs');
-    expect(md).toContain('## ⭐ STAR 2: Led migrations');
+    expect(md).not.toContain('## Index');
+    expect(md).toContain('## ⭐ Built APIs');
+    expect(md).toContain('## ⭐ Led migrations');
+    expect(md).toContain('**Tech:** _[List relevant technologies]_');
     expect(md).toContain('| **Action** | Built APIs |');
     expect(md).toContain('| **Action** | Led migrations |');
   });
