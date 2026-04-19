@@ -139,6 +139,89 @@ export function generateStarMarkdown(parsed: ParsedResume, fileName: string): st
   return lines.join('\n');
 }
 
+export interface ExperienceEntry {
+  company: string;
+  role: string;
+  period: string;
+  bullets: string[];
+}
+
+export function extractExperienceEntries(parsed: ParsedResume): ExperienceEntry[] {
+  const entries: ExperienceEntry[] = [];
+
+  for (const section of parsed.sections) {
+    if (!/experience|employment|work/i.test(section.heading)) continue;
+
+    let currentEntry: ExperienceEntry | null = null;
+
+    for (const bullet of section.bullets) {
+      const isEntry = !bullet.startsWith('-') && !bullet.startsWith('•') && !bullet.startsWith('*') && !bullet.startsWith('·');
+
+      if (isEntry) {
+        if (currentEntry) entries.push(currentEntry);
+        const parts = bullet.split(/\s*[|–—]\s*/);
+        currentEntry = {
+          company: parts[0]?.trim() || bullet,
+          role: parts[1]?.trim() || '',
+          period: parts[2]?.trim() || '',
+          bullets: [],
+        };
+      } else if (currentEntry) {
+        currentEntry.bullets.push(bullet.replace(/^[-•*·]\s*/, ''));
+      }
+    }
+
+    if (currentEntry) entries.push(currentEntry);
+  }
+
+  return entries;
+}
+
+function toProjectSlug(company: string): string {
+  return company
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export function generateProjectMarkdown(entry: ExperienceEntry): string {
+  const lines: string[] = [];
+
+  lines.push('---');
+  lines.push(`company: ${entry.company}`);
+  if (entry.role) lines.push(`role: ${entry.role}`);
+  if (entry.period) lines.push(`period: ${entry.period}`);
+  lines.push('tags: [star, resume, interview, prep]');
+  lines.push('---');
+  lines.push('');
+
+  const title = entry.role ? `${entry.company} — ${entry.role}` : entry.company;
+  lines.push(`# ${title}`);
+  if (entry.role && entry.period) {
+    lines.push(`**Role:** ${entry.role} | **Period:** ${entry.period}`);
+  }
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push('## ⭐ Key Accomplishments');
+  lines.push('');
+  lines.push('| | |');
+  lines.push('|---|---|');
+  lines.push('| **Situation** | _[Describe the context and company challenge]_ |');
+  lines.push('| **Task** | _[Describe your responsibility]_ |');
+
+  if (entry.bullets.length > 0) {
+    const actionText = entry.bullets.map((b) => `- ${b}`).join('<br>');
+    lines.push(`| **Action** | ${actionText} |`);
+  } else {
+    lines.push('| **Action** | _[Describe the specific steps you took]_ |');
+  }
+
+  lines.push('| **Result** | _[Quantify the outcome: metrics, impact, improvements]_ |');
+
+  return lines.join('\n');
+}
+
 function toDTO(r: typeof resumes.$inferSelect): ResumeDTO {
   return {
     id: r.id,
@@ -171,7 +254,7 @@ export async function uploadResume(
   }
 
   const config = getConfig();
-  const resumeDir = path.join(config.dataDir, 'resume-exports');
+  const resumeDir = path.join(config.dataDir, 'resumes');
   await fs.mkdir(resumeDir, { recursive: true });
 
   const resumeId = ulid();
@@ -217,6 +300,16 @@ export async function uploadResume(
       metadata: { sections: sectionSummary, charCount: rawText.length },
     })
     .returning();
+
+  // Generate per-company/project markdown files under data/projects/{projectId}/
+  const experienceEntries = extractExperienceEntries(parsed);
+  for (const entry of experienceEntries) {
+    const projectId = toProjectSlug(entry.company) || resumeId;
+    const projectDir = path.join(config.dataDir, 'projects', projectId);
+    await fs.mkdir(projectDir, { recursive: true });
+    const projectMarkdown = generateProjectMarkdown(entry);
+    await fs.writeFile(path.join(projectDir, `resume-${resumeId}.md`), projectMarkdown, 'utf-8');
+  }
 
   return {
     resume: toDTO(resume),
