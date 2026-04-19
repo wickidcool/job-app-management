@@ -1,9 +1,14 @@
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { ResumeUpload as ResumeUploadComponent } from '../components/ResumeUpload';
+import { resumeKeys } from '../hooks/useResumes';
 import type { ParsedResume } from '../types/resume';
 
 export function ResumeUpload() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const breadcrumbTrail = [
     { label: 'Dashboard', href: '/', icon: '🏠' },
@@ -11,10 +16,9 @@ export function ResumeUpload() {
     { label: 'Upload Resume' },
   ];
 
-  const handleUploadComplete = (resumeId: string, parsedData: ParsedResume) => {
-    console.log('Upload complete:', resumeId, parsedData);
-    // TODO: Navigate to resume edit page or show success message
-    // navigate(`/resumes/${resumeId}/edit`);
+  const handleUploadComplete = (_resumeId: string, _parsedData: ParsedResume) => {
+    queryClient.invalidateQueries({ queryKey: resumeKeys.all });
+    navigate('/resumes');
   };
 
   const handleUploadError = (error: Error) => {

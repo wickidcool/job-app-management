@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
-import { uploadResume, listResumeExports, getResumeExport } from '../services/resume.service.js';
+import { uploadResume, listResumes, listResumeExports, getResumeExport } from '../services/resume.service.js';
 import { AppError } from '../types/index.js';
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -13,6 +13,12 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 export async function resumesRoutes(fastify: FastifyInstance) {
   fastify.register(multipart, {
     limits: { fileSize: MAX_FILE_SIZE, files: 1 },
+  });
+
+  // GET /api/resumes
+  fastify.get('/resumes', async (_request, reply) => {
+    const resumes = await listResumes();
+    return reply.send({ resumes });
   });
 
   // POST /api/resumes/upload

@@ -1,12 +1,32 @@
+import { Link } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { EmptyState } from '../components/EmptyState';
+import { useResumes } from '../hooks/useResumes';
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
 export function ResumeManager() {
+  const { data: resumes, isLoading, error } = useResumes();
+
   const breadcrumbTrail = [
     { label: 'Dashboard', href: '/', icon: '🏠' },
     { label: 'Resume Manager' },
   ];
+
+  const hasResumes = resumes && resumes.length > 0;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -23,11 +43,56 @@ export function ResumeManager() {
       <ResumeManagerTabs />
 
       <div className="mt-8">
-        <EmptyState
-          variant="no-documents"
-          onAction={() => (window.location.href = '/resumes/upload')}
-          actionLabel="Upload Your First Resume"
-        />
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-neutral-500">Loading resumes...</div>
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+            <p className="text-red-700">Failed to load resumes. Please try again.</p>
+          </div>
+        )}
+
+        {!isLoading && !error && !hasResumes && (
+          <EmptyState
+            variant="no-documents"
+            onAction={() => (window.location.href = '/resumes/upload')}
+            actionLabel="Upload Your First Resume"
+          />
+        )}
+
+        {!isLoading && !error && hasResumes && (
+          <div className="space-y-4">
+            {resumes.map((resume) => (
+              <div
+                key={resume.id}
+                className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="text-3xl">
+                    {resume.mimeType === 'application/pdf' ? '📄' : '📝'}
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-neutral-900">{resume.fileName}</h3>
+                    <p className="text-sm text-neutral-500">
+                      {formatFileSize(resume.fileSize)} • Uploaded {formatDate(resume.uploadedAt)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Link
+                    to={`/resumes/${resume.id}/exports`}
+                    className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors"
+                  >
+                    View Exports
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

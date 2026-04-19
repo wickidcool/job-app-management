@@ -222,6 +222,12 @@ export async function uploadResume(
   };
 }
 
+export async function listResumes(): Promise<ResumeDTO[]> {
+  const db = getDb();
+  const allResumes = await db.select().from(resumes).orderBy(resumes.uploadedAt);
+  return allResumes.map(toDTO);
+}
+
 export async function listResumeExports(resumeId: string): Promise<ResumeExportDTO[]> {
   const db = getDb();
 
