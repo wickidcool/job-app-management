@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
@@ -8,6 +8,7 @@ import type { ParsedResume } from '../types/resume';
 
 export function ResumeUpload() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
   const breadcrumbTrail = [
@@ -18,7 +19,8 @@ export function ResumeUpload() {
 
   const handleUploadComplete = (_resumeId: string, _parsedData: ParsedResume) => {
     queryClient.invalidateQueries({ queryKey: resumeKeys.all });
-    navigate('/resumes');
+    const returnTo = searchParams.get('returnTo') || '/resumes';
+    navigate(returnTo);
   };
 
   const handleUploadError = (error: Error) => {

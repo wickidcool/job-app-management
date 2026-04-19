@@ -9,15 +9,17 @@ import { ResumeUpload } from './pages/ResumeUpload';
 import { ResumeExports } from './pages/ResumeExports';
 import { Settings } from './pages/Settings';
 import { useApplications } from './hooks/useApplications';
+import { useExports } from './hooks/useExports';
 
 function App() {
   const { data: applications = [] } = useApplications();
+  const { data: exports = [] } = useExports();
 
   const inProgressCount = applications.filter(
     (app) => app.status === 'phone_screen' || app.status === 'interview'
   ).length;
 
-  const exportCount = 0;
+  const exportCount = exports.length;
 
   return (
     <BrowserRouter>
