@@ -177,7 +177,7 @@ export function extractExperienceEntries(parsed: ParsedResume): ExperienceEntry[
   return entries;
 }
 
-function toProjectSlug(company: string): string {
+export function toProjectSlug(company: string): string {
   return company
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

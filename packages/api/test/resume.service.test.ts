@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseResumeText, generateStarMarkdown } from '../src/services/resume.service.js';
+import {
+  parseResumeText,
+  generateStarMarkdown,
+  extractExperienceEntries,
+  generateProjectMarkdown,
+  toProjectSlug,
+} from '../src/services/resume.service.js';
 
 describe('parseResumeText', () => {
   it('splits text into sections by heading keywords', () => {
@@ -90,5 +96,104 @@ describe('generateStarMarkdown', () => {
     const parsed = { rawText: '', sections: [] };
     const markdown = generateStarMarkdown(parsed, 'my-resume.pdf');
     expect(markdown).toContain('my-resume.pdf');
+  });
+});
+
+describe('extractExperienceEntries', () => {
+  it('parses entries with pipe-delimited company, role, and period', () => {
+    const parsed = parseResumeText(
+      `Experience\nAcme Corp | Senior Engineer | 2021-2023\n- Built APIs\n- Led migrations`,
+    );
+    const entries = extractExperienceEntries(parsed);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].company).toBe('Acme Corp');
+    expect(entries[0].role).toBe('Senior Engineer');
+    expect(entries[0].period).toBe('2021-2023');
+    expect(entries[0].bullets).toEqual(['Built APIs', 'Led migrations']);
+  });
+
+  it('handles entry with no delimiter — company name only', () => {
+    const parsed = parseResumeText(`Experience\nAcme Corp\n- Did something`);
+    const entries = extractExperienceEntries(parsed);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].company).toBe('Acme Corp');
+    expect(entries[0].role).toBe('');
+    expect(entries[0].period).toBe('');
+  });
+
+  it('handles entry with 0 bullets', () => {
+    const parsed = parseResumeText(`Experience\nAcme Corp | Dev | 2020`);
+    const entries = extractExperienceEntries(parsed);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].bullets).toHaveLength(0);
+  });
+
+  it('returns empty array when no experience section exists', () => {
+    const parsed = parseResumeText(`Skills\nTypeScript\nNode.js`);
+    const entries = extractExperienceEntries(parsed);
+    expect(entries).toHaveLength(0);
+  });
+
+  it('parses multiple entries within one section', () => {
+    const parsed = parseResumeText(
+      `Experience\nAcme Corp | Dev | 2022\n- Shipped features\nBeta Inc | Lead | 2020\n- Managed team`,
+    );
+    const entries = extractExperienceEntries(parsed);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].company).toBe('Acme Corp');
+    expect(entries[1].company).toBe('Beta Inc');
+  });
+});
+
+describe('generateProjectMarkdown', () => {
+  it('renders frontmatter with company, role, and period', () => {
+    const entry = { company: 'Acme Corp', role: 'Senior Engineer', period: '2021-2023', bullets: [] };
+    const md = generateProjectMarkdown(entry);
+    expect(md).toContain('company: Acme Corp');
+    expect(md).toContain('role: Senior Engineer');
+    expect(md).toContain('period: 2021-2023');
+    expect(md).toContain('tags: [star, resume, interview, prep]');
+  });
+
+  it('omits role and period fields from frontmatter when empty', () => {
+    const entry = { company: 'Acme Corp', role: '', period: '', bullets: [] };
+    const md = generateProjectMarkdown(entry);
+    expect(md).toContain('company: Acme Corp');
+    expect(md).not.toContain('role:');
+    expect(md).not.toContain('period:');
+  });
+
+  it('includes bullets in the Action row', () => {
+    const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: ['Built APIs', 'Led migrations'] };
+    const md = generateProjectMarkdown(entry);
+    expect(md).toContain('Built APIs');
+    expect(md).toContain('Led migrations');
+  });
+
+  it('uses placeholder Action text when no bullets', () => {
+    const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: [] };
+    const md = generateProjectMarkdown(entry);
+    expect(md).toContain('_[Describe the specific steps you took]_');
+  });
+});
+
+describe('toProjectSlug', () => {
+  it('lowercases and replaces non-alphanumeric with hyphens', () => {
+    expect(toProjectSlug('Acme Corp')).toBe('acme-corp');
+    expect(toProjectSlug('Foo & Bar, Inc.')).toBe('foo-bar-inc');
+  });
+
+  it('strips leading and trailing hyphens', () => {
+    expect(toProjectSlug('  Acme  ')).toBe('acme');
+  });
+
+  it('sanitizes path traversal sequences — returns safe slug', () => {
+    expect(toProjectSlug('../../evil')).toBe('evil');
+    expect(toProjectSlug('../etc/passwd')).toBe('etc-passwd');
+  });
+
+  it('returns empty string for all-special-character company names', () => {
+    expect(toProjectSlug('...')).toBe('');
+    expect(toProjectSlug('---')).toBe('');
   });
 });
