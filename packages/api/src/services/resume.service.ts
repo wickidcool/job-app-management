@@ -24,8 +24,10 @@ export interface ParsedResume {
 
 export async function extractText(buffer: Buffer, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf') {
-    const pdfParse = await import('pdf-parse') as any;
-    const result = await pdfParse(buffer);
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    await parser.destroy();
     return result.text;
   }
 
