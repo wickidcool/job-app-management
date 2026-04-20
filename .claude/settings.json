@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app branch --show-current)",
+      "Bash(git -C /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app status --short)",
+      "Bash(git -C /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app rev-parse --short HEAD)",
+      "Bash(python3 /Users/alwick/.claude/skills/trycycle/orchestrator/run_phase.py prepare --template /Users/alwick/.claude/skills/trycycle/subagents/prompt-executing.md --set IMPLEMENTATION_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager.md --set TEST_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager-test-plan.md --set WORKTREE_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app)",
+      "Bash(python3 /Users/alwick/.claude/skills/trycycle/orchestrator/run_phase.py prepare --phase executing --workdir /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app --template /Users/alwick/.claude/skills/trycycle/subagents/prompt-executing.md --set IMPLEMENTATION_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager.md --set TEST_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager-test-plan.md --set WORKTREE_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app)",
+      "Read(//private/var/folders/q5/0wqvpw5s7kg4tx4p6kqcn2_80000gn/T/trycycle-phase-executing-w9ubb3k9/**)",
+      "Bash(npx vitest:*)",
+      "Bash(node -e \"const s = 'AI_API_KEY is required for Anthropic provider'; console.log\\(/API key/i.test\\(s\\)\\);\")",
+      "Bash(npx tsc:*)",
+      "Bash(npx playwright:*)",
+      "Bash(rm -rf /tmp/e2e-data)",
+      "Bash(mkdir -p /tmp/e2e-data/projects)",
+      "Read(//private/tmp/e2e-data/projects/**)",
+      "Bash(curl -s http://localhost:3001/api/v1/projects)",
+      "Bash(kill 49320)",
+      "Bash(npx vite:*)",
+      "Bash(git -C /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app add package.json packages/ .gitignore .env.example README.md)",
+      "Bash(git -C /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app add package-lock.json)",
+      "Bash(git -C /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app commit -m ':*)",
+      "Bash(git -C /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app diff --name-only main...HEAD)",
+      "Bash(python3 /Users/alwick/.claude/skills/trycycle/orchestrator/run_phase.py prepare --phase post-implementation-review --template /Users/alwick/.claude/skills/trycycle/subagents/prompt-post-impl-review.md --workdir /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app --set WORKTREE_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app --set IMPLEMENTATION_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager.md --set TEST_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager-test-plan.md)",
+      "Read(//private/var/folders/q5/0wqvpw5s7kg4tx4p6kqcn2_80000gn/T/trycycle-phase-post-implementation-review-mvudccap/**)",
+      "Bash(npm run:*)",
+      "Bash(python3 /Users/alwick/.claude/skills/trycycle/orchestrator/run_phase.py prepare --phase executing --template /Users/alwick/.claude/skills/trycycle/subagents/prompt-executing.md --workdir /Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app --set IMPLEMENTATION_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager.md --set TEST_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager-test-plan.md --set WORKTREE_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app --set-file POST_IMPLEMENTATION_REVIEW_OBSERVATIONS_JSON=/tmp/review-obs-extracted-1.json --ignore-tag-for-placeholders post_implementation_review_observations_json)",
+      "Read(//private/var/folders/q5/0wqvpw5s7kg4tx4p6kqcn2_80000gn/T/trycycle-phase-executing-q_hu_d3d/**)",
+      "Bash(python3 /Users/alwick/.claude/skills/trycycle/orchestrator/user-request-transcript/mark_with_canary.py)",
+      "Bash(python3 /Users/alwick/.claude/skills/trycycle/orchestrator/run_phase.py prepare executing --set IMPLEMENTATION_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager.md --set TEST_PLAN_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app/docs/plans/2026-04-03-job-app-manager-test-plan.md --set WORKTREE_PATH=/Users/alwick/development/projects/job-app-management/.worktrees/job-app-web-app --set-file POST_IMPLEMENTATION_REVIEW_OBSERVATIONS_JSON=/tmp/review_observations.json --ignore-tag-for-placeholders post_implementation_review_observations_json --transcript-cli claude-code --canary trycycle-canary-58696983467365741272)",
+      "Read(//Users/alwick/.claude/skills/trycycle/orchestrator/**)",
+      "Read(//Users/alwick/.claude/skills/trycycle/subagents/**)",
+      "Bash(python3 *)",
+      "Bash(git *)",
+      "Read(**)"
+    ]
+  }
+  
+}

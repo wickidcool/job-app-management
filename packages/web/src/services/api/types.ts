@@ -147,3 +147,22 @@ export interface DashboardResponse {
   stats: DashboardStats;
   recentActivity: ActivityItem[];
 }
+
+/**
+ * Resume entity from API
+ */
+export interface APIResume {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  uploadedAt: string; // ISO 8601
+  version: number;
+}
+
+/**
+ * List resumes response
+ */
+export interface ListResumesResponse {
+  resumes: APIResume[];
+}

@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 *.local
+packages/api/data/*
+
+# Environment files
+.env
+.env.local
+.env.*.local
 
 # CDK output
 cdk.out
@@ -19,6 +25,7 @@ cdk.out
 .vscode/*
 !.vscode/extensions.json
 .idea
+.history
 .DS_Store
 *.suo
 *.ntvs*

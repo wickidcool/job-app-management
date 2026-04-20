@@ -24,8 +24,10 @@ export interface ParsedResume {
 
 export async function extractText(buffer: Buffer, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf') {
-    const pdfParse = (await import('pdf-parse')).default;
-    const result = await pdfParse(buffer);
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    await parser.destroy();
     return result.text;
   }
 
@@ -137,6 +139,103 @@ export function generateStarMarkdown(parsed: ParsedResume, fileName: string): st
   return lines.join('\n');
 }
 
+export interface ExperienceEntry {
+  company: string;
+  role: string;
+  period: string;
+  bullets: string[];
+}
+
+export function extractExperienceEntries(parsed: ParsedResume): ExperienceEntry[] {
+  const entries: ExperienceEntry[] = [];
+
+  for (const section of parsed.sections) {
+    if (!/experience|employment|work/i.test(section.heading)) continue;
+
+    let currentEntry: ExperienceEntry | null = null;
+
+    for (const bullet of section.bullets) {
+      const isEntry = !bullet.startsWith('-') && !bullet.startsWith('•') && !bullet.startsWith('*') && !bullet.startsWith('·');
+
+      if (isEntry) {
+        if (currentEntry) entries.push(currentEntry);
+        const parts = bullet.split(/\s*[|–—]\s*/);
+        currentEntry = {
+          company: parts[0]?.trim() || bullet,
+          role: parts[1]?.trim() || '',
+          period: parts[2]?.trim() || '',
+          bullets: [],
+        };
+      } else if (currentEntry) {
+        currentEntry.bullets.push(bullet.replace(/^[-•*·]\s*/, ''));
+      }
+    }
+
+    if (currentEntry) entries.push(currentEntry);
+  }
+
+  return entries;
+}
+
+export function toProjectSlug(company: string): string {
+  return company
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export function generateProjectMarkdown(entry: ExperienceEntry): string {
+  const lines: string[] = [];
+
+  lines.push('---');
+  lines.push(`company: ${entry.company}`);
+  if (entry.role) lines.push(`role: ${entry.role}`);
+  if (entry.period) lines.push(`period: ${entry.period}`);
+  lines.push('industry: _[Industry / sector]_');
+  lines.push('tech: []');
+  lines.push('job_fit: []');
+  lines.push('tags: [star, resume, interview, prep]');
+  lines.push('---');
+  lines.push('');
+
+  const title = entry.role ? `${entry.company} — ${entry.role}` : entry.company;
+  lines.push(`# ${title}`);
+  if (entry.role && entry.period) {
+    lines.push(`**Role:** ${entry.role} | **Period:** ${entry.period} | **Industry:** _[Industry / sector]_`);
+  }
+  lines.push('');
+
+  if (entry.bullets.length > 0) {
+    lines.push('---');
+    lines.push('');
+    entry.bullets.forEach((b) => {
+      lines.push(`## ⭐ ${b}`);
+      lines.push('**Tech:** _[List relevant technologies]_');
+      lines.push('');
+      lines.push('| | |');
+      lines.push('|---|---|');
+      lines.push('| **Situation** | _[Describe the context and company challenge]_ |');
+      lines.push('| **Task** | _[Describe your responsibility]_ |');
+      lines.push(`| **Action** | ${b} |`);
+      lines.push('| **Result** | _[Quantify the outcome: metrics, impact, improvements]_ |');
+      lines.push('');
+    });
+  } else {
+    lines.push('---');
+    lines.push('');
+    lines.push('## ⭐ Key Accomplishments');
+    lines.push('');
+    lines.push('| | |');
+    lines.push('|---|---|');
+    lines.push('| **Situation** | _[Describe the context and company challenge]_ |');
+    lines.push('| **Task** | _[Describe your responsibility]_ |');
+    lines.push('| **Action** | _[Describe the specific steps you took]_ |');
+    lines.push('| **Result** | _[Quantify the outcome: metrics, impact, improvements]_ |');
+  }
+
+  return lines.join('\n');
+}
+
 function toDTO(r: typeof resumes.$inferSelect): ResumeDTO {
   return {
     id: r.id,
@@ -169,7 +268,7 @@ export async function uploadResume(
   }
 
   const config = getConfig();
-  const resumeDir = path.join(config.dataDir, 'resume-exports');
+  const resumeDir = path.join(config.dataDir, 'resumes');
   await fs.mkdir(resumeDir, { recursive: true });
 
   const resumeId = ulid();
@@ -216,10 +315,26 @@ export async function uploadResume(
     })
     .returning();
 
+  // Generate per-company/project markdown files under data/projects/{projectId}/
+  const experienceEntries = extractExperienceEntries(parsed);
+  for (const entry of experienceEntries) {
+    const projectId = toProjectSlug(entry.company) || resumeId;
+    const projectDir = path.join(config.dataDir, 'projects', projectId);
+    await fs.mkdir(projectDir, { recursive: true });
+    const projectMarkdown = generateProjectMarkdown(entry);
+    await fs.writeFile(path.join(projectDir, `resume-${resumeId}.md`), projectMarkdown, 'utf-8');
+  }
+
   return {
     resume: toDTO(resume),
     export: exportToDTO(resumeExport),
   };
+}
+
+export async function listResumes(): Promise<ResumeDTO[]> {
+  const db = getDb();
+  const allResumes = await db.select().from(resumes).orderBy(resumes.uploadedAt);
+  return allResumes.map(toDTO);
 }
 
 export async function listResumeExports(resumeId: string): Promise<ResumeExportDTO[]> {

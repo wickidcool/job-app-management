@@ -101,6 +101,16 @@ export class APIClient {
   }
 
   /**
+   * PUT request
+   */
+  async put<T>(endpoint: string, body?: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PUT',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  /**
    * PATCH request
    */
   async patch<T>(endpoint: string, body?: unknown): Promise<T> {
