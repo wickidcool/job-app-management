@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { uploadResume, listResumes, listResumeExports, getResumeExport } from '../services/resume.service.js';
+import { deleteResume } from '../services/project.service.js';
 import { AppError } from '../types/index.js';
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -59,4 +60,11 @@ export async function resumesRoutes(fastify: FastifyInstance) {
       return reply.send(exp);
     },
   );
+
+  // DELETE /api/resumes/:id
+  fastify.delete<{ Params: { id: string } }>('/resumes/:id', async (request, reply) => {
+    const { id } = request.params;
+    await deleteResume(id);
+    return reply.status(204).send();
+  });
 }
