@@ -323,22 +323,35 @@ export async function uploadResume(
   // Generate per-company/project markdown files under data/projects/{projectId}/
   // Try AI parsing first, fall back to heuristic parsing
   let usedAI = false;
-  if (isAIParserAvailable()) {
+  const aiAvailable = isAIParserAvailable();
+  console.log(`[resume.service] AI parser available: ${aiAvailable}`);
+
+  if (aiAvailable) {
     try {
+      console.log('[resume.service] Attempting AI parsing...');
       const aiResult = await parseResumeWithAI(rawText);
+
       if (aiResult && aiResult.projects.length > 0) {
+        console.log(`[resume.service] AI parser returned ${aiResult.projects.length} projects`);
         usedAI = true;
         for (const project of aiResult.projects) {
           const projectId = toProjectSlug(project.company) || resumeId;
           const projectDir = path.join(config.dataDir, 'projects', projectId);
           await fs.mkdir(projectDir, { recursive: true });
           const projectMarkdown = generateAIProjectMarkdown(project);
-          await fs.writeFile(path.join(projectDir, `resume-${resumeId}.md`), projectMarkdown, 'utf-8');
+          const projectFilePath = path.join(projectDir, `resume-${resumeId}.md`);
+          await fs.writeFile(projectFilePath, projectMarkdown, 'utf-8');
+          console.log(`[resume.service] Wrote project file: ${projectFilePath}`);
         }
+      } else {
+        console.log('[resume.service] AI parser returned no projects, falling back to heuristic parsing');
       }
-    } catch {
+    } catch (error) {
+      console.error('[resume.service] AI parsing failed:', error instanceof Error ? error.message : error);
       usedAI = false;
     }
+  } else {
+    console.log('[resume.service] AI parser not available (ANTHROPIC_API_KEY not set), using heuristic parsing');
   }
 
   if (!usedAI) {

@@ -76,8 +76,12 @@ function getClient(): Anthropic | null {
   if (client) return client;
 
   const config = getConfig();
-  if (!config.anthropicApiKey) return null;
+  if (!config.anthropicApiKey) {
+    console.log('[ai-parser] ANTHROPIC_API_KEY not configured');
+    return null;
+  }
 
+  console.log('[ai-parser] Initializing Anthropic client');
   client = new Anthropic({ apiKey: config.anthropicApiKey });
   return client;
 }
@@ -88,8 +92,12 @@ export function isAIParserAvailable(): boolean {
 
 export async function parseResumeWithAI(rawText: string): Promise<AIParseResult | null> {
   const anthropic = getClient();
-  if (!anthropic) return null;
+  if (!anthropic) {
+    console.log('[ai-parser] No Anthropic client available');
+    return null;
+  }
 
+  console.log('[ai-parser] Sending resume to Claude API...');
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
@@ -100,15 +108,29 @@ export async function parseResumeWithAI(rawText: string): Promise<AIParseResult 
       },
     ],
   });
+  console.log(`[ai-parser] Claude API response received, stop_reason: ${response.stop_reason}`);
 
   const textBlock = response.content.find((block) => block.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') return null;
+  if (!textBlock || textBlock.type !== 'text') {
+    console.log('[ai-parser] No text block in Claude response');
+    return null;
+  }
 
   const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
+  if (!jsonMatch) {
+    console.log('[ai-parser] Could not extract JSON from Claude response');
+    console.log('[ai-parser] Response preview:', textBlock.text.substring(0, 500));
+    return null;
+  }
 
-  const parsed = JSON.parse(jsonMatch[0]) as AIParseResult;
-  return parsed;
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as AIParseResult;
+    console.log(`[ai-parser] Parsed ${parsed.projects?.length ?? 0} projects from response`);
+    return parsed;
+  } catch (parseError) {
+    console.error('[ai-parser] Failed to parse JSON:', parseError);
+    throw parseError;
+  }
 }
 
 export function generateAIProjectMarkdown(project: AIProject): string {
