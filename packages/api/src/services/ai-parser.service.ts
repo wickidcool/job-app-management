@@ -25,7 +25,7 @@ export interface AIParseResult {
   summary: string;
 }
 
-const PARSE_PROMPT = `You are an expert resume parser. Extract structured project/experience data from the resume text below.
+const PARSE_PROMPT = `Parse this resume and generate markdown file text in STAR format for each project or companies I have worked for. Pull out multiple STAR items based on the current bullet points. Do not make up situations.
 
 For each job/project, identify:
 - Company name
@@ -33,7 +33,7 @@ For each job/project, identify:
 - Time period
 - Industry/sector
 - Technologies used
-- Key accomplishments in STAR format (Situation, Task, Action, Result)
+- Multiple STAR accomplishments derived from each bullet point in the resume
 
 Output valid JSON matching this schema:
 {
@@ -61,10 +61,10 @@ Output valid JSON matching this schema:
 }
 
 Rules:
-- Extract real data from the resume, do not invent information
-- If a field is unclear, use a reasonable inference or leave empty string
-- For accomplishments, try to infer STAR components even if not explicitly stated
-- Quantify results where possible (%, $, time saved, users impacted)
+- Do NOT make up situations - only extract what is stated or clearly implied in the resume
+- Create a separate STAR accomplishment for each bullet point in the experience section
+- If a field is unclear, leave it as an empty string rather than inventing information
+- Quantify results where possible (%, $, time saved, users impacted) but only if the data is present
 - Technologies should be specific (not just "programming" but "Python", "React", etc.)
 
 Resume text:
