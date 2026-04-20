@@ -6,6 +6,11 @@ import { getDb } from '../db/client.js';
 import { resumes, resumeExports } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
+import {
+  parseResumeWithAI,
+  generateAIProjectMarkdown,
+  isAIParserAvailable,
+} from './ai-parser.service.js';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -316,13 +321,35 @@ export async function uploadResume(
     .returning();
 
   // Generate per-company/project markdown files under data/projects/{projectId}/
-  const experienceEntries = extractExperienceEntries(parsed);
-  for (const entry of experienceEntries) {
-    const projectId = toProjectSlug(entry.company) || resumeId;
-    const projectDir = path.join(config.dataDir, 'projects', projectId);
-    await fs.mkdir(projectDir, { recursive: true });
-    const projectMarkdown = generateProjectMarkdown(entry);
-    await fs.writeFile(path.join(projectDir, `resume-${resumeId}.md`), projectMarkdown, 'utf-8');
+  // Try AI parsing first, fall back to heuristic parsing
+  let usedAI = false;
+  if (isAIParserAvailable()) {
+    try {
+      const aiResult = await parseResumeWithAI(rawText);
+      if (aiResult && aiResult.projects.length > 0) {
+        usedAI = true;
+        for (const project of aiResult.projects) {
+          const projectId = toProjectSlug(project.company) || resumeId;
+          const projectDir = path.join(config.dataDir, 'projects', projectId);
+          await fs.mkdir(projectDir, { recursive: true });
+          const projectMarkdown = generateAIProjectMarkdown(project);
+          await fs.writeFile(path.join(projectDir, `resume-${resumeId}.md`), projectMarkdown, 'utf-8');
+        }
+      }
+    } catch {
+      usedAI = false;
+    }
+  }
+
+  if (!usedAI) {
+    const experienceEntries = extractExperienceEntries(parsed);
+    for (const entry of experienceEntries) {
+      const projectId = toProjectSlug(entry.company) || resumeId;
+      const projectDir = path.join(config.dataDir, 'projects', projectId);
+      await fs.mkdir(projectDir, { recursive: true });
+      const projectMarkdown = generateProjectMarkdown(entry);
+      await fs.writeFile(path.join(projectDir, `resume-${resumeId}.md`), projectMarkdown, 'utf-8');
+    }
   }
 
   return {
