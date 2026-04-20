@@ -4,7 +4,10 @@ import { getConfig } from './config.js';
 import { closeDb } from './db/client.js';
 
 const config = getConfig();
-console.log(`[startup] ANTHROPIC_API_KEY configured: ${!!config.anthropicApiKey}`);
+const keyPreview = config.anthropicApiKey
+  ? `${config.anthropicApiKey.substring(0, 10)}...${config.anthropicApiKey.substring(config.anthropicApiKey.length - 4)} (len: ${config.anthropicApiKey.length})`
+  : 'not set';
+console.log(`[startup] ANTHROPIC_API_KEY: ${keyPreview}`);
 const app = buildApp({ logger: config.nodeEnv !== 'test' });
 
 const shutdown = async () => {
