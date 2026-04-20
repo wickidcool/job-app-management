@@ -4,6 +4,7 @@ import { getConfig } from './config.js';
 import { closeDb } from './db/client.js';
 
 const config = getConfig();
+console.log(`[startup] ANTHROPIC_API_KEY configured: ${!!config.anthropicApiKey}`);
 const app = buildApp({ logger: config.nodeEnv !== 'test' });
 
 const shutdown = async () => {
