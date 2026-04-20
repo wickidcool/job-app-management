@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { EmptyState } from '../components/EmptyState';
-import { useResumes } from '../hooks/useResumes';
+import { ConfirmationModal } from '../components/ConfirmationModal';
+import { useResumes, useDeleteResume } from '../hooks/useResumes';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -20,6 +22,12 @@ function formatDate(date: Date): string {
 
 export function ResumeManager() {
   const { data: resumes, isLoading, error } = useResumes();
+  const deleteResume = useDeleteResume();
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [resumeToDelete, setResumeToDelete] = useState<{
+    id: string;
+    fileName: string;
+  } | null>(null);
 
   const breadcrumbTrail = [
     { label: 'Dashboard', href: '/', icon: '🏠' },
@@ -27,6 +35,29 @@ export function ResumeManager() {
   ];
 
   const hasResumes = resumes && resumes.length > 0;
+
+  const handleDeleteClick = (id: string, fileName: string) => {
+    setResumeToDelete({ id, fileName });
+    setDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!resumeToDelete) return;
+
+    try {
+      await deleteResume.mutateAsync(resumeToDelete.id);
+      setDeleteModalOpen(false);
+      setResumeToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete resume:', error);
+      alert('Failed to delete resume. Please try again.');
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteModalOpen(false);
+    setResumeToDelete(null);
+  };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -88,12 +119,30 @@ export function ResumeManager() {
                   >
                     View Exports
                   </Link>
+                  <button
+                    onClick={() => handleDeleteClick(resume.id, resume.fileName)}
+                    className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                    title="Delete resume"
+                  >
+                    🗑️ Delete
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        title="Delete Resume"
+        message={`Are you sure you want to delete "${resumeToDelete?.fileName}"?\n\n⚠️ Warning: This will also delete all associated project markdown files generated from this resume. This action cannot be undone.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </div>
   );
 }

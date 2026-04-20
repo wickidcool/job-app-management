@@ -17,6 +17,7 @@ import { createAPIClient } from './apiClient';
 import { createApplicationService } from './applicationService';
 import { createDashboardService } from './dashboardService';
 import { createResumeService } from './resumeService';
+import { createProjectService } from './projectService';
 
 // API Configuration
 // Local backend runs on port 3000
@@ -41,10 +42,12 @@ export const apiClient = createAPIClient({
 export const applicationService = createApplicationService(apiClient);
 export const dashboardService = createDashboardService(apiClient);
 export const resumeService = createResumeService(apiClient);
+export const projectService = createProjectService(apiClient);
 
 // Re-export types for convenience
 export type { ApplicationService } from './applicationService';
 export type { APIClient, APIError } from './apiClient';
 export type { DashboardService } from './dashboardService';
 export type { ResumeService, Resume } from './resumeService';
+export type { ProjectService, Project, ProjectFile } from './projectService';
 export type * from './types';

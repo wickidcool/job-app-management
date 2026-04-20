@@ -29,6 +29,7 @@ export function TopNavigation({
       path: '/resumes',
       badge: exportCount,
     },
+    { label: 'Projects', path: '/projects' },
     { label: 'Settings', path: '/settings' },
   ];
 

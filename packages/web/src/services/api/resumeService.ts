@@ -32,6 +32,10 @@ export class ResumeService {
     const response = await this.client.get<ListResumesResponse>('/resumes');
     return response.resumes.map(transformAPIResume);
   }
+
+  async delete(id: string): Promise<void> {
+    await this.client.delete(`/resumes/${id}`);
+  }
 }
 
 export function createResumeService(client: APIClient): ResumeService {

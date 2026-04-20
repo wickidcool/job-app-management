@@ -7,6 +7,9 @@ import { ApplicationDetail } from './pages/ApplicationDetail';
 import { ResumeManager } from './pages/ResumeManager';
 import { ResumeUpload } from './pages/ResumeUpload';
 import { ResumeExports } from './pages/ResumeExports';
+import { ProjectsList } from './pages/ProjectsList';
+import { ProjectDetail } from './pages/ProjectDetail';
+import { ProjectFileEditor } from './pages/ProjectFileEditor';
 import { Settings } from './pages/Settings';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
@@ -45,6 +48,12 @@ function App() {
             <Route path="/resumes" element={<ResumeManager />} />
             <Route path="/resumes/upload" element={<ResumeUpload />} />
             <Route path="/resumes/exports" element={<ResumeExports />} />
+            <Route path="/projects" element={<ProjectsList />} />
+            <Route path="/projects/:projectId" element={<ProjectDetail />} />
+            <Route
+              path="/projects/:projectId/files/:fileName"
+              element={<ProjectFileEditor />}
+            />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
