@@ -42,7 +42,7 @@ export function ResumeUpload({
     console.log('[ResumeUpload] uploadState changed to:', uploadState);
   }, [uploadState]);
 
-  const validateFile = (file: File): string | null => {
+  const validateFile = useCallback((file: File): string | null => {
     // Check file size
     const maxBytes = maxFileSizeMB * 1024 * 1024;
     if (file.size > maxBytes) {
@@ -56,9 +56,9 @@ export function ResumeUpload({
     }
 
     return null;
-  };
+  }, [maxFileSizeMB, acceptedFormats]);
 
-  const uploadFile = async (file: File) => {
+  const uploadFile = useCallback(async (file: File) => {
     console.log('[ResumeUpload] Starting upload for file:', file.name);
     setFileName(file.name);
     console.log('[ResumeUpload] Setting uploadState to uploading');
@@ -140,7 +140,7 @@ export function ResumeUpload({
       setUploadState('error');
       onUploadError(error instanceof Error ? error : new Error(message));
     }
-  };
+  }, [onUploadComplete, onUploadError]);
 
   const handleFileSelect = useCallback(
     (file: File) => {
@@ -153,7 +153,7 @@ export function ResumeUpload({
 
       uploadFile(file);
     },
-    [maxFileSizeMB, acceptedFormats]
+    [validateFile, uploadFile]
   );
 
   const handleDrop = useCallback(
