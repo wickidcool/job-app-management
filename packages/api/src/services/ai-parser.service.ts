@@ -82,7 +82,11 @@ function getClient(): Anthropic | null {
   }
 
   const key = config.anthropicApiKey;
-  console.log(`[ai-parser] Initializing Anthropic client with key: ${key.substring(0, 15)}...${key.substring(key.length - 4)} (len: ${key.length})`);
+  // Log environment vs config key to check for conflicts
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  console.log(`[ai-parser] Env key: ${envKey ? envKey.substring(0, 15) + '...' + envKey.substring(envKey.length - 4) : 'not set'} (len: ${envKey?.length ?? 0})`);
+  console.log(`[ai-parser] Config key: ${key.substring(0, 15)}...${key.substring(key.length - 4)} (len: ${key.length})`);
+  // Explicitly pass apiKey to override any env var the SDK might find
   client = new Anthropic({ apiKey: key });
   return client;
 }
