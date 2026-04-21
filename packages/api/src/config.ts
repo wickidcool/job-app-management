@@ -11,13 +11,17 @@ let _config: Config | null = null;
 
 export function getConfig(): Config {
   if (!_config) {
+    // Trim API key to remove invisible characters (Windows line endings, trailing spaces)
+    const rawKey = process.env.ANTHROPIC_API_KEY;
+    const cleanKey = rawKey ? rawKey.trim().replace(/^["']|["']$/g, '') : null;
+
     _config = {
       port: parseInt(process.env.PORT ?? '3000', 10),
       host: process.env.HOST ?? '127.0.0.1',
       databaseUrl: process.env.DATABASE_URL ?? '',
       dataDir: process.env.DATA_DIR ?? './data',
       nodeEnv: process.env.NODE_ENV ?? 'development',
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY || null,
+      anthropicApiKey: cleanKey || null,
     };
   }
   return _config;
