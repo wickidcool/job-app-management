@@ -108,7 +108,7 @@ describe('Project Routes', () => {
   });
 
   describe('GET /api/projects/:projectId/files/:fileName', () => {
-    it('returns 200 with file content as plain text', async () => {
+    it('returns 200 with file content as JSON', async () => {
       const content = '# Resume\n\nSome content';
       vi.mocked(projectService.getProjectFile).mockResolvedValue(content);
 
@@ -118,8 +118,7 @@ describe('Project Routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.body).toBe(content);
-      expect(response.headers['content-type']).toMatch(/text\/plain/);
+      expect(response.json()).toEqual({ content });
       expect(projectService.getProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
