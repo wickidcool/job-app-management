@@ -102,8 +102,8 @@ export async function parseResumeWithAI(rawText: string): Promise<AIParseResult 
     return null;
   }
 
-  console.log('[ai-parser] Sending resume to Claude API...');
-  const response = await anthropic.messages.create({
+  console.log('[ai-parser] Sending resume to Claude API (streaming)...');
+  const stream = anthropic.messages.stream({
     model: 'claude-sonnet-4-6',
     max_tokens: 32768,
     messages: [
@@ -113,9 +113,11 @@ export async function parseResumeWithAI(rawText: string): Promise<AIParseResult 
       },
     ],
   });
+
+  const response = await stream.finalMessage();
   console.log(`[ai-parser] Claude API response received, stop_reason: ${response.stop_reason}`);
   console.log(`[ai-parser] Response content blocks: ${response.content.map((b) => b.type).join(', ')}`);
-  
+
   const textBlock = response.content.find((block) => block.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {
     console.log('[ai-parser] No text block in Claude response');
