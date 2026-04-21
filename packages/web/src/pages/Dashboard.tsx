@@ -3,14 +3,16 @@ import { DashboardStats } from '../components/DashboardStats';
 import { DashboardResumeWidget } from '../components/DashboardResumeWidget';
 import { useApplications } from '../hooks/useApplications';
 import { useDashboard } from '../hooks/useDashboard';
+import { useResumes } from '../hooks/useResumes';
 import type { ApplicationStatus } from '../types/application';
 
 export function Dashboard() {
   const { data: applications = [], isLoading: applicationsLoading } =
     useApplications();
   const { data: dashboardData, isLoading: dashboardLoading } = useDashboard();
+  const { data: resumes = [], isLoading: resumesLoading } = useResumes();
 
-  const loading = applicationsLoading || dashboardLoading;
+  const loading = applicationsLoading || dashboardLoading || resumesLoading;
 
   const stats = dashboardData?.stats || {
     total: applications.length,
@@ -79,8 +81,8 @@ export function Dashboard() {
         </div>
 
         <DashboardResumeWidget
-          masterResumeCount={0}
-          exportCount={0}
+          masterResumeCount={resumes.length}
+          exportCount={resumes.length}
           loading={loading}
         />
 
