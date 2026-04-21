@@ -132,33 +132,72 @@ export async function getProjectBySlug(slug: string): Promise<ProjectMeta> {
     .where(eq(projects.slug, slug))
     .limit(1);
 
-  if (!project) {
+  if (project) {
+    const fileCount = await getFileCount(project.slug);
+    return {
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      description: project.description,
+      fileCount,
+      createdAt: project.createdAt.toISOString(),
+      updatedAt: project.updatedAt.toISOString(),
+      version: project.version,
+    };
+  }
+
+  // Fallback to filesystem-only project
+  const dir = safeJoin(projectsDir(), slug);
+  const stat = await fs.stat(dir).catch(() => null);
+  if (!stat?.isDirectory()) {
     throw new NotFoundError('Project');
   }
 
-  const fileCount = await getFileCount(project.slug);
+  const files = await fs.readdir(dir).catch(() => [] as string[]);
+  const mdFiles = files.filter((f) => f.endsWith('.md'));
+
+  const mtimes = await Promise.all(
+    mdFiles.map((f) => fs.stat(path.join(dir, f)).catch(() => null)),
+  );
+  const latest = mtimes.reduce<Date | null>((max, s) => {
+    if (!s) return max;
+    return !max || s.mtime > max ? s.mtime : max;
+  }, null);
 
   return {
-    id: project.id,
-    name: project.name,
-    slug: project.slug,
-    description: project.description,
-    fileCount,
-    createdAt: project.createdAt.toISOString(),
-    updatedAt: project.updatedAt.toISOString(),
-    version: project.version,
+    id: slug,
+    name: slugToName(slug),
+    slug,
+    description: null,
+    fileCount: mdFiles.length,
+    createdAt: stat.birthtime.toISOString(),
+    updatedAt: (latest ?? stat.mtime).toISOString(),
+    version: 1,
   };
+}
+
+function slugToName(slug: string): string {
+  return slug
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 export async function listProjects(): Promise<ProjectMeta[]> {
   const db = getDb();
-  const allProjects = await db
+  const dir = projectsDir();
+
+  // Get projects from database
+  const dbProjects = await db
     .select()
     .from(projects)
     .orderBy(desc(projects.updatedAt));
 
+  const dbSlugs = new Set(dbProjects.map((p) => p.slug));
   const result: ProjectMeta[] = [];
-  for (const project of allProjects) {
+
+  // Add database projects
+  for (const project of dbProjects) {
     const fileCount = await getFileCount(project.slug);
     result.push({
       id: project.id,
@@ -172,7 +211,45 @@ export async function listProjects(): Promise<ProjectMeta[]> {
     });
   }
 
-  return result;
+  // Discover filesystem-only projects (backwards compatibility)
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    // No projects directory yet
+  }
+
+  for (const entry of entries) {
+    if (entry === 'index.md' || dbSlugs.has(entry)) continue;
+    const entryPath = path.join(dir, entry);
+    const stat = await fs.stat(entryPath).catch(() => null);
+    if (!stat?.isDirectory()) continue;
+
+    const files = await fs.readdir(entryPath).catch(() => [] as string[]);
+    const mdFiles = files.filter((f) => f.endsWith('.md'));
+    if (mdFiles.length === 0) continue;
+
+    const mtimes = await Promise.all(
+      mdFiles.map((f) => fs.stat(path.join(entryPath, f)).catch(() => null)),
+    );
+    const latest = mtimes.reduce<Date | null>((max, s) => {
+      if (!s) return max;
+      return !max || s.mtime > max ? s.mtime : max;
+    }, null);
+
+    result.push({
+      id: entry,
+      name: slugToName(entry),
+      slug: entry,
+      description: null,
+      fileCount: mdFiles.length,
+      createdAt: stat.birthtime.toISOString(),
+      updatedAt: (latest ?? stat.mtime).toISOString(),
+      version: 1,
+    });
+  }
+
+  return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
