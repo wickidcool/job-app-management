@@ -128,6 +128,13 @@ export class NotFoundError extends AppError {
   }
 }
 
+export class ConflictError extends AppError {
+  constructor(message: string) {
+    super('CONFLICT', message, undefined, 409);
+    this.name = 'ConflictError';
+  }
+}
+
 export class VersionConflictError extends AppError {
   constructor() {
     super('VERSION_CONFLICT', 'Application was modified by another request', undefined, 409);

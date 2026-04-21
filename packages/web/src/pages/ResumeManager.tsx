@@ -136,7 +136,7 @@ export function ResumeManager() {
       <ConfirmationModal
         isOpen={deleteModalOpen}
         title="Delete Resume"
-        message={`Are you sure you want to delete "${resumeToDelete?.fileName}"?\n\n⚠️ Warning: This will also delete all associated project markdown files generated from this resume. This action cannot be undone.`}
+        message={`Are you sure you want to delete "${resumeToDelete?.fileName}"? This action cannot be undone.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         variant="danger"

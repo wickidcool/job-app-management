@@ -11,6 +11,7 @@ import {
   generateAIProjectMarkdown,
   isAIParserAvailable,
 } from './ai-parser.service.js';
+import { getOrCreateProjectBySlug } from './project.service.js';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -320,7 +321,8 @@ export async function uploadResume(
     })
     .returning();
 
-  // Generate per-company/project markdown files under data/projects/{projectId}/
+  // Generate per-company/project markdown files under data/projects/{projectSlug}/
+  // Projects are created as independent entities in the database
   // Try AI parsing first, fall back to heuristic parsing
   let usedAI = false;
   const aiAvailable = isAIParserAvailable();
@@ -334,12 +336,13 @@ export async function uploadResume(
       if (aiResult && aiResult.projects.length > 0) {
         console.log(`[resume.service] AI parser returned ${aiResult.projects.length} projects`);
         usedAI = true;
-        for (const project of aiResult.projects) {
-          const projectId = toProjectSlug(project.company) || resumeId;
-          const projectDir = path.join(config.dataDir, 'projects', projectId);
+        for (const aiProject of aiResult.projects) {
+          const slug = toProjectSlug(aiProject.company) || resumeId;
+          const project = await getOrCreateProjectBySlug(slug, aiProject.company);
+          const projectDir = path.join(config.dataDir, 'projects', project.slug);
           await fs.mkdir(projectDir, { recursive: true });
-          const projectMarkdown = generateAIProjectMarkdown(project);
-          const projectFilePath = path.join(projectDir, `resume-${resumeId}.md`);
+          const projectMarkdown = generateAIProjectMarkdown(aiProject);
+          const projectFilePath = path.join(projectDir, `${fileName.replace(/\.[^.]+$/, '')}.md`);
           await fs.writeFile(projectFilePath, projectMarkdown, 'utf-8');
           console.log(`[resume.service] Wrote project file: ${projectFilePath}`);
         }
@@ -357,11 +360,12 @@ export async function uploadResume(
   if (!usedAI) {
     const experienceEntries = extractExperienceEntries(parsed);
     for (const entry of experienceEntries) {
-      const projectId = toProjectSlug(entry.company) || resumeId;
-      const projectDir = path.join(config.dataDir, 'projects', projectId);
+      const slug = toProjectSlug(entry.company) || resumeId;
+      const project = await getOrCreateProjectBySlug(slug, entry.company);
+      const projectDir = path.join(config.dataDir, 'projects', project.slug);
       await fs.mkdir(projectDir, { recursive: true });
       const projectMarkdown = generateProjectMarkdown(entry);
-      await fs.writeFile(path.join(projectDir, `resume-${resumeId}.md`), projectMarkdown, 'utf-8');
+      await fs.writeFile(path.join(projectDir, `${fileName.replace(/\.[^.]+$/, '')}.md`), projectMarkdown, 'utf-8');
     }
   }
 
@@ -412,4 +416,25 @@ export async function getResumeExport(resumeId: string, exportId: string): Promi
   }
 
   return exportToDTO(exp);
+}
+
+export async function deleteResume(resumeId: string): Promise<void> {
+  const db = getDb();
+  const [resume] = await db.select().from(resumes).where(eq(resumes.id, resumeId)).limit(1);
+  if (!resume) throw new NotFoundError('Resume');
+
+  // Delete resume file
+  await fs.unlink(resume.filePath).catch(() => null);
+
+  // Delete exports (cascade will handle DB records, but we need to delete files)
+  const exports = await db
+    .select()
+    .from(resumeExports)
+    .where(eq(resumeExports.resumeId, resumeId));
+  for (const exp of exports) {
+    await fs.unlink(exp.filePath).catch(() => null);
+  }
+
+  // Delete DB record (cascade deletes resume_exports)
+  await db.delete(resumes).where(eq(resumes.id, resumeId));
 }

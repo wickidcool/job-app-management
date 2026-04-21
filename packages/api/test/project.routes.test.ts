@@ -6,8 +6,13 @@ vi.mock('../src/services/project.service.js', () => ({
   listProjectFiles: vi.fn(),
   getProjectFile: vi.fn(),
   updateProjectFile: vi.fn(),
-  deleteResume: vi.fn(),
   generateProjectIndex: vi.fn(),
+  createProject: vi.fn(),
+  getProject: vi.fn(),
+  getProjectBySlug: vi.fn(),
+  deleteProject: vi.fn(),
+  createProjectFile: vi.fn(),
+  deleteProjectFile: vi.fn(),
 }));
 
 vi.mock('../src/services/resume.service.js', () => ({
@@ -15,6 +20,7 @@ vi.mock('../src/services/resume.service.js', () => ({
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
   getResumeExport: vi.fn(),
+  deleteResume: vi.fn(),
 }));
 
 vi.mock('../src/services/application.service.js', () => ({
@@ -31,6 +37,7 @@ vi.mock('../src/services/dashboard.service.js', () => ({
 }));
 
 import * as projectService from '../src/services/project.service.js';
+import * as resumeService from '../src/services/resume.service.js';
 import { NotFoundError } from '../src/types/index.js';
 
 const mockProject = {
@@ -185,7 +192,7 @@ describe('Project Routes', () => {
 
   describe('DELETE /api/resumes/:id', () => {
     it('returns 204 on successful delete', async () => {
-      vi.mocked(projectService.deleteResume).mockResolvedValue(undefined);
+      vi.mocked(resumeService.deleteResume).mockResolvedValue(undefined);
 
       const response = await app.inject({
         method: 'DELETE',
@@ -193,11 +200,11 @@ describe('Project Routes', () => {
       });
 
       expect(response.statusCode).toBe(204);
-      expect(projectService.deleteResume).toHaveBeenCalledWith('01HXTEST000000000000000001');
+      expect(resumeService.deleteResume).toHaveBeenCalledWith('01HXTEST000000000000000001');
     });
 
     it('returns 404 when resume not found', async () => {
-      vi.mocked(projectService.deleteResume).mockRejectedValue(new NotFoundError('Resume'));
+      vi.mocked(resumeService.deleteResume).mockRejectedValue(new NotFoundError('Resume'));
 
       const response = await app.inject({
         method: 'DELETE',

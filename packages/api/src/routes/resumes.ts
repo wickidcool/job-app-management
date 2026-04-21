@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
-import { uploadResume, listResumes, listResumeExports, getResumeExport } from '../services/resume.service.js';
-import { deleteResume } from '../services/project.service.js';
+import { uploadResume, listResumes, listResumeExports, getResumeExport, deleteResume } from '../services/resume.service.js';
 import { AppError } from '../types/index.js';
 import { getConfig } from '../config.js';
 

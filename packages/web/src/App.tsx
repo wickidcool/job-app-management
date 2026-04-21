@@ -4,6 +4,7 @@ import { MobileNavigation } from './components/MobileNavigation';
 import { Dashboard } from './pages/Dashboard';
 import { ApplicationsList } from './pages/ApplicationsList';
 import { ApplicationDetail } from './pages/ApplicationDetail';
+import { ApplicationNew } from './pages/ApplicationNew';
 import { ResumeManager } from './pages/ResumeManager';
 import { ResumeUpload } from './pages/ResumeUpload';
 import { ResumeExports } from './pages/ResumeExports';
@@ -44,6 +45,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/applications" element={<ApplicationsList />} />
+            <Route path="/applications/new" element={<ApplicationNew />} />
             <Route path="/applications/:id" element={<ApplicationDetail />} />
             <Route path="/resumes" element={<ResumeManager />} />
             <Route path="/resumes/upload" element={<ResumeUpload />} />
