@@ -71,7 +71,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { projectId, fileName } = request.params;
       const content = await getProjectFile(projectId, fileName);
-      return reply.type('text/plain').send(content);
+      return reply.send({ content });
     },
   );
 

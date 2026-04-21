@@ -104,7 +104,10 @@ export class ProjectService {
   }
 
   async getProjectFile(slug: string, fileName: string): Promise<string> {
-    return await this.client.get<string>(`/projects/${slug}/files/${fileName}`);
+    const response = await this.client.get<{ content: string }>(
+      `/projects/${slug}/files/${fileName}`,
+    );
+    return response.content;
   }
 
   async updateProjectFile(slug: string, fileName: string, content: string): Promise<void> {
