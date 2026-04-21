@@ -81,8 +81,9 @@ function getClient(): Anthropic | null {
     return null;
   }
 
-  console.log('[ai-parser] Initializing Anthropic client');
-  client = new Anthropic({ apiKey: config.anthropicApiKey });
+  const key = config.anthropicApiKey;
+  console.log(`[ai-parser] Initializing Anthropic client with key: ${key.substring(0, 15)}...${key.substring(key.length - 4)} (len: ${key.length})`);
+  client = new Anthropic({ apiKey: key });
   return client;
 }
 
