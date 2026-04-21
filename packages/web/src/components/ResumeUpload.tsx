@@ -83,23 +83,26 @@ export function ResumeUpload({
             totalBytes: e.total,
             percentage,
           });
+
+          // Transition to processing state when upload reaches 100%
+          if (percentage === 100) {
+            console.log('[ResumeUpload] Upload complete, transitioning to processing state');
+            setUploadState('processing');
+          }
         }
       });
 
       xhr.addEventListener('load', () => {
         console.log('[ResumeUpload] XHR load event fired, status:', xhr.status);
         if (xhr.status >= 200 && xhr.status < 300) {
-          // Ensure uploading state is visible for at least 500ms
-          const MIN_UPLOAD_DISPLAY_MS = 500;
+          // Ensure processing state is visible for at least 800ms
+          const MIN_PROCESSING_DISPLAY_MS = 800;
           const elapsedTime = Date.now() - uploadStartTimeRef.current;
-          const remainingTime = Math.max(0, MIN_UPLOAD_DISPLAY_MS - elapsedTime);
+          const remainingTime = Math.max(0, MIN_PROCESSING_DISPLAY_MS - elapsedTime);
 
-          console.log('[ResumeUpload] Upload elapsed time:', elapsedTime, 'ms, waiting', remainingTime, 'ms more');
+          console.log('[ResumeUpload] Processing complete, elapsed time:', elapsedTime, 'ms, waiting', remainingTime, 'ms more');
 
           setTimeout(() => {
-            console.log('[ResumeUpload] Setting uploadState to processing');
-            setUploadState('processing');
-
             const response = JSON.parse(xhr.responseText);
             const parsed: ParsedResume = {
               id: response.id,
@@ -111,6 +114,7 @@ export function ResumeUpload({
             };
 
             setParsedData(parsed);
+            console.log('[ResumeUpload] Setting uploadState to complete');
             setUploadState('complete');
             onUploadComplete(response.id, parsed);
           }, remainingTime);
