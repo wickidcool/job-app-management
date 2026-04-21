@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useProjectFile, useUpdateProjectFile } from '../hooks/useProjects';
@@ -13,12 +13,6 @@ export function ProjectFileEditor() {
   const [showPreview, setShowPreview] = useState(false);
 
   const projectName = projectId ? decodeURIComponent(projectId).replace(/-/g, ' ') : '';
-
-  useEffect(() => {
-    if (content !== undefined) {
-      setEditedContent(content);
-    }
-  }, [content]);
 
   const handleSave = async () => {
     if (!projectId || !fileName) return;
@@ -89,7 +83,10 @@ export function ProjectFileEditor() {
             </>
           ) : (
             <button
-              onClick={() => setEditMode(true)}
+              onClick={() => {
+                setEditedContent(content || '');
+                setEditMode(true);
+              }}
               className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
             >
               Edit
