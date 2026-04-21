@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useProjectFile, useUpdateProjectFile } from '../hooks/useProjects';
 
@@ -146,7 +147,7 @@ export function ProjectFileEditor() {
             </Link>
             <div className="rounded-lg border border-neutral-200 bg-white p-6">
               <div className="prose prose-sm max-w-none">
-                <Markdown>{content || ''}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm]}>{content || ''}</Markdown>
               </div>
             </div>
           </div>
@@ -157,7 +158,7 @@ export function ProjectFileEditor() {
             <label className="mb-2 block text-sm font-medium text-neutral-700">Preview</label>
             <div className="h-[600px] overflow-auto rounded-lg border border-neutral-200 bg-white p-6">
               <div className="prose prose-sm max-w-none">
-                <Markdown>{editedContent}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm]}>{editedContent}</Markdown>
               </div>
             </div>
           </div>
