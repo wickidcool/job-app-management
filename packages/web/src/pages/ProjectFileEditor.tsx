@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkFrontmatter from 'remark-frontmatter';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useProjectFile, useUpdateProjectFile } from '../hooks/useProjects';
 
@@ -13,12 +16,6 @@ export function ProjectFileEditor() {
   const [showPreview, setShowPreview] = useState(false);
 
   const projectName = projectId ? decodeURIComponent(projectId).replace(/-/g, ' ') : '';
-
-  useEffect(() => {
-    if (content !== undefined) {
-      setEditedContent(content);
-    }
-  }, [content]);
 
   const handleSave = async () => {
     if (!projectId || !fileName) return;
@@ -89,7 +86,10 @@ export function ProjectFileEditor() {
             </>
           ) : (
             <button
-              onClick={() => setEditMode(true)}
+              onClick={() => {
+                setEditedContent(content || '');
+                setEditMode(true);
+              }}
               className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
             >
               Edit
@@ -147,9 +147,9 @@ export function ProjectFileEditor() {
               Back to {projectName}
             </Link>
             <div className="rounded-lg border border-neutral-200 bg-white p-6">
-              <pre className="whitespace-pre-wrap font-mono text-sm text-neutral-900">
-                {content}
-              </pre>
+              <div className="prose prose-sm max-w-none">
+                <Markdown remarkPlugins={[remarkFrontmatter, remarkGfm]}>{content || ''}</Markdown>
+              </div>
             </div>
           </div>
         )}
@@ -159,12 +159,7 @@ export function ProjectFileEditor() {
             <label className="mb-2 block text-sm font-medium text-neutral-700">Preview</label>
             <div className="h-[600px] overflow-auto rounded-lg border border-neutral-200 bg-white p-6">
               <div className="prose prose-sm max-w-none">
-                <pre className="whitespace-pre-wrap font-mono text-sm text-neutral-900">
-                  {editedContent}
-                </pre>
-                <p className="mt-4 text-xs text-neutral-500">
-                  Note: Install a markdown renderer (e.g., react-markdown) for formatted preview
-                </p>
+                <Markdown remarkPlugins={[remarkFrontmatter, remarkGfm]}>{editedContent}</Markdown>
               </div>
             </div>
           </div>

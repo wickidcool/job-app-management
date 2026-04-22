@@ -49,5 +49,5 @@ export type { ApplicationService } from './applicationService';
 export type { APIClient, APIError } from './apiClient';
 export type { DashboardService } from './dashboardService';
 export type { ResumeService, Resume } from './resumeService';
-export type { ProjectService, Project, ProjectFile } from './projectService';
+export type { ProjectService, Project, ProjectFile, CreateProjectInput } from './projectService';
 export type * from './types';

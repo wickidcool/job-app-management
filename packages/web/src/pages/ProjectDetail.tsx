@@ -64,7 +64,7 @@ export function ProjectDetail() {
                   <div>
                     <h3 className="font-semibold text-neutral-900">{file.fileName}</h3>
                     <p className="mt-1 text-sm text-neutral-600">
-                      Resume ID: {file.resumeId}
+                      {(file.size / 1024).toFixed(1)} KB
                     </p>
                   </div>
                 </div>

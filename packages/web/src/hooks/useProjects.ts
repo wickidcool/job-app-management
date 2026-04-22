@@ -1,15 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { projectService } from '../services/api';
+import { projectService, type CreateProjectInput } from '../services/api';
 
 export const projectKeys = {
   all: ['projects'] as const,
   lists: () => [...projectKeys.all, 'list'] as const,
   list: () => [...projectKeys.lists()] as const,
   details: () => [...projectKeys.all, 'detail'] as const,
-  detail: (projectId: string) => [...projectKeys.details(), projectId] as const,
-  files: (projectId: string) => [...projectKeys.detail(projectId), 'files'] as const,
-  file: (projectId: string, fileName: string) =>
-    [...projectKeys.files(projectId), fileName] as const,
+  detail: (slug: string) => [...projectKeys.details(), slug] as const,
+  files: (slug: string) => [...projectKeys.detail(slug), 'files'] as const,
+  file: (slug: string, fileName: string) =>
+    [...projectKeys.files(slug), fileName] as const,
 };
 
 export function useProjects() {
@@ -17,6 +17,32 @@ export function useProjects() {
     queryKey: projectKeys.list(),
     queryFn: () => projectService.listProjects(),
     staleTime: 30000,
+  });
+}
+
+export function useCreateProject() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: CreateProjectInput) => projectService.createProject(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.list(),
+      });
+    },
+  });
+}
+
+export function useDeleteProject() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (slug: string) => projectService.deleteProject(slug),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.list(),
+      });
+    },
   });
 }
 

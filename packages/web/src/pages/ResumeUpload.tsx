@@ -4,7 +4,6 @@ import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { ResumeUpload as ResumeUploadComponent } from '../components/ResumeUpload';
 import { resumeKeys } from '../hooks/useResumes';
-import type { ParsedResume } from '../types/resume';
 
 export function ResumeUpload() {
   const navigate = useNavigate();
@@ -17,7 +16,7 @@ export function ResumeUpload() {
     { label: 'Upload Resume' },
   ];
 
-  const handleUploadComplete = (_resumeId: string, _parsedData: ParsedResume) => {
+  const handleUploadComplete = () => {
     queryClient.invalidateQueries({ queryKey: resumeKeys.all });
     const returnTo = searchParams.get('returnTo') || '/resumes';
     navigate(returnTo);

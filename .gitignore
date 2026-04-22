@@ -32,3 +32,4 @@ cdk.out
 *.njsproj
 *.sln
 *.sw?
+data/
