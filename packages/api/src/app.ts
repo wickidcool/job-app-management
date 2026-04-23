@@ -5,6 +5,7 @@ import { dashboardRoutes } from './routes/dashboard.js';
 import { coverLettersRoutes } from './routes/cover-letters.js';
 import { resumesRoutes } from './routes/resumes.js';
 import { projectsRoutes } from './routes/projects.js';
+import { dialogueRoutes } from './routes/dialogue.routes.js';
 import { AppError } from './types/index.js';
 
 export function buildApp(opts?: { logger?: boolean }) {
@@ -27,6 +28,7 @@ export function buildApp(opts?: { logger?: boolean }) {
       api.register(coverLettersRoutes);
       api.register(resumesRoutes);
       api.register(projectsRoutes);
+      api.register(dialogueRoutes);
     },
     { prefix: '/api' },
   );
