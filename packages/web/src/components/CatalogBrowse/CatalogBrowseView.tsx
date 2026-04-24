@@ -1,0 +1,200 @@
+import { useState } from 'react';
+import {
+  useCompanyCatalog,
+  useTechStackTags,
+  useJobFitTags,
+  useQuantifiedBullets,
+} from '../../hooks/useCatalog';
+import { CatalogBrowseTable } from './CatalogBrowseTable';
+
+type TabType = 'companies' | 'techStackTags' | 'jobFitTags' | 'quantifiedBullets';
+
+const tabs = [
+  { id: 'companies' as const, label: 'Companies' },
+  { id: 'techStackTags' as const, label: 'Tech Stack Tags' },
+  { id: 'jobFitTags' as const, label: 'Job Fit Tags' },
+  { id: 'quantifiedBullets' as const, label: 'Quantified Bullets' },
+];
+
+export function CatalogBrowseView() {
+  const [activeTab, setActiveTab] = useState<TabType>('companies');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+
+  const companiesQuery = useCompanyCatalog({
+    search: searchQuery,
+  });
+
+  const techStackTagsQuery = useTechStackTags({
+    search: searchQuery,
+    category: categoryFilter || undefined,
+  });
+
+  const jobFitTagsQuery = useJobFitTags({
+    search: searchQuery,
+    category: categoryFilter || undefined,
+  });
+
+  const quantifiedBulletsQuery = useQuantifiedBullets({
+    search: searchQuery,
+    impact: categoryFilter || undefined,
+  });
+
+  const getActiveQuery = () => {
+    switch (activeTab) {
+      case 'companies':
+        return companiesQuery;
+      case 'techStackTags':
+        return techStackTagsQuery;
+      case 'jobFitTags':
+        return jobFitTagsQuery;
+      case 'quantifiedBullets':
+        return quantifiedBulletsQuery;
+    }
+  };
+
+  const activeQuery = getActiveQuery();
+  const data = activeQuery.data || [];
+  const isLoading = activeQuery.isLoading;
+  const error = activeQuery.error;
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="mb-6">
+        <h1 className="text-h2 font-bold text-neutral-900 mb-2">
+          Master Catalog Index
+        </h1>
+        <p className="text-body text-neutral-600">
+          Browse and search your complete catalog of companies, skills, and achievements
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="border-b border-neutral-200 mb-6">
+        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setSearchQuery('');
+                  setCategoryFilter('');
+                }}
+                className={`
+                  whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors
+                  ${
+                    isActive
+                      ? 'border-primary-500 text-primary-600'
+                      : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                  }
+                `}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="mb-6 flex gap-4 items-center">
+        <div className="flex-1">
+          <input
+            type="search"
+            placeholder={`Search ${tabs.find((t) => t.id === activeTab)?.label.toLowerCase()}...`}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          />
+        </div>
+
+        {(activeTab === 'techStackTags' || activeTab === 'jobFitTags') && (
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="">All Categories</option>
+            {activeTab === 'techStackTags' && (
+              <>
+                <option value="frontend">Frontend</option>
+                <option value="backend">Backend</option>
+                <option value="database">Database</option>
+                <option value="cloud">Cloud</option>
+                <option value="devops">DevOps</option>
+              </>
+            )}
+            {activeTab === 'jobFitTags' && (
+              <>
+                <option value="soft-skills">Soft Skills</option>
+                <option value="methodologies">Methodologies</option>
+                <option value="domains">Domains</option>
+              </>
+            )}
+          </select>
+        )}
+
+        {activeTab === 'quantifiedBullets' && (
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="">All Impact</option>
+            <option value="revenue">Revenue</option>
+            <option value="efficiency">Efficiency</option>
+            <option value="team-leadership">Team Leadership</option>
+            <option value="growth">Growth</option>
+          </select>
+        )}
+      </div>
+
+      {/* Content */}
+      {isLoading && (
+        <div className="text-center py-12">
+          <p className="text-neutral-500">Loading...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-error-50 border border-error-200 rounded-lg p-4 mb-6">
+          <p className="text-error-700">
+            Error loading catalog: {error instanceof Error ? error.message : 'Unknown error'}
+          </p>
+        </div>
+      )}
+
+      {!isLoading && !error && data.length === 0 && (
+        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-8 text-center">
+          <p className="text-h4 font-bold text-neutral-900 mb-2">
+            📚 Your Catalog is Empty
+          </p>
+          <p className="text-neutral-600">
+            Upload a resume to start building your catalog.
+          </p>
+        </div>
+      )}
+
+      {!isLoading && !error && data.length > 0 && (
+        <>
+          <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden mb-4">
+            <CatalogBrowseTable
+              catalogType={activeTab}
+              data={data}
+              onRowClick={(id) => {
+                console.log('Row clicked:', id);
+              }}
+            />
+          </div>
+
+          <div className="text-sm text-neutral-500 text-center">
+            Showing {data.length} of {data.length} entries
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
