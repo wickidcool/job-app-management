@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react';
+import { WizardButton } from './WizardButton';
 
 export interface WizardStepProps {
   stepNumber: number;
@@ -73,34 +74,23 @@ export function WizardStep({
 
       {/* Navigation Buttons */}
       <div className="flex items-center justify-between pt-6 border-t border-neutral-200">
-        <button
-          type="button"
+        <WizardButton
+          variant="secondary"
           onClick={onBack}
           disabled={isFirstStep}
-          className={`px-6 py-2 border border-neutral-300 rounded-lg text-body font-medium transition-all duration-base ${
-            isFirstStep
-              ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
-              : 'bg-white text-neutral-700 hover:bg-neutral-50 hover:border-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500'
-          }`}
           aria-label={`Go back to step ${stepNumber - 1}`}
         >
           ← {backLabel}
-        </button>
+        </WizardButton>
 
-        <button
-          type="button"
+        <WizardButton
+          variant="primary"
           onClick={handleNext}
           disabled={!canProceed}
-          className={`px-6 py-2 rounded-lg text-body font-semibold transition-all duration-base ${
-            canProceed
-              ? 'bg-primary-600 text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2'
-              : 'bg-neutral-300 text-neutral-500 cursor-not-allowed'
-          }`}
           aria-label={isLastStep ? 'Go to preview' : `Go to step ${stepNumber + 1}`}
-          title={!canProceed ? 'Complete required fields to continue' : undefined}
         >
           {isLastStep ? 'Preview' : nextLabel} →
-        </button>
+        </WizardButton>
       </div>
 
       {/* Keyboard Shortcut Hint */}

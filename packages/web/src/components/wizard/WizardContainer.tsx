@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ProgressIndicator } from './ProgressIndicator';
 import { WizardStep } from './WizardStep';
+import { WizardButton } from './WizardButton';
 import { STARInput, type STARData } from './STARInput';
 import { TechStackPicker } from './TechStackPicker';
 
@@ -308,18 +309,13 @@ export function WizardContainer({
               </div>
 
               {/* Add Accomplishment Button */}
-              <button
-                type="button"
+              <WizardButton
+                variant="primary"
                 onClick={addAccomplishment}
                 disabled={!isSTARComplete()}
-                className={`w-full px-4 py-3 rounded-lg text-body font-semibold transition-all duration-base ${
-                  isSTARComplete()
-                    ? 'bg-success-500 text-white hover:bg-success-600 focus:outline-none focus:ring-2 focus:ring-success-500'
-                    : 'bg-neutral-300 text-neutral-500 cursor-not-allowed'
-                }`}
               >
                 + Save This Accomplishment
-              </button>
+              </WizardButton>
 
               {/* Saved Accomplishments */}
               {(data.accomplishments?.length || 0) > 0 && (
@@ -392,13 +388,12 @@ export function WizardContainer({
               {variant === 'correct' && 'Correct Project'}
             </h1>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
+              <WizardButton
+                variant="ghost"
                 onClick={() => onSaveDraft(data)}
-                className="px-4 py-2 text-body-sm text-primary-600 hover:text-primary-700 font-medium"
               >
                 Save Draft
-              </button>
+              </WizardButton>
               <button
                 type="button"
                 onClick={onCancel}
