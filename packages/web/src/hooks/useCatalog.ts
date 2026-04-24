@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { catalogService } from '../services/api/catalog.service';
+import { catalogService } from '../services/api';
 import type { ApplyDiffRequest } from '../types/catalog';
 
 /**

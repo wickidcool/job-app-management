@@ -5,10 +5,9 @@ import { ChangeActionBadge } from './ChangeActionBadge';
 interface ChangeListItemProps {
   change: CatalogChange;
   onToggle: (id: string) => void;
-  onViewDetails?: (id: string) => void;
 }
 
-export function ChangeListItem({ change, onToggle, onViewDetails }: ChangeListItemProps) {
+export function ChangeListItem({ change, onToggle }: ChangeListItemProps) {
   const [showDetails, setShowDetails] = useState(false);
 
   const renderChangeDetails = () => {
