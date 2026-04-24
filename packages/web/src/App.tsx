@@ -12,6 +12,7 @@ import { ProjectsList } from './pages/ProjectsList';
 import { ProjectDetail } from './pages/ProjectDetail';
 import { ProjectFileEditor } from './pages/ProjectFileEditor';
 import { DialogueCapture } from './pages/DialogueCapture';
+import { CatalogPage } from './pages/CatalogPage';
 import { Settings } from './pages/Settings';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
@@ -51,6 +52,7 @@ function App() {
             <Route path="/resumes" element={<ResumeManager />} />
             <Route path="/resumes/upload" element={<ResumeUpload />} />
             <Route path="/resumes/exports" element={<ResumeExports />} />
+            <Route path="/catalog" element={<CatalogPage />} />
             <Route path="/projects" element={<ProjectsList />} />
             <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
             <Route path="/projects/:projectId" element={<ProjectDetail />} />
