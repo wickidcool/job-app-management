@@ -6,6 +6,7 @@ import { getDb } from '../db/client.js';
 import { resumes, resumeExports } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
+import { enqueueChange } from './change-queue.service.js';
 import {
   parseResumeWithAI,
   generateAIProjectMarkdown,
@@ -368,6 +369,8 @@ export async function uploadResume(
       await fs.writeFile(path.join(projectDir, `${fileName.replace(/\.[^.]+$/, '')}.md`), projectMarkdown, 'utf-8');
     }
   }
+
+  enqueueChange('resume', resumeId, 'created');
 
   return {
     resume: toDTO(resume),

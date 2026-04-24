@@ -100,3 +100,49 @@ export function useGenerateIndex() {
     },
   });
 }
+
+export function useCreateProjectFile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      fileName,
+      content,
+    }: {
+      projectId: string;
+      fileName: string;
+      content: string;
+    }) => projectService.createProjectFile(projectId, fileName, content),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.files(variables.projectId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.all,
+      });
+    },
+  });
+}
+
+export function useDeleteProjectFile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      fileName,
+    }: {
+      projectId: string;
+      fileName: string;
+    }) => projectService.deleteProjectFile(projectId, fileName),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.files(variables.projectId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.all,
+      });
+    },
+  });
+}

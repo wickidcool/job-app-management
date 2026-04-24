@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { EmptyState } from '../components/EmptyState';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
 
 export function ProjectsList() {
+  const navigate = useNavigate();
   const { data: projects = [], isLoading } = useProjects();
   const createProject = useCreateProject();
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -60,12 +61,20 @@ export function ProjectsList() {
             Organize your work experience and interview prep materials
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-        >
-          Create Project
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => navigate('/projects/new/dialogue?variant=create')}
+            className="rounded-md bg-success-600 px-4 py-2 text-sm font-medium text-white hover:bg-success-700 flex items-center gap-2"
+          >
+            💬 Add New Project (Guided)
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+          >
+            Create Project
+          </button>
+        </div>
       </div>
 
       {projects.length === 0 ? (

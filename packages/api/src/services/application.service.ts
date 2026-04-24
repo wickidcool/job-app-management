@@ -2,6 +2,7 @@ import { eq, and, ilike, inArray, desc, asc, or, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
+import { enqueueChange } from './change-queue.service.js';
 import {
   ApplicationDTO,
   StatusHistoryDTO,
@@ -80,6 +81,7 @@ export async function createApplication(
       changedAt: now,
     });
 
+    enqueueChange('application', id, 'created');
     return { application: toDTO(app) };
   });
 }
@@ -230,6 +232,7 @@ export async function updateApplication(
     throw new VersionConflictError();
   }
 
+  enqueueChange('application', id, 'updated');
   return { application: toDTO(updated) };
 }
 
