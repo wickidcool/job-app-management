@@ -3,7 +3,9 @@ import {
   listDiffs,
   getDiff,
   applyDiff,
+  discardDiff,
   resolveDiffItem,
+  generateDiff,
   listCompanies,
   mergeCompanies,
   listJobFitTags,
@@ -23,18 +25,26 @@ export async function catalogRoutes(fastify: FastifyInstance) {
     '/catalog/diffs',
     async (request, reply) => {
       const { status, limit, cursor } = request.query;
-      const result = await listDiffs({
+      const { diffs } = await listDiffs({
         status,
         limit: limit ? parseInt(limit, 10) : undefined,
         cursor,
       });
-      return reply.send(result);
+      return reply.send(diffs);
     },
   );
 
   fastify.get<{ Params: { id: string } }>('/catalog/diffs/:id', async (request, reply) => {
     const diff = await getDiff(request.params.id);
-    return reply.send({ diff });
+    return reply.send(diff);
+  });
+
+  fastify.post<{
+    Body: { sourceType: 'resume' | 'application'; sourceId: string };
+  }>('/catalog/generate-diff', async (request, reply) => {
+    const { sourceType, sourceId } = request.body;
+    const diff = await generateDiff(sourceType, sourceId);
+    return reply.status(201).send(diff);
   });
 
   fastify.post<{
@@ -51,6 +61,11 @@ export async function catalogRoutes(fastify: FastifyInstance) {
   }>('/catalog/diffs/:id/apply', async (request, reply) => {
     const result = await applyDiff(request.params.id, request.body);
     return reply.send(result);
+  });
+
+  fastify.delete<{ Params: { id: string } }>('/catalog/diffs/:id', async (request, reply) => {
+    await discardDiff(request.params.id);
+    return reply.status(204).send();
   });
 
   fastify.post<{
@@ -72,13 +87,13 @@ export async function catalogRoutes(fastify: FastifyInstance) {
     Querystring: { search?: string; includeDeleted?: string; limit?: string; cursor?: string };
   }>('/catalog/companies', async (request, reply) => {
     const { search, includeDeleted, limit, cursor } = request.query;
-    const result = await listCompanies({
+    const { companies } = await listCompanies({
       search,
       includeDeleted: includeDeleted === 'true',
       limit: limit ? parseInt(limit, 10) : undefined,
       cursor,
     });
-    return reply.send(result);
+    return reply.send(companies);
   });
 
   fastify.post<{ Body: { sourceCompanyIds: string[]; targetCompanyId: string } }>(
@@ -94,7 +109,13 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   fastify.get<{
     Params: { type: string };
-    Querystring: { category?: string; needsReview?: string; search?: string; limit?: string; cursor?: string };
+    Querystring: {
+      category?: string;
+      needsReview?: string;
+      search?: string;
+      limit?: string;
+      cursor?: string;
+    };
   }>('/catalog/tags/:type', async (request, reply) => {
     const { type } = request.params;
     const { category, needsReview, search, limit, cursor } = request.query;
@@ -107,11 +128,15 @@ export async function catalogRoutes(fastify: FastifyInstance) {
     };
 
     if (type === 'job-fit') {
-      return reply.send(await listJobFitTags(opts));
+      const { tags } = await listJobFitTags(opts);
+      return reply.send(tags);
     } else if (type === 'tech-stack') {
-      return reply.send(await listTechStackTags(opts));
+      const { tags } = await listTechStackTags(opts);
+      return reply.send(tags);
     } else {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
     }
   });
 
@@ -127,7 +152,9 @@ export async function catalogRoutes(fastify: FastifyInstance) {
     } else if (type === 'tech-stack') {
       return reply.send(await mergeTechStackTags(sourceTagIds, targetTagId));
     } else {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
     }
   });
 
@@ -139,42 +166,49 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
     if (type === 'job-fit') {
       const tag = await updateJobFitTag(id, request.body);
-      return reply.send({ tag });
+      return reply.send(tag);
     } else if (type === 'tech-stack') {
       const tag = await updateTechStackTag(id, request.body);
-      return reply.send({ tag });
+      return reply.send(tag);
     } else {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
     }
   });
 
-  // ── Bullets ────────────────────────────────────────────────────────────────
+  // ── Quantified bullets ─────────────────────────────────────────────────────
 
   fastify.get<{
     Querystring: { impactCategory?: string; sourceId?: string; limit?: string; cursor?: string };
-  }>('/catalog/bullets', async (request, reply) => {
+  }>('/catalog/quantified-bullets', async (request, reply) => {
     const { impactCategory, sourceId, limit, cursor } = request.query;
-    const result = await listBullets({
+    const { bullets } = await listBullets({
       impactCategory,
       sourceId,
       limit: limit ? parseInt(limit, 10) : undefined,
       cursor,
     });
-    return reply.send(result);
+    return reply.send(bullets);
   });
 
   // ── Themes ─────────────────────────────────────────────────────────────────
 
   fastify.get<{
-    Querystring: { coreOnly?: string; includeHistorical?: string; limit?: string; cursor?: string };
+    Querystring: {
+      coreOnly?: string;
+      includeHistorical?: string;
+      limit?: string;
+      cursor?: string;
+    };
   }>('/catalog/themes', async (request, reply) => {
     const { coreOnly, includeHistorical, limit, cursor } = request.query;
-    const result = await listThemes({
+    const { themes } = await listThemes({
       coreOnly: coreOnly === 'true',
       includeHistorical: includeHistorical === 'true',
       limit: limit ? parseInt(limit, 10) : undefined,
       cursor,
     });
-    return reply.send(result);
+    return reply.send(themes);
   });
 }

@@ -13,6 +13,7 @@ import {
 } from '../db/schema.js';
 import type { DiffChange, ReviewItem } from '../db/schema.js';
 import { NotFoundError } from '../types/index.js';
+import { processCatalogChange } from './extraction.service.js';
 
 // ── Company catalog ──────────────────────────────────────────────────────────
 
@@ -653,6 +654,47 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
   }
 }
 
+export async function generateDiff(
+  sourceType: 'resume' | 'application',
+  sourceId: string,
+) {
+  const db = getDb();
+  await processCatalogChange({
+    id: ulid(),
+    sourceType,
+    sourceId,
+    changeType: 'created',
+    timestamp: new Date().toISOString(),
+  });
+  const [diff] = await db
+    .select()
+    .from(catalogDiffs)
+    .where(and(eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'), eq(catalogDiffs.triggerId, sourceId)))
+    .orderBy(desc(catalogDiffs.createdAt))
+    .limit(1);
+  if (!diff) throw new NotFoundError('CatalogDiff');
+  return {
+    id: diff.id,
+    triggerSource: diff.triggerSource,
+    triggerId: diff.triggerId,
+    summary: diff.summary,
+    changeCount: (diff.changes as DiffChange[]).length,
+    pendingReviewCount: (diff.pendingReview as ReviewItem[]).length,
+    status: diff.status,
+    createdAt: diff.createdAt.toISOString(),
+    expiresAt: diff.expiresAt?.toISOString() ?? null,
+    changes: diff.changes as DiffChange[],
+    pendingReview: diff.pendingReview as ReviewItem[],
+  };
+}
+
+export async function discardDiff(id: string): Promise<void> {
+  const db = getDb();
+  const [diff] = await db.select().from(catalogDiffs).where(eq(catalogDiffs.id, id));
+  if (!diff) throw new NotFoundError('CatalogDiff');
+  await db.delete(catalogDiffs).where(eq(catalogDiffs.id, id));
+}
+
 export async function resolveDiffItem(
   id: string,
   input: {
@@ -666,9 +708,15 @@ export async function resolveDiffItem(
   const [diff] = await db.select().from(catalogDiffs).where(eq(catalogDiffs.id, id));
   if (!diff) throw new NotFoundError('CatalogDiff');
 
-  const decisions = (diff.userDecisions as any) ?? { changeDecisions: {}, reviewDecisions: {} };
-  const key = `${input.itemType}:${input.itemIndex}`;
-  decisions[key] = { decision: input.decision, selectedOption: input.selectedOption };
+  const existing = (diff.userDecisions as any) ?? {};
+  const changeDecisions: Record<number, { decision: string; selectedOption?: string }> = existing.changeDecisions ?? {};
+  const reviewDecisions: Record<number, { decision: string; selectedOption?: string }> = existing.reviewDecisions ?? {};
+  if (input.itemType === 'change') {
+    changeDecisions[input.itemIndex] = { decision: input.decision, selectedOption: input.selectedOption };
+  } else {
+    reviewDecisions[input.itemIndex] = { decision: input.decision, selectedOption: input.selectedOption };
+  }
+  const decisions = { changeDecisions, reviewDecisions };
 
   await db
     .update(catalogDiffs)
