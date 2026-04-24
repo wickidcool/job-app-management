@@ -423,7 +423,94 @@ interface WizardState {
 
 ---
 
-### 2. WizardStep
+### 2. WizardButton
+
+**Purpose:** Primary and secondary action buttons with clear visual states.
+
+```tsx
+interface WizardButtonProps {
+  variant: 'primary' | 'secondary' | 'ghost'
+  disabled?: boolean
+  loading?: boolean
+  children: React.ReactNode
+  onClick: () => void
+  type?: 'button' | 'submit'
+}
+```
+
+**Visual Specifications:**
+
+#### Primary Button (Next, Save, Confirm)
+
+| State | Background | Text Color | Border | Shadow |
+|-------|------------|------------|--------|--------|
+| **Default** | `primary-600` (#2563eb) | `white` | none | `shadow-sm` |
+| **Hover** | `primary-700` (#1d4ed8) | `white` | none | `shadow-md` |
+| **Focus** | `primary-600` | `white` | `2px solid primary-500` | `shadow-md` |
+| **Disabled** | `neutral-300` (#d1d5db) | `neutral-500` | none | none |
+| **Loading** | `primary-600` | `white` | none | `shadow-sm` + spinner |
+
+**Size:**
+- Padding: `12px vertical, 24px horizontal`
+- Font: `text-base` (16px), `font-semibold` (600)
+- Border radius: `lg` (8px)
+- Min width: `120px`
+
+#### Secondary Button (Back, Cancel)
+
+| State | Background | Text Color | Border | Shadow |
+|-------|------------|------------|--------|--------|
+| **Default** | `white` | `neutral-700` | `1px solid neutral-300` | `shadow-sm` |
+| **Hover** | `neutral-50` | `neutral-900` | `1px solid neutral-400` | `shadow-md` |
+| **Focus** | `white` | `neutral-700` | `2px solid primary-500` | `shadow-md` |
+| **Disabled** | `neutral-100` | `neutral-400` | `1px solid neutral-200` | none |
+
+**Size:** Same as primary
+
+#### Ghost Button (Save Draft)
+
+| State | Background | Text Color | Border | Shadow |
+|-------|------------|------------|--------|--------|
+| **Default** | `transparent` | `primary-600` | none | none |
+| **Hover** | `primary-50` | `primary-700` | none | none |
+| **Focus** | `transparent` | `primary-600` | `2px solid primary-500` | none |
+| **Disabled** | `transparent` | `neutral-400` | none | none |
+
+**Size:**
+- Padding: `8px vertical, 16px horizontal`
+- Font: `text-sm` (14px), `font-medium` (500)
+
+**Transitions:**
+- All states: `transition-colors` (250ms ease-in-out)
+- Hover shadow: `transition-shadow` (250ms ease-out)
+
+**Accessibility:**
+- `role="button"` (if not using `<button>`)
+- `aria-disabled="true"` when disabled
+- `aria-busy="true"` when loading
+- Focus ring always visible (not `:focus-visible` only)
+
+**Usage Example:**
+```tsx
+// Primary
+<WizardButton variant="primary" onClick={handleNext} disabled={!canProceed}>
+  Next
+</WizardButton>
+
+// Secondary
+<WizardButton variant="secondary" onClick={handleBack}>
+  Back
+</WizardButton>
+
+// Ghost
+<WizardButton variant="ghost" onClick={handleSaveDraft}>
+  Save Draft
+</WizardButton>
+```
+
+---
+
+### 3. WizardStep
 
 **Purpose:** Individual step container with question and input.
 
@@ -449,7 +536,7 @@ interface WizardStepProps {
 
 ---
 
-### 3. STARInput
+### 4. STARInput
 
 **Purpose:** Four-field STAR breakdown editor.
 
@@ -480,7 +567,7 @@ interface STARData {
 
 ---
 
-### 4. TechStackPicker
+### 5. TechStackPicker
 
 **Purpose:** Simple tag input for technologies (NO autocomplete per "no invention" constraint).
 
@@ -502,7 +589,7 @@ interface TechStackPickerProps {
 
 ---
 
-### 5. ProgressIndicator
+### 6. ProgressIndicator
 
 **Purpose:** Visual progress through wizard steps.
 
