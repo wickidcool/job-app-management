@@ -906,6 +906,416 @@ Opens full-screen modal showing:
 
 ---
 
+## 13. JobFitAnalysis
+
+### Purpose
+Analyze a job description against the user's catalog of skills, experiences, and achievements to provide an honest fit assessment with specific recommendations.
+
+### Props
+
+```tsx
+interface JobFitAnalysisProps {
+  onAnalysisComplete?: (result: FitAnalysisResult) => void
+  linkedApplicationId?: string  // If analyzing for a specific application
+  initialJobDescription?: string
+}
+
+interface FitAnalysisResult {
+  id: string
+  jobDescription: string
+  parsedJD: ParsedJobDescription
+  fitAssessment: FitAssessment
+  recommendations: STARRecommendation[]
+  overallFit: FitLevel
+  analyzedAt: Date
+}
+
+interface ParsedJobDescription {
+  roleTitle: string
+  seniority?: string
+  requiredStack: TechTag[]
+  niceToHaveStack: TechTag[]
+  domain?: string
+  industry?: string
+  teamScope?: string
+  location?: string
+  compSignals?: string
+}
+
+interface FitAssessment {
+  strongMatches: CatalogMatch[]
+  partialMatches: CatalogMatch[]
+  gaps: Gap[]
+}
+
+interface CatalogMatch {
+  type: 'skill' | 'experience' | 'achievement'
+  catalogItemId: string
+  title: string
+  matchConfidence: number  // 0-100
+  reasoning: string
+}
+
+interface Gap {
+  requirement: string
+  severity: 'critical' | 'moderate' | 'minor'
+  suggestion?: string
+}
+
+interface STARRecommendation {
+  experienceId: string
+  relevanceScore: number  // 0-100
+  reasoning: string
+}
+
+type FitLevel = 'strong' | 'moderate' | 'stretch' | 'low'
+```
+
+### Page Layout
+
+The Job Fit Analysis is a full-page view with three distinct stages: Input, Analyzing, and Results.
+
+#### Stage 1: Input Form
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Job Fit Analysis                                       │
+│                                                         │
+│  Analyze how well a job posting matches your           │
+│  experience, skills, and achievements.                  │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │  Job Description                                  │ │
+│  │  ─────────────────────────────────────────────────│ │
+│  │  Paste the full job description here...          │ │
+│  │                                                   │ │
+│  │                                                   │ │
+│  │  [Textarea - min 8 rows]                         │ │
+│  │                                                   │ │
+│  │                                                   │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ─── OR ───                                             │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │  Job Posting URL                                  │ │
+│  │  https://example.com/careers/senior-dev          │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ⚠️ Analysis provides honest assessment including gaps │
+│                                                         │
+│  [Cancel]                        [Analyze Fit →]      │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Stage 2: Analyzing State
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Analyzing Job Fit...                                   │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │                                                   │ │
+│  │           🔍                                       │ │
+│  │                                                   │ │
+│  │   Analyzing job requirements                      │ │
+│  │                                                   │ │
+│  │   ✓ Parsing job description                       │ │
+│  │   ⏳ Extracting requirements                      │ │
+│  │   ⏳ Comparing against your catalog               │ │
+│  │   ⏳ Identifying matches and gaps                 │ │
+│  │                                                   │ │
+│  │   [Progress Bar: 40%]                             │ │
+│  │                                                   │ │
+│  └───────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Stage 3: Results Display
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Job Fit Analysis Results                               │
+│                                                         │
+│  ┌─────────────────────────────────────────────┐       │
+│  │ Overall Fit: MODERATE FIT                   │       │
+│  │ ●●●○○  60% Match                            │       │
+│  │                                             │       │
+│  │ Senior Full Stack Engineer at TechCo        │       │
+│  │ San Francisco, CA • $150k-200k              │       │
+│  └─────────────────────────────────────────────┘       │
+│                                                         │
+│  ┌─────────────────────────────────────────────┐       │
+│  │ 📋 Parsed Requirements                      │       │
+│  │ ───────────────────────────────────────────│       │
+│  │ Role: Senior Full Stack Engineer            │       │
+│  │ Seniority: Senior (5+ years)                │       │
+│  │ Stack: React, Node.js, PostgreSQL, AWS      │       │
+│  │ Nice-to-have: TypeScript, Docker            │       │
+│  │ Domain: E-commerce                          │       │
+│  └─────────────────────────────────────────────┘       │
+│                                                         │
+│  ┌─────────────────────────────────────────────┐       │
+│  │ ✅ Strong Matches (5)                       │       │
+│  │ ───────────────────────────────────────────│       │
+│  │ • React.js (Advanced) - 95% confidence      │       │
+│  │   Used in 3 major projects                  │       │
+│  │                                             │       │
+│  │ • Node.js (Expert) - 98% confidence         │       │
+│  │   5 years experience, led backend team      │       │
+│  │                                             │       │
+│  │ • PostgreSQL - 90% confidence               │       │
+│  │   Database design & optimization experience │       │
+│  │                                             │       │
+│  │ [View All →]                                │       │
+│  └─────────────────────────────────────────────┘       │
+│                                                         │
+│  ┌─────────────────────────────────────────────┐       │
+│  │ ⚠️ Partial Matches (2)                      │       │
+│  │ ───────────────────────────────────────────│       │
+│  │ • AWS (Basic) - 60% confidence              │       │
+│  │   Limited cloud deployment experience       │       │
+│  │   Recommendation: Highlight your EC2/S3 work│       │
+│  │                                             │       │
+│  │ • E-commerce Domain - 55% confidence        │       │
+│  │   Adjacent experience in SaaS platforms     │       │
+│  └─────────────────────────────────────────────┘       │
+│                                                         │
+│  ┌─────────────────────────────────────────────┐       │
+│  │ ❌ Gaps (2)                                 │       │
+│  │ ───────────────────────────────────────────│       │
+│  │ 🔴 TypeScript (Critical)                    │       │
+│  │   Required skill not found in catalog       │       │
+│  │   Suggestion: Take online course or add     │       │
+│  │   TypeScript project to portfolio           │       │
+│  │                                             │       │
+│  │ 🟡 Docker (Moderate)                        │       │
+│  │   Nice-to-have skill not demonstrated       │       │
+│  │   Suggestion: Consider Docker tutorial      │       │
+│  └─────────────────────────────────────────────┘       │
+│                                                         │
+│  ┌─────────────────────────────────────────────┐       │
+│  │ 💡 Recommended STAR Entries                 │       │
+│  │ ───────────────────────────────────────────│       │
+│  │ Highlight these achievements in your cover  │       │
+│  │ letter and resume:                          │       │
+│  │                                             │       │
+│  │ 1. [95%] Led React migration (Q3 2024)      │       │
+│  │    → Directly demonstrates frontend lead    │       │
+│  │                                             │       │
+│  │ 2. [90%] Scaled Node.js API (Q1 2025)       │       │
+│  │    → Shows backend expertise & performance  │       │
+│  │                                             │       │
+│  │ 3. [85%] Database optimization (Q2 2024)    │       │
+│  │    → Proves PostgreSQL proficiency          │       │
+│  │                                             │       │
+│  │ [View All Recommendations →]                │       │
+│  └─────────────────────────────────────────────┘       │
+│                                                         │
+│  [← Back]  [Save Analysis]  [Generate Cover Letter]   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Input | Page loads | Input form visible, Analyze button disabled until text entered |
+| Validating | Text entered or URL pasted | Analyze button enabled, character count shown |
+| Analyzing | Submit clicked | Loading animation, progress indicators, estimated time |
+| Results | Analysis complete | Full results display with collapsible sections |
+| Error | Analysis failed | Error message with retry button |
+| Empty Catalog | Analysis attempted with empty catalog | Warning + link to resume upload |
+
+### Fit Level Visual Indicators
+
+```typescript
+const fitLevelConfig = {
+  strong: {
+    label: 'Strong Fit',
+    color: 'green-600',
+    icon: '🎯',
+    dots: '●●●●●',
+    percentage: '80-100%'
+  },
+  moderate: {
+    label: 'Moderate Fit',
+    color: 'yellow-600',
+    icon: '⚖️',
+    dots: '●●●○○',
+    percentage: '60-79%'
+  },
+  stretch: {
+    label: 'Stretch Role',
+    color: 'orange-600',
+    icon: '📈',
+    dots: '●●○○○',
+    percentage: '40-59%'
+  },
+  low: {
+    label: 'Low Fit',
+    color: 'red-600',
+    icon: '⚠️',
+    dots: '●○○○○',
+    percentage: '0-39%'
+  }
+}
+```
+
+### Gap Severity Styling
+
+**Critical Gaps** (Required skills missing):
+- Background: `red-50`
+- Border: `red-500` (2px solid)
+- Icon: 🔴
+- Text: `red-900`
+
+**Moderate Gaps** (Nice-to-have missing):
+- Background: `orange-50`
+- Border: `orange-400` (1px solid)
+- Icon: 🟡
+- Text: `orange-900`
+
+**Minor Gaps** (Adjacent skills):
+- Background: `yellow-50`
+- Border: `yellow-300` (1px dashed)
+- Icon: 🟡
+- Text: `yellow-900`
+
+### Input Validation
+
+```typescript
+const validationRules = {
+  jobDescription: {
+    minLength: 100,
+    maxLength: 50000,
+    message: 'Job description must be 100-50,000 characters'
+  },
+  jobUrl: {
+    pattern: /^https?:\/\/.+/,
+    message: 'Must be a valid URL'
+  }
+}
+```
+
+**Validation behavior**:
+- Either text OR URL required (not both)
+- If both provided, URL takes precedence
+- Character counter shows below textarea
+- URL validation on blur
+
+### Behavior
+
+| Action | Trigger | Response |
+|--------|---------|----------|
+| Paste text | User pastes into textarea | Enable Analyze button if > 100 chars |
+| Paste URL | User pastes into URL field | Validate URL format, clear textarea |
+| Toggle sections | Click section header | Expand/collapse section (accordion) |
+| View match details | Click match item | Expand to show full reasoning |
+| Save analysis | Click Save button | Save to application record, show toast |
+| Generate cover letter | Click Generate button | Navigate to cover letter generator with prefilled context |
+| Retry | Error state → click Retry | Return to input form with preserved text |
+
+### Loading State Progression
+
+```typescript
+const analysisSteps = [
+  { label: 'Parsing job description', duration: 2000 },
+  { label: 'Extracting requirements', duration: 3000 },
+  { label: 'Comparing against your catalog', duration: 4000 },
+  { label: 'Identifying matches and gaps', duration: 3000 }
+]
+```
+
+Total estimated time: 10-15 seconds
+
+### Empty States
+
+**No Catalog Data**:
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│            📋                           │
+│                                         │
+│    No catalog data yet                  │
+│                                         │
+│    Upload a resume to build your        │
+│    catalog before analyzing job fit     │
+│                                         │
+│    [Upload Resume]                      │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**No Matches**:
+```
+┌─────────────────────────────────────────┐
+│  ❌ No Strong Matches                   │
+│                                         │
+│  This role requires skills not yet in   │
+│  your catalog. Consider:                │
+│  • Adding relevant projects             │
+│  • Updating your resume                 │
+│  • Exploring adjacent roles             │
+└─────────────────────────────────────────┘
+```
+
+### Accessibility
+
+- **ARIA Landmarks:** `role="main"` for results, `role="form"` for input
+- **Progress Announcement:** Screen reader announces each analysis step
+- **Focus Management:** Focus moves to results header when analysis completes
+- **Keyboard Navigation:**
+  - Tab through sections
+  - Enter/Space to expand/collapse
+  - Arrow keys to navigate within lists
+- **ARIA Labels:**
+  - Overall fit indicator: "Overall fit level: Moderate, 60% match"
+  - Gap severity: "Critical gap: TypeScript required but not found"
+- **Color Independence:** Icons and text labels supplement all color coding
+
+### Responsive Behavior
+
+- **Desktop (>1024px):**
+  - Full 3-column results layout
+  - Side-by-side comparison sections
+  
+- **Tablet (768-1024px):**
+  - 2-column layout, stacked sections
+  - Collapsible sections default to collapsed
+  
+- **Mobile (<768px):**
+  - Single column, full width
+  - Input textarea 6 rows (vs 8 on desktop)
+  - Sticky header with fit level
+  - Sections collapsed by default
+
+### Error Handling
+
+| Error Type | User Message | Recovery Action |
+|------------|--------------|-----------------|
+| Network Error | "Unable to analyze. Check your connection." | [Retry] preserves input |
+| Empty Input | "Please enter a job description or URL." | Disable submit until valid |
+| URL Fetch Failed | "Couldn't load job posting from URL. Try pasting text." | Switch to textarea mode |
+| Analysis Timeout | "Analysis took too long. Try a shorter description." | [Retry] with shortened text |
+| API Error | "Analysis failed. Our team has been notified." | [Contact Support] link |
+
+### Integration Points
+
+- **From:** Application detail page ("Analyze Fit" button)
+- **From:** Dashboard ("New Analysis" action)
+- **To:** Cover letter generator (pre-filled with fit data)
+- **To:** Application update (link analysis to application)
+
+### Performance Considerations
+
+- **Debounce:** URL validation debounced 500ms
+- **Lazy Load:** Recommendation details loaded on expand
+- **Cache:** Analysis results cached for 24 hours (same JD)
+- **Streaming:** Display parsed JD immediately, then matches/gaps as they arrive
+
+---
+
 ## Testing Checklist
 
 For each component:
