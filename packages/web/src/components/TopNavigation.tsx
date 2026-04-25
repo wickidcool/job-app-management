@@ -30,6 +30,7 @@ export function TopNavigation({
       badge: exportCount,
     },
     { label: 'Catalog', path: '/catalog' },
+    { label: 'Job Fit Analysis', path: '/job-fit-analysis' },
     { label: 'Projects', path: '/projects' },
     { label: 'Settings', path: '/settings' },
   ];
