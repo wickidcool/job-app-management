@@ -545,6 +545,20 @@ export async function applyDiff(id: string, input: ApplyDiffInput) {
   return { applied: appliedCount, rejected: rejectedCount, pendingReview: pendingReviewCount, status: finalStatus };
 }
 
+function validateTechStackCategory(value: unknown): TechStackCategory {
+  if (typeof value === 'string' && VALID_TECH_STACK_CATEGORIES.includes(value as TechStackCategory)) {
+    return value as TechStackCategory;
+  }
+  return 'uncategorized';
+}
+
+function validateJobFitCategory(value: unknown): JobFitCategory {
+  if (typeof value === 'string' && VALID_JOB_FIT_CATEGORIES.includes(value as JobFitCategory)) {
+    return value as JobFitCategory;
+  }
+  return 'uncategorized';
+}
+
 async function applyChange(tx: any, change: DiffChange): Promise<void> {
   const data = change.data as Record<string, any>;
 
@@ -580,7 +594,7 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
           id: data.id,
           tagSlug: data.tagSlug,
           displayName: data.displayName,
-          category: data.category ?? 'uncategorized',
+          category: validateTechStackCategory(data.category),
           sourceIds: data.sourceIds ?? [],
           mentionCount: data.mentionCount ?? 1,
           isLegacy: data.isLegacy ?? false,
@@ -604,7 +618,7 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
           id: data.id,
           tagSlug: data.tagSlug,
           displayName: data.displayName,
-          category: data.category ?? 'uncategorized',
+          category: validateJobFitCategory(data.category),
           sourceIds: data.sourceIds ?? [],
           mentionCount: data.mentionCount ?? 1,
         }).onConflictDoNothing();
