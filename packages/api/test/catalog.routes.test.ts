@@ -20,6 +20,10 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
+vi.mock('../src/services/job-fit.service.js', () => ({
+  analyzeJobFit: vi.fn(),
+}));
+
 vi.mock('../src/services/application.service.js', () => ({
   createApplication: vi.fn(),
   getApplication: vi.fn(),

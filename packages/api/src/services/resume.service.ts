@@ -343,7 +343,11 @@ export async function uploadResume(
           const projectDir = path.join(config.dataDir, 'projects', project.slug);
           await fs.mkdir(projectDir, { recursive: true });
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
-          const projectFilePath = path.join(projectDir, `${fileName.replace(/\.[^.]+$/, '')}.md`);
+          const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
+          const projectFilePath = path.join(projectDir, `${safeBase}.md`);
+          if (!projectFilePath.startsWith(path.resolve(projectDir) + path.sep)) {
+            throw new Error('Invalid filename: path traversal detected');
+          }
           await fs.writeFile(projectFilePath, projectMarkdown, 'utf-8');
           console.log(`[resume.service] Wrote project file: ${projectFilePath}`);
         }
@@ -366,7 +370,12 @@ export async function uploadResume(
       const projectDir = path.join(config.dataDir, 'projects', project.slug);
       await fs.mkdir(projectDir, { recursive: true });
       const projectMarkdown = generateProjectMarkdown(entry);
-      await fs.writeFile(path.join(projectDir, `${fileName.replace(/\.[^.]+$/, '')}.md`), projectMarkdown, 'utf-8');
+      const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
+      const projectFilePath2 = path.join(projectDir, `${safeBase}.md`);
+      if (!projectFilePath2.startsWith(path.resolve(projectDir) + path.sep)) {
+        throw new Error('Invalid filename: path traversal detected');
+      }
+      await fs.writeFile(projectFilePath2, projectMarkdown, 'utf-8');
     }
   }
 

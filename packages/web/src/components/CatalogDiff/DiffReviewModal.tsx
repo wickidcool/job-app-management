@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import type { CatalogDiff, Resolution } from '../../types/catalog';
 import { ChangeListItem } from './ChangeListItem';
 import { AmbiguityResolver } from './AmbiguityResolver';
@@ -20,21 +20,29 @@ export function DiffReviewModal({
   onApplySelected,
   onRejectAll,
 }: DiffReviewModalProps) {
-  const [changes, setChanges] = useState(diff.changes);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [resolutions, setResolutions] = useState<Resolution[]>([]);
   const [isApplying, setIsApplying] = useState(false);
   const [expandAll, setExpandAll] = useState(false);
 
-  useEffect(() => {
-    setChanges(diff.changes);
-  }, [diff.changes]);
+  const changes = useMemo(
+    () => diff.changes.map(change => ({
+      ...change,
+      selected: selectedIds.has(change.id),
+    })),
+    [diff.changes, selectedIds]
+  );
 
   const handleToggleChange = (id: string) => {
-    setChanges((prev) =>
-      prev.map((change) =>
-        change.id === id ? { ...change, selected: !change.selected } : change
-      )
-    );
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
   const handleResolveAmbiguity = (itemId: string, selectedOptionId: string) => {

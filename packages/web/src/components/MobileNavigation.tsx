@@ -31,6 +31,8 @@ export function MobileNavigation({
       badge: exportCount,
       isNew: true,
     },
+    { icon: '📚', label: 'Catalog', path: '/catalog' },
+    { icon: '🔍', label: 'Job Fit Analysis', path: '/job-fit-analysis' },
     { icon: '📁', label: 'Projects', path: '/projects' },
     { icon: '⚙️', label: 'Settings', path: '/settings' },
   ];

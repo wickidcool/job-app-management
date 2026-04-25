@@ -19,6 +19,7 @@ import { createDashboardService } from './dashboardService';
 import { createResumeService } from './resumeService';
 import { createProjectService } from './projectService';
 import { createCatalogService } from './catalog.service';
+import { createJobFitService } from './jobFitService';
 
 // API Configuration
 // Local backend runs on port 3000
@@ -45,6 +46,7 @@ export const dashboardService = createDashboardService(apiClient);
 export const resumeService = createResumeService(apiClient);
 export const projectService = createProjectService(apiClient);
 export const catalogService = createCatalogService(apiClient);
+export const jobFitService = createJobFitService(apiClient);
 
 // Re-export types for convenience
 export type { ApplicationService } from './applicationService';
@@ -53,4 +55,5 @@ export type { DashboardService } from './dashboardService';
 export type { ResumeService, Resume } from './resumeService';
 export type { ProjectService, Project, ProjectFile, CreateProjectInput } from './projectService';
 export type { CatalogService } from './catalog.service';
+export type { JobFitService } from './jobFitService';
 export type * from './types';

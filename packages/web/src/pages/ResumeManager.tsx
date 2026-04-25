@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { EmptyState } from '../components/EmptyState';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { useResumes, useDeleteResume } from '../hooks/useResumes';
+import { useGenerateDiff } from '../hooks/useCatalog';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -21,8 +22,10 @@ function formatDate(date: Date): string {
 }
 
 export function ResumeManager() {
+  const navigate = useNavigate();
   const { data: resumes, isLoading, error } = useResumes();
   const deleteResume = useDeleteResume();
+  const generateDiff = useGenerateDiff();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [resumeToDelete, setResumeToDelete] = useState<{
     id: string;
@@ -57,6 +60,19 @@ export function ResumeManager() {
   const handleCancelDelete = () => {
     setDeleteModalOpen(false);
     setResumeToDelete(null);
+  };
+
+  const handleGenerateDiff = async (resumeId: string) => {
+    try {
+      await generateDiff.mutateAsync({
+        sourceType: 'resume',
+        sourceId: resumeId,
+      });
+      navigate('/catalog');
+    } catch (error) {
+      console.error('Failed to generate diff:', error);
+      alert('Failed to generate diff. Please try again.');
+    }
   };
 
   return (
@@ -113,6 +129,14 @@ export function ResumeManager() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleGenerateDiff(resume.id)}
+                    disabled={generateDiff.isPending}
+                    className="rounded-lg border border-primary-300 px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Generate catalog diff"
+                  >
+                    📊 {generateDiff.isPending ? 'Generating...' : 'Generate Diff'}
+                  </button>
                   <Link
                     to={`/resumes/${resume.id}/exports`}
                     className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors"

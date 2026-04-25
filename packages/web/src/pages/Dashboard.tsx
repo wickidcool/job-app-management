@@ -64,6 +64,13 @@ export function Dashboard() {
               <span>Add Application</span>
             </Link>
             <Link
+              to="/job-fit-analysis"
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-100"
+            >
+              <span>🔍</span>
+              <span>Analyze Job Fit</span>
+            </Link>
+            <Link
               to="/resumes/upload"
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-100"
             >
