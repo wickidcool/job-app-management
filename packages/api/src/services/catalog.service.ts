@@ -116,7 +116,9 @@ export async function listJobFitTags(opts: ListTagsOptions = {}) {
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
-  if (opts.category) conditions.push(eq(jobFitTags.category, opts.category as any));
+  if (opts.category && VALID_JOB_FIT_CATEGORIES.includes(opts.category as JobFitCategory)) {
+    conditions.push(eq(jobFitTags.category, opts.category as JobFitCategory));
+  }
   if (opts.needsReview) conditions.push(eq(jobFitTags.needsReview, true));
   if (opts.search) conditions.push(ilike(jobFitTags.displayName, `%${opts.search}%`));
 
@@ -210,7 +212,9 @@ export async function listTechStackTags(opts: ListTagsOptions = {}) {
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
-  if (opts.category) conditions.push(eq(techStackTags.category, opts.category as any));
+  if (opts.category && VALID_TECH_STACK_CATEGORIES.includes(opts.category as TechStackCategory)) {
+    conditions.push(eq(techStackTags.category, opts.category as TechStackCategory));
+  }
   if (opts.needsReview) conditions.push(eq(techStackTags.needsReview, true));
   if (opts.search) conditions.push(ilike(techStackTags.displayName, `%${opts.search}%`));
 
@@ -545,6 +549,20 @@ export async function applyDiff(id: string, input: ApplyDiffInput) {
   return { applied: appliedCount, rejected: rejectedCount, pendingReview: pendingReviewCount, status: finalStatus };
 }
 
+function validateTechStackCategory(value: unknown): TechStackCategory {
+  if (typeof value === 'string' && VALID_TECH_STACK_CATEGORIES.includes(value as TechStackCategory)) {
+    return value as TechStackCategory;
+  }
+  return 'uncategorized';
+}
+
+function validateJobFitCategory(value: unknown): JobFitCategory {
+  if (typeof value === 'string' && VALID_JOB_FIT_CATEGORIES.includes(value as JobFitCategory)) {
+    return value as JobFitCategory;
+  }
+  return 'uncategorized';
+}
+
 async function applyChange(tx: any, change: DiffChange): Promise<void> {
   const data = change.data as Record<string, any>;
 
@@ -580,7 +598,7 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
           id: data.id,
           tagSlug: data.tagSlug,
           displayName: data.displayName,
-          category: data.category ?? 'uncategorized',
+          category: validateTechStackCategory(data.category),
           sourceIds: data.sourceIds ?? [],
           mentionCount: data.mentionCount ?? 1,
           isLegacy: data.isLegacy ?? false,
@@ -604,7 +622,7 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
           id: data.id,
           tagSlug: data.tagSlug,
           displayName: data.displayName,
-          category: data.category ?? 'uncategorized',
+          category: validateJobFitCategory(data.category),
           sourceIds: data.sourceIds ?? [],
           mentionCount: data.mentionCount ?? 1,
         }).onConflictDoNothing();

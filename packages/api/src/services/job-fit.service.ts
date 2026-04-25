@@ -169,10 +169,12 @@ export async function fetchJobDescriptionFromUrl(url: string): Promise<string> {
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
-      if (location) {
-        await validateUrlForSSRF(new URL(location, url).href);
+      if (!location) {
+        throw new JobFitUrlFetchError(url, response.status);
       }
-      throw new JobFitUrlFetchError(url, response.status);
+      const redirectUrl = new URL(location, url).href;
+      await validateUrlForSSRF(redirectUrl);
+      return fetchJobDescriptionFromUrl(redirectUrl);
     }
 
     if (!response.ok) {
@@ -420,7 +422,6 @@ export interface ParsedJD {
   seniorityConfidence: Confidence;
   requiredStack: string[];
   niceToHaveStack: string[];
-  industries: string[];
   teamScope: string | null;
   location: string | null;
   compensation: string | null;
@@ -463,7 +464,6 @@ export function parseJobDescription(text: string): ParsedJD {
     seniorityConfidence,
     requiredStack,
     niceToHaveStack,
-    industries: [],
     teamScope: extractTeamScope(text),
     location: extractLocation(text),
     compensation: extractCompensation(text),
@@ -638,7 +638,7 @@ export async function analyzeJobFit(
     [techTags, jfTags, bullets] = await Promise.all([
       db.select().from(techStackTags).orderBy(desc(techStackTags.mentionCount)),
       db.select().from(jobFitTags).orderBy(desc(jobFitTags.mentionCount)),
-      db.select().from(quantifiedBullets),
+      db.select().from(quantifiedBullets).orderBy(desc(quantifiedBullets.extractedAt)).limit(100),
     ]);
   } catch (error) {
     throw new AppError('DATABASE_ERROR', 'Failed to load catalog data', { cause: String(error) }, 500);
@@ -652,7 +652,6 @@ export async function analyzeJobFit(
     seniorityConfidence: parsed.seniorityConfidence,
     requiredStack: parsed.requiredStack,
     niceToHaveStack: parsed.niceToHaveStack,
-    industries: parsed.industries,
     teamScope: parsed.teamScope,
     location: parsed.location,
     compensation: parsed.compensation,
@@ -750,21 +749,6 @@ export async function analyzeJobFit(
         isRequired: true,
         severity: 'moderate',
       });
-    }
-  }
-
-  for (const industry of parsed.industries) {
-    const match = matchCatalogEntry(industry, jfCatalog);
-    if (match) {
-      const fitMatch: FitMatchDTO = {
-        type: 'job_fit',
-        catalogEntry: match.entry.slug,
-        jdRequirement: industry,
-        matchType: match.matchType,
-        isRequired: false,
-      };
-      if (match.matchType === 'exact') strongMatches.push(fitMatch);
-      else partialMatches.push(fitMatch);
     }
   }
 
