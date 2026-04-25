@@ -71,7 +71,8 @@ export function JobFitAnalysis() {
         setResults(response);
         setStage('results');
       },
-      onError: () => {
+      onError: (error) => {
+        console.error('Job Fit Analysis error:', error);
         setStage('error');
       },
     });
