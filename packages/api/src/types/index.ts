@@ -189,7 +189,6 @@ export interface ParsedJobDescriptionDTO {
   seniorityConfidence: Confidence;
   requiredStack: string[];
   niceToHaveStack: string[];
-  industries: string[];
   teamScope: string | null;
   location: string | null;
   compensation: string | null;

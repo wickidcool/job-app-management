@@ -40,7 +40,6 @@ export interface ParsedJobDescription {
   seniorityConfidence: Confidence;
   requiredStack: string[]; // Normalized tech stack tags
   niceToHaveStack: string[]; // Normalized tech stack tags
-  industries: string[]; // Normalized job fit tags
   teamScope: string | null; // e.g., "IC", "Manager of 5"
   location: string | null;
   compensation: string | null;
