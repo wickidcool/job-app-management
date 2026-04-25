@@ -116,7 +116,9 @@ export async function listJobFitTags(opts: ListTagsOptions = {}) {
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
-  if (opts.category) conditions.push(eq(jobFitTags.category, opts.category as any));
+  if (opts.category && VALID_JOB_FIT_CATEGORIES.includes(opts.category as JobFitCategory)) {
+    conditions.push(eq(jobFitTags.category, opts.category as JobFitCategory));
+  }
   if (opts.needsReview) conditions.push(eq(jobFitTags.needsReview, true));
   if (opts.search) conditions.push(ilike(jobFitTags.displayName, `%${opts.search}%`));
 
@@ -210,7 +212,9 @@ export async function listTechStackTags(opts: ListTagsOptions = {}) {
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
-  if (opts.category) conditions.push(eq(techStackTags.category, opts.category as any));
+  if (opts.category && VALID_TECH_STACK_CATEGORIES.includes(opts.category as TechStackCategory)) {
+    conditions.push(eq(techStackTags.category, opts.category as TechStackCategory));
+  }
   if (opts.needsReview) conditions.push(eq(techStackTags.needsReview, true));
   if (opts.search) conditions.push(ilike(techStackTags.displayName, `%${opts.search}%`));
 
