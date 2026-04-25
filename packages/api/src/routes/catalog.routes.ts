@@ -18,6 +18,7 @@ import {
   listBullets,
   listThemes,
 } from '../services/catalog.service.js';
+import { analyzeJobFit } from '../services/job-fit.service.js';
 
 const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -25,7 +26,7 @@ const paginationSchema = z.object({
 });
 
 const listDiffsSchema = paginationSchema.extend({
-  status: z.enum(['pending', 'applied', 'discarded']).optional(),
+  status: z.enum(['pending', 'approved', 'rejected', 'partial', 'expired']).optional(),
 });
 
 const generateDiffSchema = z.object({
@@ -223,5 +224,25 @@ export async function catalogRoutes(fastify: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const { themes } = await listThemes(parsed.data);
     return reply.send(themes);
+  });
+
+  // ── Job Fit Analysis ────────────────────────────────────────────────────────
+
+  const analyzeJobFitSchema = z.object({
+    jobDescriptionText: z.string().optional(),
+    jobDescriptionUrl: z.string().optional(),
+  });
+
+  fastify.post('/catalog/job-fit/analyze', async (request, reply) => {
+    const parsed = analyzeJobFitSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+
+    const { response, rateLimitHeaders } = await analyzeJobFit(parsed.data);
+
+    reply.header('X-RateLimit-Remaining', String(rateLimitHeaders.remaining));
+    reply.header('X-RateLimit-Reset', String(rateLimitHeaders.reset));
+
+    return reply.send(response);
   });
 }

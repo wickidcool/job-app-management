@@ -153,3 +153,112 @@ export class InvalidTransitionError extends AppError {
     this.name = 'InvalidTransitionError';
   }
 }
+
+// ============================================================================
+// Job Fit Analysis (UC-3)
+// ============================================================================
+
+export type Seniority =
+  | 'entry'
+  | 'mid'
+  | 'senior'
+  | 'staff'
+  | 'principal'
+  | 'director'
+  | 'vp'
+  | 'c_level';
+
+export type FitRecommendation = 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit';
+
+export type Confidence = 'high' | 'medium' | 'low';
+
+export type FitMatchType = 'exact' | 'alias' | 'related';
+
+export type FitType = 'tech_stack' | 'job_fit' | 'seniority';
+
+export type GapSeverity = 'critical' | 'moderate' | 'minor';
+
+export interface AnalyzeJobFitInput {
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+}
+
+export interface ParsedJobDescriptionDTO {
+  roleTitle: string | null;
+  seniority: Seniority | null;
+  seniorityConfidence: Confidence;
+  requiredStack: string[];
+  niceToHaveStack: string[];
+  industries: string[];
+  teamScope: string | null;
+  location: string | null;
+  compensation: string | null;
+}
+
+export interface FitMatchDTO {
+  type: FitType;
+  catalogEntry: string;
+  jdRequirement: string;
+  matchType: FitMatchType;
+  isRequired: boolean;
+}
+
+export interface FitGapDTO {
+  type: FitType;
+  jdRequirement: string;
+  isRequired: boolean;
+  severity: GapSeverity;
+}
+
+export interface RecommendedStarEntryDTO {
+  id: string;
+  rawText: string;
+  impactCategory: string;
+  relevanceScore: number;
+}
+
+export interface AnalyzeJobFitResponse {
+  recommendation: FitRecommendation | null;
+  summary: string;
+  confidence: Confidence;
+  parsedJd: ParsedJobDescriptionDTO;
+  strongMatches: FitMatchDTO[];
+  partialMatches: FitMatchDTO[];
+  gaps: FitGapDTO[];
+  recommendedStarEntries: RecommendedStarEntryDTO[];
+  catalogEmpty: boolean;
+  analysisTimestamp: string;
+}
+
+export class JobFitInputError extends AppError {
+  constructor(code: string, message: string, details?: unknown) {
+    super(code, message, details, 400);
+    this.name = 'JobFitInputError';
+  }
+}
+
+export class JobFitParseError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super('JD_PARSE_FAILED', message, details, 422);
+    this.name = 'JobFitParseError';
+  }
+}
+
+export class JobFitUrlFetchError extends AppError {
+  constructor(url: string, httpStatus?: number) {
+    super(
+      'URL_FETCH_FAILED',
+      'Could not retrieve job description from URL. The site may be blocking automated access. Please paste the job description text directly.',
+      { url, httpStatus },
+      422,
+    );
+    this.name = 'JobFitUrlFetchError';
+  }
+}
+
+export class RateLimitError extends AppError {
+  constructor(retryAfter: number) {
+    super('RATE_LIMIT_EXCEEDED', 'Request rate limit exceeded', { retryAfter }, 429);
+    this.name = 'RateLimitError';
+  }
+}
