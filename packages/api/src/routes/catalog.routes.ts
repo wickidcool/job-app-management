@@ -240,17 +240,27 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   // ── Job Fit Analysis ────────────────────────────────────────────────────────
 
-  const analyzeJobFitSchema = z.object({
-    jobDescriptionText: z.string().optional(),
-    jobDescriptionUrl: z.string().optional(),
-  });
+  const analyzeJobFitSchema = z
+    .object({
+      jobDescriptionText: z.string().min(50).max(50000).optional(),
+      jobDescriptionUrl: z.string().url().max(2048).optional(),
+    })
+    .refine(
+      (data) => {
+        const hasText = data.jobDescriptionText !== undefined && data.jobDescriptionText !== '';
+        const hasUrl = data.jobDescriptionUrl !== undefined && data.jobDescriptionUrl !== '';
+        return (hasText && !hasUrl) || (!hasText && hasUrl);
+      },
+      { message: 'Provide either jobDescriptionText or jobDescriptionUrl, not both or neither' },
+    );
 
   fastify.post('/catalog/job-fit/analyze', async (request, reply) => {
     const parsed = analyzeJobFitSchema.safeParse(request.body);
     if (!parsed.success)
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
-    const { response, rateLimitHeaders } = await analyzeJobFit(parsed.data);
+    const clientIp = request.ip || request.headers['x-forwarded-for']?.toString().split(',')[0] || 'unknown';
+    const { response, rateLimitHeaders } = await analyzeJobFit(parsed.data, clientIp);
 
     reply.header('X-RateLimit-Remaining', String(rateLimitHeaders.remaining));
     reply.header('X-RateLimit-Reset', String(rateLimitHeaders.reset));
