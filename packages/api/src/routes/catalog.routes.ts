@@ -172,9 +172,15 @@ export async function catalogRoutes(fastify: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
     if (type === 'job-fit') {
+      if (parsed.data.category && !jobFitCategoryValues.includes(parsed.data.category as typeof jobFitCategoryValues[number])) {
+        return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: `Invalid job-fit category. Valid values: ${jobFitCategoryValues.join(', ')}` } });
+      }
       const { tags } = await listJobFitTags(parsed.data);
       return reply.send(tags);
     } else if (type === 'tech-stack') {
+      if (parsed.data.category && !techStackCategoryValues.includes(parsed.data.category as typeof techStackCategoryValues[number])) {
+        return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: `Invalid tech-stack category. Valid values: ${techStackCategoryValues.join(', ')}` } });
+      }
       const { tags } = await listTechStackTags(parsed.data);
       return reply.send(tags);
     } else {
