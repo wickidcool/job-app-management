@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
 import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
+import { APIError } from '../services/api/apiClient';
 
 interface JobFitFormData {
   jobDescriptionText: string;
@@ -70,7 +71,8 @@ export function JobFitAnalysis() {
         setResults(response);
         setStage('results');
       },
-      onError: () => {
+      onError: (error) => {
+        console.error('Job Fit Analysis error:', error);
         setStage('error');
       },
     });
@@ -318,7 +320,47 @@ export function JobFitAnalysis() {
   }
 
   if (stage === 'error') {
-    const errorMessage = mutationError?.message || 'An error occurred during analysis';
+    // Extract detailed error information
+    let errorMessage = 'An unexpected error occurred';
+    let errorDetails: string | undefined;
+
+    if (mutationError instanceof APIError) {
+      errorMessage = mutationError.message;
+
+      // Add helpful context based on error code
+      switch (mutationError.code) {
+        case 'JD_TEXT_TOO_SHORT':
+          errorMessage = 'Job description is too short. Please provide at least 100 characters.';
+          break;
+        case 'JD_TEXT_TOO_LONG':
+          errorMessage = 'Job description exceeds maximum length of 50,000 characters.';
+          break;
+        case 'JD_URL_INVALID':
+          errorMessage = 'The provided URL is not valid. Please check and try again.';
+          break;
+        case 'JD_PARSE_FAILED':
+          errorMessage = 'Unable to extract job requirements from the provided text. Please ensure it contains a valid job description.';
+          break;
+        case 'URL_FETCH_FAILED':
+          errorMessage = 'Could not retrieve job description from URL. The site may be blocking automated access. Please paste the job description text directly.';
+          break;
+        case 'URL_FETCH_TIMEOUT':
+          errorMessage = 'Request timed out while fetching job description from URL. Please try pasting the text directly.';
+          break;
+        case 'RATE_LIMIT_EXCEEDED':
+          errorMessage = 'Too many requests. Please wait a moment and try again.';
+          break;
+        case 'NETWORK_ERROR':
+          errorMessage = 'Unable to connect to the server. Please check your connection and try again.';
+          break;
+      }
+
+      if (mutationError.details) {
+        errorDetails = JSON.stringify(mutationError.details, null, 2);
+      }
+    } else if (mutationError) {
+      errorMessage = mutationError.message || errorMessage;
+    }
 
     return (
       <div className="min-h-screen bg-neutral-50 py-8">
@@ -327,6 +369,16 @@ export function JobFitAnalysis() {
             <div className="text-6xl mb-4">⚠️</div>
             <h2 className="text-2xl font-semibold text-red-900 mb-4">Analysis Failed</h2>
             <p className="text-red-700 mb-6">{errorMessage}</p>
+            {errorDetails && (
+              <details className="mb-6 text-left">
+                <summary className="cursor-pointer text-sm text-red-600 hover:text-red-800">
+                  Show technical details
+                </summary>
+                <pre className="mt-2 p-4 bg-red-100 rounded text-xs text-red-900 overflow-auto">
+                  {errorDetails}
+                </pre>
+              </details>
+            )}
             <button
               onClick={handleReset}
               className="px-6 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
