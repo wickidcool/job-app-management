@@ -71,8 +71,7 @@ export function JobFitAnalysis() {
         setResults(response);
         setStage('results');
       },
-      onError: (error) => {
-        console.error('Job Fit Analysis error:', error);
+      onError: () => {
         setStage('error');
       },
     });
@@ -327,7 +326,6 @@ export function JobFitAnalysis() {
     if (mutationError instanceof APIError) {
       errorMessage = mutationError.message;
 
-      // Add helpful context based on error code
       switch (mutationError.code) {
         case 'JD_TEXT_TOO_SHORT':
           errorMessage = 'Job description is too short. Please provide at least 100 characters.';
