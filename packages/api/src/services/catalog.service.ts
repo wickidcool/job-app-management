@@ -12,8 +12,14 @@ import {
   wikilinkRegistry,
 } from '../db/schema.js';
 import type { DiffChange, ReviewItem } from '../db/schema.js';
-import { NotFoundError } from '../types/index.js';
+import { NotFoundError, AppError } from '../types/index.js';
 import { processCatalogChange } from './extraction.service.js';
+
+const VALID_JOB_FIT_CATEGORIES = ['role', 'industry', 'seniority', 'work_style', 'uncategorized'] as const;
+const VALID_TECH_STACK_CATEGORIES = ['language', 'frontend', 'backend', 'database', 'cloud', 'devops', 'ai_ml', 'uncategorized'] as const;
+
+type JobFitCategory = typeof VALID_JOB_FIT_CATEGORIES[number];
+type TechStackCategory = typeof VALID_TECH_STACK_CATEGORIES[number];
 
 // ── Company catalog ──────────────────────────────────────────────────────────
 
@@ -150,11 +156,15 @@ export async function updateJobFitTag(
   const [existing] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, id));
   if (!existing) throw new NotFoundError('JobFitTag');
 
+  if (patch.category !== undefined && !VALID_JOB_FIT_CATEGORIES.includes(patch.category as JobFitCategory)) {
+    throw new AppError('INVALID_CATEGORY', `Invalid job fit category: ${patch.category}. Valid values: ${VALID_JOB_FIT_CATEGORIES.join(', ')}`, {}, 400);
+  }
+
   const [updated] = await db
     .update(jobFitTags)
     .set({
       ...(patch.displayName !== undefined && { displayName: patch.displayName }),
-      ...(patch.category !== undefined && { category: patch.category as any }),
+      ...(patch.category !== undefined && { category: patch.category as JobFitCategory }),
       ...(patch.needsReview !== undefined && { needsReview: patch.needsReview }),
       updatedAt: new Date(),
       version: existing.version + 1,
@@ -241,11 +251,15 @@ export async function updateTechStackTag(
   const [existing] = await db.select().from(techStackTags).where(eq(techStackTags.id, id));
   if (!existing) throw new NotFoundError('TechStackTag');
 
+  if (patch.category !== undefined && !VALID_TECH_STACK_CATEGORIES.includes(patch.category as TechStackCategory)) {
+    throw new AppError('INVALID_CATEGORY', `Invalid tech stack category: ${patch.category}. Valid values: ${VALID_TECH_STACK_CATEGORIES.join(', ')}`, {}, 400);
+  }
+
   const [updated] = await db
     .update(techStackTags)
     .set({
       ...(patch.displayName !== undefined && { displayName: patch.displayName }),
-      ...(patch.category !== undefined && { category: patch.category as any }),
+      ...(patch.category !== undefined && { category: patch.category as TechStackCategory }),
       ...(patch.needsReview !== undefined && { needsReview: patch.needsReview }),
       updatedAt: new Date(),
       version: existing.version + 1,

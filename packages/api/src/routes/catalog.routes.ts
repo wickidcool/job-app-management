@@ -80,9 +80,19 @@ const listTagsSchema = paginationSchema.extend({
   search: z.string().max(200).optional(),
 });
 
-const updateTagSchema = z.object({
+const jobFitCategoryValues = ['role', 'industry', 'seniority', 'work_style', 'uncategorized'] as const;
+const techStackCategoryValues = ['language', 'frontend', 'backend', 'database', 'cloud', 'devops', 'ai_ml', 'uncategorized'] as const;
+
+const updateJobFitTagSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
-  category: z.string().max(100).optional(),
+  category: z.enum(jobFitCategoryValues).optional(),
+  needsReview: z.boolean().optional(),
+  version: z.number().int().positive(),
+});
+
+const updateTechStackTagSchema = z.object({
+  displayName: z.string().min(1).max(200).optional(),
+  category: z.enum(techStackCategoryValues).optional(),
   needsReview: z.boolean().optional(),
   version: z.number().int().positive(),
 });
@@ -192,13 +202,15 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   fastify.patch<{ Params: { type: string; id: string } }>('/catalog/tags/:type/:id', async (request, reply) => {
     const { type, id } = request.params;
-    const parsed = updateTagSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
     if (type === 'job-fit') {
+      const parsed = updateJobFitTagSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
       const tag = await updateJobFitTag(id, parsed.data);
       return reply.send(tag);
     } else if (type === 'tech-stack') {
+      const parsed = updateTechStackTagSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
       const tag = await updateTechStackTag(id, parsed.data);
       return reply.send(tag);
     } else {
