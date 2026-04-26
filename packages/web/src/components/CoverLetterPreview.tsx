@@ -7,7 +7,7 @@ interface CoverLetterPreviewProps {
   wordCount?: number;
   showExportActions?: boolean;
   onCopy?: () => void;
-  onDownload?: (format: 'docx' | 'pdf') => void;
+  onDownload?: (format: 'docx') => void;
 }
 
 export function CoverLetterPreview({
@@ -65,25 +65,12 @@ export function CoverLetterPreview({
               {copyStatus === 'copied' ? '✓ Copied!' : '📋 Copy'}
             </button>
             {onDownload && (
-              <div className="relative group">
-                <button className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                  ⬇ Download
-                </button>
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-                  <button
-                    onClick={() => onDownload('docx')}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 rounded-t-lg"
-                  >
-                    📄 Word (.docx)
-                  </button>
-                  <button
-                    onClick={() => onDownload('pdf')}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 rounded-b-lg"
-                  >
-                    📕 PDF
-                  </button>
-                </div>
-              </div>
+              <button
+                onClick={() => onDownload('docx')}
+                className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                ⬇ Download DOCX
+              </button>
             )}
           </div>
         </div>

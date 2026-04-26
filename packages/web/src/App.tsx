@@ -17,6 +17,7 @@ import { Settings } from './pages/Settings';
 import { JobFitAnalysis } from './pages/JobFitAnalysis';
 import { CoverLetterNew } from './pages/CoverLetterNew';
 import { CoverLetterDetail } from './pages/CoverLetterDetail';
+import { OutreachNew } from './pages/OutreachNew';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
@@ -53,6 +54,7 @@ function App() {
             <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
             <Route path="/cover-letters/new" element={<CoverLetterNew />} />
             <Route path="/cover-letters/:id" element={<CoverLetterDetail />} />
+            <Route path="/outreach/new" element={<OutreachNew />} />
             <Route path="/projects" element={<ProjectsList />} />
             <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
             <Route path="/projects/:projectId" element={<ProjectDetail />} />

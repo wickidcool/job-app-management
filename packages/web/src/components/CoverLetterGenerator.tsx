@@ -10,6 +10,7 @@ import type {
 } from '../services/api/types';
 import { StarEntryPicker } from './StarEntryPicker';
 import { CoverLetterPreview } from './CoverLetterPreview';
+import { useGenerateCoverLetter } from '../hooks/useCoverLetters';
 
 interface CoverLetterGeneratorProps {
   fitAnalysisId?: string;
@@ -41,8 +42,11 @@ export function CoverLetterGenerator({
     length: 'standard',
     emphasis: 'balanced',
   });
-  const [isGenerating, setIsGenerating] = useState(false);
   const [editableContent, setEditableContent] = useState('');
+  const [generatedCoverLetterId, setGeneratedCoverLetterId] = useState<string | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+
+  const generateMutation = useGenerateCoverLetter();
 
   const {
     register: registerStep1,
@@ -66,38 +70,37 @@ export function CoverLetterGenerator({
   };
 
   const handleStep3Generate = async () => {
-    setIsGenerating(true);
+    setGenerationError(null);
     setCurrentStep(4);
 
     try {
-      // TODO: Call API to generate cover letter
-      // Simulating API call for now
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const coverLetter = await generateMutation.mutateAsync({
+        selectedStarEntryIds: selectedSTARIds,
+        targetCompany: step1Data?.companyName,
+        targetRole: step1Data?.jobTitle,
+        tone: variant.tone,
+        lengthVariant: variant.length,
+        jobFitAnalysisId: fitAnalysisId,
+      });
 
-      const mockContent = `Dear ${step1Data?.hiringContact || 'Hiring Manager'},
-
-I am writing to express my strong interest in the ${step1Data?.jobTitle} position at ${step1Data?.companyName}. With my background in software development and proven track record of delivering results, I am confident I can contribute immediately to your team.
-
-In my previous role, I led a React migration project that reduced bundle size by 40% and improved load times significantly. This experience directly aligns with the frontend expertise your team is seeking.
-
-I have also worked extensively on backend systems, scaling Node.js APIs to handle thousands of requests per second while maintaining high reliability and performance standards.
-
-I am excited about the opportunity to bring my skills to ${step1Data?.companyName} and would welcome the chance to discuss how my experience aligns with your needs.
-
-Sincerely,
-[Your Name]`;
-
-      setEditableContent(mockContent);
+      setGeneratedCoverLetterId(coverLetter.id);
+      setEditableContent(coverLetter.content);
     } catch (error) {
       console.error('Generation failed:', error);
-    } finally {
-      setIsGenerating(false);
+      setGenerationError(
+        error instanceof Error ? error.message : 'Failed to generate cover letter. Please try again.'
+      );
     }
   };
 
   const handleSave = () => {
+    if (!generatedCoverLetterId) {
+      console.error('No cover letter ID available');
+      return;
+    }
+
     const result: CoverLetterResult = {
-      id: `cl_${Date.now()}`,
+      id: generatedCoverLetterId,
       content: editableContent,
       variant,
       selectedSTARs: selectedSTARIds,
@@ -456,11 +459,31 @@ Sincerely,
           {/* Step 4: Review & Edit */}
           {currentStep === 4 && (
             <div className="space-y-6">
-              {isGenerating ? (
+              {generateMutation.isPending ? (
                 <div className="bg-white border rounded-lg p-12 text-center">
                   <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mb-4"></div>
                   <p className="text-lg font-medium text-gray-900">Generating your cover letter...</p>
                   <p className="text-sm text-gray-600 mt-2">This usually takes 10-15 seconds</p>
+                </div>
+              ) : generationError ? (
+                <div className="bg-white border border-red-200 rounded-lg p-8 text-center">
+                  <div className="text-red-600 text-5xl mb-4">⚠️</div>
+                  <p className="text-lg font-medium text-gray-900 mb-2">Generation Failed</p>
+                  <p className="text-sm text-gray-600 mb-6">{generationError}</p>
+                  <div className="flex gap-3 justify-center">
+                    <button
+                      onClick={() => setCurrentStep(3)}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                    <button
+                      onClick={onCancel}
+                      className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>

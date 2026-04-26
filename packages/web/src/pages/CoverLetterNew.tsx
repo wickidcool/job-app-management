@@ -71,13 +71,12 @@ export function CoverLetterNew() {
   ]);
 
   const handleComplete = (result: CoverLetterResult) => {
-    console.log('Cover letter generated:', result);
-    // TODO: Save to API
+    // Cover letter is already saved by the generation API
     // Navigate to cover letter detail or back to application
     if (applicationId) {
       navigate(`/applications/${applicationId}`);
     } else {
-      navigate('/cover-letters');
+      navigate(`/cover-letters/${result.id}`);
     }
   };
 
