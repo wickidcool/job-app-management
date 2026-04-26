@@ -166,3 +166,73 @@ export interface APIResume {
 export interface ListResumesResponse {
   resumes: APIResume[];
 }
+
+/**
+ * Cover Letter Types
+ */
+
+export type CoverLetterTone = 'professional' | 'conversational' | 'enthusiastic';
+export type CoverLetterLength = 'concise' | 'standard' | 'detailed';
+export type CoverLetterEmphasis = 'technical' | 'leadership' | 'balanced';
+
+export interface CoverLetterVariant {
+  tone: CoverLetterTone;
+  length: CoverLetterLength;
+  emphasis: CoverLetterEmphasis;
+}
+
+export interface CoverLetterSummary {
+  id: string;
+  title: string;
+  keywords: string[];
+  createdAt: string;
+  preview: string;
+}
+
+export interface CoverLetterResult {
+  id: string;
+  content: string;
+  variant: CoverLetterVariant;
+  selectedSTARs: string[];
+  generatedAt: string;
+  applicationId?: string;
+}
+
+export interface ListCoverLettersResponse {
+  coverLetters: CoverLetterSummary[];
+}
+
+/**
+ * Catalog / STAR Entry Types
+ */
+
+export interface CatalogEntry {
+  id: string;
+  title: string;
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+  tags: string[];
+  timeframe?: string;
+  relevanceScore?: number; // For fit analysis context
+  relevanceReasoning?: string;
+}
+
+export interface ListCatalogEntriesResponse {
+  entries: CatalogEntry[];
+}
+
+/**
+ * Outreach Types
+ */
+
+export type OutreachPlatform = 'linkedin' | 'email' | 'twitter';
+
+export interface OutreachMessage {
+  platform: OutreachPlatform;
+  subject?: string; // Email only
+  body: string;
+  characterCount: number;
+  generatedAt: string;
+}
