@@ -1,4 +1,4 @@
-import { eq, ilike, or, desc, inArray } from 'drizzle-orm';
+import { eq, ilike, or, desc, inArray, and } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -190,11 +190,16 @@ Rules:
 - Return only the cover letter text, no commentary`;
 
   const client = getAiClient();
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  let message;
+  try {
+    message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    });
+  } catch (err) {
+    throw new CoverLetterError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+  }
 
   const content = message.content[0].type === 'text' ? message.content[0].text : '';
 
@@ -276,8 +281,7 @@ export async function listCoverLetters(params: {
 }): Promise<{ coverLetters: CoverLetterSummaryDTO[]; nextCursor?: string }> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 20, 100);
-
-  const query = db.select().from(coverLetters);
+  const offset = params.cursor ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10) : 0;
 
   const conditions: ReturnType<typeof eq>[] = [];
   if (params.status === 'draft' || params.status === 'finalized') {
@@ -298,19 +302,22 @@ export async function listCoverLetters(params: {
     );
   }
 
-  const rows = await (conditions.length > 0
-    ? query.where(conditions.reduce((a, b) => (a as any) && (b as any), conditions[0]) as any)
-    : query
-  )
+  const baseQuery = db.select().from(coverLetters);
+  const filteredQuery = conditions.length > 0
+    ? baseQuery.where(conditions.length === 1 ? conditions[0] : and(...conditions))
+    : baseQuery;
+
+  const rows = await filteredQuery
     .orderBy(desc(coverLetters.createdAt))
-    .limit(limit + 1);
+    .limit(limit + 1)
+    .offset(offset);
 
   const hasMore = rows.length > limit;
   const result = hasMore ? rows.slice(0, limit) : rows;
 
   return {
     coverLetters: result.map(toSummaryDTO),
-    nextCursor: hasMore ? Buffer.from(String(limit)).toString('base64url') : undefined,
+    nextCursor: hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined,
   };
 }
 
@@ -396,11 +403,16 @@ Rules:
 - Return only the revised letter text, no commentary`;
 
   const client = getAiClient();
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  let message;
+  try {
+    message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    });
+  } catch (err) {
+    throw new CoverLetterError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+  }
 
   const newContent = message.content[0].type === 'text' ? message.content[0].text : '';
 
@@ -501,11 +513,16 @@ Requirements:
 - Return only the message text`;
 
   const client = getAiClient();
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 512,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  let message;
+  try {
+    message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 512,
+      messages: [{ role: 'user', content: prompt }],
+    });
+  } catch (err) {
+    throw new CoverLetterError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+  }
 
   const rawText = message.content[0].type === 'text' ? message.content[0].text : '';
 
