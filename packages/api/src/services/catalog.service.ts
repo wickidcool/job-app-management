@@ -62,6 +62,7 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
     name: row.name,
     normalizedName: row.normalizedName,
     aliases: row.aliases,
+    firstSeen: row.firstSeenAt.toISOString(),
     firstSeenAt: row.firstSeenAt.toISOString(),
     applicationCount: row.applicationCount,
     latestStatus: row.latestStatus,
