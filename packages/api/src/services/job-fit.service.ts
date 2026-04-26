@@ -2,12 +2,7 @@ import { desc } from 'drizzle-orm';
 import { lookup } from 'node:dns/promises';
 import { getDb } from '../db/client.js';
 import { techStackTags, jobFitTags, quantifiedBullets } from '../db/schema.js';
-import {
-  AppError,
-  JobFitInputError,
-  JobFitUrlFetchError,
-  RateLimitError,
-} from '../types/index.js';
+import { AppError, JobFitInputError, JobFitUrlFetchError, RateLimitError } from '../types/index.js';
 import type {
   AnalyzeJobFitInput,
   AnalyzeJobFitResponse,
@@ -61,7 +56,7 @@ function getBucket(buckets: Map<string, RateLimitBucket>, clientId: string): Rat
 export function checkRateLimit(
   buckets: Map<string, RateLimitBucket>,
   clientId: string,
-  limit: number,
+  limit: number
 ): { remaining: number; reset: number } {
   const bucket = getBucket(buckets, clientId);
   const now = Date.now();
@@ -121,7 +116,10 @@ async function validateUrlForSSRF(url: string): Promise<void> {
   const parsed = new URL(url);
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new JobFitInputError('JD_URL_INVALID_SCHEME', 'Only http:// and https:// URLs are allowed');
+    throw new JobFitInputError(
+      'JD_URL_INVALID_SCHEME',
+      'Only http:// and https:// URLs are allowed'
+    );
   }
 
   if (parsed.port && !['80', '443', ''].includes(parsed.port)) {
@@ -180,7 +178,10 @@ export async function fetchJobDescriptionFromUrl(url: string): Promise<string> {
     }
 
     const html = await response.text();
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   } catch (error) {
     if (error instanceof AppError) throw error;
     if ((error as Error).name === 'AbortError') {
@@ -346,25 +347,43 @@ const KNOWN_SECTION_DELIMITERS = [
   "what you'll do",
   'compensation',
   'how to apply',
+  'the skillset',
+  'skillset',
+  'skills',
+  'the opportunity',
 ];
+
+function findSectionHeaderIndex(text: string, header: string): number {
+  const lower = text.toLowerCase();
+  const headerLower = header.toLowerCase();
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*(?:[#*]+\\s*)?(?:\\*\\*)?${headerLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\*\\*)?\\s*[:.]?\\s*(?:\\n|$)`,
+    'im'
+  );
+  const match = lower.match(pattern);
+  if (match && match.index !== undefined) {
+    const matchStart = match.index;
+    return lower.indexOf(headerLower, matchStart);
+  }
+  return -1;
+}
 
 function extractSection(text: string, headers: string[]): string {
   const lower = text.toLowerCase();
   let result = '';
 
   for (const header of headers) {
-    const idx = lower.indexOf(header);
+    const idx = findSectionHeaderIndex(text, header);
     if (idx === -1) continue;
 
     const contentStart = idx + header.length;
     let endIdx = Math.min(contentStart + 1200, text.length);
 
-    // Stop at the next known section delimiter that isn't one of our headers
     for (const delimiter of KNOWN_SECTION_DELIMITERS) {
       if (headers.includes(delimiter)) continue;
-      const delimIdx = lower.indexOf(delimiter, contentStart);
-      if (delimIdx !== -1 && delimIdx < endIdx) {
-        endIdx = delimIdx;
+      const delimIdx = findSectionHeaderIndex(text.slice(contentStart), delimiter);
+      if (delimIdx !== -1 && contentStart + delimIdx < endIdx) {
+        endIdx = contentStart + delimIdx;
       }
     }
 
@@ -440,6 +459,9 @@ export function parseJobDescription(text: string): ParsedJD {
     'you will need',
     'minimum qualifications',
     'basic qualifications',
+    'the skillset',
+    'skillset',
+    'skills',
   ]);
 
   const niceToHaveSection = extractSection(text, [
@@ -454,7 +476,7 @@ export function parseJobDescription(text: string): ParsedJD {
   const requiredText = requiredSection || text;
   const requiredStack = extractTechTerms(requiredText);
   const niceToHaveStack = extractTechTerms(niceToHaveSection).filter(
-    (t) => !requiredStack.includes(t),
+    (t) => !requiredStack.includes(t)
   );
 
   return {
@@ -480,7 +502,7 @@ interface CatalogEntry {
 
 export function matchCatalogEntry(
   jdTerm: string,
-  catalog: CatalogEntry[],
+  catalog: CatalogEntry[]
 ): { entry: CatalogEntry; matchType: 'exact' | 'alias' | 'related' } | null {
   const normalized = normalizeSlug(jdTerm);
 
@@ -493,7 +515,7 @@ export function matchCatalogEntry(
   for (const entry of catalog) {
     if (
       entry.aliases.some(
-        (a) => normalizeSlug(a) === normalized || a.toLowerCase() === jdTerm.toLowerCase(),
+        (a) => normalizeSlug(a) === normalized || a.toLowerCase() === jdTerm.toLowerCase()
       )
     ) {
       return { entry, matchType: 'alias' };
@@ -519,7 +541,7 @@ export function computeRecommendation(
   requiredMatches: FitMatchDTO[],
   requiredGaps: FitGapDTO[],
   totalRequired: number,
-  hasSeniorityMismatch: boolean,
+  hasSeniorityMismatch: boolean
 ): FitRecommendation | null {
   if (totalRequired === 0) return null;
 
@@ -540,7 +562,7 @@ function computeSummary(
   strongMatches: FitMatchDTO[],
   partialMatches: FitMatchDTO[],
   gaps: FitGapDTO[],
-  totalRequired: number,
+  totalRequired: number
 ): string {
   if (!recommendation)
     return 'Unable to compute fit score — no required skills found in the job description.';
@@ -578,7 +600,7 @@ function gapSeverity(jdTerm: string, isRequired: boolean): 'critical' | 'moderat
 
 export async function analyzeJobFit(
   input: AnalyzeJobFitInput,
-  clientId: string = 'default',
+  clientId: string = 'default'
 ): Promise<{
   response: AnalyzeJobFitResponse;
   rateLimitHeaders: { remaining: number; reset: number };
@@ -589,13 +611,13 @@ export async function analyzeJobFit(
   if (!hasText && !hasUrl) {
     throw new JobFitInputError(
       'JD_INPUT_REQUIRED',
-      'Either jobDescriptionText or jobDescriptionUrl is required',
+      'Either jobDescriptionText or jobDescriptionUrl is required'
     );
   }
   if (hasText && hasUrl) {
     throw new JobFitInputError(
       'JD_INPUT_CONFLICT',
-      'Provide either jobDescriptionText or jobDescriptionUrl, not both',
+      'Provide either jobDescriptionText or jobDescriptionUrl, not both'
     );
   }
 
@@ -607,19 +629,22 @@ export async function analyzeJobFit(
     if (text.length < 50)
       throw new JobFitInputError(
         'JD_TEXT_TOO_SHORT',
-        'jobDescriptionText must be at least 50 characters',
+        'jobDescriptionText must be at least 50 characters'
       );
     if (text.length > 50_000)
       throw new JobFitInputError(
         'JD_TEXT_TOO_LONG',
-        'jobDescriptionText must not exceed 50,000 characters',
+        'jobDescriptionText must not exceed 50,000 characters'
       );
     rateLimitHeaders = checkRateLimit(textBuckets, clientId, TEXT_LIMIT);
     jdText = text;
   } else {
     const url = input.jobDescriptionUrl!;
     if (url.length > 2048) {
-      throw new JobFitInputError('JD_URL_TOO_LONG', 'jobDescriptionUrl must not exceed 2048 characters');
+      throw new JobFitInputError(
+        'JD_URL_TOO_LONG',
+        'jobDescriptionUrl must not exceed 2048 characters'
+      );
     }
     try {
       new URL(url);
@@ -641,7 +666,12 @@ export async function analyzeJobFit(
       db.select().from(quantifiedBullets),
     ]);
   } catch (error) {
-    throw new AppError('DATABASE_ERROR', 'Failed to load catalog data', { cause: String(error) }, 500);
+    throw new AppError(
+      'DATABASE_ERROR',
+      'Failed to load catalog data',
+      { cause: String(error) },
+      500
+    );
   }
 
   const catalogEmpty = techTags.length === 0 && jfTags.length === 0;
@@ -727,7 +757,12 @@ export async function analyzeJobFit(
       if (match.matchType === 'exact') strongMatches.push(fitMatch);
       else partialMatches.push(fitMatch);
     } else {
-      gaps.push({ type: 'tech_stack', jdRequirement: term, isRequired: false, severity: gapSeverity(term, false) });
+      gaps.push({
+        type: 'tech_stack',
+        jdRequirement: term,
+        isRequired: false,
+        severity: gapSeverity(term, false),
+      });
     }
   }
 
@@ -779,7 +814,7 @@ export async function analyzeJobFit(
     requiredTechMatches,
     requiredGaps,
     totalRequired,
-    hasSeniorityMismatch,
+    hasSeniorityMismatch
   );
 
   const confidence: Confidence =
@@ -788,7 +823,7 @@ export async function analyzeJobFit(
   const recommendedStarEntries: RecommendedStarEntryDTO[] = bullets
     .map((b) => {
       const matchedTerms = parsed.requiredStack.filter((term) =>
-        b.rawText.toLowerCase().includes(term.toLowerCase()),
+        b.rawText.toLowerCase().includes(term.toLowerCase())
       );
       const relevanceScore =
         totalRequired > 0 ? Math.min(1, matchedTerms.length / totalRequired) : 0;
