@@ -12,14 +12,17 @@ import {
   wikilinkRegistry,
 } from '../db/schema.js';
 import type { DiffChange, ReviewItem } from '../db/schema.js';
-import { NotFoundError, AppError } from '../types/index.js';
+import {
+  NotFoundError,
+  AppError,
+  VALID_JOB_FIT_CATEGORIES,
+  VALID_TECH_STACK_CATEGORIES,
+  validateTechStackCategory,
+  validateJobFitCategory,
+  type JobFitCategory,
+  type TechStackCategory,
+} from '../types/index.js';
 import { processCatalogChange } from './extraction.service.js';
-
-const VALID_JOB_FIT_CATEGORIES = ['role', 'industry', 'seniority', 'work_style', 'uncategorized'] as const;
-const VALID_TECH_STACK_CATEGORIES = ['language', 'frontend', 'backend', 'database', 'cloud', 'devops', 'ai_ml', 'uncategorized'] as const;
-
-type JobFitCategory = typeof VALID_JOB_FIT_CATEGORIES[number];
-type TechStackCategory = typeof VALID_TECH_STACK_CATEGORIES[number];
 
 // ── Company catalog ──────────────────────────────────────────────────────────
 
@@ -62,7 +65,7 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
     name: row.name,
     normalizedName: row.normalizedName,
     aliases: row.aliases,
-    firstSeenAt: row.firstSeenAt.toISOString(),
+    firstSeen: row.firstSeenAt.toISOString(),
     applicationCount: row.applicationCount,
     latestStatus: row.latestStatus,
     isDeleted: row.isDeleted,
@@ -144,6 +147,7 @@ function toJobFitTagDTO(row: typeof jobFitTags.$inferSelect) {
     displayName: row.displayName,
     category: row.category,
     mentionCount: row.mentionCount,
+    sourceIds: row.sourceIds ?? [],
     needsReview: row.needsReview,
     reviewOptions: row.reviewOptions,
     version: row.version,
@@ -240,6 +244,7 @@ function toTechStackTagDTO(row: typeof techStackTags.$inferSelect) {
     displayName: row.displayName,
     category: row.category,
     mentionCount: row.mentionCount,
+    sourceIds: row.sourceIds ?? [],
     versionMentioned: row.versionMentioned,
     isLegacy: row.isLegacy,
     needsReview: row.needsReview,
@@ -346,6 +351,7 @@ export async function listBullets(opts: ListBulletsOptions = {}) {
       secondaryMetricType: r.secondaryMetricType,
       secondaryMetricValue: r.secondaryMetricValue,
       impactCategory: r.impactCategory,
+      sourceName: r.sourceType === 'resume' ? 'Resume' : 'Application',
       extractedAt: r.extractedAt.toISOString(),
     })),
     nextCursor,
@@ -547,20 +553,6 @@ export async function applyDiff(id: string, input: ApplyDiffInput) {
   const pendingReviewCount = (diff.pendingReview as ReviewItem[]).length;
   const finalStatus = appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
   return { applied: appliedCount, rejected: rejectedCount, pendingReview: pendingReviewCount, status: finalStatus };
-}
-
-function validateTechStackCategory(value: unknown): TechStackCategory {
-  if (typeof value === 'string' && VALID_TECH_STACK_CATEGORIES.includes(value as TechStackCategory)) {
-    return value as TechStackCategory;
-  }
-  return 'uncategorized';
-}
-
-function validateJobFitCategory(value: unknown): JobFitCategory {
-  if (typeof value === 'string' && VALID_JOB_FIT_CATEGORIES.includes(value as JobFitCategory)) {
-    return value as JobFitCategory;
-  }
-  return 'uncategorized';
 }
 
 async function applyChange(tx: any, change: DiffChange): Promise<void> {

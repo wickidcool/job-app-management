@@ -7,7 +7,7 @@ import { resumesRoutes } from './routes/resumes.js';
 import { projectsRoutes } from './routes/projects.js';
 import { dialogueRoutes } from './routes/dialogue.routes.js';
 import { catalogRoutes } from './routes/catalog.routes.js';
-import { AppError, RateLimitError } from './types/index.js';
+import { AppError } from './types/index.js';
 
 export function buildApp(opts?: { logger?: boolean }) {
   const fastify = Fastify({ logger: opts?.logger ?? true });
@@ -37,20 +37,6 @@ export function buildApp(opts?: { logger?: boolean }) {
 
   // Global error handler
   fastify.setErrorHandler((error, _request, reply) => {
-    if (error instanceof RateLimitError) {
-      const details = error.details as { retryAfter?: number } | undefined;
-      if (details?.retryAfter) {
-        reply.header('Retry-After', String(details.retryAfter));
-      }
-      return reply.status(429).send({
-        error: {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-        },
-      });
-    }
-
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send({
         error: {

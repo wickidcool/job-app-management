@@ -3,7 +3,7 @@ import path from 'node:path';
 import { ulid } from 'ulid';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
-import { resumes, resumeExports } from '../db/schema.js';
+import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
 import { enqueueChange } from './change-queue.service.js';
@@ -13,6 +13,24 @@ import {
   isAIParserAvailable,
 } from './ai-parser.service.js';
 import { getOrCreateProjectBySlug } from './project.service.js';
+
+export async function addCompanyToCatalog(companyName: string): Promise<void> {
+  if (!companyName) return;
+  const db = getDb();
+  const normalized = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unspecified';
+  const [existing] = await db.select().from(companyCatalog).where(eq(companyCatalog.normalizedName, normalized));
+  if (!existing) {
+    await db.insert(companyCatalog).values({
+      id: ulid(),
+      name: companyName,
+      normalizedName: normalized,
+      firstSeenAt: new Date(),
+      applicationCount: 0,
+      latestStatus: null,
+      latestAppId: null,
+    }).onConflictDoNothing();
+  }
+}
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -327,39 +345,32 @@ export async function uploadResume(
   // Try AI parsing first, fall back to heuristic parsing
   let usedAI = false;
   const aiAvailable = isAIParserAvailable();
-  console.log(`[resume.service] AI parser available: ${aiAvailable}`);
 
   if (aiAvailable) {
     try {
-      console.log('[resume.service] Attempting AI parsing...');
       const aiResult = await parseResumeWithAI(rawText);
 
       if (aiResult && aiResult.projects.length > 0) {
-        console.log(`[resume.service] AI parser returned ${aiResult.projects.length} projects`);
         usedAI = true;
         for (const aiProject of aiResult.projects) {
           const slug = toProjectSlug(aiProject.company) || resumeId;
           const project = await getOrCreateProjectBySlug(slug, aiProject.company);
+          await addCompanyToCatalog(aiProject.company);
           const projectDir = path.join(config.dataDir, 'projects', project.slug);
           await fs.mkdir(projectDir, { recursive: true });
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
           const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
           const projectFilePath = path.join(projectDir, `${safeBase}.md`);
-          if (!projectFilePath.startsWith(path.resolve(projectDir) + path.sep)) {
+          if (!path.resolve(projectFilePath).startsWith(path.resolve(projectDir) + path.sep)) {
             throw new Error('Invalid filename: path traversal detected');
           }
           await fs.writeFile(projectFilePath, projectMarkdown, 'utf-8');
-          console.log(`[resume.service] Wrote project file: ${projectFilePath}`);
         }
-      } else {
-        console.log('[resume.service] AI parser returned no projects, falling back to heuristic parsing');
       }
-    } catch (error) {
-      console.error('[resume.service] AI parsing failed:', error instanceof Error ? error.message : error);
+    } catch (err) {
+      console.error('[resume] AI parsing failed:', err instanceof Error ? err.message : err);
       usedAI = false;
     }
-  } else {
-    console.log('[resume.service] AI parser not available (ANTHROPIC_API_KEY not set), using heuristic parsing');
   }
 
   if (!usedAI) {
@@ -367,12 +378,13 @@ export async function uploadResume(
     for (const entry of experienceEntries) {
       const slug = toProjectSlug(entry.company) || resumeId;
       const project = await getOrCreateProjectBySlug(slug, entry.company);
+      await addCompanyToCatalog(entry.company);
       const projectDir = path.join(config.dataDir, 'projects', project.slug);
       await fs.mkdir(projectDir, { recursive: true });
       const projectMarkdown = generateProjectMarkdown(entry);
       const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
       const projectFilePath2 = path.join(projectDir, `${safeBase}.md`);
-      if (!projectFilePath2.startsWith(path.resolve(projectDir) + path.sep)) {
+      if (!path.resolve(projectFilePath2).startsWith(path.resolve(projectDir) + path.sep)) {
         throw new Error('Invalid filename: path traversal detected');
       }
       await fs.writeFile(projectFilePath2, projectMarkdown, 'utf-8');

@@ -203,7 +203,7 @@ export function CatalogBrowseTable({
           >
             <td className="px-6 py-4 text-sm text-neutral-900">
               <div className="max-w-2xl">
-                {bullet.bulletText}
+                {bullet.rawText}
                 <div className="mt-1 space-x-4 text-xs text-neutral-500">
                   <span>• Metric: {bullet.metricType} {bullet.metricValue}</span>
                 </div>

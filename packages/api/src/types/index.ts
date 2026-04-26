@@ -189,6 +189,7 @@ export interface ParsedJobDescriptionDTO {
   seniorityConfidence: Confidence;
   requiredStack: string[];
   niceToHaveStack: string[];
+  industries: string[];
   teamScope: string | null;
   location: string | null;
   compensation: string | null;
@@ -260,4 +261,28 @@ export class RateLimitError extends AppError {
     super('RATE_LIMIT_EXCEEDED', 'Request rate limit exceeded', { retryAfter }, 429);
     this.name = 'RateLimitError';
   }
+}
+
+// ============================================================================
+// Catalog Category Constants
+// ============================================================================
+
+export const VALID_JOB_FIT_CATEGORIES = ['role', 'industry', 'seniority', 'work_style', 'uncategorized'] as const;
+export const VALID_TECH_STACK_CATEGORIES = ['language', 'frontend', 'backend', 'database', 'cloud', 'devops', 'ai_ml', 'uncategorized'] as const;
+
+export type JobFitCategory = typeof VALID_JOB_FIT_CATEGORIES[number];
+export type TechStackCategory = typeof VALID_TECH_STACK_CATEGORIES[number];
+
+export function validateTechStackCategory(value: unknown): TechStackCategory {
+  if (typeof value === 'string' && VALID_TECH_STACK_CATEGORIES.includes(value as TechStackCategory)) {
+    return value as TechStackCategory;
+  }
+  return 'uncategorized';
+}
+
+export function validateJobFitCategory(value: unknown): JobFitCategory {
+  if (typeof value === 'string' && VALID_JOB_FIT_CATEGORIES.includes(value as JobFitCategory)) {
+    return value as JobFitCategory;
+  }
+  return 'uncategorized';
 }
