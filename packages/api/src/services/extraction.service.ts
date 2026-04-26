@@ -567,8 +567,13 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   // ── Quantified bullets ────────────────────────────────────────────────────
   if (event.sourceType === 'resume') {
+    const existingBulletTexts = new Set(
+      (await db.select({ rawText: quantifiedBullets.rawText }).from(quantifiedBullets)).map(r => r.rawText),
+    );
     const bullets = extractQuantifiedBullets(text, event.sourceType, event.sourceId);
     for (const bullet of bullets) {
+      if (existingBulletTexts.has(bullet.rawText)) continue;
+      existingBulletTexts.add(bullet.rawText);
       changes.push({
         entity: 'quantified_bullets',
         action: 'create',
