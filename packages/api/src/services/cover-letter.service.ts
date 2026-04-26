@@ -1,4 +1,4 @@
-import { eq, ilike, or, desc, inArray, and } from 'drizzle-orm';
+import { eq, ilike, or, desc, inArray, and, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -19,6 +19,7 @@ import {
   RevisionEntryDTO,
   CoverLetterError,
   NotFoundError,
+  VersionConflictError,
 } from '../types/index.js';
 
 // ── DTO mappers ───────────────────────────────────────────────────────────────
@@ -328,24 +329,25 @@ export async function updateCoverLetter(
   input: UpdateCoverLetterInput
 ): Promise<CoverLetterDTO> {
   const db = getDb();
-  const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
-  if (!existing) throw new NotFoundError('Cover letter');
-  if (existing.version !== input.version) {
-    throw new CoverLetterError('COVER_LETTER_VERSION_CONFLICT', 'Version mismatch', undefined, 409);
-  }
 
-  const updates: Partial<typeof existing> = {
+  const updates: Record<string, unknown> = {
     updatedAt: new Date(),
-    version: existing.version + 1,
+    version: sql`${coverLetters.version} + 1`,
   };
   if (input.title !== undefined) updates.title = input.title;
-  if (input.status !== undefined) updates.status = input.status as any;
+  if (input.status !== undefined) updates.status = input.status;
 
   const [row] = await db
     .update(coverLetters)
     .set(updates)
-    .where(eq(coverLetters.id, id))
+    .where(and(eq(coverLetters.id, id), eq(coverLetters.version, input.version)))
     .returning();
+
+  if (!row) {
+    const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+    if (!existing) throw new NotFoundError('Cover letter');
+    throw new VersionConflictError();
+  }
 
   return toDTO(row);
 }
@@ -372,9 +374,6 @@ export async function reviseCoverLetter(
   const db = getDb();
   const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
   if (!existing) throw new NotFoundError('Cover letter');
-  if (existing.version !== input.version) {
-    throw new CoverLetterError('COVER_LETTER_VERSION_CONFLICT', 'Version mismatch', undefined, 409);
-  }
 
   const selectedIds = input.selectedStarEntryIds ?? existing.selectedStarEntryIds ?? [];
   const starEntries = await fetchStarEntries(selectedIds);
@@ -435,10 +434,12 @@ Rules:
       selectedStarEntryIds: selectedIds,
       revisionHistory,
       updatedAt: now,
-      version: existing.version + 1,
+      version: sql`${coverLetters.version} + 1`,
     })
-    .where(eq(coverLetters.id, id))
+    .where(and(eq(coverLetters.id, id), eq(coverLetters.version, input.version)))
     .returning();
+
+  if (!row) throw new VersionConflictError();
 
   const usedStarEntries: UsedStarEntryDTO[] = starEntries.map((e, i) => ({
     id: e.id,
