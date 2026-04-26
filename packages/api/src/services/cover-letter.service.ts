@@ -5,6 +5,7 @@ import { getDb } from '../db/client.js';
 import { coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
 import type { CoverLetter, OutreachMessage, RevisionEntry } from '../db/schema.js';
 import { getConfig } from '../config.js';
+import { fetchJobDescriptionFromUrl } from './job-fit.service.js';
 import {
   CoverLetterDTO,
   CoverLetterSummaryDTO,
@@ -161,11 +162,19 @@ export async function generateCoverLetter(input: GenerateCoverLetterInput): Prom
   const lengthVariant = input.lengthVariant ?? 'standard';
   const wordTarget = WORD_TARGETS[lengthVariant];
 
-  const jdContext = hasJdText
-    ? `Job Description:\n${input.jobDescriptionText}`
-    : hasJdUrl
-      ? `Job Posting URL: ${input.jobDescriptionUrl}`
-      : `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
+  let jdContext: string;
+  if (hasJdText) {
+    jdContext = `Job Description:\n${input.jobDescriptionText}`;
+  } else if (hasJdUrl) {
+    try {
+      const fetchedText = await fetchJobDescriptionFromUrl(input.jobDescriptionUrl!);
+      jdContext = `Job Description:\n${fetchedText}`;
+    } catch (err) {
+      throw new CoverLetterError('JOB_URL_FETCH_FAILED', `Failed to fetch job description from URL: ${String(err)}`, undefined, 502);
+    }
+  } else {
+    jdContext = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
+  }
 
   const starBullets = starEntries.map((e, i) => `${i + 1}. ${e.rawText}`).join('\n');
 
@@ -567,10 +576,6 @@ export async function exportCoverLetter(
   id: string,
   input: ExportCoverLetterInput
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
-  if (input.format !== 'docx') {
-    throw new CoverLetterError('EXPORT_FORMAT_INVALID', 'Only docx export is currently supported');
-  }
-
   const db = getDb();
   const [row] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
   if (!row) throw new NotFoundError('Cover letter');

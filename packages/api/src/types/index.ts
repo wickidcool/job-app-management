@@ -417,7 +417,7 @@ export interface GenerateOutreachInput {
 }
 
 export interface ExportCoverLetterInput {
-  format: 'docx' | 'pdf';
+  format: 'docx';
   includeHeader?: boolean;
   headerInfo?: {
     name: string;
@@ -425,7 +425,6 @@ export interface ExportCoverLetterInput {
     phone?: string;
     linkedin?: string;
   };
-  fontFamily?: 'default' | 'serif' | 'modern';
   fontSize?: 11 | 12;
 }
 

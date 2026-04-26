@@ -67,7 +67,7 @@ const outreachSchema = z
 
 const exportSchema = z
   .object({
-    format: z.enum(['docx', 'pdf']),
+    format: z.literal('docx'),
     includeHeader: z.boolean().optional(),
     headerInfo: z
       .object({
@@ -77,7 +77,6 @@ const exportSchema = z
         linkedin: z.string().optional(),
       })
       .optional(),
-    fontFamily: z.enum(['default', 'serif', 'modern']).optional(),
     fontSize: z.union([z.literal(11), z.literal(12)]).optional(),
   })
   .strict();
