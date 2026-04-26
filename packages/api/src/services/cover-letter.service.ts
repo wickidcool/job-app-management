@@ -477,7 +477,7 @@ export async function generateOutreach(input: GenerateOutreachInput): Promise<{
     throw new CoverLetterError('STAR_ENTRIES_LIMIT', 'Maximum 3 STAR entries for outreach');
   }
   if (input.keyPoints && input.keyPoints.length > 3) {
-    throw new CoverLetterError('STAR_ENTRIES_LIMIT', 'Maximum 3 key points allowed');
+    throw new CoverLetterError('KEY_POINTS_LIMIT', 'Maximum 3 key points allowed');
   }
 
   const platform = input.platform;
