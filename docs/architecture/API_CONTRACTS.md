@@ -1440,6 +1440,7 @@ interface CoverLetter {
   targetRole: string;
   tone: TonePreference;
   lengthVariant: LengthVariant;
+  emphasis: EmphasisPreference;  // Content focus: 'technical' | 'leadership' | 'balanced'
   jobDescriptionText?: string;   // Original JD text if provided
   jobDescriptionUrl?: string;    // Original JD URL if provided
   jobFitAnalysisId?: string;     // Reference to job fit analysis if used
@@ -1461,6 +1462,11 @@ type LengthVariant =
   | 'concise'          // ~200 words, 2-3 paragraphs
   | 'standard'         // ~350 words, 4-5 paragraphs (default)
   | 'detailed';        // ~500 words, 5-6 paragraphs
+
+type EmphasisPreference =
+  | 'technical'        // Focus on technical skills and achievements
+  | 'leadership'       // Focus on leadership and team impact
+  | 'balanced';        // Balanced mix (default)
 
 interface RevisionEntry {
   id: string;
@@ -1499,6 +1505,7 @@ interface GenerateCoverLetterRequest {
   // Generation preferences
   tone?: TonePreference;         // Default: 'professional'
   lengthVariant?: LengthVariant; // Default: 'standard'
+  emphasis?: EmphasisPreference; // Default: 'balanced'
   
   // Optional customization
   emphasizeThemes?: string[];    // Theme slugs to highlight
@@ -1636,6 +1643,7 @@ interface ReviseCoverLetterRequest {
   // Optional: update preferences
   tone?: TonePreference;
   lengthVariant?: LengthVariant;
+  emphasis?: EmphasisPreference;
   
   version: number;                 // Required for optimistic locking
 }

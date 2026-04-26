@@ -400,7 +400,7 @@ export async function reviseCoverLetter(
 
   const tone = (input.tone ?? existing.tone) as string;
   const lengthVariant = (input.lengthVariant ?? existing.lengthVariant) as string;
-  const emphasis = (existing.emphasis ?? 'balanced') as string;
+  const emphasis = (input.emphasis ?? existing.emphasis ?? 'balanced') as string;
   const wordTarget = WORD_TARGETS[lengthVariant];
   const starBullets = starEntries.map((e, i) => `${i + 1}. ${e.rawText}`).join('\n');
 

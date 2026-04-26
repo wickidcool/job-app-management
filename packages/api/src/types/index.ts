@@ -397,6 +397,7 @@ export interface ReviseCoverLetterInput {
   selectedStarEntryIds?: string[];
   tone?: TonePreference;
   lengthVariant?: LengthVariant;
+  emphasis?: 'technical' | 'leadership' | 'balanced';
   version: number;
 }
 

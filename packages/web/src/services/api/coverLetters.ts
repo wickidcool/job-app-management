@@ -22,7 +22,6 @@ export interface CoverLetter {
   tone: CoverLetterTone;
   lengthVariant: CoverLetterLength;
   emphasis: CoverLetterEmphasis;
-  wordCount: number;
   selectedStarEntryIds: string[];
   status: 'draft' | 'finalized';
   version: number;
@@ -38,7 +37,6 @@ function transformCoverLetter(apiCoverLetter: GenerateCoverLetterResponse['cover
     tone: apiCoverLetter.tone,
     lengthVariant: apiCoverLetter.lengthVariant,
     emphasis: apiCoverLetter.emphasis ?? 'balanced',
-    wordCount: apiCoverLetter.wordCount,
     selectedStarEntryIds: apiCoverLetter.selectedStarEntryIds,
     status: apiCoverLetter.status,
     version: apiCoverLetter.version,

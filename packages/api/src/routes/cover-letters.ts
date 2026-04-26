@@ -26,7 +26,7 @@ const generateSchema = z
     tone: z.enum(toneValues).optional(),
     lengthVariant: z.enum(lengthValues).optional(),
     emphasis: z.enum(emphasisValues).optional(),
-    emphasizeThemes: z.array(z.string()).optional(),
+    emphasizeThemes: z.array(z.string().min(1).max(100)).max(5).optional(),
     customInstructions: z.string().max(500).optional(),
   })
   .strict();
@@ -37,6 +37,7 @@ const reviseSchema = z
     selectedStarEntryIds: z.array(z.string()).optional(),
     tone: z.enum(toneValues).optional(),
     lengthVariant: z.enum(lengthValues).optional(),
+    emphasis: z.enum(emphasisValues).optional(),
     version: z.number().int().positive(),
   })
   .strict();
@@ -44,7 +45,7 @@ const reviseSchema = z
 const updateSchema = z
   .object({
     title: z.string().min(1).max(500).optional(),
-    content: z.string().optional(),
+    content: z.string().min(1).optional(),
     status: z.enum(['draft', 'finalized']).optional(),
     version: z.number().int().positive(),
   })
