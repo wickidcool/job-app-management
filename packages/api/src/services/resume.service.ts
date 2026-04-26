@@ -345,7 +345,7 @@ export async function uploadResume(
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
           const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
           const projectFilePath = path.join(projectDir, `${safeBase}.md`);
-          if (!projectFilePath.startsWith(path.resolve(projectDir) + path.sep)) {
+          if (!path.resolve(projectFilePath).startsWith(path.resolve(projectDir) + path.sep)) {
             throw new Error('Invalid filename: path traversal detected');
           }
           await fs.writeFile(projectFilePath, projectMarkdown, 'utf-8');
@@ -372,7 +372,7 @@ export async function uploadResume(
       const projectMarkdown = generateProjectMarkdown(entry);
       const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
       const projectFilePath2 = path.join(projectDir, `${safeBase}.md`);
-      if (!projectFilePath2.startsWith(path.resolve(projectDir) + path.sep)) {
+      if (!path.resolve(projectFilePath2).startsWith(path.resolve(projectDir) + path.sep)) {
         throw new Error('Invalid filename: path traversal detected');
       }
       await fs.writeFile(projectFilePath2, projectMarkdown, 'utf-8');
