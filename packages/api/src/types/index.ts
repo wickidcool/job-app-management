@@ -114,7 +114,7 @@ export class AppError extends Error {
     public readonly code: string,
     message: string,
     public readonly details?: unknown,
-    public readonly statusCode: number = 400,
+    public readonly statusCode: number = 400
   ) {
     super(message);
     this.name = 'AppError';
@@ -148,7 +148,7 @@ export class InvalidTransitionError extends AppError {
       'INVALID_STATUS_TRANSITION',
       `Cannot transition from '${from}' to '${to}'`,
       { currentStatus: from, requestedStatus: to, allowedStatuses: allowed },
-      400,
+      400
     );
     this.name = 'InvalidTransitionError';
   }
@@ -250,7 +250,7 @@ export class JobFitUrlFetchError extends AppError {
       'URL_FETCH_FAILED',
       'Could not retrieve job description from URL. The site may be blocking automated access. Please paste the job description text directly.',
       { url, httpStatus },
-      422,
+      422
     );
     this.name = 'JobFitUrlFetchError';
   }
@@ -267,14 +267,32 @@ export class RateLimitError extends AppError {
 // Catalog Category Constants
 // ============================================================================
 
-export const VALID_JOB_FIT_CATEGORIES = ['role', 'industry', 'seniority', 'work_style', 'uncategorized'] as const;
-export const VALID_TECH_STACK_CATEGORIES = ['language', 'frontend', 'backend', 'database', 'cloud', 'devops', 'ai_ml', 'uncategorized'] as const;
+export const VALID_JOB_FIT_CATEGORIES = [
+  'role',
+  'industry',
+  'seniority',
+  'work_style',
+  'uncategorized',
+] as const;
+export const VALID_TECH_STACK_CATEGORIES = [
+  'language',
+  'frontend',
+  'backend',
+  'database',
+  'cloud',
+  'devops',
+  'ai_ml',
+  'uncategorized',
+] as const;
 
-export type JobFitCategory = typeof VALID_JOB_FIT_CATEGORIES[number];
-export type TechStackCategory = typeof VALID_TECH_STACK_CATEGORIES[number];
+export type JobFitCategory = (typeof VALID_JOB_FIT_CATEGORIES)[number];
+export type TechStackCategory = (typeof VALID_TECH_STACK_CATEGORIES)[number];
 
 export function validateTechStackCategory(value: unknown): TechStackCategory {
-  if (typeof value === 'string' && VALID_TECH_STACK_CATEGORIES.includes(value as TechStackCategory)) {
+  if (
+    typeof value === 'string' &&
+    VALID_TECH_STACK_CATEGORIES.includes(value as TechStackCategory)
+  ) {
     return value as TechStackCategory;
   }
   return 'uncategorized';
@@ -285,4 +303,135 @@ export function validateJobFitCategory(value: unknown): JobFitCategory {
     return value as JobFitCategory;
   }
   return 'uncategorized';
+}
+
+// ============================================================================
+// Cover Letters (UC-4)
+// ============================================================================
+
+export type CoverLetterStatus = 'draft' | 'finalized';
+export type TonePreference = 'professional' | 'conversational' | 'enthusiastic' | 'technical';
+export type LengthVariant = 'concise' | 'standard' | 'detailed';
+export type OutreachPlatform = 'linkedin' | 'email';
+
+export interface RevisionEntryDTO {
+  id: string;
+  instructions: string;
+  previousContent: string;
+  createdAt: string;
+}
+
+export interface CoverLetterDTO {
+  id: string;
+  status: CoverLetterStatus;
+  title: string;
+  targetCompany: string;
+  targetRole: string;
+  tone: TonePreference;
+  lengthVariant: LengthVariant;
+  jobDescriptionText?: string | null;
+  jobDescriptionUrl?: string | null;
+  jobFitAnalysisId?: string | null;
+  selectedStarEntryIds: string[];
+  content: string;
+  revisionHistory: RevisionEntryDTO[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CoverLetterSummaryDTO {
+  id: string;
+  status: CoverLetterStatus;
+  title: string;
+  targetCompany: string;
+  targetRole: string;
+  tone: TonePreference;
+  lengthVariant: LengthVariant;
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UsedStarEntryDTO {
+  id: string;
+  rawText: string;
+  placement: 'opening' | 'body' | 'closing';
+}
+
+export interface GenerationWarningDTO {
+  code: string;
+  message: string;
+}
+
+export interface GenerateCoverLetterInput {
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+  jobFitAnalysisId?: string;
+  selectedStarEntryIds: string[];
+  targetCompany?: string;
+  targetRole?: string;
+  tone?: TonePreference;
+  lengthVariant?: LengthVariant;
+  emphasizeThemes?: string[];
+  customInstructions?: string;
+}
+
+export interface ReviseCoverLetterInput {
+  instructions: string;
+  selectedStarEntryIds?: string[];
+  tone?: TonePreference;
+  lengthVariant?: LengthVariant;
+  version: number;
+}
+
+export interface UpdateCoverLetterInput {
+  title?: string;
+  status?: CoverLetterStatus;
+  version: number;
+}
+
+export interface OutreachMessageDTO {
+  id: string;
+  platform: OutreachPlatform;
+  targetCompany: string;
+  targetRole?: string | null;
+  subject?: string | null;
+  body: string;
+  characterCount: number;
+  createdAt: string;
+}
+
+export interface GenerateOutreachInput {
+  platform: OutreachPlatform;
+  targetName?: string;
+  targetTitle?: string;
+  targetCompany: string;
+  targetRole?: string;
+  coverLetterId?: string;
+  jobFitAnalysisId?: string;
+  selectedStarEntryIds?: string[];
+  keyPoints?: string[];
+  callToAction?: 'coffee_chat' | 'referral' | 'application_follow_up' | 'informational';
+  maxLength?: number;
+}
+
+export interface ExportCoverLetterInput {
+  format: 'docx' | 'pdf';
+  includeHeader?: boolean;
+  headerInfo?: {
+    name: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+  };
+  fontFamily?: 'default' | 'serif' | 'modern';
+  fontSize?: 11 | 12;
+}
+
+export class CoverLetterError extends AppError {
+  constructor(code: string, message: string, details?: unknown, statusCode = 400) {
+    super(code, message, details, statusCode);
+    this.name = 'CoverLetterError';
+  }
 }
