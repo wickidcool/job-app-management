@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CoverLetterPreview } from '../components/CoverLetterPreview';
 import { useCoverLetter, useDeleteCoverLetter, useExportCoverLetter } from '../hooks/useCoverLetters';
@@ -11,12 +12,16 @@ export function CoverLetterDetail() {
   const deleteMutation = useDeleteCoverLetter();
   const exportMutation = useExportCoverLetter();
 
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   const handleCopy = () => {
     // Pure notification callback - CoverLetterPreview owns the clipboard write
   };
 
   const handleDownload = async (format: 'docx') => {
     if (!id) return;
+    setExportError(null);
     try {
       const result = await exportMutation.mutateAsync({
         id,
@@ -36,16 +41,23 @@ export function CoverLetterDetail() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Export failed:', error);
+      setExportError(
+        error instanceof Error ? error.message : 'Failed to export cover letter. Please try again.'
+      );
     }
   };
 
   const handleDelete = async () => {
     if (!id || !confirm('Are you sure you want to delete this cover letter?')) return;
+    setDeleteError(null);
     try {
       await deleteMutation.mutateAsync(id);
       navigate('/');
     } catch (error) {
       console.error('Delete failed:', error);
+      setDeleteError(
+        error instanceof Error ? error.message : 'Failed to delete cover letter. Please try again.'
+      );
     }
   };
 
@@ -102,6 +114,43 @@ export function CoverLetterDetail() {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto py-8">
+        {/* Error Messages */}
+        {deleteError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex items-start gap-3">
+              <span className="text-red-600 text-xl">⚠️</span>
+              <div className="flex-1">
+                <p className="font-medium text-red-900">Delete Failed</p>
+                <p className="text-sm text-red-700 mt-1">{deleteError}</p>
+              </div>
+              <button
+                onClick={() => setDeleteError(null)}
+                className="text-red-600 hover:text-red-800"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {exportError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex items-start gap-3">
+              <span className="text-red-600 text-xl">⚠️</span>
+              <div className="flex-1">
+                <p className="font-medium text-red-900">Export Failed</p>
+                <p className="text-sm text-red-700 mt-1">{exportError}</p>
+              </div>
+              <button
+                onClick={() => setExportError(null)}
+                className="text-red-600 hover:text-red-800"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white border rounded-lg shadow-sm overflow-hidden" style={{ height: '800px' }}>
           <CoverLetterPreview
             content={coverLetter.content}

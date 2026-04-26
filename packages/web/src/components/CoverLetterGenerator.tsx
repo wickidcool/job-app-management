@@ -23,7 +23,6 @@ interface CoverLetterGeneratorProps {
 interface Step1FormData {
   companyName: string;
   jobTitle: string;
-  hiringContact?: string;
   useFitAnalysis: boolean;
 }
 
@@ -46,6 +45,7 @@ export function CoverLetterGenerator({
   const [generatedCoverLetterId, setGeneratedCoverLetterId] = useState<string | null>(null);
   const [generatedCoverLetterVersion, setGeneratedCoverLetterVersion] = useState<number>(1);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const generateMutation = useGenerateCoverLetter();
   const updateMutation = useUpdateCoverLetter();
@@ -88,7 +88,7 @@ export function CoverLetterGenerator({
         tone: variant.tone,
         lengthVariant: variant.length,
         emphasis: variant.emphasis,
-        jobFitAnalysisId: fitAnalysisId,
+        jobFitAnalysisId: step1Data.useFitAnalysis ? fitAnalysisId : undefined,
       });
 
       setGeneratedCoverLetterId(coverLetter.id);
@@ -107,6 +107,8 @@ export function CoverLetterGenerator({
       console.error('No cover letter ID available');
       return;
     }
+
+    setSaveError(null);
 
     try {
       // Persist edited content to the server
@@ -129,7 +131,9 @@ export function CoverLetterGenerator({
       onComplete?.(result);
     } catch (error) {
       console.error('Failed to save cover letter:', error);
-      // TODO: Show error to user
+      setSaveError(
+        error instanceof Error ? error.message : 'Failed to save cover letter. Please try again.'
+      );
     }
   };
 
@@ -218,22 +222,6 @@ export function CoverLetterGenerator({
                   />
                   {errorsStep1.jobTitle && (
                     <p className="mt-1 text-sm text-red-600">{errorsStep1.jobTitle.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Hiring Contact (Optional)
-                  </label>
-                  <input
-                    {...registerStep1('hiringContact', {
-                      maxLength: { value: 100, message: 'Maximum 100 characters' },
-                    })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Jane Smith, Engineering Manager"
-                  />
-                  {errorsStep1.hiringContact && (
-                    <p className="mt-1 text-sm text-red-600">{errorsStep1.hiringContact.message}</p>
                   )}
                 </div>
 
@@ -544,6 +532,24 @@ export function CoverLetterGenerator({
                       </div>
                     </div>
                   </div>
+
+                  {saveError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="text-red-600 text-xl">⚠️</span>
+                        <div className="flex-1">
+                          <p className="font-medium text-red-900">Save Failed</p>
+                          <p className="text-sm text-red-700 mt-1">{saveError}</p>
+                        </div>
+                        <button
+                          onClick={() => setSaveError(null)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex justify-between">
                     <button
