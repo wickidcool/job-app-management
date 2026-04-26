@@ -10,7 +10,8 @@ export function CoverLetterNew() {
   const fitAnalysisId = searchParams.get('fitAnalysisId') || undefined;
   const applicationId = searchParams.get('applicationId') || undefined;
 
-  // Mock catalog entries - In production, these would come from the API
+  // Mock catalog entries - Hardcoded until backend STAR entries endpoint is implemented
+  // TODO: Replace with API call to fetch user's catalog entries once endpoint exists
   const [catalogEntries] = useState<CatalogEntry[]>([
     {
       id: 'star-1',

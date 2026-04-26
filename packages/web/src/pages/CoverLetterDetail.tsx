@@ -1,42 +1,81 @@
-import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CoverLetterPreview } from '../components/CoverLetterPreview';
+import { useCoverLetter, useDeleteCoverLetter, useExportCoverLetter } from '../hooks/useCoverLetters';
 import type { CoverLetterVariant } from '../services/api/types';
 
 export function CoverLetterDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  // Mock data - In production, fetch from API based on id
-  const [content] = useState(`Dear Hiring Manager,
+  const { data: coverLetter, isLoading, error } = useCoverLetter(id);
+  const deleteMutation = useDeleteCoverLetter();
+  const exportMutation = useExportCoverLetter();
 
-I am writing to express my strong interest in the Senior Full Stack Engineer position at TechCorp Inc. With over five years of experience building scalable web applications using React, Node.js, and PostgreSQL, I am confident I can contribute immediately to your team.
+  const handleCopy = async () => {
+    if (!coverLetter) return;
+    try {
+      await navigator.clipboard.writeText(coverLetter.content);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+    }
+  };
 
-In my current role at StartupCo, I led the migration of our client portal from Angular to React, reducing bundle size by 40% and improving load times by 2 seconds. This experience directly aligns with the frontend expertise your team is seeking.
+  const handleDownload = async (format: 'docx') => {
+    if (!id) return;
+    try {
+      const result = await exportMutation.mutateAsync({
+        id,
+        request: { format },
+      });
+      // Create download link from base64 content
+      const blob = new Blob([Uint8Array.from(atob(result.base64Content), c => c.charCodeAt(0))], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+    }
+  };
 
-I have also worked extensively on backend systems, scaling Node.js APIs to handle thousands of requests per second while maintaining high reliability and performance standards. My work on database optimization reduced query times by 75%, significantly improving user experience.
+  const handleDelete = async () => {
+    if (!id || !confirm('Are you sure you want to delete this cover letter?')) return;
+    try {
+      await deleteMutation.mutateAsync(id);
+      navigate('/');
+    } catch (error) {
+      console.error('Delete failed:', error);
+    }
+  };
 
-I am excited about the opportunity to bring my skills to TechCorp Inc and would welcome the chance to discuss how my experience aligns with your needs.
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    );
+  }
 
-Sincerely,
-[Your Name]`);
+  if (error || !coverLetter) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-red-600">Failed to load cover letter</div>
+      </div>
+    );
+  }
 
-  const [variant] = useState<CoverLetterVariant>({
-    tone: 'professional',
-    length: 'standard',
+  const wordCount = coverLetter.content.split(/\s+/).length;
+  const variant: CoverLetterVariant = {
+    tone: coverLetter.tone,
+    length: coverLetter.lengthVariant,
     emphasis: 'balanced',
-  });
-
-  const handleCopy = () => {
-    console.log('Cover letter copied to clipboard');
   };
-
-  const handleDownload = (format: 'docx' | 'pdf') => {
-    console.log(`Downloading as ${format}`);
-    // TODO: Implement download functionality
-  };
-
-  const wordCount = content.split(/\s+/).length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -61,10 +100,11 @@ Sincerely,
               Edit
             </button>
             <button
-              onClick={() => console.log('Delete cover letter')}
-              className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+              className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
             >
-              Delete
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </button>
           </div>
         </div>
@@ -74,7 +114,7 @@ Sincerely,
       <div className="max-w-5xl mx-auto py-8">
         <div className="bg-white border rounded-lg shadow-sm overflow-hidden" style={{ height: '800px' }}>
           <CoverLetterPreview
-            content={content}
+            content={coverLetter.content}
             variant={variant}
             wordCount={wordCount}
             showExportActions={true}

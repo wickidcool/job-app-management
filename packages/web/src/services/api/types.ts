@@ -329,7 +329,7 @@ export interface ListCatalogEntriesResponse {
  * Outreach Types
  */
 
-export type OutreachPlatform = 'linkedin' | 'email' | 'twitter';
+export type OutreachPlatform = 'linkedin' | 'email';
 
 export interface OutreachMessage {
   platform: OutreachPlatform;

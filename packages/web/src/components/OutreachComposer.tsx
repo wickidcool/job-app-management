@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { OutreachPlatform, OutreachMessage } from '../services/api/types';
+import { useGenerateOutreach } from '../hooks/useCoverLetters';
 
 interface OutreachComposerProps {
   platform: OutreachPlatform;
@@ -26,12 +27,6 @@ const PLATFORM_LIMITS = {
     subjectMaxChars: 78,
     name: 'Email',
   },
-  twitter: {
-    maxChars: 10000,
-    recommendedMax: 280,
-    hasSubject: false,
-    name: 'Twitter DM',
-  },
 };
 
 export function OutreachComposer({
@@ -47,8 +42,9 @@ export function OutreachComposer({
   const [jobTitle, setJobTitle] = useState(prefillContext?.jobTitle || '');
   const [contact, setContact] = useState(prefillContext?.hiringManager || '');
   const [useFitAnalysis, setUseFitAnalysis] = useState(!!fitAnalysisId);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
+
+  const generateMutation = useGenerateOutreach();
 
   const limits = PLATFORM_LIMITS[platform];
   const bodyCharCount = body.length;
@@ -76,30 +72,21 @@ export function OutreachComposer({
   const subjectStatus = getSubjectStatus();
 
   const handleGenerate = async () => {
-    setIsGenerating(true);
-
     try {
-      // TODO: Call API to generate outreach message
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const result = await generateMutation.mutateAsync({
+        platform,
+        targetCompany: company,
+        targetRole: jobTitle,
+        targetName: contact,
+        jobFitAnalysisId: useFitAnalysis ? fitAnalysisId : undefined,
+      });
 
-      const mockBody =
-        platform === 'linkedin'
-          ? `Hi ${contact || 'there'},\n\nI saw the ${jobTitle} opening at ${company} and wanted to reach out directly. I've been leading React/Node.js teams for 5 years and recently scaled an API to 10k req/sec — work that aligns closely with this role's needs.\n\nWould you be open to a quick chat about the role?\n\nBest,\n[Your Name]`
-          : platform === 'email'
-            ? `Hi ${contact || 'there'},\n\nI'm reaching out regarding the ${jobTitle} position at ${company}. With over 5 years of experience in full-stack development and a proven track record of delivering scalable solutions, I believe I would be a strong fit for your team.\n\nI've recently led a React migration that reduced bundle size by 40% and scaled backend systems to handle high traffic loads. I'd love to discuss how my experience aligns with your needs.\n\nWould you have time for a brief conversation?\n\nBest regards,\n[Your Name]`
-            : `Hi! Saw the ${jobTitle} role at ${company}. 5 yrs React/Node, recently scaled API to 10k/s. Would love to chat!`;
-
-      const mockSubject =
-        platform === 'email' ? `${jobTitle} opportunity at ${company}` : '';
-
-      setBody(mockBody);
-      if (limits.hasSubject) {
-        setSubject(mockSubject);
+      setBody(result.body);
+      if (limits.hasSubject && result.subject) {
+        setSubject(result.subject);
       }
     } catch (error) {
       console.error('Generation failed:', error);
-    } finally {
-      setIsGenerating(false);
     }
   };
 
@@ -134,7 +121,7 @@ export function OutreachComposer({
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Platform</label>
           <div className="flex gap-3">
-            {(['linkedin', 'email', 'twitter'] as OutreachPlatform[]).map((p) => (
+            {(['linkedin', 'email'] as OutreachPlatform[]).map((p) => (
               <label
                 key={p}
                 className="flex items-center gap-2 px-4 py-2 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
@@ -202,10 +189,10 @@ export function OutreachComposer({
         {!body && (
           <button
             onClick={handleGenerate}
-            disabled={isGenerating || !company || !jobTitle}
+            disabled={generateMutation.isPending || !company || !jobTitle}
             className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
           >
-            {isGenerating ? 'Generating...' : 'Generate Message'}
+            {generateMutation.isPending ? 'Generating...' : 'Generate Message'}
           </button>
         )}
 
@@ -245,7 +232,7 @@ export function OutreachComposer({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              rows={platform === 'twitter' ? 4 : 10}
+              rows={10}
               placeholder="Your message..."
             />
 

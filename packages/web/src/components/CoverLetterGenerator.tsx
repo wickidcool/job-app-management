@@ -70,14 +70,19 @@ export function CoverLetterGenerator({
   };
 
   const handleStep3Generate = async () => {
+    if (!step1Data) {
+      setCurrentStep(1);
+      return;
+    }
+
     setGenerationError(null);
     setCurrentStep(4);
 
     try {
       const coverLetter = await generateMutation.mutateAsync({
         selectedStarEntryIds: selectedSTARIds,
-        targetCompany: step1Data?.companyName,
-        targetRole: step1Data?.jobTitle,
+        targetCompany: step1Data.companyName,
+        targetRole: step1Data.jobTitle,
         tone: variant.tone,
         lengthVariant: variant.length,
         jobFitAnalysisId: fitAnalysisId,

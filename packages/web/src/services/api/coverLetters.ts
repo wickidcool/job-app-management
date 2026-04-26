@@ -10,14 +10,16 @@ import type {
   ExportCoverLetterRequest,
   ExportCoverLetterResponse,
   ListCoverLettersResponse,
+  CoverLetterTone,
+  CoverLetterLength,
 } from './types';
 
 export interface CoverLetter {
   id: string;
   title: string;
   content: string;
-  tone: string;
-  lengthVariant: string;
+  tone: CoverLetterTone;
+  lengthVariant: CoverLetterLength;
   wordCount: number;
   selectedStarEntryIds: string[];
   status: 'draft' | 'finalized';
