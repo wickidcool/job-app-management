@@ -3,7 +3,7 @@ import path from 'node:path';
 import { ulid } from 'ulid';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
-import { resumes, resumeExports } from '../db/schema.js';
+import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
 import { enqueueChange } from './change-queue.service.js';
@@ -13,6 +13,25 @@ import {
   isAIParserAvailable,
 } from './ai-parser.service.js';
 import { getOrCreateProjectBySlug } from './project.service.js';
+
+async function addCompanyToCatalog(companyName: string): Promise<void> {
+  if (!companyName) return;
+  const db = getDb();
+  const normalized = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unspecified';
+  const [existing] = await db.select().from(companyCatalog).where(eq(companyCatalog.normalizedName, normalized));
+  if (!existing) {
+    await db.insert(companyCatalog).values({
+      id: ulid(),
+      name: companyName,
+      normalizedName: normalized,
+      firstSeenAt: new Date(),
+      applicationCount: 0,
+      latestStatus: null,
+      latestAppId: null,
+    }).onConflictDoNothing();
+    console.log(`[resume.service] Added company to catalog: ${companyName}`);
+  }
+}
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -340,6 +359,7 @@ export async function uploadResume(
         for (const aiProject of aiResult.projects) {
           const slug = toProjectSlug(aiProject.company) || resumeId;
           const project = await getOrCreateProjectBySlug(slug, aiProject.company);
+          await addCompanyToCatalog(aiProject.company);
           const projectDir = path.join(config.dataDir, 'projects', project.slug);
           await fs.mkdir(projectDir, { recursive: true });
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
@@ -367,6 +387,7 @@ export async function uploadResume(
     for (const entry of experienceEntries) {
       const slug = toProjectSlug(entry.company) || resumeId;
       const project = await getOrCreateProjectBySlug(slug, entry.company);
+      await addCompanyToCatalog(entry.company);
       const projectDir = path.join(config.dataDir, 'projects', project.slug);
       await fs.mkdir(projectDir, { recursive: true });
       const projectMarkdown = generateProjectMarkdown(entry);
