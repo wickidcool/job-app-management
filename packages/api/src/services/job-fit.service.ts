@@ -168,7 +168,9 @@ export async function fetchJobDescriptionFromUrl(url: string): Promise<string> {
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       if (location) {
-        await validateUrlForSSRF(new URL(location, url).href);
+        const redirectUrl = new URL(location, url).href;
+        await validateUrlForSSRF(redirectUrl);
+        return fetchJobDescriptionFromUrl(redirectUrl);
       }
       throw new JobFitUrlFetchError(url, response.status);
     }
