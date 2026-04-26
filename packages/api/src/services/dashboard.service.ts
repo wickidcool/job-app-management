@@ -20,7 +20,7 @@ export async function getDashboardStats(): Promise<{
     .groupBy(applications.status);
 
   const byStatus: Record<ApplicationStatus, number> = Object.fromEntries(
-    ALL_STATUSES.map((s) => [s, 0]),
+    ALL_STATUSES.map((s) => [s, 0])
   ) as Record<ApplicationStatus, number>;
 
   for (const row of statusCounts) {
@@ -48,8 +48,7 @@ export async function getDashboardStats(): Promise<{
     .where(and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneMonthAgo)));
 
   // Response rate: applications that progressed beyond 'applied'
-  const responded =
-    byStatus.phone_screen + byStatus.interview + byStatus.offer + byStatus.rejected;
+  const responded = byStatus.phone_screen + byStatus.interview + byStatus.offer + byStatus.rejected;
   const totalApplied =
     byStatus.applied +
     byStatus.phone_screen +

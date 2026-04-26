@@ -69,7 +69,7 @@ export function CatalogBrowseView() {
 
   const activeQuery = activeTab === 'pendingDiffs' ? diffsQuery : getActiveQuery();
   const diffs = diffsQuery.data || [];
-  const catalogData = activeTab === 'pendingDiffs' ? [] : (activeQuery.data || []);
+  const catalogData = activeTab === 'pendingDiffs' ? [] : activeQuery.data || [];
   const isLoading = activeQuery.isLoading;
   const error = activeQuery.error;
 
@@ -113,9 +113,7 @@ export function CatalogBrowseView() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-h2 font-bold text-neutral-900 mb-2">
-          Master Catalog Index
-        </h1>
+        <h1 className="text-h2 font-bold text-neutral-900 mb-2">Master Catalog Index</h1>
         <p className="text-body text-neutral-600">
           Browse and search your complete catalog of companies, skills, and achievements
         </p>
@@ -228,23 +226,18 @@ export function CatalogBrowseView() {
 
       {!isLoading && !error && activeTab === 'pendingDiffs' && diffs.length === 0 && (
         <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-8 text-center">
-          <p className="text-h4 font-bold text-neutral-900 mb-2">
-            ✅ No Pending Diffs
-          </p>
+          <p className="text-h4 font-bold text-neutral-900 mb-2">✅ No Pending Diffs</p>
           <p className="text-neutral-600">
-            All changes have been reviewed. Upload a new resume or add an application to generate diffs.
+            All changes have been reviewed. Upload a new resume or add an application to generate
+            diffs.
           </p>
         </div>
       )}
 
       {!isLoading && !error && activeTab !== 'pendingDiffs' && catalogData.length === 0 && (
         <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-8 text-center">
-          <p className="text-h4 font-bold text-neutral-900 mb-2">
-            📚 Your Catalog is Empty
-          </p>
-          <p className="text-neutral-600">
-            Upload a resume to start building your catalog.
-          </p>
+          <p className="text-h4 font-bold text-neutral-900 mb-2">📚 Your Catalog is Empty</p>
+          <p className="text-neutral-600">Upload a resume to start building your catalog.</p>
         </div>
       )}
 
@@ -276,15 +269,9 @@ export function CatalogBrowseView() {
               </div>
               <p className="text-neutral-700 mb-3">{diff.summary.summary}</p>
               <div className="flex gap-4 text-sm">
-                <span className="text-success-700">
-                  ➕ {diff.summary.newCount} new
-                </span>
-                <span className="text-info-700">
-                  ✏️ {diff.summary.updatedCount} updated
-                </span>
-                <span className="text-error-700">
-                  ➖ {diff.summary.deletedCount} deleted
-                </span>
+                <span className="text-success-700">➕ {diff.summary.newCount} new</span>
+                <span className="text-info-700">✏️ {diff.summary.updatedCount} updated</span>
+                <span className="text-error-700">➖ {diff.summary.deletedCount} deleted</span>
                 {diff.summary.pendingReviewCount > 0 && (
                   <span className="text-warning-700">
                     ⚠️ {diff.summary.pendingReviewCount} pending review

@@ -54,23 +54,14 @@ export function WizardStep({
     >
       {/* Question Header */}
       <div className="mb-8">
-        <h2
-          id={`step-${stepNumber}-title`}
-          className="text-h2 text-primary-600 mb-2"
-        >
+        <h2 id={`step-${stepNumber}-title`} className="text-h2 text-primary-600 mb-2">
           {question}
         </h2>
-        {hint && (
-          <p className="text-body-sm text-neutral-600">
-            {hint}
-          </p>
-        )}
+        {hint && <p className="text-body-sm text-neutral-600">{hint}</p>}
       </div>
 
       {/* Input Area */}
-      <div className="flex-1 mb-8">
-        {children}
-      </div>
+      <div className="flex-1 mb-8">{children}</div>
 
       {/* Navigation Buttons */}
       <div className="flex items-center justify-between pt-6 border-t border-neutral-200">
@@ -96,7 +87,8 @@ export function WizardStep({
       {/* Keyboard Shortcut Hint */}
       <div className="mt-2 text-center">
         <p className="text-caption text-neutral-500">
-          Press <kbd className="px-1 py-0.5 bg-neutral-200 rounded font-mono">Ctrl+Enter</kbd> to continue
+          Press <kbd className="px-1 py-0.5 bg-neutral-200 rounded font-mono">Ctrl+Enter</kbd> to
+          continue
         </p>
       </div>
     </div>

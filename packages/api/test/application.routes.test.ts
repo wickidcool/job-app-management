@@ -68,7 +68,7 @@ describe('Application Routes', () => {
       });
 
       expect(appService.listApplications).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'applied', sortBy: 'company', limit: 10 }),
+        expect.objectContaining({ status: 'applied', sortBy: 'company', limit: 10 })
       );
     });
 
@@ -85,7 +85,14 @@ describe('Application Routes', () => {
     it('returns application with history', async () => {
       vi.mocked(appService.getApplication).mockResolvedValue({
         application: mockApplication,
-        statusHistory: [{ fromStatus: null, toStatus: 'saved', changedAt: '2026-04-10T08:00:00.000Z', note: null }],
+        statusHistory: [
+          {
+            fromStatus: null,
+            toStatus: 'saved',
+            changedAt: '2026-04-10T08:00:00.000Z',
+            note: null,
+          },
+        ],
       });
 
       const res = await app.inject({
@@ -196,8 +203,18 @@ describe('Application Routes', () => {
       vi.mocked(appService.updateApplicationStatus).mockResolvedValue({
         application: updated,
         statusHistory: [
-          { fromStatus: null, toStatus: 'saved', changedAt: '2026-04-10T08:00:00.000Z', note: null },
-          { fromStatus: 'saved', toStatus: 'applied', changedAt: '2026-04-15T10:00:00.000Z', note: null },
+          {
+            fromStatus: null,
+            toStatus: 'saved',
+            changedAt: '2026-04-10T08:00:00.000Z',
+            note: null,
+          },
+          {
+            fromStatus: 'saved',
+            toStatus: 'applied',
+            changedAt: '2026-04-15T10:00:00.000Z',
+            note: null,
+          },
         ],
       });
 
@@ -213,7 +230,7 @@ describe('Application Routes', () => {
 
     it('returns 400 for invalid transition', async () => {
       vi.mocked(appService.updateApplicationStatus).mockRejectedValue(
-        new InvalidTransitionError('saved', 'offer', ['applied', 'withdrawn']),
+        new InvalidTransitionError('saved', 'offer', ['applied', 'withdrawn'])
       );
 
       const res = await app.inject({

@@ -81,17 +81,20 @@ export async function mergeCompanies(sourceIds: string[], targetId: string) {
   const sources = await db
     .select()
     .from(companyCatalog)
-    .where(
-      sql`${companyCatalog.id} = ANY(${sourceIds})`,
-    );
+    .where(sql`${companyCatalog.id} = ANY(${sourceIds})`);
 
   const totalCount = sources.reduce((s, c) => s + c.applicationCount, target.applicationCount);
-  const allAliases = [...new Set([...target.aliases, ...sources.map(s => s.name)])];
+  const allAliases = [...new Set([...target.aliases, ...sources.map((s) => s.name)])];
 
   await db.transaction(async (tx) => {
     await tx
       .update(companyCatalog)
-      .set({ applicationCount: totalCount, aliases: allAliases, updatedAt: new Date(), version: target.version + 1 })
+      .set({
+        applicationCount: totalCount,
+        aliases: allAliases,
+        updatedAt: new Date(),
+        version: target.version + 1,
+      })
       .where(eq(companyCatalog.id, targetId));
     await tx
       .update(companyCatalog)
@@ -135,7 +138,9 @@ export async function listJobFitTags(opts: ListTagsOptions = {}) {
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined;
+  const nextCursor = hasMore
+    ? Buffer.from(String(offset + limit)).toString('base64url')
+    : undefined;
 
   return { tags: items.map(toJobFitTagDTO), nextCursor };
 }
@@ -156,14 +161,22 @@ function toJobFitTagDTO(row: typeof jobFitTags.$inferSelect) {
 
 export async function updateJobFitTag(
   id: string,
-  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
+  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number }
 ) {
   const db = getDb();
   const [existing] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, id));
   if (!existing) throw new NotFoundError('JobFitTag');
 
-  if (patch.category !== undefined && !VALID_JOB_FIT_CATEGORIES.includes(patch.category as JobFitCategory)) {
-    throw new AppError('INVALID_CATEGORY', `Invalid job fit category: ${patch.category}. Valid values: ${VALID_JOB_FIT_CATEGORIES.join(', ')}`, {}, 400);
+  if (
+    patch.category !== undefined &&
+    !VALID_JOB_FIT_CATEGORIES.includes(patch.category as JobFitCategory)
+  ) {
+    throw new AppError(
+      'INVALID_CATEGORY',
+      `Invalid job fit category: ${patch.category}. Valid values: ${VALID_JOB_FIT_CATEGORIES.join(', ')}`,
+      {},
+      400
+    );
   }
 
   const [updated] = await db
@@ -193,13 +206,19 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string) {
     .where(sql`${jobFitTags.id} = ANY(${sourceIds})`);
 
   const totalMentions = sources.reduce((s, t) => s + t.mentionCount, target.mentionCount);
-  const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap(s => s.sourceIds)])];
-  const allAliases = [...new Set([...target.aliases, ...sources.map(s => s.tagSlug)])];
+  const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap((s) => s.sourceIds)])];
+  const allAliases = [...new Set([...target.aliases, ...sources.map((s) => s.tagSlug)])];
 
   await db.transaction(async (tx) => {
     await tx
       .update(jobFitTags)
-      .set({ mentionCount: totalMentions, sourceIds: allSourceIds, aliases: allAliases, updatedAt: new Date(), version: target.version + 1 })
+      .set({
+        mentionCount: totalMentions,
+        sourceIds: allSourceIds,
+        aliases: allAliases,
+        updatedAt: new Date(),
+        version: target.version + 1,
+      })
       .where(eq(jobFitTags.id, targetId));
     for (const id of sourceIds) {
       await tx.delete(jobFitTags).where(eq(jobFitTags.id, id));
@@ -232,7 +251,9 @@ export async function listTechStackTags(opts: ListTagsOptions = {}) {
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined;
+  const nextCursor = hasMore
+    ? Buffer.from(String(offset + limit)).toString('base64url')
+    : undefined;
 
   return { tags: items.map(toTechStackTagDTO), nextCursor };
 }
@@ -254,14 +275,22 @@ function toTechStackTagDTO(row: typeof techStackTags.$inferSelect) {
 
 export async function updateTechStackTag(
   id: string,
-  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
+  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number }
 ) {
   const db = getDb();
   const [existing] = await db.select().from(techStackTags).where(eq(techStackTags.id, id));
   if (!existing) throw new NotFoundError('TechStackTag');
 
-  if (patch.category !== undefined && !VALID_TECH_STACK_CATEGORIES.includes(patch.category as TechStackCategory)) {
-    throw new AppError('INVALID_CATEGORY', `Invalid tech stack category: ${patch.category}. Valid values: ${VALID_TECH_STACK_CATEGORIES.join(', ')}`, {}, 400);
+  if (
+    patch.category !== undefined &&
+    !VALID_TECH_STACK_CATEGORIES.includes(patch.category as TechStackCategory)
+  ) {
+    throw new AppError(
+      'INVALID_CATEGORY',
+      `Invalid tech stack category: ${patch.category}. Valid values: ${VALID_TECH_STACK_CATEGORIES.join(', ')}`,
+      {},
+      400
+    );
   }
 
   const [updated] = await db
@@ -291,13 +320,19 @@ export async function mergeTechStackTags(sourceIds: string[], targetId: string) 
     .where(sql`${techStackTags.id} = ANY(${sourceIds})`);
 
   const totalMentions = sources.reduce((s, t) => s + t.mentionCount, target.mentionCount);
-  const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap(s => s.sourceIds)])];
-  const allAliases = [...new Set([...target.aliases, ...sources.map(s => s.tagSlug)])];
+  const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap((s) => s.sourceIds)])];
+  const allAliases = [...new Set([...target.aliases, ...sources.map((s) => s.tagSlug)])];
 
   await db.transaction(async (tx) => {
     await tx
       .update(techStackTags)
-      .set({ mentionCount: totalMentions, sourceIds: allSourceIds, aliases: allAliases, updatedAt: new Date(), version: target.version + 1 })
+      .set({
+        mentionCount: totalMentions,
+        sourceIds: allSourceIds,
+        aliases: allAliases,
+        updatedAt: new Date(),
+        version: target.version + 1,
+      })
       .where(eq(techStackTags.id, targetId));
     for (const id of sourceIds) {
       await tx.delete(techStackTags).where(eq(techStackTags.id, id));
@@ -323,7 +358,8 @@ export async function listBullets(opts: ListBulletsOptions = {}) {
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
-  if (opts.impactCategory) conditions.push(eq(quantifiedBullets.impactCategory, opts.impactCategory as any));
+  if (opts.impactCategory)
+    conditions.push(eq(quantifiedBullets.impactCategory, opts.impactCategory as any));
   if (opts.sourceId) conditions.push(eq(quantifiedBullets.sourceId, opts.sourceId));
 
   const rows = await db
@@ -336,10 +372,12 @@ export async function listBullets(opts: ListBulletsOptions = {}) {
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined;
+  const nextCursor = hasMore
+    ? Buffer.from(String(offset + limit)).toString('base64url')
+    : undefined;
 
   return {
-    bullets: items.map(r => ({
+    bullets: items.map((r) => ({
       id: r.id,
       sourceType: r.sourceType,
       sourceId: r.sourceId,
@@ -386,10 +424,12 @@ export async function listThemes(opts: ListThemesOptions = {}) {
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined;
+  const nextCursor = hasMore
+    ? Buffer.from(String(offset + limit)).toString('base64url')
+    : undefined;
 
   return {
-    themes: items.map(r => ({
+    themes: items.map((r) => ({
       id: r.id,
       themeSlug: r.themeSlug,
       displayName: r.displayName,
@@ -434,10 +474,12 @@ export async function listDiffs(opts: ListDiffsOptions = {}) {
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined;
+  const nextCursor = hasMore
+    ? Buffer.from(String(offset + limit)).toString('base64url')
+    : undefined;
 
   return {
-    diffs: items.map(r => ({
+    diffs: items.map((r) => ({
       id: r.id,
       triggerSource: r.triggerSource,
       triggerId: r.triggerId,
@@ -508,7 +550,7 @@ export async function applyDiff(id: string, input: ApplyDiffInput) {
   const approvedIndices = new Set(
     input.action === 'approve_all'
       ? changes.map((_, i) => i)
-      : (input.decisions ?? []).filter(d => d.approved).map(d => d.changeIndex),
+      : (input.decisions ?? []).filter((d) => d.approved).map((d) => d.changeIndex)
   );
 
   await db.transaction(async (tx) => {
@@ -551,8 +593,14 @@ export async function applyDiff(id: string, input: ApplyDiffInput) {
   });
 
   const pendingReviewCount = (diff.pendingReview as ReviewItem[]).length;
-  const finalStatus = appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
-  return { applied: appliedCount, rejected: rejectedCount, pendingReview: pendingReviewCount, status: finalStatus };
+  const finalStatus =
+    appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
+  return {
+    applied: appliedCount,
+    rejected: rejectedCount,
+    pendingReview: pendingReviewCount,
+    status: finalStatus,
+  };
 }
 
 async function applyChange(tx: any, change: DiffChange): Promise<void> {
@@ -561,15 +609,18 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
   switch (change.entity) {
     case 'company_catalog': {
       if (change.action === 'create') {
-        await tx.insert(companyCatalog).values({
-          id: data.id,
-          name: data.name,
-          normalizedName: data.normalizedName,
-          firstSeenAt: new Date(data.firstSeenAt),
-          applicationCount: data.applicationCount ?? 1,
-          latestStatus: data.latestStatus ?? null,
-          latestAppId: data.latestAppId ?? null,
-        }).onConflictDoNothing();
+        await tx
+          .insert(companyCatalog)
+          .values({
+            id: data.id,
+            name: data.name,
+            normalizedName: data.normalizedName,
+            firstSeenAt: new Date(data.firstSeenAt),
+            applicationCount: data.applicationCount ?? 1,
+            latestStatus: data.latestStatus ?? null,
+            latestAppId: data.latestAppId ?? null,
+          })
+          .onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(companyCatalog)
@@ -586,15 +637,18 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
     }
     case 'tech_stack_tags': {
       if (change.action === 'create') {
-        await tx.insert(techStackTags).values({
-          id: data.id,
-          tagSlug: data.tagSlug,
-          displayName: data.displayName,
-          category: validateTechStackCategory(data.category),
-          sourceIds: data.sourceIds ?? [],
-          mentionCount: data.mentionCount ?? 1,
-          isLegacy: data.isLegacy ?? false,
-        }).onConflictDoNothing();
+        await tx
+          .insert(techStackTags)
+          .values({
+            id: data.id,
+            tagSlug: data.tagSlug,
+            displayName: data.displayName,
+            category: validateTechStackCategory(data.category),
+            sourceIds: data.sourceIds ?? [],
+            mentionCount: data.mentionCount ?? 1,
+            isLegacy: data.isLegacy ?? false,
+          })
+          .onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(techStackTags)
@@ -610,14 +664,17 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
     }
     case 'job_fit_tags': {
       if (change.action === 'create') {
-        await tx.insert(jobFitTags).values({
-          id: data.id,
-          tagSlug: data.tagSlug,
-          displayName: data.displayName,
-          category: validateJobFitCategory(data.category),
-          sourceIds: data.sourceIds ?? [],
-          mentionCount: data.mentionCount ?? 1,
-        }).onConflictDoNothing();
+        await tx
+          .insert(jobFitTags)
+          .values({
+            id: data.id,
+            tagSlug: data.tagSlug,
+            displayName: data.displayName,
+            category: validateJobFitCategory(data.category),
+            sourceIds: data.sourceIds ?? [],
+            mentionCount: data.mentionCount ?? 1,
+          })
+          .onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(jobFitTags)
@@ -644,7 +701,8 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
           metricRange: data.metricRange ?? null,
           isApproximate: data.isApproximate ?? false,
           secondaryMetricType: data.secondaryMetricType ?? null,
-          secondaryMetricValue: data.secondaryMetricValue != null ? String(data.secondaryMetricValue) : null,
+          secondaryMetricValue:
+            data.secondaryMetricValue != null ? String(data.secondaryMetricValue) : null,
           impactCategory: data.impactCategory ?? 'other',
         });
       }
@@ -652,14 +710,17 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
     }
     case 'recurring_themes': {
       if (change.action === 'create') {
-        await tx.insert(recurringThemes).values({
-          id: data.id,
-          themeSlug: data.themeSlug,
-          displayName: data.displayName,
-          occurrenceCount: data.occurrenceCount ?? 1,
-          sourceIds: data.sourceIds ?? [],
-          exampleExcerpts: data.exampleExcerpts ?? [],
-        }).onConflictDoNothing();
+        await tx
+          .insert(recurringThemes)
+          .values({
+            id: data.id,
+            themeSlug: data.themeSlug,
+            displayName: data.displayName,
+            occurrenceCount: data.occurrenceCount ?? 1,
+            sourceIds: data.sourceIds ?? [],
+            exampleExcerpts: data.exampleExcerpts ?? [],
+          })
+          .onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(recurringThemes)
@@ -678,10 +739,7 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
   }
 }
 
-export async function generateDiff(
-  sourceType: 'resume' | 'application',
-  sourceId: string,
-) {
+export async function generateDiff(sourceType: 'resume' | 'application', sourceId: string) {
   const db = getDb();
   await processCatalogChange({
     id: ulid(),
@@ -693,7 +751,12 @@ export async function generateDiff(
   const [diff] = await db
     .select()
     .from(catalogDiffs)
-    .where(and(eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'), eq(catalogDiffs.triggerId, sourceId)))
+    .where(
+      and(
+        eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'),
+        eq(catalogDiffs.triggerId, sourceId)
+      )
+    )
     .orderBy(desc(catalogDiffs.createdAt))
     .limit(1);
   if (!diff) throw new NotFoundError('CatalogDiff');
@@ -726,26 +789,31 @@ export async function resolveDiffItem(
     itemIndex: number;
     decision: 'approve' | 'reject';
     selectedOption?: string;
-  },
+  }
 ) {
   const db = getDb();
   const [diff] = await db.select().from(catalogDiffs).where(eq(catalogDiffs.id, id));
   if (!diff) throw new NotFoundError('CatalogDiff');
 
   const existing = (diff.userDecisions as any) ?? {};
-  const changeDecisions: Record<number, { decision: string; selectedOption?: string }> = existing.changeDecisions ?? {};
-  const reviewDecisions: Record<number, { decision: string; selectedOption?: string }> = existing.reviewDecisions ?? {};
+  const changeDecisions: Record<number, { decision: string; selectedOption?: string }> =
+    existing.changeDecisions ?? {};
+  const reviewDecisions: Record<number, { decision: string; selectedOption?: string }> =
+    existing.reviewDecisions ?? {};
   if (input.itemType === 'change') {
-    changeDecisions[input.itemIndex] = { decision: input.decision, selectedOption: input.selectedOption };
+    changeDecisions[input.itemIndex] = {
+      decision: input.decision,
+      selectedOption: input.selectedOption,
+    };
   } else {
-    reviewDecisions[input.itemIndex] = { decision: input.decision, selectedOption: input.selectedOption };
+    reviewDecisions[input.itemIndex] = {
+      decision: input.decision,
+      selectedOption: input.selectedOption,
+    };
   }
   const decisions = { changeDecisions, reviewDecisions };
 
-  await db
-    .update(catalogDiffs)
-    .set({ userDecisions: decisions })
-    .where(eq(catalogDiffs.id, id));
+  await db.update(catalogDiffs).set({ userDecisions: decisions }).where(eq(catalogDiffs.id, id));
 
   return { id, updated: true };
 }

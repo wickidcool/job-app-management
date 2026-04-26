@@ -9,12 +9,10 @@ import type { ApplyDiffRequest } from '../types/catalog';
 const QUERY_KEYS = {
   diffs: ['catalog', 'diffs'] as const,
   diff: (id: string) => ['catalog', 'diffs', id] as const,
-  companies: (params?: Record<string, unknown>) =>
-    ['catalog', 'companies', params] as const,
+  companies: (params?: Record<string, unknown>) => ['catalog', 'companies', params] as const,
   techStackTags: (params?: Record<string, unknown>) =>
     ['catalog', 'tags', 'tech-stack', params] as const,
-  jobFitTags: (params?: Record<string, unknown>) =>
-    ['catalog', 'tags', 'job-fit', params] as const,
+  jobFitTags: (params?: Record<string, unknown>) => ['catalog', 'tags', 'job-fit', params] as const,
   quantifiedBullets: (params?: Record<string, unknown>) =>
     ['catalog', 'quantified-bullets', params] as const,
 };
@@ -102,11 +100,7 @@ export function useCompanyCatalog(params?: { search?: string; sort?: string }) {
 /**
  * Get tech stack tags from catalog
  */
-export function useTechStackTags(params?: {
-  category?: string;
-  search?: string;
-  sort?: string;
-}) {
+export function useTechStackTags(params?: { category?: string; search?: string; sort?: string }) {
   return useQuery({
     queryKey: QUERY_KEYS.techStackTags(params),
     queryFn: () => catalogService.getTechStackTags(params),
@@ -116,11 +110,7 @@ export function useTechStackTags(params?: {
 /**
  * Get job fit tags from catalog
  */
-export function useJobFitTags(params?: {
-  category?: string;
-  search?: string;
-  sort?: string;
-}) {
+export function useJobFitTags(params?: { category?: string; search?: string; sort?: string }) {
   return useQuery({
     queryKey: QUERY_KEYS.jobFitTags(params),
     queryFn: () => catalogService.getJobFitTags(params),
@@ -130,11 +120,7 @@ export function useJobFitTags(params?: {
 /**
  * Get quantified bullets from catalog
  */
-export function useQuantifiedBullets(params?: {
-  impact?: string;
-  search?: string;
-  sort?: string;
-}) {
+export function useQuantifiedBullets(params?: { impact?: string; search?: string; sort?: string }) {
   return useQuery({
     queryKey: QUERY_KEYS.quantifiedBullets(params),
     queryFn: () => catalogService.getQuantifiedBullets(params),

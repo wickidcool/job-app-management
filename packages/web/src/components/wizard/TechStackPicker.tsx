@@ -109,7 +109,9 @@ export function TechStackPicker({
           <span className="text-warning-700">Maximum {maxTags} technologies reached</span>
         ) : (
           <>
-            Type technology names and press <kbd className="px-1 py-0.5 bg-neutral-200 rounded text-caption font-mono">Enter</kbd> or separate with commas. ({value.length}/{maxTags})
+            Type technology names and press{' '}
+            <kbd className="px-1 py-0.5 bg-neutral-200 rounded text-caption font-mono">Enter</kbd>{' '}
+            or separate with commas. ({value.length}/{maxTags})
           </>
         )}
       </p>

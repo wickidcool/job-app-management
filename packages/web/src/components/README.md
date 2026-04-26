@@ -27,6 +27,7 @@ import { StatusBadge } from './components';
 ```
 
 **Props:**
+
 - `status`: ApplicationStatus (required)
 - `size`: 'sm' | 'md' | 'lg' (default: 'md')
 - `variant`: 'filled' | 'outlined' | 'dot' (default: 'filled')
@@ -61,6 +62,7 @@ import { EmptyState } from './components';
 ```
 
 **Props:**
+
 - `variant`: 'no-applications' | 'no-results' | 'no-documents' (required)
 - `onAction`: () => void (optional)
 - `actionLabel`: string (optional, uses default if not provided)
@@ -91,6 +93,7 @@ const stats = {
 ```
 
 **Props:**
+
 - `stats`: Object with `total`, `appliedThisWeek`, `responseRate`, `inReview` (required)
 - `loading`: boolean (default: false)
 
@@ -118,6 +121,7 @@ Components use design tokens from `tailwind.config.ts`:
 ## Testing
 
 Each component should be tested for:
+
 - All states render correctly
 - Props validation works
 - Accessibility attributes present

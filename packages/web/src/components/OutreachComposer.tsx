@@ -43,6 +43,8 @@ export function OutreachComposer({
   const [contact, setContact] = useState(prefillContext?.hiringManager || '');
   const [useFitAnalysis, setUseFitAnalysis] = useState(!!fitAnalysisId);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const generateMutation = useGenerateOutreach();
 
@@ -72,6 +74,7 @@ export function OutreachComposer({
   const subjectStatus = getSubjectStatus();
 
   const handleGenerate = async () => {
+    setGenerationError(null);
     try {
       const result = await generateMutation.mutateAsync({
         platform,
@@ -87,10 +90,14 @@ export function OutreachComposer({
       }
     } catch (error) {
       console.error('Generation failed:', error);
+      setGenerationError(
+        error instanceof Error ? error.message : 'Failed to generate outreach message. Please try again.'
+      );
     }
   };
 
   const handleCopy = async () => {
+    setCopyError(null);
     try {
       const textToCopy = limits.hasSubject ? `${subject}\n\n${body}` : body;
       await navigator.clipboard.writeText(textToCopy);
@@ -98,6 +105,8 @@ export function OutreachComposer({
       setTimeout(() => setCopyStatus('idle'), 2000);
     } catch (error) {
       console.error('Failed to copy:', error);
+      setCopyError('Failed to copy to clipboard. Please select and copy manually.');
+      setTimeout(() => setCopyError(null), 3000);
     }
   };
 
@@ -184,6 +193,16 @@ export function OutreachComposer({
             )}
           </div>
         </div>
+
+        {/* Generation Error */}
+        {generationError && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-800">
+              <span className="font-semibold">Error: </span>
+              {generationError}
+            </p>
+          </div>
+        )}
 
         {/* Generate Button */}
         {!body && (
@@ -301,6 +320,13 @@ export function OutreachComposer({
                 <span>Clear CTA</span>
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Copy Error */}
+        {copyError && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-800">{copyError}</p>
           </div>
         )}
 

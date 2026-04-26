@@ -13,6 +13,7 @@ import {
 
 const toneValues = ['professional', 'conversational', 'enthusiastic', 'technical'] as const;
 const lengthValues = ['concise', 'standard', 'detailed'] as const;
+const emphasisValues = ['technical', 'leadership', 'balanced'] as const;
 
 const generateSchema = z
   .object({
@@ -24,6 +25,7 @@ const generateSchema = z
     targetRole: z.string().min(1).max(200).optional(),
     tone: z.enum(toneValues).optional(),
     lengthVariant: z.enum(lengthValues).optional(),
+    emphasis: z.enum(emphasisValues).optional(),
     emphasizeThemes: z.array(z.string()).optional(),
     customInstructions: z.string().max(500).optional(),
   })

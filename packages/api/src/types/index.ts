@@ -373,6 +373,7 @@ export interface GenerateCoverLetterInput {
   targetRole?: string;
   tone?: TonePreference;
   lengthVariant?: LengthVariant;
+  emphasis?: 'technical' | 'leadership' | 'balanced';
   emphasizeThemes?: string[];
   customInstructions?: string;
 }

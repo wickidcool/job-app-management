@@ -6,10 +6,7 @@ interface MobileNavigationProps {
   exportCount?: number;
 }
 
-export function MobileNavigation({
-  applicationCount,
-  exportCount,
-}: MobileNavigationProps) {
+export function MobileNavigation({ applicationCount, exportCount }: MobileNavigationProps) {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
 
@@ -56,26 +53,17 @@ export function MobileNavigation({
 
         <div className="flex items-center gap-2">
           <span className="text-xl">📋</span>
-          <span className="text-base font-semibold text-neutral-900">
-            Job App Manager
-          </span>
+          <span className="text-base font-semibold text-neutral-900">Job App Manager</span>
         </div>
 
-        <button
-          className="rounded-full bg-neutral-100 p-2 text-base"
-          aria-label="User menu"
-        >
+        <button className="rounded-full bg-neutral-100 p-2 text-base" aria-label="User menu">
           👤
         </button>
       </div>
 
       {isOpen && (
         <>
-          <div
-            className="fixed inset-0 z-40 bg-black/30"
-            onClick={closeMenu}
-            aria-hidden="true"
-          />
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={closeMenu} aria-hidden="true" />
 
           <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl">
             <div className="flex h-full flex-col">
@@ -99,8 +87,7 @@ export function MobileNavigation({
                         onClick={closeMenu}
                         className={`flex items-center justify-between rounded-lg px-4 py-3 ${
                           location.pathname === item.path ||
-                          (item.path !== '/' &&
-                            location.pathname.startsWith(item.path))
+                          (item.path !== '/' && location.pathname.startsWith(item.path))
                             ? 'bg-primary-50 text-primary-600'
                             : 'text-neutral-700 hover:bg-neutral-100'
                         }`}

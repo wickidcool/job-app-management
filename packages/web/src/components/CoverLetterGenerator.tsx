@@ -85,6 +85,7 @@ export function CoverLetterGenerator({
         targetRole: step1Data.jobTitle,
         tone: variant.tone,
         lengthVariant: variant.length,
+        emphasis: variant.emphasis,
         jobFitAnalysisId: fitAnalysisId,
       });
 

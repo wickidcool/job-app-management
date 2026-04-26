@@ -82,8 +82,7 @@ export function ResumeManager() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-neutral-900">Resume Manager</h1>
         <p className="mt-2 text-sm text-neutral-600">
-          Manage your master resumes and create tailored exports for each job
-          application
+          Manage your master resumes and create tailored exports for each job application
         </p>
       </div>
 

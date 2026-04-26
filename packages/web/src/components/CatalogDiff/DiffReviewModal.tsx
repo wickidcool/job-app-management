@@ -26,10 +26,11 @@ export function DiffReviewModal({
   const [expandAll, setExpandAll] = useState(false);
 
   const changes = useMemo(
-    () => (diff.changes ?? []).map(change => ({
-      ...change,
-      selected: selectedIds.has(change.id),
-    })),
+    () =>
+      (diff.changes ?? []).map((change) => ({
+        ...change,
+        selected: selectedIds.has(change.id),
+      })),
     [diff.changes, selectedIds]
   );
 
@@ -91,13 +92,16 @@ export function DiffReviewModal({
   const selectedCount = changes.filter((c) => c.selected).length;
 
   // Group changes by entity type
-  const groupedChanges = changes.reduce((acc, change) => {
-    if (!acc[change.entity]) {
-      acc[change.entity] = [];
-    }
-    acc[change.entity].push(change);
-    return acc;
-  }, {} as Record<string, typeof changes>);
+  const groupedChanges = changes.reduce(
+    (acc, change) => {
+      if (!acc[change.entity]) {
+        acc[change.entity] = [];
+      }
+      acc[change.entity].push(change);
+      return acc;
+    },
+    {} as Record<string, typeof changes>
+  );
 
   if (!isOpen) return null;
 
@@ -215,13 +219,11 @@ export function DiffReviewModal({
               return (
                 <div key={entity} className="mb-4">
                   <h4 className="text-body-lg font-bold text-neutral-900 mb-2 capitalize">
-                    ▼ {entity.replace(/_/g, ' ')} (
-                    {createCount > 0 && `${createCount} new`}
+                    ▼ {entity.replace(/_/g, ' ')} ({createCount > 0 && `${createCount} new`}
                     {createCount > 0 && updateCount > 0 && ', '}
                     {updateCount > 0 && `${updateCount} updated`}
                     {(createCount > 0 || updateCount > 0) && deleteCount > 0 && ', '}
-                    {deleteCount > 0 && `${deleteCount} deleted`}
-                    )
+                    {deleteCount > 0 && `${deleteCount} deleted`})
                   </h4>
                   <div className="space-y-2">
                     {entityChanges.map((change) => (

@@ -46,7 +46,7 @@ const applyDiffSchema = z.object({
         reviewIndex: z.number().int().min(0),
         selectedOption: z.string().max(200).optional(),
         action: z.enum(['resolve', 'skip', 'create_new']),
-      }),
+      })
     )
     .max(500)
     .optional(),
@@ -80,8 +80,23 @@ const listTagsSchema = paginationSchema.extend({
   search: z.string().max(200).optional(),
 });
 
-const jobFitCategoryValues = ['role', 'industry', 'seniority', 'work_style', 'uncategorized'] as const;
-const techStackCategoryValues = ['language', 'frontend', 'backend', 'database', 'cloud', 'devops', 'ai_ml', 'uncategorized'] as const;
+const jobFitCategoryValues = [
+  'role',
+  'industry',
+  'seniority',
+  'work_style',
+  'uncategorized',
+] as const;
+const techStackCategoryValues = [
+  'language',
+  'frontend',
+  'backend',
+  'database',
+  'cloud',
+  'devops',
+  'ai_ml',
+  'uncategorized',
+] as const;
 
 const updateJobFitTagSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
@@ -112,7 +127,10 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   fastify.get('/catalog/diffs', async (request, reply) => {
     const parsed = listDiffsSchema.safeParse(request.query);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const { diffs } = await listDiffs(parsed.data);
     return reply.send(diffs);
   });
@@ -124,14 +142,20 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   fastify.post('/catalog/generate-diff', async (request, reply) => {
     const parsed = generateDiffSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId);
     return reply.status(201).send(diff);
   });
 
   fastify.post<{ Params: { id: string } }>('/catalog/diffs/:id/apply', async (request, reply) => {
     const parsed = applyDiffSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const result = await applyDiff(request.params.id, parsed.data);
     return reply.send(result);
   });
@@ -143,7 +167,10 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   fastify.post<{ Params: { id: string } }>('/catalog/diffs/:id/resolve', async (request, reply) => {
     const parsed = resolveDiffItemSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const result = await resolveDiffItem(request.params.id, parsed.data);
     return reply.send(result);
   });
@@ -152,14 +179,20 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   fastify.get('/catalog/companies', async (request, reply) => {
     const parsed = listCompaniesSchema.safeParse(request.query);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const { companies } = await listCompanies(parsed.data);
     return reply.send(companies);
   });
 
   fastify.post('/catalog/companies/merge', async (request, reply) => {
     const parsed = mergeEntitiesSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const result = await mergeCompanies(parsed.data.sourceCompanyIds, parsed.data.targetCompanyId);
     return reply.send(result);
   });
@@ -169,17 +202,44 @@ export async function catalogRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { type: string } }>('/catalog/tags/:type', async (request, reply) => {
     const { type } = request.params;
     const parsed = listTagsSchema.safeParse(request.query);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
     if (type === 'job-fit') {
-      if (parsed.data.category && !jobFitCategoryValues.includes(parsed.data.category as typeof jobFitCategoryValues[number])) {
-        return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: `Invalid job-fit category. Valid values: ${jobFitCategoryValues.join(', ')}` } });
+      if (
+        parsed.data.category &&
+        !jobFitCategoryValues.includes(
+          parsed.data.category as (typeof jobFitCategoryValues)[number]
+        )
+      ) {
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'BAD_REQUEST',
+              message: `Invalid job-fit category. Valid values: ${jobFitCategoryValues.join(', ')}`,
+            },
+          });
       }
       const { tags } = await listJobFitTags(parsed.data);
       return reply.send(tags);
     } else if (type === 'tech-stack') {
-      if (parsed.data.category && !techStackCategoryValues.includes(parsed.data.category as typeof techStackCategoryValues[number])) {
-        return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: `Invalid tech-stack category. Valid values: ${techStackCategoryValues.join(', ')}` } });
+      if (
+        parsed.data.category &&
+        !techStackCategoryValues.includes(
+          parsed.data.category as (typeof techStackCategoryValues)[number]
+        )
+      ) {
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'BAD_REQUEST',
+              message: `Invalid tech-stack category. Valid values: ${techStackCategoryValues.join(', ')}`,
+            },
+          });
       }
       const { tags } = await listTechStackTags(parsed.data);
       return reply.send(tags);
@@ -190,47 +250,67 @@ export async function catalogRoutes(fastify: FastifyInstance) {
     }
   });
 
-  fastify.post<{ Params: { type: string } }>('/catalog/tags/:type/merge', async (request, reply) => {
-    const { type } = request.params;
-    const parsed = mergeTagsSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+  fastify.post<{ Params: { type: string } }>(
+    '/catalog/tags/:type/merge',
+    async (request, reply) => {
+      const { type } = request.params;
+      const parsed = mergeTagsSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply
+          .status(400)
+          .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
-    if (type === 'job-fit') {
-      return reply.send(await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId));
-    } else if (type === 'tech-stack') {
-      return reply.send(await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId));
-    } else {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
+      if (type === 'job-fit') {
+        return reply.send(await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId));
+      } else if (type === 'tech-stack') {
+        return reply.send(
+          await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId)
+        );
+      } else {
+        return reply
+          .status(400)
+          .send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
+      }
     }
-  });
+  );
 
-  fastify.patch<{ Params: { type: string; id: string } }>('/catalog/tags/:type/:id', async (request, reply) => {
-    const { type, id } = request.params;
+  fastify.patch<{ Params: { type: string; id: string } }>(
+    '/catalog/tags/:type/:id',
+    async (request, reply) => {
+      const { type, id } = request.params;
 
-    if (type === 'job-fit') {
-      const parsed = updateJobFitTagSchema.safeParse(request.body);
-      if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-      const tag = await updateJobFitTag(id, parsed.data);
-      return reply.send(tag);
-    } else if (type === 'tech-stack') {
-      const parsed = updateTechStackTagSchema.safeParse(request.body);
-      if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-      const tag = await updateTechStackTag(id, parsed.data);
-      return reply.send(tag);
-    } else {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
+      if (type === 'job-fit') {
+        const parsed = updateJobFitTagSchema.safeParse(request.body);
+        if (!parsed.success)
+          return reply
+            .status(400)
+            .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+        const tag = await updateJobFitTag(id, parsed.data);
+        return reply.send(tag);
+      } else if (type === 'tech-stack') {
+        const parsed = updateTechStackTagSchema.safeParse(request.body);
+        if (!parsed.success)
+          return reply
+            .status(400)
+            .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+        const tag = await updateTechStackTag(id, parsed.data);
+        return reply.send(tag);
+      } else {
+        return reply
+          .status(400)
+          .send({ error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } });
+      }
     }
-  });
+  );
 
   // ── Quantified bullets ─────────────────────────────────────────────────────
 
   fastify.get('/catalog/quantified-bullets', async (request, reply) => {
     const parsed = listBulletsSchema.safeParse(request.query);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const { bullets } = await listBullets(parsed.data);
     return reply.send(bullets);
   });
@@ -239,7 +319,10 @@ export async function catalogRoutes(fastify: FastifyInstance) {
 
   fastify.get('/catalog/themes', async (request, reply) => {
     const parsed = listThemesSchema.safeParse(request.query);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const { themes } = await listThemes(parsed.data);
     return reply.send(themes);
   });
@@ -257,15 +340,18 @@ export async function catalogRoutes(fastify: FastifyInstance) {
         const hasUrl = data.jobDescriptionUrl !== undefined && data.jobDescriptionUrl !== '';
         return (hasText && !hasUrl) || (!hasText && hasUrl);
       },
-      { message: 'Provide either jobDescriptionText or jobDescriptionUrl, not both or neither' },
+      { message: 'Provide either jobDescriptionText or jobDescriptionUrl, not both or neither' }
     );
 
   fastify.post('/catalog/job-fit/analyze', async (request, reply) => {
     const parsed = analyzeJobFitSchema.safeParse(request.body);
     if (!parsed.success)
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
-    const clientIp = request.ip || request.headers['x-forwarded-for']?.toString().split(',')[0] || 'unknown';
+    const clientIp =
+      request.ip || request.headers['x-forwarded-for']?.toString().split(',')[0] || 'unknown';
     const { response, rateLimitHeaders } = await analyzeJobFit(parsed.data, clientIp);
 
     reply.header('X-RateLimit-Remaining', String(rateLimitHeaders.remaining));

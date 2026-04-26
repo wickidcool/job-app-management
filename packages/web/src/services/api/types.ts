@@ -215,6 +215,7 @@ export interface GenerateCoverLetterRequest {
   targetRole?: string;
   tone?: CoverLetterTone;
   lengthVariant?: CoverLetterLength;
+  emphasis?: CoverLetterEmphasis;
   emphasizeThemes?: string[];
   customInstructions?: string;
 }

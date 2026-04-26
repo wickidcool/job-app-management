@@ -149,11 +149,14 @@ export function WizardContainer({
     setCurrentTech([]);
   }, [currentSTAR, currentTech, data.accomplishments, updateData]);
 
-  const removeAccomplishment = useCallback((id: string) => {
-    updateData({
-      accomplishments: (data.accomplishments || []).filter((a) => a.id !== id),
-    });
-  }, [data.accomplishments, updateData]);
+  const removeAccomplishment = useCallback(
+    (id: string) => {
+      updateData({
+        accomplishments: (data.accomplishments || []).filter((a) => a.id !== id),
+      });
+    },
+    [data.accomplishments, updateData]
+  );
 
   // Validation for each step
   const canProceedStep1 = () => {
@@ -162,12 +165,7 @@ export function WizardContainer({
 
   const canProceedStep2 = () => {
     const periodRegex = /^[A-Z][a-z]{2} \d{4} - ([A-Z][a-z]{2} \d{4}|Present)$/;
-    return (
-      !!data.role &&
-      data.role.length >= 2 &&
-      !!data.period &&
-      periodRegex.test(data.period)
-    );
+    return !!data.role && data.role.length >= 2 && !!data.period && periodRegex.test(data.period);
   };
 
   const canProceedStep3 = () => {
@@ -245,7 +243,10 @@ export function WizardContainer({
               </div>
 
               <div>
-                <label htmlFor="period" className="block text-body font-medium text-neutral-800 mb-2">
+                <label
+                  htmlFor="period"
+                  className="block text-body font-medium text-neutral-800 mb-2"
+                >
                   Time Period
                 </label>
                 <input
@@ -388,10 +389,7 @@ export function WizardContainer({
               {variant === 'correct' && 'Correct Project'}
             </h1>
             <div className="flex items-center gap-3">
-              <WizardButton
-                variant="ghost"
-                onClick={() => onSaveDraft(data)}
-              >
+              <WizardButton variant="ghost" onClick={() => onSaveDraft(data)}>
                 Save Draft
               </WizardButton>
               <button
@@ -415,9 +413,7 @@ export function WizardContainer({
         </div>
 
         {/* Step Content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
-          {renderStepContent()}
-        </div>
+        <div className="flex-1 overflow-y-auto px-8 py-6">{renderStepContent()}</div>
       </div>
     </div>
   );

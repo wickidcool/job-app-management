@@ -149,7 +149,8 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       method: 'POST',
       url: '/api/catalog/job-fit/analyze',
       payload: {
-        jobDescriptionText: 'Some job description text that is long enough to pass validation for minimum length requirements',
+        jobDescriptionText:
+          'Some job description text that is long enough to pass validation for minimum length requirements',
         jobDescriptionUrl: 'https://example.com/job',
       },
     });
@@ -250,12 +251,14 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     await app.inject({
       method: 'POST',
       url: '/api/catalog/job-fit/analyze',
-      payload: { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
+      payload: {
+        jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.',
+      },
     });
 
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
       { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
-      expect.any(String),
+      expect.any(String)
     );
   });
 });

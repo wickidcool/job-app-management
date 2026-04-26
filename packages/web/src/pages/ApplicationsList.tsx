@@ -2,10 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel } from '../components/FilterPanel';
-import {
-  useApplications,
-  useUpdateApplicationStatus,
-} from '../hooks/useApplications';
+import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
 import type { ApplicationStatus } from '../types/application';
 
 export function ApplicationsList() {
@@ -32,9 +29,7 @@ export function ApplicationsList() {
     { label: 'Applications' },
   ];
 
-  const availableCompanies = Array.from(
-    new Set(applications.map((app) => app.company))
-  ).sort();
+  const availableCompanies = Array.from(new Set(applications.map((app) => app.company))).sort();
   const availableStatuses: ApplicationStatus[] = [
     'saved',
     'applied',

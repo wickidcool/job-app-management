@@ -109,9 +109,16 @@ export function STARInput({ value, onChange, errors = {} }: STARInputProps) {
         return (
           <div key={field.key} className="space-y-2">
             {/* Label */}
-            <label htmlFor={`star-${field.key}`} className="block text-body font-medium text-neutral-800">
+            <label
+              htmlFor={`star-${field.key}`}
+              className="block text-body font-medium text-neutral-800"
+            >
               {field.label}
-              {isValid && <span className="ml-2 text-success-700" aria-label="Field valid">✓</span>}
+              {isValid && (
+                <span className="ml-2 text-success-700" aria-label="Field valid">
+                  ✓
+                </span>
+              )}
             </label>
 
             {/* Textarea */}
@@ -140,7 +147,10 @@ export function STARInput({ value, onChange, errors = {} }: STARInputProps) {
               <p id={`${field.key}-hint`} className="text-body-sm text-neutral-600 flex-1">
                 💡 {field.hint}
               </p>
-              <span id={`${field.key}-count`} className={`text-caption font-mono ${charCount.color} shrink-0`}>
+              <span
+                id={`${field.key}-count`}
+                className={`text-caption font-mono ${charCount.color} shrink-0`}
+              >
                 {charCount.text}
               </span>
             </div>

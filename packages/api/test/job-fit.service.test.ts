@@ -269,7 +269,7 @@ describe('computeRecommendation', () => {
     const exactMatches = Array(6).fill(makeMatch('exact'));
     const aliasMatches = Array(4).fill(makeMatch('alias'));
     expect(computeRecommendation([...exactMatches, ...aliasMatches], [], 10, false)).toBe(
-      'strong_fit',
+      'strong_fit'
     );
   });
 });

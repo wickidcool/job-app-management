@@ -84,8 +84,12 @@ function getClient(): Anthropic | null {
   const key = config.anthropicApiKey;
   // Log environment vs config key to check for conflicts
   const envKey = process.env.ANTHROPIC_API_KEY;
-  console.log(`[ai-parser] Env key: ${envKey ? envKey.substring(0, 15) + '...' + envKey.substring(envKey.length - 4) : 'not set'} (len: ${envKey?.length ?? 0})`);
-  console.log(`[ai-parser] Config key: ${key.substring(0, 15)}...${key.substring(key.length - 4)} (len: ${key.length})`);
+  console.log(
+    `[ai-parser] Env key: ${envKey ? envKey.substring(0, 15) + '...' + envKey.substring(envKey.length - 4) : 'not set'} (len: ${envKey?.length ?? 0})`
+  );
+  console.log(
+    `[ai-parser] Config key: ${key.substring(0, 15)}...${key.substring(key.length - 4)} (len: ${key.length})`
+  );
   // Explicitly pass apiKey to override any env var the SDK might find
   client = new Anthropic({ apiKey: key });
   return client;
@@ -116,7 +120,9 @@ export async function parseResumeWithAI(rawText: string): Promise<AIParseResult 
 
   const response = await stream.finalMessage();
   console.log(`[ai-parser] Claude API response received, stop_reason: ${response.stop_reason}`);
-  console.log(`[ai-parser] Response content blocks: ${response.content.map((b) => b.type).join(', ')}`);
+  console.log(
+    `[ai-parser] Response content blocks: ${response.content.map((b) => b.type).join(', ')}`
+  );
 
   const textBlock = response.content.find((block) => block.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {
@@ -159,7 +165,7 @@ export function generateAIProjectMarkdown(project: AIProject): string {
   lines.push(`# ${title}`);
   if (project.role && project.period) {
     lines.push(
-      `**Role:** ${project.role} | **Period:** ${project.period} | **Industry:** ${project.industry || '_[Industry]_'}`,
+      `**Role:** ${project.role} | **Period:** ${project.period} | **Industry:** ${project.industry || '_[Industry]_'}`
     );
   }
   lines.push('');

@@ -58,17 +58,17 @@ The API is available at `http://localhost:3000/api`.
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/applications` | List applications (with filtering) |
-| GET | `/api/applications/:id` | Get application + status history |
-| POST | `/api/applications` | Create application |
-| PATCH | `/api/applications/:id` | Update application fields |
-| DELETE | `/api/applications/:id` | Delete application |
-| POST | `/api/applications/:id/status` | Update application status |
-| GET | `/api/dashboard` | Dashboard stats + recent activity |
-| GET | `/api/cover-letters` | List available cover letters |
-| GET | `/health` | Health check |
+| Method | Path                           | Description                        |
+| ------ | ------------------------------ | ---------------------------------- |
+| GET    | `/api/applications`            | List applications (with filtering) |
+| GET    | `/api/applications/:id`        | Get application + status history   |
+| POST   | `/api/applications`            | Create application                 |
+| PATCH  | `/api/applications/:id`        | Update application fields          |
+| DELETE | `/api/applications/:id`        | Delete application                 |
+| POST   | `/api/applications/:id/status` | Update application status          |
+| GET    | `/api/dashboard`               | Dashboard stats + recent activity  |
+| GET    | `/api/cover-letters`           | List available cover letters       |
+| GET    | `/health`                      | Health check                       |
 
 See [API Contracts](../docs/architecture/API_CONTRACTS.md) for full request/response schemas.
 

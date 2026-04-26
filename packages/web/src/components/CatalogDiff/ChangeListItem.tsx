@@ -35,13 +35,9 @@ export function ChangeListItem({ change, onToggle }: ChangeListItemProps) {
             <div key={key} className="flex gap-2">
               <dt className="font-medium text-neutral-700">{key}:</dt>
               <dd>
-                <span className="text-error-600 line-through">
-                  {String(change.before![key])}
-                </span>
+                <span className="text-error-600 line-through">{String(change.before![key])}</span>
                 {' → '}
-                <span className="text-success-600 font-medium">
-                  {String(change.after![key])}
-                </span>
+                <span className="text-success-600 font-medium">{String(change.after![key])}</span>
               </dd>
             </div>
           ))}
@@ -52,9 +48,7 @@ export function ChangeListItem({ change, onToggle }: ChangeListItemProps) {
     return null;
   };
 
-  const borderColor = change.selected
-    ? 'border-success-300'
-    : 'border-neutral-100';
+  const borderColor = change.selected ? 'border-success-300' : 'border-neutral-100';
   const opacity = change.selected ? 'opacity-100' : 'opacity-60';
 
   return (
@@ -84,18 +78,12 @@ export function ChangeListItem({ change, onToggle }: ChangeListItemProps) {
 
           {renderChangeDetails()}
 
-          <div className="mt-2 text-xs text-neutral-500">
-            Source: {change.sourceName}
-          </div>
+          <div className="mt-2 text-xs text-neutral-500">Source: {change.sourceName}</div>
 
           {showDetails && (
             <div className="mt-3 p-3 bg-white rounded border border-neutral-200">
-              <h4 className="font-medium text-sm text-neutral-900 mb-2">
-                Full Details
-              </h4>
-              <pre className="text-xs overflow-x-auto">
-                {JSON.stringify(change, null, 2)}
-              </pre>
+              <h4 className="font-medium text-sm text-neutral-900 mb-2">Full Details</h4>
+              <pre className="text-xs overflow-x-auto">{JSON.stringify(change, null, 2)}</pre>
             </div>
           )}
 

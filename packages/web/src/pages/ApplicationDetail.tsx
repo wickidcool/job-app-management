@@ -1,6 +1,10 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { useApplication, useUpdateApplicationStatus, useDeleteApplication } from '../hooks/useApplications';
+import {
+  useApplication,
+  useUpdateApplicationStatus,
+  useDeleteApplication,
+} from '../hooks/useApplications';
 import { StatusBadge } from '../components/StatusBadge';
 import { StatusDropdown } from '../components/StatusDropdown';
 import type { ApplicationStatus } from '../types/application';

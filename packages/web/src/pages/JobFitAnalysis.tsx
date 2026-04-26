@@ -37,12 +37,12 @@ export function JobFitAnalysis() {
   // Character count for text input
   const charCount = jobDescriptionText.length;
   const isTextValid = charCount >= 100 && charCount <= 50000;
-  const isUrlValid = jobDescriptionUrl.trim().length > 0 && /^https?:\/\/.+/.test(jobDescriptionUrl);
+  const isUrlValid =
+    jobDescriptionUrl.trim().length > 0 && /^https?:\/\/.+/.test(jobDescriptionUrl);
 
   // Enable submit if either text is valid OR URL is valid (but not both)
   const canSubmit =
-    (isTextValid && !jobDescriptionUrl.trim()) ||
-    (isUrlValid && !jobDescriptionText.trim());
+    (isTextValid && !jobDescriptionUrl.trim()) || (isUrlValid && !jobDescriptionText.trim());
 
   const onSubmit = (data: JobFitFormData) => {
     // Build request with mutually exclusive fields
@@ -89,9 +89,7 @@ export function JobFitAnalysis() {
         <div className="max-w-4xl mx-auto px-4">
           <div className="bg-white rounded-lg shadow-sm p-12 text-center">
             <div className="text-6xl mb-6">🔍</div>
-            <h2 className="text-2xl font-semibold text-neutral-900 mb-4">
-              Analyzing Job Fit...
-            </h2>
+            <h2 className="text-2xl font-semibold text-neutral-900 mb-4">Analyzing Job Fit...</h2>
             <div className="space-y-3 text-left max-w-md mx-auto mb-6">
               <div className="flex items-center gap-3">
                 <span className="text-green-600">✓</span>
@@ -131,20 +129,17 @@ export function JobFitAnalysis() {
             ← Back
           </button>
 
-          <h1 className="text-3xl font-bold text-neutral-900 mb-6">
-            Job Fit Analysis Results
-          </h1>
+          <h1 className="text-3xl font-bold text-neutral-900 mb-6">Job Fit Analysis Results</h1>
 
           {/* Overall Fit Card */}
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
             <div className="text-center">
               <div className="text-xl font-semibold text-neutral-900 mb-2">
-                Overall Fit: {results.recommendation?.toUpperCase().replace('_', ' ') || 'NO RECOMMENDATION'}
+                Overall Fit:{' '}
+                {results.recommendation?.toUpperCase().replace('_', ' ') || 'NO RECOMMENDATION'}
               </div>
               <p className="text-neutral-700 mb-4">{results.summary}</p>
-              <div className="text-sm text-neutral-500">
-                Confidence: {results.confidence}
-              </div>
+              <div className="text-sm text-neutral-500">Confidence: {results.confidence}</div>
             </div>
           </div>
 
@@ -184,7 +179,8 @@ export function JobFitAnalysis() {
                 )}
                 {results.parsedJd.compensation && (
                   <div>
-                    <span className="font-medium">Compensation:</span> {results.parsedJd.compensation}
+                    <span className="font-medium">Compensation:</span>{' '}
+                    {results.parsedJd.compensation}
                   </div>
                 )}
               </div>
@@ -246,13 +242,17 @@ export function JobFitAnalysis() {
                     gap.severity === 'critical'
                       ? 'border-red-500 bg-red-50'
                       : gap.severity === 'moderate'
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-yellow-500 bg-yellow-50';
+                        ? 'border-orange-500 bg-orange-50'
+                        : 'border-yellow-500 bg-yellow-50';
 
                   return (
                     <div key={idx} className={`border-l-4 ${severityColor} p-4 rounded`}>
                       <div className="font-medium text-neutral-900">
-                        {gap.severity === 'critical' ? '🔴' : gap.severity === 'moderate' ? '🟡' : '🟢'}{' '}
+                        {gap.severity === 'critical'
+                          ? '🔴'
+                          : gap.severity === 'moderate'
+                            ? '🟡'
+                            : '🟢'}{' '}
                         {gap.jdRequirement}
                       </div>
                       <div className="text-sm text-neutral-700 mt-1">
@@ -339,19 +339,23 @@ export function JobFitAnalysis() {
           errorMessage = 'The provided URL is not valid. Please check and try again.';
           break;
         case 'JD_PARSE_FAILED':
-          errorMessage = 'Unable to extract job requirements from the provided text. Please ensure it contains a valid job description.';
+          errorMessage =
+            'Unable to extract job requirements from the provided text. Please ensure it contains a valid job description.';
           break;
         case 'URL_FETCH_FAILED':
-          errorMessage = 'Could not retrieve job description from URL. The site may be blocking automated access. Please paste the job description text directly.';
+          errorMessage =
+            'Could not retrieve job description from URL. The site may be blocking automated access. Please paste the job description text directly.';
           break;
         case 'URL_FETCH_TIMEOUT':
-          errorMessage = 'Request timed out while fetching job description from URL. Please try pasting the text directly.';
+          errorMessage =
+            'Request timed out while fetching job description from URL. Please try pasting the text directly.';
           break;
         case 'RATE_LIMIT_EXCEEDED':
           errorMessage = 'Too many requests. Please wait a moment and try again.';
           break;
         case 'NETWORK_ERROR':
-          errorMessage = 'Unable to connect to the server. Please check your connection and try again.';
+          errorMessage =
+            'Unable to connect to the server. Please check your connection and try again.';
           break;
       }
 
@@ -404,8 +408,8 @@ export function JobFitAnalysis() {
 
         <h1 className="text-3xl font-bold text-neutral-900 mb-2">Job Fit Analysis</h1>
         <p className="text-neutral-600 mb-8">
-          Analyze how well a job posting matches your experience, skills, and achievements.
-          We'll provide an honest assessment including any gaps.
+          Analyze how well a job posting matches your experience, skills, and achievements. We'll
+          provide an honest assessment including any gaps.
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="bg-white rounded-lg shadow-sm p-6">
@@ -471,8 +475,8 @@ Include requirements, qualifications, responsibilities, tech stack, and any othe
           {/* Warning Notice */}
           <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800">
-              ⚠️ <strong>Note:</strong> This analysis will identify gaps in your profile. We
-              provide honest assessments to help you make informed decisions.
+              ⚠️ <strong>Note:</strong> This analysis will identify gaps in your profile. We provide
+              honest assessments to help you make informed decisions.
             </p>
           </div>
 

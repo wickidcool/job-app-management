@@ -1316,6 +1316,1083 @@ Total estimated time: 10-15 seconds
 
 ---
 
+## 14. CoverLetterGenerator
+
+### Purpose
+AI-powered cover letter generation wizard that guides users through creating personalized cover letters using their catalog STAR entries and job fit analysis results.
+
+### Props
+
+```tsx
+interface CoverLetterGeneratorProps {
+  fitAnalysisId?: string         // Pre-load from existing fit analysis
+  applicationId?: string          // Link to specific application
+  onComplete?: (result: CoverLetterResult) => void
+  onCancel?: () => void
+}
+
+interface CoverLetterResult {
+  id: string
+  content: string                 // Markdown format
+  variant: CoverLetterVariant
+  selectedSTARs: string[]         // STAR entry IDs
+  generatedAt: Date
+  applicationId?: string
+}
+
+interface CoverLetterVariant {
+  tone: 'professional' | 'conversational' | 'enthusiastic'
+  length: 'concise' | 'standard' | 'detailed'
+  emphasis: 'technical' | 'leadership' | 'balanced'
+}
+```
+
+### Wizard Flow (4 Steps)
+
+#### Step 1: Confirm Target
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Generate Cover Letter                        [Step 1/4]│
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Target Position                                   │ │
+│  │                                                   │ │
+│  │ Company Name *                                    │ │
+│  │ ┌─────────────────────────────────────────────┐   │ │
+│  │ │ TechCorp Inc.                               │   │ │
+│  │ └─────────────────────────────────────────────┘   │ │
+│  │                                                   │ │
+│  │ Job Title *                                       │ │
+│  │ ┌─────────────────────────────────────────────┐   │ │
+│  │ │ Senior Full Stack Engineer                  │   │ │
+│  │ └─────────────────────────────────────────────┘   │ │
+│  │                                                   │ │
+│  │ Hiring Contact (Optional)                         │ │
+│  │ ┌─────────────────────────────────────────────┐   │ │
+│  │ │ Jane Smith, Engineering Manager             │   │ │
+│  │ └─────────────────────────────────────────────┘   │ │
+│  │                                                   │ │
+│  │ ☑️ Use job fit analysis results                  │ │
+│  │   [Moderate Fit · 60% match]                      │ │
+│  │                                                   │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  [Cancel]                               [Next: Select  │
+│                                          Experiences →]│
+└─────────────────────────────────────────────────────────┘
+```
+
+**Validation:**
+- Company name: required, 2-100 chars
+- Job title: required, 2-100 chars
+- Hiring contact: optional, 2-100 chars
+- If fit analysis selected: loads recommended STARs for Step 2
+
+#### Step 2: Select STAR Entries
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Generate Cover Letter                        [Step 2/4]│
+│                                                         │
+│  Select experiences to highlight (3-5 recommended)      │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ 🎯 Recommended (from fit analysis)                │ │
+│  │                                                   │ │
+│  │ ☑️ [95%] Led React migration for client portal   │ │
+│  │    Q3 2024 • Frontend, Technical Leadership       │ │
+│  │    → Directly demonstrates frontend expertise     │ │
+│  │                                                   │ │
+│  │ ☑️ [90%] Scaled Node.js API to 10k req/sec       │ │
+│  │    Q1 2025 • Backend, Performance                 │ │
+│  │    → Proves backend proficiency & scaling skills  │ │
+│  │                                                   │ │
+│  │ ☐ [85%] PostgreSQL query optimization            │ │
+│  │    Q2 2024 • Database, Performance                │ │
+│  │    → Shows database expertise                     │ │
+│  │                                                   │ │
+│  │ [Show 2 more recommended →]                       │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ 📋 All Catalog Entries                            │ │
+│  │                                                   │ │
+│  │ ☐ Built CI/CD pipeline (Q4 2024)                 │ │
+│  │ ☐ Mentored 3 junior developers (Q1 2024)         │ │
+│  │ ☐ Implemented OAuth 2.0 (Q3 2023)                │ │
+│  │                                                   │ │
+│  │ [Load More...]                                    │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ⚠️ Select 3-5 entries for best results               │
+│  Currently selected: 2                                  │
+│                                                         │
+│  [← Back]                       [Next: Choose Style →] │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- Recommended entries at top (from fit analysis) with relevance scores
+- All catalog entries below, searchable/filterable
+- Visual indication of selected count (3-5 sweet spot)
+- Entry preview shows: title, timeframe, tags, relevance reasoning
+
+#### Step 3: Choose Tone & Length
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Generate Cover Letter                        [Step 3/4]│
+│                                                         │
+│  Choose tone and length                                 │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Tone                                              │ │
+│  │                                                   │ │
+│  │ ● Professional      (Recommended for this role)   │ │
+│  │   Formal, direct, results-focused                 │ │
+│  │                                                   │ │
+│  │ ○ Conversational                                  │ │
+│  │   Approachable, clear, warm but professional      │ │
+│  │                                                   │ │
+│  │ ○ Enthusiastic                                    │ │
+│  │   Energetic, passionate, forward-looking          │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Length                                            │ │
+│  │                                                   │ │
+│  │ ○ Concise (250-350 words)                         │ │
+│  │   Quick read, highlights only                     │ │
+│  │                                                   │ │
+│  │ ● Standard (400-550 words)    (Recommended)       │ │
+│  │   Balanced depth and brevity                      │ │
+│  │                                                   │ │
+│  │ ○ Detailed (600-800 words)                        │ │
+│  │   Comprehensive, includes context                 │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Emphasis                                          │ │
+│  │                                                   │ │
+│  │ ● Balanced          (Recommended)                 │ │
+│  │   Mix of technical and leadership                 │ │
+│  │                                                   │ │
+│  │ ○ Technical                                       │ │
+│  │   Focus on stack, architecture, problem-solving   │ │
+│  │                                                   │ │
+│  │ ○ Leadership                                      │ │
+│  │   Emphasize team impact, mentoring, strategy      │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  [← Back]                          [Generate Letter →] │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Defaults:**
+- Tone: `professional`
+- Length: `standard`
+- Emphasis: `balanced`
+
+**Smart Recommendations:**
+- Tone suggested based on company type (startup vs enterprise)
+- Emphasis suggested based on selected STARs and job requirements
+
+#### Step 4: Review & Edit
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Generate Cover Letter                        [Step 4/4]│
+│                                                         │
+│  ┌─────────────────┬─────────────────────────────────┐ │
+│  │ 📝 Editor       │ 👁️ Preview                     │ │
+│  │ ──────────────  │ ──────────────────────────────  │ │
+│  │                 │                                 │ │
+│  │ Dear Jane Smith,│ Dear Jane Smith,                │ │
+│  │                 │                                 │ │
+│  │ I am writing to │ I am writing to express my      │ │
+│  │ express my      │ interest in the Senior Full     │ │
+│  │ interest in the │ Stack Engineer position at      │ │
+│  │ Senior Full     │ TechCorp Inc.                   │ │
+│  │ Stack Engineer  │                                 │ │
+│  │ position at     │ With over 5 years of experience │ │
+│  │ TechCorp Inc.   │ in full-stack development, I    │ │
+│  │                 │ have led...                     │ │
+│  │ [Textarea with  │ [Formatted preview with proper  │ │
+│  │  markdown]      │  typography and spacing]        │ │
+│  │                 │                                 │ │
+│  │                 │                                 │ │
+│  │ ✅ 487 words    │ ───────────────────────────────│ │
+│  │ ✅ Professional │ [Copy Text] [Download .docx]    │ │
+│  │ ✅ No gaps      │                                 │ │
+│  │ ⚠️ Contains AI  │                                 │ │
+│  │    tool mention │                                 │ │
+│  │    (verified)   │                                 │ │
+│  └─────────────────┴─────────────────────────────────┘ │
+│                                                         │
+│  [← Back]     [Regenerate]     [Save & Close]          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- Split-pane editor/preview
+- Live markdown rendering
+- Validation checks:
+  - Word count in target range
+  - No fabricated metrics (AI-scanned)
+  - AI tool attributions are specific (Claude vs generic AI)
+- Export options: Copy to clipboard, Download .docx
+- Regenerate button (keeps same settings, new generation)
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Step 1 | Wizard loads | Target form visible, Next disabled until required fields filled |
+| Step 2 | Next from Step 1 | STAR picker visible, recommended entries pre-selected if fit analysis exists |
+| Step 3 | Next from Step 2 | Tone/length selector, smart defaults based on role |
+| Generating | Generate clicked | Loading overlay, progress indicator (10-15s) |
+| Step 4 | Generation complete | Split editor/preview, validation checks run |
+| Regenerating | Regenerate clicked | Editor disabled, progress indicator, preserves edits option |
+| Saving | Save clicked | Toast notification, adds to application if linked |
+| Error | Generation fails | Error banner with retry button |
+
+### Wizard Navigation
+
+```typescript
+interface WizardStep {
+  id: number
+  title: string
+  isValid: boolean
+  isComplete: boolean
+}
+
+const steps = [
+  { id: 1, title: 'Confirm Target', isValid: false, isComplete: false },
+  { id: 2, title: 'Select Experiences', isValid: false, isComplete: false },
+  { id: 3, title: 'Choose Style', isValid: false, isComplete: false },
+  { id: 4, title: 'Review & Edit', isValid: false, isComplete: false }
+]
+```
+
+**Navigation Rules:**
+- Can go back to any previous step
+- Can only advance if current step is valid
+- Progress indicator shows current step and completion status
+- Keyboard: Ctrl/Cmd + Enter to advance to next step (when valid)
+
+### Validation Rules
+
+```typescript
+const validationRules = {
+  step1: {
+    companyName: { required: true, minLength: 2, maxLength: 100 },
+    jobTitle: { required: true, minLength: 2, maxLength: 100 },
+    hiringContact: { required: false, maxLength: 100 }
+  },
+  step2: {
+    selectedSTARs: { 
+      minCount: 1, 
+      maxCount: 8,
+      recommended: { min: 3, max: 5 }
+    }
+  },
+  step3: {
+    tone: { required: true, enum: ['professional', 'conversational', 'enthusiastic'] },
+    length: { required: true, enum: ['concise', 'standard', 'detailed'] },
+    emphasis: { required: true, enum: ['technical', 'leadership', 'balanced'] }
+  }
+}
+```
+
+### Content Validation (Step 4)
+
+AI-powered checks on generated content:
+
+| Check | Pass Criteria | Failure Action |
+|-------|---------------|----------------|
+| Word count | Within ±10% of target length | Warning only, allow save |
+| Fabricated metrics | No unsourced numbers/percentages | Error, block save |
+| AI attribution | Specific tool names (Claude, GPT-4) not generic "AI" | Warning, suggest edit |
+| Hallucinated projects | All projects exist in catalog | Error, block save |
+| Gap honesty | Acknowledged gaps from fit analysis mentioned if critical | Warning only |
+
+### Accessibility
+
+- **ARIA Landmarks:** `role="region"` with `aria-label="Step {n} of 4: {title}"`
+- **Progress Announcement:** Screen reader announces step changes
+- **Focus Management:** 
+  - Focus moves to step heading on step change
+  - Focus moves to error message if validation fails
+- **Keyboard Navigation:**
+  - Tab through form fields
+  - Ctrl/Cmd + Left/Right to navigate steps
+  - Ctrl/Cmd + Enter to advance
+  - Escape to cancel wizard
+- **ARIA Labels:**
+  - Step indicator: "Step 2 of 4: Select Experiences, currently active"
+  - Validation messages: "Error: Company name is required"
+
+### Responsive Behavior
+
+- **Desktop (>1024px):**
+  - Full wizard layout
+  - Split-pane editor/preview in Step 4
+  
+- **Tablet (768-1024px):**
+  - Single column wizard
+  - Tabbed editor/preview in Step 4
+  
+- **Mobile (<768px):**
+  - Compact wizard steps
+  - Stacked editor then preview in Step 4
+  - Bottom sheet for tone/length selection
+
+### Integration Points
+
+- **From:** Job Fit Analysis results page ("Generate Cover Letter" button)
+- **From:** Application detail page ("New Cover Letter" action)
+- **To:** Cover letter library (saves generated letter)
+- **To:** Application record (links letter to application)
+
+### Error Handling
+
+| Error Type | User Message | Recovery Action |
+|------------|--------------|-----------------|
+| Network Error | "Unable to generate. Check your connection." | [Retry] preserves all inputs |
+| Generation Timeout | "Generation took too long. Try fewer experiences." | [Edit Selection] returns to Step 2 |
+| Empty Catalog | "No experiences found. Upload a resume first." | [Upload Resume] link |
+| Validation Failed | "Content contains fabricated metrics. Please regenerate." | [Regenerate] or [Edit Manually] |
+| API Error | "Generation failed. Our team has been notified." | [Contact Support] link |
+
+---
+
+## 15. CoverLetterPreview
+
+### Purpose
+Renders cover letter content with proper typography and formatting, provides export actions.
+
+### Props
+
+```tsx
+interface CoverLetterPreviewProps {
+  content: string                 // Markdown format
+  variant?: CoverLetterVariant
+  wordCount?: number
+  showExportActions?: boolean
+  onCopy?: () => void
+  onDownload?: (format: 'docx' | 'pdf') => void
+}
+```
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Cover Letter Preview                [Copy] [↓ .docx]   │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │                                                   │ │
+│  │  Dear Jane Smith,                                 │ │
+│  │                                                   │ │
+│  │  I am writing to express my strong interest in    │ │
+│  │  the Senior Full Stack Engineer position at       │ │
+│  │  TechCorp Inc. With over five years of experience │ │
+│  │  building scalable web applications using React,  │ │
+│  │  Node.js, and PostgreSQL, I am confident I can    │ │
+│  │  contribute immediately to your team.             │ │
+│  │                                                   │ │
+│  │  In my current role at StartupCo, I led the      │ │
+│  │  migration of our client portal from Angular to   │ │
+│  │  React, reducing bundle size by 40% and improving │ │
+│  │  load times by 2 seconds...                       │ │
+│  │                                                   │ │
+│  │  [More paragraphs...]                             │ │
+│  │                                                   │ │
+│  │  Sincerely,                                       │ │
+│  │  [Your Name]                                      │ │
+│  │                                                   │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  📊 487 words • Professional tone • Standard length     │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Typography
+
+```css
+.cover-letter-preview {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 11pt;
+  line-height: 1.6;
+  color: #1a1a1a;
+  max-width: 8.5in;
+  padding: 1in;
+  background: white;
+}
+
+.cover-letter-preview p {
+  margin-bottom: 1em;
+  text-align: left;
+}
+
+.cover-letter-preview h1, h2, h3 {
+  font-family: inherit;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+```
+
+### Export Formats
+
+**Copy to Clipboard:**
+- Plain text with preserved line breaks
+- Success toast: "Cover letter copied to clipboard"
+
+**Download .docx:**
+- Uses `docx` library
+- Page setup: Letter (8.5" x 11"), 1" margins
+- Font: Times New Roman, 11pt
+- Filename: `CoverLetter_{CompanyName}_{Date}.docx`
+
+**Download .pdf (optional):**
+- Same typography as .docx
+- Filename: `CoverLetter_{CompanyName}_{Date}.pdf`
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Default | Content loaded | Rendered markdown, export buttons enabled |
+| Copying | Copy clicked | Button shows "Copied!" for 2s, then reverts |
+| Downloading | Download clicked | Loading spinner on button, disabled during generation |
+| Empty | No content | Placeholder "No content to preview" |
+| Error | Render failed | Error message with retry |
+
+### Behavior
+
+- **Markdown Rendering:** 
+  - Supports: paragraphs, headings, bold, italic, lists
+  - Does NOT support: images, code blocks, tables (warning if detected)
+- **Print Styles:** 
+  - Print button triggers browser print dialog
+  - CSS print media query hides export buttons
+- **Auto-Save:**
+  - Edits auto-save every 5 seconds
+  - Visual indicator "Saving..." / "Saved"
+
+### Accessibility
+
+- **Semantic HTML:** Proper heading hierarchy (h1 for title, h2 for sections)
+- **ARIA Label:** "Cover letter preview for {jobTitle} at {company}"
+- **Focus Management:** Focus on preview when content updates
+- **Keyboard Actions:**
+  - Ctrl/Cmd + C to copy
+  - Ctrl/Cmd + P to print
+  - Ctrl/Cmd + S to download
+
+### Responsive Behavior
+
+- **Desktop (>1024px):**
+  - Full 8.5" page width simulation
+  - Side-by-side with editor if in generator
+  
+- **Tablet (768-1024px):**
+  - Reduced padding, full width
+  - Tabbed view if with editor
+  
+- **Mobile (<768px):**
+  - Single column, minimal padding
+  - Stacked below editor
+  - Export buttons as dropdown menu
+
+---
+
+## 16. OutreachComposer
+
+### Purpose
+Short-form message composer for LinkedIn InMail, email subject/body, or other outreach platforms. Part of UC-4b.
+
+### Props
+
+```tsx
+interface OutreachComposerProps {
+  platform: 'linkedin' | 'email' | 'twitter'
+  applicationId?: string
+  fitAnalysisId?: string
+  prefillContext?: {
+    company: string
+    jobTitle: string
+    hiringManager?: string
+  }
+  onComplete?: (result: OutreachMessage) => void
+}
+
+interface OutreachMessage {
+  platform: 'linkedin' | 'email' | 'twitter'
+  subject?: string               // Email only
+  body: string
+  characterCount: number
+  generatedAt: Date
+}
+```
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Compose Outreach Message                               │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Platform                                          │ │
+│  │ ● LinkedIn InMail    ○ Email    ○ Twitter DM      │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Context                                           │ │
+│  │                                                   │ │
+│  │ Company: TechCorp Inc.                            │ │
+│  │ Role: Senior Full Stack Engineer                  │ │
+│  │ Contact: Jane Smith, Engineering Manager          │ │
+│  │                                                   │ │
+│  │ ☑️ Use fit analysis highlights                   │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Generated Message                                 │ │
+│  │ ─────────────────────────────────────────────────│ │
+│  │                                                   │ │
+│  │ Hi Jane,                                          │ │
+│  │                                                   │ │
+│  │ I saw the Senior Full Stack Engineer opening at  │ │
+│  │ TechCorp and wanted to reach out directly. I've  │ │
+│  │ been leading React/Node.js teams for 5 years and │ │
+│  │ recently scaled an API to 10k req/sec — work that│ │
+│  │ aligns closely with this role's needs.            │ │
+│  │                                                   │ │
+│  │ Would you be open to a quick chat about the role?│ │
+│  │                                                   │ │
+│  │ Best,                                             │ │
+│  │ [Your Name]                                       │ │
+│  │                                                   │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  📊 147 characters (LinkedIn: 300 max recommended)      │
+│  ✅ Concise   ✅ Specific   ✅ Clear CTA                │
+│                                                         │
+│  [Regenerate]    [Edit]    [Copy]    [Send via App]    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Platform Constraints
+
+```typescript
+const platformLimits = {
+  linkedin: {
+    maxChars: 1900,           // Hard limit
+    recommendedMax: 300,      // Best practice for InMail
+    hasSubject: false
+  },
+  email: {
+    maxChars: null,           // No hard limit
+    recommendedMax: 500,      // Body only
+    hasSubject: true,
+    subjectMaxChars: 78       // Email subject best practice
+  },
+  twitter: {
+    maxChars: 10000,          // DM limit
+    recommendedMax: 280,      // Short, tweet-like
+    hasSubject: false
+  }
+}
+```
+
+### Character Counter
+
+```
+LinkedIn: 147 / 300 recommended (1900 max)
+           ████████░░░░░░░░░░░░ 49%
+           ✅ Good length
+
+Email: 487 characters
+       ⚠️ Consider shortening for mobile readers
+
+Twitter: 142 / 280
+         ████████████░░░░░░░░ 51%
+         ✅ Perfect
+```
+
+**Color Coding:**
+- Green: Within recommended range
+- Yellow: Exceeds recommended but under max
+- Red: Exceeds maximum (send disabled)
+
+### Email-Specific Fields
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Platform: ● Email                                      │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Subject Line                                      │ │
+│  │ ┌─────────────────────────────────────────────┐   │ │
+│  │ │ Senior Full Stack Engineer opportunity      │   │ │
+│  │ └─────────────────────────────────────────────┘   │ │
+│  │ 38 / 78 characters  ✅                            │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ Body                                              │ │
+│  │ [Message content...]                              │ │
+│  └───────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Generation Strategy
+
+**LinkedIn InMail:**
+- Focus: One standout achievement + clear ask
+- Tone: Professional but personable
+- Length: 150-250 words (recommended)
+- Structure: Hook → Relevance → CTA
+
+**Email:**
+- Subject: Specific, role-focused, under 78 chars
+- Focus: 2-3 key qualifications + clear next step
+- Tone: Professional, respectful of recipient's time
+- Length: 200-400 words
+- Structure: Greeting → Context → Value → CTA → Signature
+
+**Twitter DM:**
+- Focus: Ultra-concise, single selling point
+- Tone: Casual but professional
+- Length: 100-200 characters
+- Structure: Hook → Link to portfolio/LinkedIn
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Platform Selected | User clicks platform | Show platform-specific UI and limits |
+| Generating | Generate clicked | Loading spinner, "Generating message..." |
+| Generated | Generation complete | Message appears, character count shown, actions enabled |
+| Editing | Edit clicked | Message becomes editable textarea |
+| Copied | Copy clicked | "Copied!" toast, button shows checkmark for 2s |
+| Over Limit | Character count exceeds max | Red counter, send disabled, "Reduce length" warning |
+| Regenerating | Regenerate clicked | Preserves platform/context, new message |
+
+### Validation Rules
+
+```typescript
+const validationRules = {
+  context: {
+    company: { required: true, minLength: 2 },
+    jobTitle: { required: true, minLength: 2 },
+    contact: { required: false }
+  },
+  message: {
+    minLength: 50,
+    maxLength: (platform) => platformLimits[platform].maxChars
+  },
+  email: {
+    subject: { required: true, minLength: 5, maxLength: 78 },
+    body: { required: true, minLength: 50 }
+  }
+}
+```
+
+### Quality Checks
+
+AI-powered validation on generated messages:
+
+| Check | Pass Criteria | Visual Indicator |
+|-------|---------------|------------------|
+| Specificity | Mentions 1+ concrete achievement | ✅ "Specific" |
+| Brevity | Within recommended length | ✅ "Concise" |
+| CTA | Clear call-to-action present | ✅ "Clear CTA" |
+| Personalization | Uses contact name (if provided) | ✅ "Personalized" |
+| No fluff | Avoids clichés ("passionate", "rockstar", etc.) | ✅ "Direct" |
+
+### Behavior
+
+| Action | Trigger | Response |
+|--------|---------|----------|
+| Switch platform | Click platform radio | Reset message, adjust UI for new platform |
+| Generate | Click Generate button | Call AI service, show loading state, display result |
+| Edit | Click Edit button | Convert to editable textarea, preserve formatting |
+| Copy | Click Copy button | Copy to clipboard, show toast confirmation |
+| Regenerate | Click Regenerate | Keep context, generate new message with different framing |
+| Send via App | Click Send button | Open LinkedIn/email client with pre-filled message |
+
+### Send via App Integration
+
+**LinkedIn:**
+- Copies message to clipboard
+- Opens LinkedIn URL: `https://www.linkedin.com/messaging/compose`
+- Toast: "Message copied. Paste into LinkedIn."
+
+**Email:**
+- Mailto link with subject and body pre-filled
+- URL-encodes subject and body
+- Example: `mailto:jane@techcorp.com?subject=...&body=...`
+
+**Twitter:**
+- Copies message to clipboard
+- Opens Twitter DM URL if contact handle known
+- Toast: "Message copied. Paste into Twitter DM."
+
+### Accessibility
+
+- **ARIA Labels:** 
+  - Platform selector: "Choose outreach platform"
+  - Character counter: "147 of 300 recommended characters"
+- **Focus Management:** Focus moves to generated message after generation
+- **Keyboard Actions:**
+  - Ctrl/Cmd + Enter to generate
+  - Ctrl/Cmd + C to copy
+  - Tab through platform options
+- **Screen Reader Announcements:**
+  - "Message generated successfully"
+  - "Character count: 147 of 300 recommended"
+
+### Responsive Behavior
+
+- **Desktop (>1024px):**
+  - Full layout with platform selector horizontal
+  - Side-by-side context and message
+  
+- **Tablet (768-1024px):**
+  - Stacked layout
+  - Platform selector as tabs
+  
+- **Mobile (<768px):**
+  - Vertical stack
+  - Platform selector as dropdown
+  - Bottom action bar with Copy/Send buttons
+
+### Error Handling
+
+| Error Type | User Message | Recovery Action |
+|------------|--------------|-----------------|
+| Network Error | "Unable to generate. Check your connection." | [Retry] |
+| Empty Context | "Please fill in company and role information." | Focus on first empty field |
+| Generation Failed | "Generation failed. Try again or write manually." | [Retry] or [Write Manually] |
+| Over Limit | "Message is {n} characters over the limit. Please shorten." | Highlight excess text |
+
+### Integration Points
+
+- **From:** Application detail page ("Reach Out" button)
+- **From:** Cover letter generator ("Send LinkedIn message instead")
+- **To:** Application timeline (saves sent message log)
+
+---
+
+## 17. StarEntryPicker
+
+### Purpose
+Multi-select component for choosing STAR entries (Situation, Task, Action, Result achievements) with relevance scoring and filtering.
+
+### Props
+
+```tsx
+interface StarEntryPickerProps {
+  entries: STAREntry[]
+  recommendedIds?: string[]      // From fit analysis
+  selectedIds?: string[]
+  minSelection?: number
+  maxSelection?: number
+  showRelevanceScores?: boolean
+  onSelectionChange: (selectedIds: string[]) => void
+  onEntryPreview?: (entryId: string) => void
+}
+
+interface STAREntry {
+  id: string
+  title: string
+  situation: string
+  task: string
+  action: string
+  result: string
+  tags: string[]
+  timeframe: string              // e.g., "Q3 2024"
+  relevanceScore?: number        // 0-100, from fit analysis
+  relevanceReasoning?: string
+}
+```
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Select STAR Entries                                    │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐ │
+│  │ [Search entries...]              [Filter: All ▾]  │ │
+│  └───────────────────────────────────────────────────┘ │
+│                                                         │
+│  ─── Recommended (from fit analysis) ─────────────────  │
+│                                                         │
+│  ☑️ [95%] Led React migration for client portal        │
+│     Q3 2024 • Frontend, Technical Leadership            │
+│     → Directly demonstrates frontend expertise          │
+│     [Preview]                                           │
+│                                                         │
+│  ☑️ [90%] Scaled Node.js API to 10k req/sec            │
+│     Q1 2025 • Backend, Performance                      │
+│     → Proves backend proficiency & scaling skills       │
+│     [Preview]                                           │
+│                                                         │
+│  ☐ [85%] PostgreSQL query optimization                 │
+│     Q2 2024 • Database, Performance                     │
+│     → Shows database expertise                          │
+│     [Preview]                                           │
+│                                                         │
+│  [Show 2 more recommended →]                            │
+│                                                         │
+│  ─── All Entries ──────────────────────────────────────│
+│                                                         │
+│  ☐ Built CI/CD pipeline with GitHub Actions            │
+│     Q4 2024 • DevOps, Automation                        │
+│     [Preview]                                           │
+│                                                         │
+│  ☐ Mentored 3 junior developers to senior level        │
+│     Q1 2024 • Leadership, Mentoring                     │
+│     [Preview]                                           │
+│                                                         │
+│  ☐ Implemented OAuth 2.0 authentication                │
+│     Q3 2023 • Security, Backend                         │
+│     [Preview]                                           │
+│                                                         │
+│  [Load More...]                                         │
+│                                                         │
+│  ──────────────────────────────────────────────────────│
+│  Selected: 2 of 3-5 recommended                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Entry Card
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ ☑️ [95%] Led React migration for client portal         │
+│    Q3 2024 • Frontend, Technical Leadership             │
+│    → Directly demonstrates frontend expertise           │
+│    [Preview]                                            │
+└─────────────────────────────────────────────────────────┘
+   ↓ Click Preview
+┌─────────────────────────────────────────────────────────┐
+│ ☑️ [95%] Led React migration for client portal         │
+│    Q3 2024 • Frontend, Technical Leadership             │
+│    → Directly demonstrates frontend expertise           │
+│                                                         │
+│    ┌──────────────────────────────────────────────┐    │
+│    │ Situation: Legacy Angular app slow, hard to  │    │
+│    │ maintain. Team needed modern framework.      │    │
+│    │                                              │    │
+│    │ Task: Lead migration to React without       │    │
+│    │ disrupting users or development velocity.    │    │
+│    │                                              │    │
+│    │ Action: Created incremental migration plan, │    │
+│    │ set up React/Angular bridge, trained team,  │    │
+│    │ migrated module-by-module over 3 months.     │    │
+│    │                                              │    │
+│    │ Result: 40% bundle size reduction, 2s faster│    │
+│    │ load time, zero downtime, team fully trained│    │
+│    │ on React + modern tooling.                   │    │
+│    └──────────────────────────────────────────────┘    │
+│                                                         │
+│    [Collapse]                                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Relevance Score Badge
+
+```typescript
+const relevanceConfig = {
+  excellent: { range: [90, 100], color: 'green-600', label: 'Excellent match' },
+  great: { range: [80, 89], color: 'green-500', label: 'Great match' },
+  good: { range: [70, 79], color: 'yellow-600', label: 'Good match' },
+  fair: { range: [60, 69], color: 'yellow-500', label: 'Fair match' },
+  low: { range: [0, 59], color: 'gray-500', label: 'Low relevance' }
+}
+```
+
+Visual representation:
+- `[95%]` in green = Excellent match
+- `[82%]` in green = Great match
+- `[74%]` in yellow = Good match
+- `[45%]` in gray = Low relevance
+
+### Search & Filter
+
+**Search:**
+- Searches title, tags, situation, task, action, result
+- Debounced 300ms
+- Highlights matching text
+
+**Filter Options:**
+- All Entries
+- Recommended Only
+- Selected Only
+- By Tag (Frontend, Backend, Leadership, etc.)
+- By Timeframe (Last 6 months, Last year, All time)
+
+```
+┌───────────────────────────────────┐
+│ Filter                            │
+│ ─────────────────────────────────│
+│ ● All Entries                     │
+│ ○ Recommended Only                │
+│ ○ Selected Only                   │
+│ ─────────────────────────────────│
+│ Tags:                             │
+│ ☑️ Frontend                       │
+│ ☑️ Backend                        │
+│ ☐ Leadership                      │
+│ ☐ DevOps                          │
+│ ☐ Performance                     │
+│ ─────────────────────────────────│
+│ Timeframe:                        │
+│ ● All Time                        │
+│ ○ Last Year                       │
+│ ○ Last 6 Months                   │
+│ ─────────────────────────────────│
+│ [Apply Filter]                    │
+└───────────────────────────────────┘
+```
+
+### Selection Counter
+
+```
+Selected: 2 of 3-5 recommended
+          ░░░░░░░░░░░░░░░░ 40%
+          ⚠️ Select at least 1 more
+
+Selected: 4 of 3-5 recommended
+          ████████████████ 80%
+          ✅ Good selection
+
+Selected: 7 of 3-5 recommended
+          ████████████████████ 140%
+          ⚠️ Too many may dilute message
+```
+
+**Color Coding:**
+- Red: Below minimum
+- Yellow: Below recommended minimum
+- Green: In recommended range (3-5)
+- Yellow: Above recommended maximum
+- Red: Above absolute maximum (8+)
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Default | Component loads | Recommended entries at top, all entries below |
+| Empty | No entries | "No STAR entries yet. Upload a resume to populate." |
+| Searching | User types in search | Filter entries in real-time, highlight matches |
+| Filtered | Filter applied | Show only matching entries, count indicator |
+| Selected | Entry checkbox clicked | Checkmark, update counter, re-sort if needed |
+| Preview Expanded | Preview clicked | Expand to show full STAR details |
+| Max Selected | Selection count hits max | Disable unchecked entries, show warning |
+
+### Sorting
+
+Default sort order:
+1. Recommended entries first (by relevance score descending)
+2. Selected entries next (chronological, newest first)
+3. All other entries (chronological, newest first)
+
+Optional sorts (dropdown):
+- Relevance (high to low)
+- Newest first
+- Oldest first
+- Alphabetical (by title)
+
+### Behavior
+
+| Action | Trigger | Response |
+|--------|---------|----------|
+| Select entry | Click checkbox | Add to selected list, update counter |
+| Deselect entry | Click checked checkbox | Remove from selected list, update counter |
+| Preview entry | Click Preview button | Expand to show full STAR, collapse button appears |
+| Collapse entry | Click Collapse button | Return to compact card view |
+| Search | Type in search field | Filter entries, highlight matches |
+| Apply filter | Select filter options | Show only matching entries |
+| Load more | Click Load More | Fetch and display next 10 entries |
+
+### Accessibility
+
+- **ARIA Labels:**
+  - Checkbox: "Select {entry title}"
+  - Counter: "2 entries selected out of recommended 3 to 5"
+- **Focus Management:** 
+  - Focus on first entry when list loads
+  - Focus moves to preview when expanded
+- **Keyboard Navigation:**
+  - Space to toggle checkbox
+  - Enter to preview/collapse
+  - Arrow keys to navigate entries
+  - Ctrl/Cmd + A to select all recommended
+- **Screen Reader Announcements:**
+  - "Entry selected, 3 of 5"
+  - "Entry deselected, 2 of 5"
+
+### Responsive Behavior
+
+- **Desktop (>1024px):**
+  - 2-column grid for entry cards
+  - Side filter panel
+  
+- **Tablet (768-1024px):**
+  - Single column cards
+  - Collapsible filter panel
+  
+- **Mobile (<768px):**
+  - Compact cards
+  - Filter as bottom sheet
+  - Sticky selection counter at bottom
+
+### Empty States
+
+**No Entries:**
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│            📋                           │
+│                                         │
+│    No STAR entries yet                  │
+│                                         │
+│    Upload a resume to populate your     │
+│    catalog with achievements            │
+│                                         │
+│    [Upload Resume]                      │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**No Search Results:**
+```
+┌─────────────────────────────────────────┐
+│    No entries match "kubernetes"        │
+│                                         │
+│    Try different search terms or        │
+│    browse all entries                   │
+│                                         │
+│    [Clear Search]                       │
+└─────────────────────────────────────────┘
+```
+
+### Performance Considerations
+
+- **Virtualization:** Use virtual scrolling for 50+ entries
+- **Lazy Load:** Load entries in batches of 10-20
+- **Debounced Search:** 300ms debounce on search input
+- **Memoization:** Memoize filtered/sorted entry lists
+
+---
+
 ## Testing Checklist
 
 For each component:

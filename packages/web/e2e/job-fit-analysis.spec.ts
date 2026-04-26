@@ -87,7 +87,8 @@ const MOCK_ANALYSIS_RESPONSE = {
   recommendedStarEntries: [
     {
       id: 'bullet-1',
-      rawText: 'Led migration of monolith to microservices using TypeScript and React, reducing deploy time by 40%',
+      rawText:
+        'Led migration of monolith to microservices using TypeScript and React, reducing deploy time by 40%',
       impactCategory: 'technical_leadership',
       relevanceScore: 0.85,
     },
@@ -126,7 +127,7 @@ async function mockJobFitApi(page: Page, responseBody: object, status = 200) {
       status,
       contentType: 'application/json',
       body: JSON.stringify(responseBody),
-    }),
+    })
   );
 }
 
@@ -229,7 +230,9 @@ test.describe('Job Fit Analysis page', () => {
     await expect(page.getByText('CRITICAL')).toBeVisible();
     await expect(page.getByText('MODERATE')).toBeVisible();
     // Critical gaps show 🔴 icon
-    await expect(page.getByText(/🔴.*aws/i).or(page.locator('[class*="border-red-500"]').first())).toBeVisible();
+    await expect(
+      page.getByText(/🔴.*aws/i).or(page.locator('[class*="border-red-500"]').first())
+    ).toBeVisible();
   });
 
   // TC-2: Submit JD URL → receive fit assessment
@@ -276,10 +279,12 @@ test.describe('Job Fit Analysis page', () => {
     await expect(page.getByText('No Catalog Data Yet')).toBeVisible();
     await expect(
       page.getByText(
-        'Your catalog is empty. Upload a resume or add application history to enable fit analysis.',
-      ),
+        'Your catalog is empty. Upload a resume or add application history to enable fit analysis.'
+      )
     ).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Upload Resume →' }).or(page.getByText('Upload Resume →'))).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Upload Resume →' }).or(page.getByText('Upload Resume →'))
+    ).toBeVisible();
   });
 
   // TC-7: Error handling
@@ -304,7 +309,7 @@ test.describe('Job Fit Analysis page', () => {
           details: { url: 'https://blocked.example.com/job', httpStatus: 403 },
         },
       },
-      422,
+      422
     );
 
     await page.locator('#jobDescriptionUrl').fill('https://blocked.example.com/job');
