@@ -1,6 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { OutreachComposer } from '../components/OutreachComposer';
-import type { OutreachMessage } from '../services/api/types';
 
 export function OutreachNew() {
   const navigate = useNavigate();
@@ -11,7 +10,7 @@ export function OutreachNew() {
   const company = searchParams.get('company') || '';
   const jobTitle = searchParams.get('jobTitle') || '';
 
-  const handleComplete = (_result: OutreachMessage) => {
+  const handleComplete = () => {
     // Message generated successfully
     if (applicationId) {
       navigate(`/applications/${applicationId}`);

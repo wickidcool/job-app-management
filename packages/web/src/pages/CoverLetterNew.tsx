@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CoverLetterGenerator } from '../components/CoverLetterGenerator';
-import type { CatalogEntry, CoverLetterResult } from '../services/api/types';
+import { useStarEntries } from '../hooks/useCatalog';
+import type { CoverLetterResult } from '../services/api/types';
 
 export function CoverLetterNew() {
   const navigate = useNavigate();
@@ -10,66 +10,7 @@ export function CoverLetterNew() {
   const fitAnalysisId = searchParams.get('fitAnalysisId') || undefined;
   const applicationId = searchParams.get('applicationId') || undefined;
 
-  // Mock catalog entries - Hardcoded until backend STAR entries endpoint is implemented
-  // TODO: Replace with API call to fetch user's catalog entries once endpoint exists
-  const [catalogEntries] = useState<CatalogEntry[]>([
-    {
-      id: 'star-1',
-      title: 'Led React migration for client portal',
-      situation: 'Client portal built on Angular 1.x was becoming unmaintainable',
-      task: 'Migrate to React while maintaining feature parity and zero downtime',
-      action: 'Created migration plan, built component library, implemented parallel routing',
-      result: 'Reduced bundle size by 40%, improved load times by 2 seconds, increased test coverage to 85%',
-      tags: ['Frontend', 'React', 'Migration', 'Performance'],
-      timeframe: 'Q3 2024',
-      relevanceScore: 95,
-      relevanceReasoning: 'Directly demonstrates frontend expertise and migration skills',
-    },
-    {
-      id: 'star-2',
-      title: 'Scaled Node.js API to 10k req/sec',
-      situation: 'API struggling under growing user load',
-      task: 'Scale API to handle 10x traffic without infrastructure cost increase',
-      action: 'Implemented caching layer, optimized database queries, added horizontal scaling',
-      result: 'Increased throughput to 10k req/s, reduced p99 latency from 800ms to 120ms',
-      tags: ['Backend', 'Node.js', 'Performance', 'Scaling'],
-      timeframe: 'Q1 2025',
-      relevanceScore: 90,
-      relevanceReasoning: 'Proves backend proficiency and scaling skills',
-    },
-    {
-      id: 'star-3',
-      title: 'PostgreSQL query optimization',
-      situation: 'Dashboard queries taking 5+ seconds',
-      task: 'Optimize queries to meet <500ms SLA',
-      action: 'Added indexes, rewrote N+1 queries, implemented materialized views',
-      result: 'Reduced query time to 200ms average, dashboard load time improved by 75%',
-      tags: ['Database', 'PostgreSQL', 'Performance', 'Optimization'],
-      timeframe: 'Q2 2024',
-      relevanceScore: 85,
-      relevanceReasoning: 'Shows database expertise',
-    },
-    {
-      id: 'star-4',
-      title: 'Built CI/CD pipeline',
-      situation: 'Manual deployments causing errors and delays',
-      task: 'Automate build, test, and deployment pipeline',
-      action: 'Set up GitHub Actions, implemented automated testing, blue-green deployments',
-      result: 'Deploy time reduced from 2 hours to 15 minutes, zero-downtime releases',
-      tags: ['DevOps', 'CI/CD', 'Automation'],
-      timeframe: 'Q4 2024',
-    },
-    {
-      id: 'star-5',
-      title: 'Mentored 3 junior developers',
-      situation: 'Team lacked mid-level developers',
-      task: 'Grow junior developers into autonomous contributors',
-      action: 'Weekly 1:1s, code review training, pair programming sessions',
-      result: 'All 3 promoted to mid-level within 12 months, team velocity increased 30%',
-      tags: ['Leadership', 'Mentoring', 'Team Development'],
-      timeframe: 'Q1 2024',
-    },
-  ]);
+  const { data: catalogEntries = [], isLoading, error } = useStarEntries();
 
   const handleComplete = (result: CoverLetterResult) => {
     // Cover letter is already saved by the generation API
@@ -88,6 +29,54 @@ export function CoverLetterNew() {
       navigate('/');
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg font-medium text-gray-700">Loading STAR entries...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg font-medium text-red-600">Failed to load STAR entries</div>
+          <div className="text-sm text-gray-600 mt-2">
+            {error instanceof Error ? error.message : 'Unknown error'}
+          </div>
+          <button
+            onClick={() => navigate('/')}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Go Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (catalogEntries.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg font-medium text-gray-700">No STAR entries found</div>
+          <div className="text-sm text-gray-600 mt-2">
+            Upload a resume to extract your achievements first.
+          </div>
+          <button
+            onClick={() => navigate('/resumes')}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Upload Resume
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

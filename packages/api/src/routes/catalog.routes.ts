@@ -16,6 +16,7 @@ import {
   mergeJobFitTags,
   mergeTechStackTags,
   listBullets,
+  listStarEntries,
   listThemes,
 } from '../services/catalog.service.js';
 import { analyzeJobFit } from '../services/job-fit.service.js';
@@ -313,6 +314,13 @@ export async function catalogRoutes(fastify: FastifyInstance) {
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     const { bullets } = await listBullets(parsed.data);
     return reply.send(bullets);
+  });
+
+  // ── STAR Catalog Entries ───────────────────────────────────────────────────
+
+  fastify.get('/star-entries', async (request, reply) => {
+    const entries = await listStarEntries();
+    return reply.send({ entries });
   });
 
   // ── Themes ─────────────────────────────────────────────────────────────────

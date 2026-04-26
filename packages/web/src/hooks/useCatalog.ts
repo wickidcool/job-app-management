@@ -15,6 +15,7 @@ const QUERY_KEYS = {
   jobFitTags: (params?: Record<string, unknown>) => ['catalog', 'tags', 'job-fit', params] as const,
   quantifiedBullets: (params?: Record<string, unknown>) =>
     ['catalog', 'quantified-bullets', params] as const,
+  starEntries: ['catalog', 'star-entries'] as const,
 };
 
 /**
@@ -124,5 +125,15 @@ export function useQuantifiedBullets(params?: { impact?: string; search?: string
   return useQuery({
     queryKey: QUERY_KEYS.quantifiedBullets(params),
     queryFn: () => catalogService.getQuantifiedBullets(params),
+  });
+}
+
+/**
+ * Get STAR catalog entries for cover letter generation
+ */
+export function useStarEntries() {
+  return useQuery({
+    queryKey: QUERY_KEYS.starEntries,
+    queryFn: () => catalogService.getStarEntries(),
   });
 }

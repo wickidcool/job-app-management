@@ -396,6 +396,33 @@ export async function listBullets(opts: ListBulletsOptions = {}) {
   };
 }
 
+// ── STAR Catalog Entries ──────────────────────────────────────────────────────
+
+export async function listStarEntries() {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(quantifiedBullets)
+    .orderBy(desc(quantifiedBullets.extractedAt));
+
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.rawText.slice(0, 100) + (r.rawText.length > 100 ? '...' : ''),
+    situation: '',
+    task: '',
+    action: r.actionVerb || '',
+    result: r.rawText,
+    tags: [
+      r.impactCategory,
+      r.metricType,
+      ...(r.secondaryMetricType ? [r.secondaryMetricType] : []),
+    ].filter(Boolean),
+    timeframe: undefined,
+    relevanceScore: undefined,
+    relevanceReasoning: undefined,
+  }));
+}
+
 // ── Recurring themes ──────────────────────────────────────────────────────────
 
 export interface ListThemesOptions {
