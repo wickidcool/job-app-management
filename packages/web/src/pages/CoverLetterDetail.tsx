@@ -11,13 +11,8 @@ export function CoverLetterDetail() {
   const deleteMutation = useDeleteCoverLetter();
   const exportMutation = useExportCoverLetter();
 
-  const handleCopy = async () => {
-    if (!coverLetter) return;
-    try {
-      await navigator.clipboard.writeText(coverLetter.content);
-    } catch (error) {
-      console.error('Failed to copy:', error);
-    }
+  const handleCopy = () => {
+    // Pure notification callback - CoverLetterPreview owns the clipboard write
   };
 
   const handleDownload = async (format: 'docx') => {
@@ -74,6 +69,7 @@ export function CoverLetterDetail() {
   const variant: CoverLetterVariant = {
     tone: coverLetter.tone,
     length: coverLetter.lengthVariant,
+    // API does not persist/return emphasis field, fallback to 'balanced'
     emphasis: 'balanced',
   };
 
@@ -93,12 +89,6 @@ export function CoverLetterDetail() {
             <p className="text-sm text-gray-600">ID: {id}</p>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={() => navigate(`/cover-letters/${id}/edit`)}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Edit
-            </button>
             <button
               onClick={handleDelete}
               disabled={deleteMutation.isPending}

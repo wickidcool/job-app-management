@@ -246,9 +246,6 @@ export function CoverLetterGenerator({
                     />
                     <label className="text-sm text-gray-700">
                       Use job fit analysis results
-                      <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
-                        Moderate Fit · 60% match
-                      </span>
                     </label>
                   </div>
                 )}
