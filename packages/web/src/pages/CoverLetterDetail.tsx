@@ -77,7 +77,7 @@ export function CoverLetterDetail() {
     );
   }
 
-  const wordCount = coverLetter.content.split(/\s+/).length;
+  const wordCount = coverLetter.content.trim() === '' ? 0 : coverLetter.content.trim().split(/\s+/).length;
   const variant: CoverLetterVariant = {
     tone: coverLetter.tone,
     length: coverLetter.lengthVariant,
@@ -98,7 +98,6 @@ export function CoverLetterDetail() {
               ← Back
             </button>
             <h1 className="text-2xl font-bold text-gray-900">Cover Letter</h1>
-            <p className="text-sm text-gray-600">ID: {id}</p>
           </div>
           <div className="flex gap-3">
             <button

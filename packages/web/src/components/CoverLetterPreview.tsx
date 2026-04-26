@@ -33,7 +33,7 @@ export function CoverLetterPreview({
     }
   };
 
-  const calculatedWordCount = wordCount || content.trim().split(/\s+/).length;
+  const calculatedWordCount = wordCount || (content.trim() === '' ? 0 : content.trim().split(/\s+/).length);
 
   const formatContent = () => {
     return content.split('\n').map((paragraph, idx) => {

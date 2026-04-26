@@ -513,7 +513,7 @@ export function CoverLetterGenerator({
                         <div className="px-4 py-3 bg-gray-50 border-t text-sm space-y-1">
                           <div className="flex items-center gap-2 text-green-600">
                             <span>✅</span>
-                            <span>{editableContent.split(/\s+/).length} words</span>
+                            <span>{editableContent.trim() === '' ? 0 : editableContent.trim().split(/\s+/).length} words</span>
                           </div>
                           <div className="flex items-center gap-2 text-green-600">
                             <span>✅</span>
