@@ -81,8 +81,7 @@ export function CoverLetterDetail() {
   const variant: CoverLetterVariant = {
     tone: coverLetter.tone,
     length: coverLetter.lengthVariant,
-    // API does not persist/return emphasis field, fallback to 'balanced'
-    emphasis: 'balanced',
+    emphasis: coverLetter.emphasis,
   };
 
   return (

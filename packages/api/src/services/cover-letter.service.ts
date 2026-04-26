@@ -34,6 +34,7 @@ function toDTO(cl: CoverLetter): CoverLetterDTO {
     targetRole: cl.targetRole,
     tone: cl.tone as CoverLetterDTO['tone'],
     lengthVariant: cl.lengthVariant as CoverLetterDTO['lengthVariant'],
+    emphasis: (cl.emphasis as CoverLetterDTO['emphasis']) ?? 'balanced',
     jobDescriptionText: cl.jobDescriptionText,
     jobDescriptionUrl: cl.jobDescriptionUrl,
     jobFitAnalysisId: cl.jobFitAnalysisId,
@@ -104,6 +105,12 @@ const TONE_DESCRIPTORS: Record<string, string> = {
   technical: 'technically precise tone that emphasises technical depth',
 };
 
+const EMPHASIS_DESCRIPTORS: Record<string, string> = {
+  technical: 'Emphasize technical skills, engineering depth, and specific technologies.',
+  leadership: 'Emphasize leadership experience, team impact, and strategic contributions.',
+  balanced: 'Balance technical skills and leadership qualities equally.',
+};
+
 async function fetchStarEntries(ids: string[]): Promise<{ id: string; rawText: string }[]> {
   if (ids.length === 0) return [];
   const db = getDb();
@@ -160,6 +167,7 @@ export async function generateCoverLetter(input: GenerateCoverLetterInput): Prom
   const targetRole = input.targetRole ?? 'this role';
   const tone = input.tone ?? 'professional';
   const lengthVariant = input.lengthVariant ?? 'standard';
+  const emphasis = input.emphasis ?? 'balanced';
   const wordTarget = WORD_TARGETS[lengthVariant];
 
   let jdContext: string;
@@ -189,6 +197,7 @@ ${starBullets}
 
 Tone: ${TONE_DESCRIPTORS[tone]}
 Length: ${wordTarget.min}–${wordTarget.max} words (${lengthVariant})
+Emphasis: ${EMPHASIS_DESCRIPTORS[emphasis]}
 ${input.emphasizeThemes?.length ? `Emphasize themes: ${input.emphasizeThemes.join(', ')}` : ''}
 ${input.customInstructions ? `Additional instructions: ${input.customInstructions}` : ''}
 
@@ -240,6 +249,7 @@ Rules:
       targetRole,
       tone: tone as any,
       lengthVariant: lengthVariant as any,
+      emphasis: emphasis as any,
       jobDescriptionText: input.jobDescriptionText,
       jobDescriptionUrl: input.jobDescriptionUrl,
       jobFitAnalysisId: input.jobFitAnalysisId,
@@ -390,6 +400,7 @@ export async function reviseCoverLetter(
 
   const tone = (input.tone ?? existing.tone) as string;
   const lengthVariant = (input.lengthVariant ?? existing.lengthVariant) as string;
+  const emphasis = (existing.emphasis ?? 'balanced') as string;
   const wordTarget = WORD_TARGETS[lengthVariant];
   const starBullets = starEntries.map((e, i) => `${i + 1}. ${e.rawText}`).join('\n');
 
@@ -403,6 +414,7 @@ ${input.instructions}
 
 Tone: ${TONE_DESCRIPTORS[tone]}
 Length: ${wordTarget.min}–${wordTarget.max} words (${lengthVariant})
+Emphasis: ${EMPHASIS_DESCRIPTORS[emphasis]}
 
 STAR Achievements available:
 ${starBullets}

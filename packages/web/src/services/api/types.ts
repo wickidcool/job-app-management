@@ -227,6 +227,7 @@ export interface GenerateCoverLetterResponse {
     content: string;
     tone: CoverLetterTone;
     lengthVariant: CoverLetterLength;
+    emphasis: CoverLetterEmphasis;
     wordCount: number;
     selectedStarEntryIds: string[];
     status: 'draft' | 'finalized';
@@ -251,6 +252,7 @@ export interface ReviseCoverLetterResponse {
     content: string;
     tone: CoverLetterTone;
     lengthVariant: CoverLetterLength;
+    emphasis: CoverLetterEmphasis;
     wordCount: number;
     selectedStarEntryIds: string[];
     status: 'draft' | 'finalized';

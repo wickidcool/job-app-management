@@ -297,6 +297,7 @@ export const tonePreferenceEnum = pgEnum('tone_preference', [
   'technical',
 ]);
 export const lengthVariantEnum = pgEnum('length_variant', ['concise', 'standard', 'detailed']);
+export const emphasisPreferenceEnum = pgEnum('emphasis_preference', ['technical', 'leadership', 'balanced']);
 export const outreachPlatformEnum = pgEnum('outreach_platform', ['linkedin', 'email']);
 
 export interface RevisionEntry {
@@ -314,6 +315,7 @@ export const coverLetters = pgTable('cover_letters', {
   targetRole: text('target_role').notNull(),
   tone: tonePreferenceEnum('tone').notNull().default('professional'),
   lengthVariant: lengthVariantEnum('length_variant').notNull().default('standard'),
+  emphasis: emphasisPreferenceEnum('emphasis').notNull().default('balanced'),
   jobDescriptionText: text('job_description_text'),
   jobDescriptionUrl: text('job_description_url'),
   jobFitAnalysisId: text('job_fit_analysis_id'),
@@ -349,4 +351,5 @@ export type NewOutreachMessage = typeof outreachMessages.$inferInsert;
 export type CoverLetterStatus = (typeof coverLetterStatusEnum.enumValues)[number];
 export type TonePreference = (typeof tonePreferenceEnum.enumValues)[number];
 export type LengthVariant = (typeof lengthVariantEnum.enumValues)[number];
+export type EmphasisPreference = (typeof emphasisPreferenceEnum.enumValues)[number];
 export type OutreachPlatform = (typeof outreachPlatformEnum.enumValues)[number];

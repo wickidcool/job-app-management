@@ -329,6 +329,7 @@ export interface CoverLetterDTO {
   targetRole: string;
   tone: TonePreference;
   lengthVariant: LengthVariant;
+  emphasis: 'technical' | 'leadership' | 'balanced';
   jobDescriptionText?: string | null;
   jobDescriptionUrl?: string | null;
   jobFitAnalysisId?: string | null;
@@ -357,6 +358,19 @@ export interface UsedStarEntryDTO {
   id: string;
   rawText: string;
   placement: 'opening' | 'body' | 'closing';
+}
+
+export interface CatalogEntryDTO {
+  id: string;
+  title: string;
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+  tags: string[];
+  timeframe?: string;
+  relevanceScore?: number;
+  relevanceReasoning?: string;
 }
 
 export interface GenerationWarningDTO {

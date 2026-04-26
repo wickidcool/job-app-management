@@ -12,6 +12,7 @@ import type {
   ListCoverLettersResponse,
   CoverLetterTone,
   CoverLetterLength,
+  CoverLetterEmphasis,
 } from './types';
 
 export interface CoverLetter {
@@ -20,6 +21,7 @@ export interface CoverLetter {
   content: string;
   tone: CoverLetterTone;
   lengthVariant: CoverLetterLength;
+  emphasis: CoverLetterEmphasis;
   wordCount: number;
   selectedStarEntryIds: string[];
   status: 'draft' | 'finalized';
@@ -35,6 +37,7 @@ function transformCoverLetter(apiCoverLetter: GenerateCoverLetterResponse['cover
     content: apiCoverLetter.content,
     tone: apiCoverLetter.tone,
     lengthVariant: apiCoverLetter.lengthVariant,
+    emphasis: apiCoverLetter.emphasis ?? 'balanced',
     wordCount: apiCoverLetter.wordCount,
     selectedStarEntryIds: apiCoverLetter.selectedStarEntryIds,
     status: apiCoverLetter.status,
