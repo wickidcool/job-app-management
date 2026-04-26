@@ -26,7 +26,7 @@ export function DiffReviewModal({
   const [expandAll, setExpandAll] = useState(false);
 
   const changes = useMemo(
-    () => diff.changes.map(change => ({
+    () => (diff.changes ?? []).map(change => ({
       ...change,
       selected: selectedIds.has(change.id),
     })),
@@ -134,11 +134,11 @@ export function DiffReviewModal({
               </span>
               <div>
                 <h3 className="font-bold text-neutral-900 mb-1">Summary</h3>
-                <p className="text-sm text-neutral-700">{diff.summary.summary}</p>
-                {diff.summary.pendingReviewCount > 0 && (
+                <p className="text-sm text-neutral-700">{diff.summary?.summary ?? 'No changes'}</p>
+                {(diff.summary?.pendingReviewCount ?? 0) > 0 && (
                   <p className="text-sm text-warning-700 mt-1">
-                    {diff.summary.pendingReviewCount} pending review
-                    {diff.summary.pendingReviewCount !== 1 ? 's' : ''} (ambiguous tags)
+                    {diff.summary?.pendingReviewCount ?? 0} pending review
+                    {(diff.summary?.pendingReviewCount ?? 0) !== 1 ? 's' : ''} (ambiguous tags)
                   </p>
                 )}
               </div>
@@ -174,13 +174,13 @@ export function DiffReviewModal({
           </div>
 
           {/* Pending Reviews */}
-          {diff.pendingReviews.length > 0 && (
+          {(diff.pendingReviews?.length ?? 0) > 0 && (
             <div className="mb-6">
               <h3 className="text-h4 font-bold text-neutral-900 mb-3 flex items-center gap-2">
                 <span aria-hidden="true">⚠️</span>
-                Pending Review ({diff.pendingReviews.length})
+                Pending Review ({diff.pendingReviews?.length ?? 0})
               </h3>
-              {diff.pendingReviews.map((item) => (
+              {(diff.pendingReviews ?? []).map((item) => (
                 <AmbiguityResolver
                   key={item.id}
                   item={item}

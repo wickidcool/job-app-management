@@ -108,7 +108,7 @@ export interface JobFitTag {
 
 export interface QuantifiedBullet {
   id: string;
-  bulletText: string;
+  rawText: string;
   actionVerb: string;
   metricType: string;
   metricValue: number;
