@@ -173,18 +173,23 @@ export function CatalogBrowseView() {
               <option value="">All Categories</option>
               {activeTab === 'techStackTags' && (
                 <>
+                  <option value="language">Language</option>
                   <option value="frontend">Frontend</option>
                   <option value="backend">Backend</option>
                   <option value="database">Database</option>
                   <option value="cloud">Cloud</option>
                   <option value="devops">DevOps</option>
+                  <option value="ai_ml">AI/ML</option>
+                  <option value="uncategorized">Uncategorized</option>
                 </>
               )}
               {activeTab === 'jobFitTags' && (
                 <>
-                  <option value="soft-skills">Soft Skills</option>
-                  <option value="methodologies">Methodologies</option>
-                  <option value="domains">Domains</option>
+                  <option value="role">Role</option>
+                  <option value="industry">Industry</option>
+                  <option value="seniority">Seniority</option>
+                  <option value="work_style">Work Style</option>
+                  <option value="uncategorized">Uncategorized</option>
                 </>
               )}
             </select>
