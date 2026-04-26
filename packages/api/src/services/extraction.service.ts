@@ -15,6 +15,7 @@ import {
 import type { DiffChange, ReviewItem } from '../db/schema.js';
 import type { ChangeEvent } from './change-queue.service.js';
 import { getConfig } from '../config.js';
+import { parseResumeText, extractExperienceEntries } from './resume.service.js';
 
 const VALID_JOB_FIT_CATEGORIES = ['role', 'industry', 'seniority', 'work_style', 'uncategorized'] as const;
 const VALID_TECH_STACK_CATEGORIES = ['language', 'frontend', 'backend', 'database', 'cloud', 'devops', 'ai_ml', 'uncategorized'] as const;
@@ -464,6 +465,30 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
           data: { id: existing.id, normalizedName: normalized, latestStatus: app.status, latestAppId: app.id },
           before: { applicationCount: existing.applicationCount, latestStatus: existing.latestStatus },
           after: { applicationCount: existing.applicationCount + 1, latestStatus: app.status },
+        });
+      }
+    }
+  } else if (event.sourceType === 'resume') {
+    const parsed = parseResumeText(text);
+    const entries = extractExperienceEntries(parsed);
+    for (const entry of entries) {
+      if (!entry.company) continue;
+      const normalized = slugify(entry.company) || 'unspecified';
+      const displayName = entry.company || '[Unspecified]';
+      const [existing] = await db.select().from(companyCatalog).where(eq(companyCatalog.normalizedName, normalized));
+      if (!existing) {
+        changes.push({
+          entity: 'company_catalog',
+          action: 'create',
+          data: {
+            id: ulid(),
+            name: displayName,
+            normalizedName: normalized,
+            firstSeenAt: new Date().toISOString(),
+            applicationCount: 0,
+            latestStatus: null,
+            latestAppId: null,
+          },
         });
       }
     }
