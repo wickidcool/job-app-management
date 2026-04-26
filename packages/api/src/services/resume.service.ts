@@ -29,7 +29,6 @@ async function addCompanyToCatalog(companyName: string): Promise<void> {
       latestStatus: null,
       latestAppId: null,
     }).onConflictDoNothing();
-    console.log(`[resume.service] Added company to catalog: ${companyName}`);
   }
 }
 
@@ -346,15 +345,12 @@ export async function uploadResume(
   // Try AI parsing first, fall back to heuristic parsing
   let usedAI = false;
   const aiAvailable = isAIParserAvailable();
-  console.log(`[resume.service] AI parser available: ${aiAvailable}`);
 
   if (aiAvailable) {
     try {
-      console.log('[resume.service] Attempting AI parsing...');
       const aiResult = await parseResumeWithAI(rawText);
 
       if (aiResult && aiResult.projects.length > 0) {
-        console.log(`[resume.service] AI parser returned ${aiResult.projects.length} projects`);
         usedAI = true;
         for (const aiProject of aiResult.projects) {
           const slug = toProjectSlug(aiProject.company) || resumeId;
@@ -369,17 +365,11 @@ export async function uploadResume(
             throw new Error('Invalid filename: path traversal detected');
           }
           await fs.writeFile(projectFilePath, projectMarkdown, 'utf-8');
-          console.log(`[resume.service] Wrote project file: ${projectFilePath}`);
         }
-      } else {
-        console.log('[resume.service] AI parser returned no projects, falling back to heuristic parsing');
       }
-    } catch (error) {
-      console.error('[resume.service] AI parsing failed:', error instanceof Error ? error.message : error);
+    } catch {
       usedAI = false;
     }
-  } else {
-    console.log('[resume.service] AI parser not available (ANTHROPIC_API_KEY not set), using heuristic parsing');
   }
 
   if (!usedAI) {

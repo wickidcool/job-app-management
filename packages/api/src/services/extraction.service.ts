@@ -470,17 +470,13 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
     }
   } else if (event.sourceType === 'resume') {
     const parsed = parseResumeText(text);
-    console.log(`[extraction] Resume sections: ${parsed.sections.map(s => s.heading).join(', ')}`);
     const entries = extractExperienceEntries(parsed);
-    console.log(`[extraction] Found ${entries.length} experience entries: ${entries.map(e => e.company).join(', ')}`);
     for (const entry of entries) {
       if (!entry.company) continue;
       const normalized = slugify(entry.company) || 'unspecified';
       const displayName = entry.company || '[Unspecified]';
-      console.log(`[extraction] Processing company: ${displayName} (${normalized})`);
       const [existing] = await db.select().from(companyCatalog).where(eq(companyCatalog.normalizedName, normalized));
       if (!existing) {
-        console.log(`[extraction] Adding new company to catalog: ${displayName}`);
         changes.push({
           entity: 'company_catalog',
           action: 'create',
@@ -494,8 +490,6 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
             latestAppId: null,
           },
         });
-      } else {
-        console.log(`[extraction] Company already exists: ${displayName}`);
       }
     }
   }
@@ -574,7 +568,7 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   // ── Quantified bullets ────────────────────────────────────────────────────
   if (event.sourceType === 'resume') {
     const existingBulletTexts = new Set(
-      (await db.select({ rawText: quantifiedBullets.rawText }).from(quantifiedBullets)).map(r => r.rawText),
+      (await db.select({ rawText: quantifiedBullets.rawText }).from(quantifiedBullets).where(eq(quantifiedBullets.sourceId, event.sourceId))).map(r => r.rawText),
     );
     const bullets = extractQuantifiedBullets(text, event.sourceType, event.sourceId);
     for (const bullet of bullets) {
@@ -645,7 +639,6 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   const now = new Date();
 
   if (shouldAutoApply) {
-    console.log(`[extraction] Auto-applying ${changes.length} catalog changes for ${event.sourceType}:${event.sourceId}`);
     await db.transaction(async (tx) => {
       for (const change of changes) {
         try {
