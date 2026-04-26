@@ -262,6 +262,7 @@ export interface ReviseCoverLetterResponse {
 
 export interface UpdateCoverLetterRequest {
   title?: string;
+  content?: string;
   status?: 'draft' | 'finalized';
   version: number;
 }

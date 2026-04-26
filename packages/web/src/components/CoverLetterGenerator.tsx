@@ -10,7 +10,7 @@ import type {
 } from '../services/api/types';
 import { StarEntryPicker } from './StarEntryPicker';
 import { CoverLetterPreview } from './CoverLetterPreview';
-import { useGenerateCoverLetter } from '../hooks/useCoverLetters';
+import { useGenerateCoverLetter, useUpdateCoverLetter } from '../hooks/useCoverLetters';
 
 interface CoverLetterGeneratorProps {
   fitAnalysisId?: string;
@@ -44,9 +44,11 @@ export function CoverLetterGenerator({
   });
   const [editableContent, setEditableContent] = useState('');
   const [generatedCoverLetterId, setGeneratedCoverLetterId] = useState<string | null>(null);
+  const [generatedCoverLetterVersion, setGeneratedCoverLetterVersion] = useState<number>(1);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
   const generateMutation = useGenerateCoverLetter();
+  const updateMutation = useUpdateCoverLetter();
 
   const {
     register: registerStep1,
@@ -90,6 +92,7 @@ export function CoverLetterGenerator({
       });
 
       setGeneratedCoverLetterId(coverLetter.id);
+      setGeneratedCoverLetterVersion(coverLetter.version);
       setEditableContent(coverLetter.content);
     } catch (error) {
       console.error('Generation failed:', error);
@@ -99,21 +102,35 @@ export function CoverLetterGenerator({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!generatedCoverLetterId) {
       console.error('No cover letter ID available');
       return;
     }
 
-    const result: CoverLetterResult = {
-      id: generatedCoverLetterId,
-      content: editableContent,
-      variant,
-      selectedSTARs: selectedSTARIds,
-      generatedAt: new Date().toISOString(),
-      applicationId,
-    };
-    onComplete?.(result);
+    try {
+      // Persist edited content to the server
+      await updateMutation.mutateAsync({
+        id: generatedCoverLetterId,
+        request: {
+          content: editableContent,
+          version: generatedCoverLetterVersion,
+        },
+      });
+
+      const result: CoverLetterResult = {
+        id: generatedCoverLetterId,
+        content: editableContent,
+        variant,
+        selectedSTARs: selectedSTARIds,
+        generatedAt: new Date().toISOString(),
+        applicationId,
+      };
+      onComplete?.(result);
+    } catch (error) {
+      console.error('Failed to save cover letter:', error);
+      // TODO: Show error to user
+    }
   };
 
   const handleRegenerate = () => {

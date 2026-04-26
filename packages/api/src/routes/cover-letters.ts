@@ -44,6 +44,7 @@ const reviseSchema = z
 const updateSchema = z
   .object({
     title: z.string().min(1).max(500).optional(),
+    content: z.string().optional(),
     status: z.enum(['draft', 'finalized']).optional(),
     version: z.number().int().positive(),
   })

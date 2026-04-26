@@ -344,6 +344,7 @@ export async function updateCoverLetter(
     version: sql`${coverLetters.version} + 1`,
   };
   if (input.title !== undefined) updates.title = input.title;
+  if (input.content !== undefined) updates.content = input.content;
   if (input.status !== undefined) updates.status = input.status;
 
   const [row] = await db

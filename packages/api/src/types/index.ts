@@ -388,6 +388,7 @@ export interface ReviseCoverLetterInput {
 
 export interface UpdateCoverLetterInput {
   title?: string;
+  content?: string;
   status?: CoverLetterStatus;
   version: number;
 }
