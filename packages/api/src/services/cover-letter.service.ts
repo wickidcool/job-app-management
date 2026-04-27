@@ -196,7 +196,7 @@ STAR Achievements to incorporate:
 ${starBullets}
 
 Tone: ${TONE_DESCRIPTORS[tone]}
-Length: ${wordTarget.min}–${wordTarget.max} words (${lengthVariant})
+Target length: ${wordTarget.min}–${wordTarget.max} words — aim for this range but always write a complete, properly concluded letter. Never stop mid-sentence or mid-paragraph to hit a word count.
 Emphasis: ${EMPHASIS_DESCRIPTORS[emphasis]}
 ${input.emphasizeThemes?.length ? `Emphasize themes: ${input.emphasizeThemes.join(', ')}` : ''}
 ${input.customInstructions ? `Additional instructions: ${input.customInstructions}` : ''}
@@ -206,7 +206,8 @@ Rules:
 - If there are skill gaps, acknowledge them constructively
 - Start with "Dear Hiring Manager,"
 - Sign off with "Sincerely,\n[Your Name]"
-- Return only the cover letter text, no commentary`;
+- Return only the cover letter text, no commentary
+- Write a fully complete letter — do not truncate or trail off`;
 
   const client = getAiClient();
   let message;
@@ -223,6 +224,9 @@ Rules:
   const content = message.content[0].type === 'text' ? message.content[0].text : '';
 
   const warnings: GenerationWarningDTO[] = [];
+  if (message.stop_reason === 'max_tokens') {
+    warnings.push({ code: 'CONTENT_TRUNCATED', message: 'Cover letter may be incomplete — generation hit the output limit' });
+  }
   if (starEntries.length < 3) {
     warnings.push({ code: 'LIMITED_STAR_ENTRIES', message: 'Fewer STAR entries selected than recommended (3+)' });
   }
@@ -413,7 +417,7 @@ Revision instructions:
 ${input.instructions}
 
 Tone: ${TONE_DESCRIPTORS[tone]}
-Length: ${wordTarget.min}–${wordTarget.max} words (${lengthVariant})
+Target length: ${wordTarget.min}–${wordTarget.max} words — aim for this range but always write a complete, properly concluded letter. Never stop mid-sentence or mid-paragraph to hit a word count.
 Emphasis: ${EMPHASIS_DESCRIPTORS[emphasis]}
 
 STAR Achievements available:
@@ -421,7 +425,8 @@ ${starBullets}
 
 Rules:
 - Use only facts from the original content or STAR entries provided
-- Return only the revised letter text, no commentary`;
+- Return only the revised letter text, no commentary
+- Write a fully complete letter — do not truncate or trail off`;
 
   const client = getAiClient();
   let message;
