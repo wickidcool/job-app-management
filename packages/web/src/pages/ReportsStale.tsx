@@ -1,56 +1,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApplications } from '../hooks/useApplications';
+import { useReportsStale } from '../hooks/useReports';
 import { StatusBadge } from '../components/StatusBadge';
-import type { Application } from '../types/application';
-
-interface StaleApplication extends Application {
-  daysSinceUpdate: number;
-}
+import type { ApplicationStatus } from '../types/application';
 
 export function ReportsStale() {
   const navigate = useNavigate();
-  const { data: applications = [], isLoading } = useApplications();
   const [staleThreshold, setStaleThreshold] = useState(14);
 
-  const calculateStaleApplications = (): StaleApplication[] => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  const { data, isLoading } = useReportsStale({ days: staleThreshold });
 
-    return applications
-      .filter(
-        (app) =>
-          ['applied', 'phone_screen'].includes(app.status)
-      )
-      .map((app) => {
-        const updatedAt = new Date(app.updatedAt);
-        const daysSinceUpdate = Math.floor(
-          (today.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24)
-        );
-
-        return {
-          ...app,
-          daysSinceUpdate,
-        };
-      })
-      .filter((app) => app.daysSinceUpdate >= staleThreshold)
-      .sort((a, b) => b.daysSinceUpdate - a.daysSinceUpdate); // Most stale first
-  };
-
-  const staleApplications = calculateStaleApplications();
-
-  const stats = {
-    total: staleApplications.length,
-    applied: staleApplications.filter((app) => app.status === 'applied').length,
-    phoneScreen: staleApplications.filter((app) => app.status === 'phone_screen').length,
-    averageDays:
-      staleApplications.length > 0
-        ? Math.round(
-            staleApplications.reduce((sum, app) => sum + app.daysSinceUpdate, 0) /
-              staleApplications.length
-          )
-        : 0,
-  };
+  const applications = data?.applications ?? [];
+  const summary = data?.summary ?? { total: 0, byStatus: {}, averageDaysStale: 0 };
 
   if (isLoading) {
     return (
@@ -90,30 +51,32 @@ export function ReportsStale() {
       {/* Summary Stats */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-neutral-900">{stats.total}</div>
+          <div className="text-2xl font-bold text-neutral-900">{summary.total}</div>
           <div className="text-sm text-neutral-600">Total Stale</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.applied}</div>
+          <div className="text-2xl font-bold text-yellow-600">
+            {summary.byStatus['applied'] ?? 0}
+          </div>
           <div className="text-sm text-neutral-600">Applied</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-orange-600">{stats.phoneScreen}</div>
+          <div className="text-2xl font-bold text-orange-600">
+            {summary.byStatus['phone_screen'] ?? 0}
+          </div>
           <div className="text-sm text-neutral-600">Phone Screen</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-neutral-600">{stats.averageDays}</div>
+          <div className="text-2xl font-bold text-neutral-600">{summary.averageDaysStale}</div>
           <div className="text-sm text-neutral-600">Avg Days</div>
         </div>
       </div>
 
       {/* Stale Applications List */}
-      {staleApplications.length === 0 ? (
+      {applications.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white p-8 text-center">
           <div className="text-4xl mb-4">✅</div>
-          <h3 className="text-lg font-semibold text-neutral-900">
-            No stale applications found
-          </h3>
+          <h3 className="text-lg font-semibold text-neutral-900">No stale applications found</h3>
           <p className="mt-2 text-sm text-neutral-600">
             All your applications have been updated within {staleThreshold} days. Your pipeline is
             active!
@@ -121,7 +84,7 @@ export function ReportsStale() {
         </div>
       ) : (
         <div className="space-y-4">
-          {staleApplications.map((app) => (
+          {applications.map((app) => (
             <div
               key={app.id}
               className="cursor-pointer rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
@@ -133,14 +96,11 @@ export function ReportsStale() {
                     <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-700">
                       ⏱️ {app.daysSinceUpdate} days since last update
                     </span>
-                    <StatusBadge status={app.status} />
+                    <StatusBadge status={app.status as ApplicationStatus} />
                   </div>
                   <h3 className="text-lg font-semibold text-neutral-900">
                     {app.jobTitle} @ {app.company}
                   </h3>
-                  {app.location && (
-                    <p className="mt-1 text-sm text-neutral-600">{app.location}</p>
-                  )}
                   {app.contact && (
                     <p className="mt-1 text-sm text-neutral-600">
                       <span className="font-medium">Contact:</span> {app.contact}
@@ -191,6 +151,12 @@ export function ReportsStale() {
             </div>
           ))}
         </div>
+      )}
+
+      {data && (
+        <p className="mt-4 text-xs text-neutral-400">
+          Report generated at {new Date(data.generatedAt).toLocaleString()}
+        </p>
       )}
     </div>
   );

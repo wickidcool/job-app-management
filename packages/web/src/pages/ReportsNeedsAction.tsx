@@ -1,103 +1,52 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApplications } from '../hooks/useApplications';
+import { useReportsNeedsAction } from '../hooks/useReports';
 import { StatusBadge } from '../components/StatusBadge';
-import type { Application } from '../types/application';
+import type { UrgencyLevel, NeedsActionApplication } from '../services/api';
 
-type UrgencyLevel = 'overdue' | 'today' | 'soon' | 'later';
+function urgencyBadgeColor(urgency: UrgencyLevel): string {
+  switch (urgency) {
+    case 'overdue':
+      return 'bg-red-100 text-red-800';
+    case 'due_soon':
+      return 'bg-yellow-100 text-yellow-800';
+    default:
+      return 'bg-neutral-100 text-neutral-800';
+  }
+}
 
-interface NeedsActionItem extends Application {
-  urgency: UrgencyLevel;
-  daysUntilDue: number;
+function urgencyIcon(urgency: UrgencyLevel): string {
+  switch (urgency) {
+    case 'overdue':
+      return '🔴';
+    case 'due_soon':
+      return '🟡';
+    default:
+      return '';
+  }
+}
+
+function dueDateLabel(item: NeedsActionApplication): string {
+  if (item.daysUntilDue < 0) {
+    const days = Math.abs(item.daysUntilDue);
+    return `${days} day${days !== 1 ? 's' : ''} overdue`;
+  } else if (item.daysUntilDue === 0) {
+    return 'Due today';
+  } else if (item.daysUntilDue === 1) {
+    return 'Due tomorrow';
+  } else {
+    return `Due in ${item.daysUntilDue} days`;
+  }
 }
 
 export function ReportsNeedsAction() {
   const navigate = useNavigate();
-  const { data: applications = [], isLoading } = useApplications();
   const [daysThreshold, setDaysThreshold] = useState(7);
 
-  const calculateNeedsActionItems = (): NeedsActionItem[] => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const thresholdDate = new Date(today);
-    thresholdDate.setDate(thresholdDate.getDate() + daysThreshold);
+  const { data, isLoading } = useReportsNeedsAction({ days: daysThreshold });
 
-    return applications
-      .filter(
-        (app) =>
-          app.nextActionDue &&
-          !['offer', 'rejected', 'withdrawn'].includes(app.status)
-      )
-      .map((app) => {
-        const dueDate = new Date(app.nextActionDue!);
-        dueDate.setHours(0, 0, 0, 0);
-        const daysUntilDue = Math.ceil(
-          (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-        );
-
-        let urgency: UrgencyLevel;
-        if (daysUntilDue < 0) {
-          urgency = 'overdue';
-        } else if (daysUntilDue === 0) {
-          urgency = 'today';
-        } else if (daysUntilDue <= 3) {
-          urgency = 'soon';
-        } else {
-          urgency = 'later';
-        }
-
-        return {
-          ...app,
-          urgency,
-          daysUntilDue,
-        };
-      })
-      .filter((item) => item.daysUntilDue <= daysThreshold)
-      .sort((a, b) => {
-        // Sort overdue first (by most overdue), then by due date ascending
-        if (a.daysUntilDue < 0 && b.daysUntilDue < 0) {
-          return a.daysUntilDue - b.daysUntilDue;
-        }
-        if (a.daysUntilDue < 0) return -1;
-        if (b.daysUntilDue < 0) return 1;
-        return a.daysUntilDue - b.daysUntilDue;
-      });
-  };
-
-  const needsActionItems = calculateNeedsActionItems();
-
-  const groupedItems = {
-    overdue: needsActionItems.filter((item) => item.urgency === 'overdue'),
-    today: needsActionItems.filter((item) => item.urgency === 'today'),
-    soon: needsActionItems.filter((item) => item.urgency === 'soon'),
-    later: needsActionItems.filter((item) => item.urgency === 'later'),
-  };
-
-  const getUrgencyBadgeColor = (urgency: UrgencyLevel) => {
-    switch (urgency) {
-      case 'overdue':
-        return 'bg-red-100 text-red-800';
-      case 'today':
-        return 'bg-orange-100 text-orange-800';
-      case 'soon':
-        return 'bg-yellow-100 text-yellow-800';
-      default:
-        return 'bg-neutral-100 text-neutral-800';
-    }
-  };
-
-  const formatDueDate = (item: NeedsActionItem) => {
-    if (item.daysUntilDue < 0) {
-      const days = Math.abs(item.daysUntilDue);
-      return `${days} day${days !== 1 ? 's' : ''} overdue`;
-    } else if (item.daysUntilDue === 0) {
-      return 'Due today';
-    } else if (item.daysUntilDue === 1) {
-      return 'Due tomorrow';
-    } else {
-      return `Due in ${item.daysUntilDue} days`;
-    }
-  };
+  const applications = data?.applications ?? [];
+  const summary = data?.summary ?? { overdue: 0, dueSoon: 0, upcoming: 0, total: 0 };
 
   if (isLoading) {
     return (
@@ -137,25 +86,25 @@ export function ReportsNeedsAction() {
       {/* Summary */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-red-600">{groupedItems.overdue.length}</div>
+          <div className="text-2xl font-bold text-red-600">{summary.overdue}</div>
           <div className="text-sm text-neutral-600">Overdue</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-orange-600">{groupedItems.today.length}</div>
-          <div className="text-sm text-neutral-600">Due Today</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-yellow-600">{groupedItems.soon.length}</div>
+          <div className="text-2xl font-bold text-yellow-600">{summary.dueSoon}</div>
           <div className="text-sm text-neutral-600">Due Soon</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-neutral-600">{needsActionItems.length}</div>
+          <div className="text-2xl font-bold text-neutral-600">{summary.upcoming}</div>
+          <div className="text-sm text-neutral-600">Upcoming</div>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-white p-4">
+          <div className="text-2xl font-bold text-neutral-600">{summary.total}</div>
           <div className="text-sm text-neutral-600">Total</div>
         </div>
       </div>
 
       {/* Items List */}
-      {needsActionItems.length === 0 ? (
+      {applications.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white p-8 text-center">
           <div className="text-4xl mb-4">🎉</div>
           <h3 className="text-lg font-semibold text-neutral-900">
@@ -165,7 +114,7 @@ export function ReportsNeedsAction() {
         </div>
       ) : (
         <div className="space-y-4">
-          {needsActionItems.map((item) => (
+          {applications.map((item) => (
             <div
               key={item.id}
               className="cursor-pointer rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
@@ -174,13 +123,12 @@ export function ReportsNeedsAction() {
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${getUrgencyBadgeColor(item.urgency)}`}>
-                      {item.urgency === 'overdue' && '🔴'}
-                      {item.urgency === 'today' && '🟠'}
-                      {item.urgency === 'soon' && '🟡'}
-                      {formatDueDate(item)}
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${urgencyBadgeColor(item.urgency)}`}
+                    >
+                      {urgencyIcon(item.urgency)} {dueDateLabel(item)}
                     </span>
-                    <StatusBadge status={item.status} />
+                    <StatusBadge status={item.status as Parameters<typeof StatusBadge>[0]['status']} />
                   </div>
                   <h3 className="text-lg font-semibold text-neutral-900">
                     {item.jobTitle} @ {item.company}
@@ -201,6 +149,12 @@ export function ReportsNeedsAction() {
             </div>
           ))}
         </div>
+      )}
+
+      {data && (
+        <p className="mt-4 text-xs text-neutral-400">
+          Report generated at {new Date(data.generatedAt).toLocaleString()}
+        </p>
       )}
     </div>
   );

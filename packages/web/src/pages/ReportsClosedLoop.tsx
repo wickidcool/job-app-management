@@ -1,65 +1,96 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApplications } from '../hooks/useApplications';
-import { StatusBadge } from '../components/StatusBadge';
-import type { Application } from '../types/application';
+import { useReportsClosedLoop } from '../hooks/useReports';
+import type { ClosedLoopApplication } from '../services/api';
 
 type Period = '30d' | '60d' | '90d' | 'all';
 
+const STATUS_LABELS: Record<string, string> = {
+  saved: 'Saved',
+  applied: 'Applied',
+  phone_screen: 'Phone Screen',
+  interview: 'Interview',
+};
+
+function ClosedAppCard({
+  app,
+  onClick,
+}: {
+  app: ClosedLoopApplication;
+  onClick: () => void;
+}) {
+  const borderColor =
+    app.status === 'offer'
+      ? 'border-green-200 bg-green-50'
+      : app.status === 'withdrawn'
+        ? 'border-neutral-200 bg-white'
+        : 'border-neutral-200 bg-white';
+
+  return (
+    <div
+      className={`cursor-pointer rounded-lg border p-4 transition-shadow hover:shadow-md ${borderColor}`}
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <h3 className="text-lg font-semibold text-neutral-900">
+            {app.jobTitle} @ {app.company}
+          </h3>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-neutral-600">
+            <span>{app.daysInPipeline} days in pipeline</span>
+            {app.previousStatus && (
+              <span>
+                Rejected from:{' '}
+                <span className="font-medium">
+                  {STATUS_LABELS[app.previousStatus] ?? app.previousStatus}
+                </span>
+              </span>
+            )}
+          </div>
+          {app.status === 'offer' && (
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-neutral-700">
+              {app.salaryRange && (
+                <span>
+                  <span className="font-medium">Posted Range:</span> {app.salaryRange}
+                </span>
+              )}
+              {app.compTarget && (
+                <span>
+                  <span className="font-medium">Your Target:</span> {app.compTarget}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="ml-4 text-sm text-neutral-500">
+          {new Date(app.closedAt).toLocaleDateString()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ReportsClosedLoop() {
   const navigate = useNavigate();
-  const { data: applications = [], isLoading } = useApplications();
   const [period, setPeriod] = useState<Period>('all');
 
-  const filterByPeriod = (apps: Application[]): Application[] => {
-    if (period === 'all') return apps;
+  const { data, isLoading } = useReportsClosedLoop({ period });
 
-    const today = new Date();
-    const cutoffDate = new Date(today);
-
-    switch (period) {
-      case '30d':
-        cutoffDate.setDate(cutoffDate.getDate() - 30);
-        break;
-      case '60d':
-        cutoffDate.setDate(cutoffDate.getDate() - 60);
-        break;
-      case '90d':
-        cutoffDate.setDate(cutoffDate.getDate() - 90);
-        break;
-    }
-
-    return apps.filter((app) => new Date(app.updatedAt) >= cutoffDate);
+  const applications = data?.applications ?? [];
+  const summary = data?.summary ?? {
+    total: 0,
+    offers: 0,
+    rejections: 0,
+    withdrawn: 0,
+    rejectionsByStage: [],
+    averageTimeToClose: 0,
   };
 
-  const closedApplications = filterByPeriod(
-    applications.filter((app) => ['rejected', 'offer', 'withdrawn'].includes(app.status))
-  );
-
-  const offers = closedApplications.filter((app) => app.status === 'offer');
-  const rejections = closedApplications.filter((app) => app.status === 'rejected');
-  const withdrawn = closedApplications.filter((app) => app.status === 'withdrawn');
-
-  const stats = {
-    total: closedApplications.length,
-    offers: offers.length,
-    rejections: rejections.length,
-    withdrawn: withdrawn.length,
-    conversionRate:
-      closedApplications.length > 0
-        ? Math.round((offers.length / closedApplications.length) * 100)
-        : 0,
-    avgTimeToClose:
-      closedApplications.length > 0
-        ? Math.round(
-            closedApplications.reduce((sum, app) => {
-              const created = new Date(app.createdAt).getTime();
-              const closed = new Date(app.updatedAt).getTime();
-              return sum + (closed - created) / (1000 * 60 * 60 * 24);
-            }, 0) / closedApplications.length
-          )
-        : 0,
-  };
+  const offers = applications.filter((a) => a.status === 'offer');
+  const rejections = applications.filter((a) => a.status === 'rejected');
+  const withdrawn = applications.filter((a) => a.status === 'withdrawn');
+  const conversionRate =
+    summary.total > 0 ? Math.round((summary.offers / summary.total) * 100) : 0;
 
   if (isLoading) {
     return (
@@ -97,28 +128,28 @@ export function ReportsClosedLoop() {
       {/* Summary Stats */}
       <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-5">
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-neutral-900">{stats.total}</div>
+          <div className="text-2xl font-bold text-neutral-900">{summary.total}</div>
           <div className="text-sm text-neutral-600">Total Closed</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-green-600">{stats.offers}</div>
+          <div className="text-2xl font-bold text-green-600">{summary.offers}</div>
           <div className="text-sm text-neutral-600">Offers</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-red-600">{stats.rejections}</div>
+          <div className="text-2xl font-bold text-red-600">{summary.rejections}</div>
           <div className="text-sm text-neutral-600">Rejections</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-primary-600">{stats.conversionRate}%</div>
+          <div className="text-2xl font-bold text-primary-600">{conversionRate}%</div>
           <div className="text-sm text-neutral-600">Offer Rate</div>
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
-          <div className="text-2xl font-bold text-neutral-600">{stats.avgTimeToClose}</div>
+          <div className="text-2xl font-bold text-neutral-600">{summary.averageTimeToClose}</div>
           <div className="text-sm text-neutral-600">Avg Days to Close</div>
         </div>
       </div>
 
-      {closedApplications.length === 0 ? (
+      {applications.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white p-8 text-center">
           <div className="text-4xl mb-4">📊</div>
           <h3 className="text-lg font-semibold text-neutral-900">No closed applications yet</h3>
@@ -128,6 +159,33 @@ export function ReportsClosedLoop() {
         </div>
       ) : (
         <>
+          {/* Rejection by Stage Breakdown */}
+          {summary.rejectionsByStage.length > 0 && (
+            <div className="mb-8 rounded-lg border border-neutral-200 bg-white p-6">
+              <h2 className="mb-4 text-lg font-semibold text-neutral-900">
+                Rejections by Stage
+              </h2>
+              <div className="space-y-2">
+                {summary.rejectionsByStage.map(({ stage, count, percentage }) => (
+                  <div key={stage} className="flex items-center gap-3">
+                    <span className="w-32 text-sm text-neutral-700">
+                      {STATUS_LABELS[stage] ?? stage}
+                    </span>
+                    <div className="flex-1 rounded-full bg-neutral-100 h-3">
+                      <div
+                        className="rounded-full bg-red-400 h-3"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                    <span className="w-16 text-sm text-neutral-600 text-right">
+                      {count} ({percentage}%)
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Offers Section */}
           {offers.length > 0 && (
             <div className="mb-8">
@@ -137,32 +195,11 @@ export function ReportsClosedLoop() {
               </h2>
               <div className="space-y-3">
                 {offers.map((app) => (
-                  <div
+                  <ClosedAppCard
                     key={app.id}
-                    className="cursor-pointer rounded-lg border border-green-200 bg-green-50 p-4 transition-shadow hover:shadow-md"
+                    app={app}
                     onClick={() => navigate(`/applications/${app.id}`)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-neutral-900">
-                          {app.jobTitle} @ {app.company}
-                        </h3>
-                        {app.salaryRange && (
-                          <p className="mt-1 text-sm text-neutral-700">
-                            <span className="font-medium">Posted Range:</span> {app.salaryRange}
-                          </p>
-                        )}
-                        {app.compTarget && (
-                          <p className="mt-1 text-sm text-neutral-700">
-                            <span className="font-medium">Your Target:</span> {app.compTarget}
-                          </p>
-                        )}
-                      </div>
-                      <div className="ml-4 text-sm text-neutral-500">
-                        {new Date(app.updatedAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
+                  />
                 ))}
               </div>
             </div>
@@ -176,39 +213,13 @@ export function ReportsClosedLoop() {
                 Rejections ({rejections.length})
               </h2>
               <div className="space-y-3">
-                {rejections.map((app) => {
-                  const daysToClosure = Math.floor(
-                    (new Date(app.updatedAt).getTime() - new Date(app.createdAt).getTime()) /
-                      (1000 * 60 * 60 * 24)
-                  );
-
-                  return (
-                    <div
-                      key={app.id}
-                      className="cursor-pointer rounded-lg border border-neutral-200 bg-white p-4 transition-shadow hover:shadow-md"
-                      onClick={() => navigate(`/applications/${app.id}`)}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-lg font-semibold text-neutral-900">
-                              {app.jobTitle} @ {app.company}
-                            </h3>
-                          </div>
-                          {app.location && (
-                            <p className="text-sm text-neutral-600">{app.location}</p>
-                          )}
-                          <p className="mt-1 text-sm text-neutral-500">
-                            {daysToClosure} days in pipeline
-                          </p>
-                        </div>
-                        <div className="ml-4 text-sm text-neutral-500">
-                          {new Date(app.updatedAt).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {rejections.map((app) => (
+                  <ClosedAppCard
+                    key={app.id}
+                    app={app}
+                    onClick={() => navigate(`/applications/${app.id}`)}
+                  />
+                ))}
               </div>
             </div>
           )}
@@ -222,27 +233,22 @@ export function ReportsClosedLoop() {
               </h2>
               <div className="space-y-3">
                 {withdrawn.map((app) => (
-                  <div
+                  <ClosedAppCard
                     key={app.id}
-                    className="cursor-pointer rounded-lg border border-neutral-200 bg-white p-4 transition-shadow hover:shadow-md"
+                    app={app}
                     onClick={() => navigate(`/applications/${app.id}`)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-neutral-900">
-                          {app.jobTitle} @ {app.company}
-                        </h3>
-                      </div>
-                      <div className="ml-4 text-sm text-neutral-500">
-                        {new Date(app.updatedAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
+                  />
                 ))}
               </div>
             </div>
           )}
         </>
+      )}
+
+      {data && (
+        <p className="mt-4 text-xs text-neutral-400">
+          Report generated at {new Date(data.generatedAt).toLocaleString()}
+        </p>
       )}
     </div>
   );

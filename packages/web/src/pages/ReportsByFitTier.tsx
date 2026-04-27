@@ -1,17 +1,11 @@
 import { useNavigate } from 'react-router-dom';
-import { useApplications } from '../hooks/useApplications';
+import { useReportsByFitTier } from '../hooks/useReports';
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
-  const { data: applications = [], isLoading } = useApplications();
+  const { data, isLoading } = useReportsByFitTier();
 
-  // Group applications by fit tier (placeholder - requires UC-3 integration)
-  const groupedApplications = {
-    notAnalyzed: applications.filter((app) => !['offer', 'rejected', 'withdrawn'].includes(app.status)),
-    strongFit: [],
-    moderateFit: [],
-    weakFit: [],
-  };
+  const summary = data?.summary ?? { total: 0, analyzed: 0, notAnalyzed: 0, byTier: {} };
 
   if (isLoading) {
     return (
@@ -25,9 +19,7 @@ export function ReportsByFitTier() {
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-neutral-900">By Fit Tier</h1>
-        <p className="mt-2 text-neutral-600">
-          Priority grouping by job fit analysis score
-        </p>
+        <p className="mt-2 text-neutral-600">Priority grouping by job fit analysis score</p>
       </div>
 
       {/* UC-3 Dependency Notice */}
@@ -63,24 +55,20 @@ export function ReportsByFitTier() {
         </div>
       </div>
 
-      {/* Placeholder: Show count of not-analyzed applications */}
+      {/* Not Analyzed count from API */}
       <div className="mt-8">
         <div className="rounded-lg border border-neutral-200 bg-white p-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">Not Analyzed</h3>
-              <p className="mt-1 text-sm text-neutral-600">
-                Applications without fit analysis
-              </p>
+              <p className="mt-1 text-sm text-neutral-600">Applications without fit analysis</p>
             </div>
-            <div className="text-3xl font-bold text-neutral-900">
-              {groupedApplications.notAnalyzed.length}
-            </div>
+            <div className="text-3xl font-bold text-neutral-900">{summary.notAnalyzed}</div>
           </div>
         </div>
       </div>
 
-      {/* Placeholder: Future tier groups (will be populated when UC-3 is integrated) */}
+      {/* Placeholder tier groups */}
       <div className="mt-6 grid gap-4 md:grid-cols-3 opacity-50">
         <div className="rounded-lg border border-green-200 bg-green-50 p-6">
           <div className="flex items-center justify-between">
@@ -88,7 +76,9 @@ export function ReportsByFitTier() {
               <h3 className="text-lg font-semibold text-green-900">Strong Fit</h3>
               <p className="mt-1 text-sm text-green-700">High match score</p>
             </div>
-            <div className="text-3xl font-bold text-green-900">—</div>
+            <div className="text-3xl font-bold text-green-900">
+              {summary.byTier['strong_fit'] ?? '—'}
+            </div>
           </div>
         </div>
 
@@ -98,7 +88,9 @@ export function ReportsByFitTier() {
               <h3 className="text-lg font-semibold text-yellow-900">Moderate Fit</h3>
               <p className="mt-1 text-sm text-yellow-700">Medium match score</p>
             </div>
-            <div className="text-3xl font-bold text-yellow-900">—</div>
+            <div className="text-3xl font-bold text-yellow-900">
+              {summary.byTier['moderate_fit'] ?? '—'}
+            </div>
           </div>
         </div>
 
@@ -108,10 +100,18 @@ export function ReportsByFitTier() {
               <h3 className="text-lg font-semibold text-neutral-900">Weak Fit</h3>
               <p className="mt-1 text-sm text-neutral-700">Low match score</p>
             </div>
-            <div className="text-3xl font-bold text-neutral-900">—</div>
+            <div className="text-3xl font-bold text-neutral-900">
+              {summary.byTier['weak_fit'] ?? '—'}
+            </div>
           </div>
         </div>
       </div>
+
+      {data && (
+        <p className="mt-4 text-xs text-neutral-400">
+          Report generated at {new Date(data.generatedAt).toLocaleString()}
+        </p>
+      )}
     </div>
   );
 }
