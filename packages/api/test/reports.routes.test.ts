@@ -141,6 +141,16 @@ describe('Reports Routes', () => {
         expect.objectContaining({ days: 7, status: 'applied' })
       );
     });
+
+    it('returns 400 for invalid status value', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/reports/stale?status=invalid' });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 when all status values are invalid', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/reports/stale?status=bad,junk' });
+      expect(res.statusCode).toBe(400);
+    });
   });
 
   describe('GET /api/reports/closed-loop', () => {
@@ -164,6 +174,16 @@ describe('Reports Routes', () => {
 
     it('returns 400 for invalid period', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/reports/closed-loop?period=1y' });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 for invalid status value', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/reports/closed-loop?status=saved' });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 when all status values are invalid', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/reports/closed-loop?status=invalid,bad' });
       expect(res.statusCode).toBe(400);
     });
   });

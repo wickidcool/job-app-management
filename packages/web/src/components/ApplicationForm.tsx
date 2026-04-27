@@ -29,6 +29,11 @@ const applicationFormSchema = z.object({
   status: z.enum(['saved', 'applied', 'phone_screen', 'interview', 'offer', 'rejected', 'withdrawn']),
   linkCoverLetter: z.boolean().optional(),
   coverLetterId: z.string().optional(),
+  // UC-5 Extended Tracking Fields
+  contact: z.string().max(200, 'Contact must be less than 200 characters').optional(),
+  compTarget: z.string().optional(),
+  nextAction: z.string().max(500, 'Next action must be less than 500 characters').optional(),
+  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format').optional().or(z.literal('')),
 });
 
 export interface ApplicationFormProps {
@@ -64,6 +69,10 @@ export function ApplicationForm({
           jobDescription: application.jobDescription || '',
           status: application.status,
           linkCoverLetter: false,
+          contact: application.contact || '',
+          compTarget: application.compTarget || '',
+          nextAction: application.nextAction || '',
+          nextActionDue: application.nextActionDue || '',
         }
       : {
           jobTitle: '',
@@ -74,6 +83,10 @@ export function ApplicationForm({
           jobDescription: '',
           status: 'saved' as ApplicationStatus,
           linkCoverLetter: false,
+          contact: '',
+          compTarget: '',
+          nextAction: '',
+          nextActionDue: '',
         },
   });
 
@@ -93,6 +106,10 @@ export function ApplicationForm({
               jobDescription: application.jobDescription || '',
               status: application.status,
               linkCoverLetter: false,
+              contact: application.contact || '',
+              compTarget: application.compTarget || '',
+              nextAction: application.nextAction || '',
+              nextActionDue: application.nextActionDue || '',
             }
           : {
               jobTitle: '',
@@ -103,6 +120,10 @@ export function ApplicationForm({
               jobDescription: '',
               status: 'saved' as ApplicationStatus,
               linkCoverLetter: false,
+              contact: '',
+              compTarget: '',
+              nextAction: '',
+              nextActionDue: '',
             }
       );
     }
@@ -286,6 +307,96 @@ export function ApplicationForm({
                   {errors.jobDescription.message}
                 </p>
               )}
+            </div>
+
+            {/* Extended Details Section */}
+            <div className="pt-4 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Extended Tracking</h3>
+
+              {/* Contact */}
+              <div className="mb-4">
+                <label htmlFor="contact" className="block text-sm font-medium text-gray-700 mb-1">
+                  Contact
+                </label>
+                <input
+                  id="contact"
+                  type="text"
+                  {...register('contact')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Jane Smith, Engineering Manager"
+                  aria-invalid={!!errors.contact}
+                  aria-describedby={errors.contact ? 'contact-error' : undefined}
+                />
+                {errors.contact && (
+                  <p id="contact-error" className="mt-1 text-sm text-red-600" role="alert">
+                    {errors.contact.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Comp Target */}
+              <div className="mb-4">
+                <label htmlFor="compTarget" className="block text-sm font-medium text-gray-700 mb-1">
+                  Comp Target
+                </label>
+                <input
+                  id="compTarget"
+                  type="text"
+                  {...register('compTarget')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="$175k base + equity"
+                  aria-invalid={!!errors.compTarget}
+                  aria-describedby={errors.compTarget ? 'compTarget-error' : undefined}
+                />
+                <p className="mt-1 text-xs text-gray-500">Your target compensation (distinct from posted range)</p>
+                {errors.compTarget && (
+                  <p id="compTarget-error" className="mt-1 text-sm text-red-600" role="alert">
+                    {errors.compTarget.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Next Action and Due Date */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="nextAction" className="block text-sm font-medium text-gray-700 mb-1">
+                    Next Action
+                  </label>
+                  <input
+                    id="nextAction"
+                    type="text"
+                    {...register('nextAction')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Follow up with recruiter"
+                    aria-invalid={!!errors.nextAction}
+                    aria-describedby={errors.nextAction ? 'nextAction-error' : undefined}
+                  />
+                  {errors.nextAction && (
+                    <p id="nextAction-error" className="mt-1 text-sm text-red-600" role="alert">
+                      {errors.nextAction.message}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="nextActionDue" className="block text-sm font-medium text-gray-700 mb-1">
+                    Due Date
+                  </label>
+                  <input
+                    id="nextActionDue"
+                    type="date"
+                    {...register('nextActionDue')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    aria-invalid={!!errors.nextActionDue}
+                    aria-describedby={errors.nextActionDue ? 'nextActionDue-error' : undefined}
+                  />
+                  {errors.nextActionDue && (
+                    <p id="nextActionDue-error" className="mt-1 text-sm text-red-600" role="alert">
+                      {errors.nextActionDue.message}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Link Cover Letter */}

@@ -1,4 +1,4 @@
-import { eq, and, inArray, lte, lt, gte, asc, desc, sql, isNotNull } from 'drizzle-orm';
+import { eq, and, inArray, notInArray, lte, lt, gte, asc, desc, isNotNull } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
 import type {
@@ -122,8 +122,7 @@ export async function getNeedsActionReport(
   const conditions = [
     isNotNull(applications.nextActionDue),
     isNotNull(applications.nextAction),
-    // Only non-terminal statuses
-    sql`${applications.status} NOT IN ('offer', 'rejected', 'withdrawn')`,
+    notInArray(applications.status, TERMINAL_STATUSES),
   ];
 
   if (includeOverdue) {
@@ -442,9 +441,7 @@ export async function getByFitTierReport(
 
   const conditions = [];
   if (!params.includeTerminal) {
-    conditions.push(
-      sql`${applications.status} NOT IN ('offer', 'rejected', 'withdrawn')`
-    );
+    conditions.push(notInArray(applications.status, TERMINAL_STATUSES));
   }
 
   const rows = await db

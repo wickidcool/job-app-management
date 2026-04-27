@@ -21,16 +21,52 @@ const needsActionQuerySchema = z.object({
   cursor: z.string().optional(),
 });
 
+const VALID_APP_STATUSES = [
+  'saved',
+  'applied',
+  'phone_screen',
+  'interview',
+  'offer',
+  'rejected',
+  'withdrawn',
+] as const;
+
+const VALID_TERMINAL_STATUSES = ['offer', 'rejected', 'withdrawn'] as const;
+
 const staleQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).optional(),
-  status: z.string().optional(),
+  status: z
+    .string()
+    .optional()
+    .refine(
+      (s) => {
+        if (!s) return true;
+        return s
+          .split(',')
+          .map((v) => v.trim())
+          .every((v) => (VALID_APP_STATUSES as readonly string[]).includes(v));
+      },
+      { message: 'Invalid status value(s). Must be comma-separated list of valid statuses.' }
+    ),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   cursor: z.string().optional(),
 });
 
 const closedLoopQuerySchema = z.object({
   period: z.enum(['30d', '60d', '90d', 'all']).optional(),
-  status: z.string().optional(),
+  status: z
+    .string()
+    .optional()
+    .refine(
+      (s) => {
+        if (!s) return true;
+        return s
+          .split(',')
+          .map((v) => v.trim())
+          .every((v) => (VALID_TERMINAL_STATUSES as readonly string[]).includes(v));
+      },
+      { message: 'Invalid status value(s). Must be comma-separated list of: offer, rejected, withdrawn.' }
+    ),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   cursor: z.string().optional(),
 });

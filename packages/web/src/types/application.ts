@@ -28,6 +28,11 @@ export interface Application {
   appliedAt?: Date;
   url?: string;
   jobDescription?: string;
+  // UC-5 Extended Tracking Fields
+  contact?: string; // Recruiter/hiring manager name (max 200)
+  compTarget?: string; // User's compensation target
+  nextAction?: string; // Next action description (max 500)
+  nextActionDue?: string; // ISO date (YYYY-MM-DD)
 }
 
 /**
@@ -63,4 +68,9 @@ export interface ApplicationFormData {
   status: ApplicationStatus;
   linkCoverLetter?: boolean;
   coverLetterId?: string;
+  // UC-5 Extended Tracking Fields
+  contact?: string;
+  compTarget?: string;
+  nextAction?: string;
+  nextActionDue?: string;
 }

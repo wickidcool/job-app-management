@@ -24,6 +24,7 @@ export function MobileNavigation({
       path: '/applications',
       badge: applicationCount,
     },
+    { icon: '📊', label: 'Reports', path: '/reports' },
     {
       icon: '📄',
       label: 'Resume Manager',
