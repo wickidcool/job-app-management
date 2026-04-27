@@ -30,6 +30,11 @@ const createApplicationSchema = z.object({
   status: applicationStatusEnum.optional(),
   coverLetterId: z.string().optional(),
   resumeVersionId: z.string().optional(),
+  // UC-5 Extended Tracking Fields
+  contact: z.string().min(1).max(200).optional(),
+  compTarget: z.string().min(1).optional(),
+  nextAction: z.string().min(1).max(500).optional(),
+  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const updateApplicationSchema = z.object({
@@ -40,6 +45,11 @@ const updateApplicationSchema = z.object({
   salaryRange: z.string().min(1).max(50).nullable().optional(),
   coverLetterId: z.string().nullable().optional(),
   resumeVersionId: z.string().nullable().optional(),
+  // UC-5 Extended Tracking Fields
+  contact: z.string().min(1).max(200).nullable().optional(),
+  compTarget: z.string().min(1).nullable().optional(),
+  nextAction: z.string().min(1).max(500).nullable().optional(),
+  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   version: z.number().int().positive(),
 });
 

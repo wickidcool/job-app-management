@@ -7,6 +7,7 @@ import { resumesRoutes } from './routes/resumes.js';
 import { projectsRoutes } from './routes/projects.js';
 import { dialogueRoutes } from './routes/dialogue.routes.js';
 import { catalogRoutes } from './routes/catalog.routes.js';
+import { reportsRoutes } from './routes/reports.js';
 import { AppError } from './types/index.js';
 
 export function buildApp(opts?: { logger?: boolean }) {
@@ -31,6 +32,7 @@ export function buildApp(opts?: { logger?: boolean }) {
       api.register(projectsRoutes);
       api.register(dialogueRoutes);
       api.register(catalogRoutes);
+      api.register(reportsRoutes);
     },
     { prefix: '/api' },
   );
