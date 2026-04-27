@@ -168,24 +168,14 @@ export async function coverLettersRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
 
-    const acceptJson = (request.headers['accept'] ?? '').includes('application/json');
     const result = await exportCoverLetter(id, parsed.data);
-
-    if (acceptJson) {
-      return reply.send({
-        exportId: id,
-        format: parsed.data.format,
-        filename: result.filename,
-        fileSize: result.buffer.length,
-        base64Content: result.buffer.toString('base64'),
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    return reply
-      .status(200)
-      .header('Content-Type', result.contentType)
-      .header('Content-Disposition', `attachment; filename="${result.filename}"`)
-      .send(result.buffer);
+    return reply.send({
+      exportId: id,
+      format: parsed.data.format,
+      filename: result.filename,
+      fileSize: result.buffer.length,
+      base64Content: result.buffer.toString('base64'),
+      createdAt: new Date().toISOString(),
+    });
   });
 }
