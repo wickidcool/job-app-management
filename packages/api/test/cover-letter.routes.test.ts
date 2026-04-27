@@ -611,7 +611,7 @@ describe('Cover Letter Routes', () => {
   });
 
   describe('POST /api/cover-letters/:id/export', () => {
-    it('returns binary docx when no Accept: application/json header', async () => {
+    it('returns JSON with base64Content even without Accept: application/json header', async () => {
       const fakeBuffer = Buffer.from('fake-docx-content');
       vi.mocked(coverLetterService.exportCoverLetter).mockResolvedValue({
         buffer: fakeBuffer,
@@ -627,8 +627,9 @@ describe('Cover Letter Routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.headers['content-type']).toContain('wordprocessingml');
-      expect(response.headers['content-disposition']).toContain('attachment');
+      const body = response.json();
+      expect(body.filename).toContain('.docx');
+      expect(body.base64Content).toBe(fakeBuffer.toString('base64'));
     });
 
     it('returns JSON when Accept: application/json', async () => {
