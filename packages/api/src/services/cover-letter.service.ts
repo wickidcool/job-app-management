@@ -93,9 +93,9 @@ function getAiClient(): Anthropic {
 // ── Generation helpers ────────────────────────────────────────────────────────
 
 const WORD_TARGETS: Record<string, { min: number; max: number }> = {
-  concise: { min: 150, max: 250 },
-  standard: { min: 300, max: 400 },
-  detailed: { min: 450, max: 550 },
+  concise: { min: 250, max: 350 },
+  standard: { min: 400, max: 550 },
+  detailed: { min: 600, max: 800 },
 };
 
 const TONE_DESCRIPTORS: Record<string, string> = {
@@ -213,7 +213,7 @@ Rules:
   try {
     message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
@@ -428,7 +428,7 @@ Rules:
   try {
     message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
