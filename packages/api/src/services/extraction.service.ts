@@ -18,31 +18,22 @@ import { getConfig } from '../config.js';
 import { parseResumeText, extractExperienceEntries } from './resume.service.js';
 import { validateTechStackCategory, validateJobFitCategory } from '../types/index.js';
 
-async function applyChangeToDb(
-  tx: any,
-  change: DiffChange,
-  diffId: string,
-  triggerSource: string,
-  triggerId: string
-): Promise<void> {
+async function applyChangeToDb(tx: any, change: DiffChange, diffId: string, triggerSource: string, triggerId: string): Promise<void> {
   const data = change.data as Record<string, any>;
   const now = new Date();
 
   switch (change.entity) {
     case 'company_catalog': {
       if (change.action === 'create') {
-        await tx
-          .insert(companyCatalog)
-          .values({
-            id: data.id,
-            name: data.name,
-            normalizedName: data.normalizedName,
-            firstSeenAt: new Date(data.firstSeenAt),
-            applicationCount: data.applicationCount ?? 1,
-            latestStatus: data.latestStatus ?? null,
-            latestAppId: data.latestAppId ?? null,
-          })
-          .onConflictDoNothing();
+        await tx.insert(companyCatalog).values({
+          id: data.id,
+          name: data.name,
+          normalizedName: data.normalizedName,
+          firstSeenAt: new Date(data.firstSeenAt),
+          applicationCount: data.applicationCount ?? 1,
+          latestStatus: data.latestStatus ?? null,
+          latestAppId: data.latestAppId ?? null,
+        }).onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(companyCatalog)
@@ -59,18 +50,15 @@ async function applyChangeToDb(
     }
     case 'tech_stack_tags': {
       if (change.action === 'create') {
-        await tx
-          .insert(techStackTags)
-          .values({
-            id: data.id,
-            tagSlug: data.tagSlug,
-            displayName: data.displayName,
-            category: validateTechStackCategory(data.category),
-            sourceIds: data.sourceIds ?? [],
-            mentionCount: data.mentionCount ?? 1,
-            isLegacy: data.isLegacy ?? false,
-          })
-          .onConflictDoNothing();
+        await tx.insert(techStackTags).values({
+          id: data.id,
+          tagSlug: data.tagSlug,
+          displayName: data.displayName,
+          category: validateTechStackCategory(data.category),
+          sourceIds: data.sourceIds ?? [],
+          mentionCount: data.mentionCount ?? 1,
+          isLegacy: data.isLegacy ?? false,
+        }).onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(techStackTags)
@@ -86,17 +74,14 @@ async function applyChangeToDb(
     }
     case 'job_fit_tags': {
       if (change.action === 'create') {
-        await tx
-          .insert(jobFitTags)
-          .values({
-            id: data.id,
-            tagSlug: data.tagSlug,
-            displayName: data.displayName,
-            category: validateJobFitCategory(data.category),
-            sourceIds: data.sourceIds ?? [],
-            mentionCount: data.mentionCount ?? 1,
-          })
-          .onConflictDoNothing();
+        await tx.insert(jobFitTags).values({
+          id: data.id,
+          tagSlug: data.tagSlug,
+          displayName: data.displayName,
+          category: validateJobFitCategory(data.category),
+          sourceIds: data.sourceIds ?? [],
+          mentionCount: data.mentionCount ?? 1,
+        }).onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(jobFitTags)
@@ -123,8 +108,7 @@ async function applyChangeToDb(
           metricRange: data.metricRange ?? null,
           isApproximate: data.isApproximate ?? false,
           secondaryMetricType: data.secondaryMetricType ?? null,
-          secondaryMetricValue:
-            data.secondaryMetricValue != null ? String(data.secondaryMetricValue) : null,
+          secondaryMetricValue: data.secondaryMetricValue != null ? String(data.secondaryMetricValue) : null,
           impactCategory: data.impactCategory ?? 'other',
         });
       }
@@ -132,17 +116,14 @@ async function applyChangeToDb(
     }
     case 'recurring_themes': {
       if (change.action === 'create') {
-        await tx
-          .insert(recurringThemes)
-          .values({
-            id: data.id,
-            themeSlug: data.themeSlug,
-            displayName: data.displayName,
-            occurrenceCount: data.occurrenceCount ?? 1,
-            sourceIds: data.sourceIds ?? [],
-            exampleExcerpts: data.exampleExcerpts ?? [],
-          })
-          .onConflictDoNothing();
+        await tx.insert(recurringThemes).values({
+          id: data.id,
+          themeSlug: data.themeSlug,
+          displayName: data.displayName,
+          occurrenceCount: data.occurrenceCount ?? 1,
+          sourceIds: data.sourceIds ?? [],
+          exampleExcerpts: data.exampleExcerpts ?? [],
+        }).onConflictDoNothing();
       } else if (change.action === 'update') {
         await tx
           .update(recurringThemes)
@@ -567,10 +548,7 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
       if (!entry.company) continue;
       const normalized = slugify(entry.company) || 'unspecified';
       const displayName = entry.company || '[Unspecified]';
-      const [existing] = await db
-        .select()
-        .from(companyCatalog)
-        .where(eq(companyCatalog.normalizedName, normalized));
+      const [existing] = await db.select().from(companyCatalog).where(eq(companyCatalog.normalizedName, normalized));
       if (!existing) {
         changes.push({
           entity: 'company_catalog',
@@ -671,12 +649,7 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   // ── Quantified bullets ────────────────────────────────────────────────────
   if (event.sourceType === 'resume') {
     const existingBulletTexts = new Set(
-      (
-        await db
-          .select({ rawText: quantifiedBullets.rawText })
-          .from(quantifiedBullets)
-          .where(eq(quantifiedBullets.sourceId, event.sourceId))
-      ).map((r) => r.rawText)
+      (await db.select({ rawText: quantifiedBullets.rawText }).from(quantifiedBullets).where(eq(quantifiedBullets.sourceId, event.sourceId))).map(r => r.rawText),
     );
     const bullets = extractQuantifiedBullets(text, event.sourceType, event.sourceId);
     for (const bullet of bullets) {
@@ -736,8 +709,8 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   if (changes.length === 0 && pendingReview.length === 0) return;
 
-  const changeCount = changes.filter((c) => c.action === 'create').length;
-  const updateCount = changes.filter((c) => c.action === 'update').length;
+  const changeCount = changes.filter(c => c.action === 'create').length;
+  const updateCount = changes.filter(c => c.action === 'update').length;
   const shouldAutoApply = pendingReview.length === 0 && changes.length > 0;
   const summary =
     changes.length === 0

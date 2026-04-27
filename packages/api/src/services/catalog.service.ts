@@ -620,14 +620,8 @@ export async function applyDiff(id: string, input: ApplyDiffInput) {
   });
 
   const pendingReviewCount = (diff.pendingReview as ReviewItem[]).length;
-  const finalStatus =
-    appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
-  return {
-    applied: appliedCount,
-    rejected: rejectedCount,
-    pendingReview: pendingReviewCount,
-    status: finalStatus,
-  };
+  const finalStatus = appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
+  return { applied: appliedCount, rejected: rejectedCount, pendingReview: pendingReviewCount, status: finalStatus };
 }
 
 async function applyChange(tx: any, change: DiffChange): Promise<void> {

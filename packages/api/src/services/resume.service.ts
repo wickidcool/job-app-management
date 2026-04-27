@@ -17,28 +17,18 @@ import { getOrCreateProjectBySlug } from './project.service.js';
 export async function addCompanyToCatalog(companyName: string): Promise<void> {
   if (!companyName) return;
   const db = getDb();
-  const normalized =
-    companyName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'unspecified';
-  const [existing] = await db
-    .select()
-    .from(companyCatalog)
-    .where(eq(companyCatalog.normalizedName, normalized));
+  const normalized = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unspecified';
+  const [existing] = await db.select().from(companyCatalog).where(eq(companyCatalog.normalizedName, normalized));
   if (!existing) {
-    await db
-      .insert(companyCatalog)
-      .values({
-        id: ulid(),
-        name: companyName,
-        normalizedName: normalized,
-        firstSeenAt: new Date(),
-        applicationCount: 0,
-        latestStatus: null,
-        latestAppId: null,
-      })
-      .onConflictDoNothing();
+    await db.insert(companyCatalog).values({
+      id: ulid(),
+      name: companyName,
+      normalizedName: normalized,
+      firstSeenAt: new Date(),
+      applicationCount: 0,
+      latestStatus: null,
+      latestAppId: null,
+    }).onConflictDoNothing();
   }
 }
 

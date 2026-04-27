@@ -262,7 +262,7 @@ describe('addCompanyToCatalog', () => {
       expect.objectContaining({
         name: 'Acme Corp',
         normalizedName: 'acme-corp',
-      })
+      }),
     );
     expect(mockOnConflictDoNothing).toHaveBeenCalled();
   });
@@ -284,7 +284,7 @@ describe('addCompanyToCatalog', () => {
       expect.objectContaining({
         name: 'Foo & Bar, Inc.',
         normalizedName: 'foo-bar-inc',
-      })
+      }),
     );
   });
 
@@ -304,7 +304,7 @@ describe('addCompanyToCatalog', () => {
       expect.objectContaining({
         name: '...',
         normalizedName: 'unspecified',
-      })
+      }),
     );
   });
 });
