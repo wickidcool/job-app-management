@@ -6,6 +6,7 @@ interface CoverLetterPreviewProps {
   variant?: CoverLetterVariant;
   wordCount?: number;
   showExportActions?: boolean;
+  isExporting?: boolean;
   onCopy?: () => void;
   onDownload?: (format: 'docx') => void;
 }
@@ -15,6 +16,7 @@ export function CoverLetterPreview({
   variant,
   wordCount,
   showExportActions = true,
+  isExporting = false,
   onCopy,
   onDownload,
 }: CoverLetterPreviewProps) {
@@ -67,9 +69,10 @@ export function CoverLetterPreview({
             {onDownload && (
               <button
                 onClick={() => onDownload('docx')}
-                className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={isExporting}
+                className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed"
               >
-                ⬇ Download DOCX
+                {isExporting ? 'Exporting...' : '⬇ Download DOCX'}
               </button>
             )}
           </div>

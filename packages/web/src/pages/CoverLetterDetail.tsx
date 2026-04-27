@@ -155,6 +155,7 @@ export function CoverLetterDetail() {
             variant={variant}
             wordCount={wordCount}
             showExportActions={true}
+            isExporting={exportMutation.isPending}
             onCopy={handleCopy}
             onDownload={handleDownload}
           />

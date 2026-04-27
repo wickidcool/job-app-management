@@ -306,7 +306,20 @@ export function JobFitAnalysis() {
           )}
 
           {/* Actions */}
-          <div className="flex gap-4">
+          <div className="flex gap-4 flex-wrap">
+            <button
+              onClick={() =>
+                navigate('/cover-letters/new', {
+                  state: {
+                    jobDescriptionText: jobDescriptionText,
+                    targetRole: results.parsedJd.roleTitle ?? undefined,
+                  },
+                })
+              }
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Generate Cover Letter
+            </button>
             <button
               onClick={handleReset}
               className="px-6 py-2 text-neutral-700 hover:text-neutral-900"

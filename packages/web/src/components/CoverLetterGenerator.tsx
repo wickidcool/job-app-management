@@ -15,6 +15,9 @@ import { useGenerateCoverLetter, useUpdateCoverLetter } from '../hooks/useCoverL
 interface CoverLetterGeneratorProps {
   fitAnalysisId?: string;
   applicationId?: string;
+  initialJobDescription?: string;
+  initialCompany?: string;
+  initialRole?: string;
   catalogEntries?: CatalogEntry[];
   onComplete?: (result: CoverLetterResult) => void;
   onCancel?: () => void;
@@ -23,12 +26,16 @@ interface CoverLetterGeneratorProps {
 interface Step1FormData {
   companyName: string;
   jobTitle: string;
+  jobDescription: string;
   useFitAnalysis: boolean;
 }
 
 export function CoverLetterGenerator({
   fitAnalysisId,
   applicationId,
+  initialJobDescription = '',
+  initialCompany = '',
+  initialRole = '',
   catalogEntries = [],
   onComplete,
   onCancel,
@@ -53,12 +60,18 @@ export function CoverLetterGenerator({
   const {
     register: registerStep1,
     handleSubmit: handleSubmitStep1,
+    watch: watchStep1,
     formState: { errors: errorsStep1 },
   } = useForm<Step1FormData>({
     defaultValues: {
+      companyName: initialCompany,
+      jobTitle: initialRole,
+      jobDescription: initialJobDescription,
       useFitAnalysis: !!fitAnalysisId,
     },
   });
+
+  const useFitAnalysisChecked = watchStep1('useFitAnalysis');
 
   const handleStep1Submit = (data: Step1FormData) => {
     setStep1Data(data);
@@ -81,6 +94,7 @@ export function CoverLetterGenerator({
     setCurrentStep(4);
 
     try {
+      const usingFitAnalysis = step1Data.useFitAnalysis && !!fitAnalysisId;
       const coverLetter = await generateMutation.mutateAsync({
         selectedStarEntryIds: selectedSTARIds,
         targetCompany: step1Data.companyName,
@@ -88,7 +102,10 @@ export function CoverLetterGenerator({
         tone: variant.tone,
         lengthVariant: variant.length,
         emphasis: variant.emphasis,
-        jobFitAnalysisId: step1Data.useFitAnalysis ? fitAnalysisId : undefined,
+        jobFitAnalysisId: usingFitAnalysis ? fitAnalysisId : undefined,
+        jobDescriptionText: !usingFitAnalysis && step1Data.jobDescription.trim()
+          ? step1Data.jobDescription.trim()
+          : undefined,
       });
 
       setGeneratedCoverLetterId(coverLetter.id);
@@ -105,6 +122,11 @@ export function CoverLetterGenerator({
   const handleSave = async () => {
     if (!generatedCoverLetterId) {
       console.error('No cover letter ID available');
+      return;
+    }
+
+    if (!editableContent.trim()) {
+      setSaveError('Cover letter content cannot be empty');
       return;
     }
 
@@ -233,8 +255,34 @@ export function CoverLetterGenerator({
                       className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
                     />
                     <label className="text-sm text-gray-700">
-                      Use job fit analysis results
+                      Use job fit analysis results (includes job description)
                     </label>
+                  </div>
+                )}
+
+                {!useFitAnalysisChecked && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Job Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      {...registerStep1('jobDescription', {
+                        validate: (val, values) =>
+                          (values.useFitAnalysis && !!fitAnalysisId) ||
+                          val.trim().length >= 50 ||
+                          'Job description must be at least 50 characters',
+                        maxLength: { value: 50000, message: 'Maximum 50,000 characters' },
+                      })}
+                      rows={8}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      placeholder="Paste the full job description here..."
+                    />
+                    {errorsStep1.jobDescription && (
+                      <p className="mt-1 text-sm text-red-600">{errorsStep1.jobDescription.message}</p>
+                    )}
+                    <p className="mt-1 text-xs text-gray-500">
+                      The job description is used to tailor your cover letter to the specific role.
+                    </p>
                   </div>
                 )}
               </div>

@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { OutreachComposer } from '../components/OutreachComposer';
+import type { OutreachPlatform } from '../services/api/types';
 
 export function OutreachNew() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [platform, setPlatform] = useState<OutreachPlatform>('linkedin');
 
   const applicationId = searchParams.get('applicationId') || undefined;
   const fitAnalysisId = searchParams.get('jobFitAnalysisId') || undefined;
@@ -29,8 +32,34 @@ export function OutreachNew() {
           </p>
         </div>
 
+        <div className="mb-6 bg-white border rounded-lg p-4">
+          <label className="block text-sm font-medium text-gray-700 mb-3">
+            Select Platform
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                checked={platform === 'linkedin'}
+                onChange={() => setPlatform('linkedin')}
+                className="w-4 h-4 text-blue-600"
+              />
+              <span className="text-gray-900">LinkedIn InMail</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                checked={platform === 'email'}
+                onChange={() => setPlatform('email')}
+                className="w-4 h-4 text-blue-600"
+              />
+              <span className="text-gray-900">Email</span>
+            </label>
+          </div>
+        </div>
+
         <OutreachComposer
-          platform="linkedin"
+          platform={platform}
           fitAnalysisId={fitAnalysisId}
           prefillContext={
             company && jobTitle

@@ -1,14 +1,25 @@
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { CoverLetterGenerator } from '../components/CoverLetterGenerator';
 import { useStarEntries } from '../hooks/useCatalog';
 import type { CoverLetterResult } from '../services/api/types';
 
+interface CoverLetterNewState {
+  jobDescriptionText?: string;
+  targetCompany?: string;
+  targetRole?: string;
+}
+
 export function CoverLetterNew() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const state = (location.state as CoverLetterNewState) || {};
 
   const fitAnalysisId = searchParams.get('fitAnalysisId') || undefined;
   const applicationId = searchParams.get('applicationId') || undefined;
+  const jobDescriptionText = state.jobDescriptionText || '';
+  const targetCompany = state.targetCompany || '';
+  const targetRole = state.targetRole || '';
 
   const { data: catalogEntries = [], isLoading, error } = useStarEntries();
 
@@ -83,6 +94,9 @@ export function CoverLetterNew() {
       <CoverLetterGenerator
         fitAnalysisId={fitAnalysisId}
         applicationId={applicationId}
+        initialJobDescription={jobDescriptionText}
+        initialCompany={targetCompany}
+        initialRole={targetRole}
         catalogEntries={catalogEntries}
         onComplete={handleComplete}
         onCancel={handleCancel}

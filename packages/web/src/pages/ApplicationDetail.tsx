@@ -101,6 +101,22 @@ export function ApplicationDetail() {
             </div>
 
             <div className="flex gap-2">
+              {application.jobDescription && (
+                <button
+                  onClick={() =>
+                    navigate('/cover-letters/new', {
+                      state: {
+                        jobDescriptionText: application.jobDescription,
+                        targetCompany: application.company,
+                        targetRole: application.jobTitle,
+                      },
+                    })
+                  }
+                  className="px-4 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-300 rounded-md hover:bg-blue-50"
+                >
+                  Generate Cover Letter
+                </button>
+              )}
               <button
                 onClick={() => navigate('/')}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
