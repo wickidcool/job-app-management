@@ -32,7 +32,7 @@ export function buildApp(opts?: { logger?: boolean }) {
       api.register(dialogueRoutes);
       api.register(catalogRoutes);
     },
-    { prefix: '/api' },
+    { prefix: '/api' }
   );
 
   // Global error handler

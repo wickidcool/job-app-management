@@ -29,6 +29,20 @@
       "when": 1745529600000,
       "tag": "0004_catalog_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1745616000000,
+      "tag": "0005_cover_letters_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1745769600000,
+      "tag": "0006_cover_letters_emphasis",
+      "breakpoints": true
     }
   ]
 }

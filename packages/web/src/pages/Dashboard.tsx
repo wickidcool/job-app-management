@@ -7,8 +7,7 @@ import { useResumes } from '../hooks/useResumes';
 import type { ApplicationStatus } from '../types/application';
 
 export function Dashboard() {
-  const { data: applications = [], isLoading: applicationsLoading } =
-    useApplications();
+  const { data: applications = [], isLoading: applicationsLoading } = useApplications();
   const { data: dashboardData, isLoading: dashboardLoading } = useDashboard();
   const { data: resumes = [], isLoading: resumesLoading } = useResumes();
 
@@ -29,8 +28,7 @@ export function Dashboard() {
     inReview: stats.byStatus.phone_screen + stats.byStatus.interview || 0,
   };
 
-  const inProgressCount =
-    (stats.byStatus.phone_screen || 0) + (stats.byStatus.interview || 0);
+  const inProgressCount = (stats.byStatus.phone_screen || 0) + (stats.byStatus.interview || 0);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -50,9 +48,7 @@ export function Dashboard() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-xl">📋</span>
-              <h2 className="text-lg font-semibold text-neutral-900">
-                Quick Actions
-              </h2>
+              <h2 className="text-lg font-semibold text-neutral-900">Quick Actions</h2>
             </div>
           </div>
           <div className="space-y-2">
@@ -97,23 +93,17 @@ export function Dashboard() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-xl">📈</span>
-              <h2 className="text-lg font-semibold text-neutral-900">
-                Recent Activity
-              </h2>
+              <h2 className="text-lg font-semibold text-neutral-900">Recent Activity</h2>
             </div>
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-neutral-600">In Progress</span>
-              <span className="font-semibold text-neutral-900">
-                {inProgressCount}
-              </span>
+              <span className="font-semibold text-neutral-900">{inProgressCount}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-neutral-600">Applied This Week</span>
-              <span className="font-semibold text-neutral-900">
-                {stats.appliedThisWeek}
-              </span>
+              <span className="font-semibold text-neutral-900">{stats.appliedThisWeek}</span>
             </div>
             <Link
               to="/applications"

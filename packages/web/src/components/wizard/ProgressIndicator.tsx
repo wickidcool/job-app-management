@@ -44,7 +44,13 @@ export function ProgressIndicator({
   };
 
   return (
-    <div className="w-full space-y-4" role="progressbar" aria-valuenow={currentStep} aria-valuemin={1} aria-valuemax={totalSteps}>
+    <div
+      className="w-full space-y-4"
+      role="progressbar"
+      aria-valuenow={currentStep}
+      aria-valuemin={1}
+      aria-valuemax={totalSteps}
+    >
       {/* Step Labels */}
       <div className="flex items-center justify-between gap-2">
         {stepLabels.map((label, index) => {

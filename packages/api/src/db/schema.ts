@@ -1,4 +1,13 @@
-import { pgTable, text, timestamp, integer, pgEnum, jsonb, boolean, numeric } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  pgEnum,
+  jsonb,
+  boolean,
+  numeric,
+} from 'drizzle-orm/pg-core';
 
 export const appStatusEnum = pgEnum('app_status', [
   'saved',
@@ -278,3 +287,69 @@ export type NewRecurringTheme = typeof recurringThemes.$inferInsert;
 export type CatalogChangeLog = typeof catalogChangeLog.$inferSelect;
 export type CatalogDiff = typeof catalogDiffs.$inferSelect;
 export type WikilinkRegistry = typeof wikilinkRegistry.$inferSelect;
+
+// Cover letter enums
+export const coverLetterStatusEnum = pgEnum('cover_letter_status', ['draft', 'finalized']);
+export const tonePreferenceEnum = pgEnum('tone_preference', [
+  'professional',
+  'conversational',
+  'enthusiastic',
+  'technical',
+]);
+export const lengthVariantEnum = pgEnum('length_variant', ['concise', 'standard', 'detailed']);
+export const emphasisPreferenceEnum = pgEnum('emphasis_preference', ['technical', 'leadership', 'balanced']);
+export const outreachPlatformEnum = pgEnum('outreach_platform', ['linkedin', 'email']);
+
+export interface RevisionEntry {
+  id: string;
+  instructions: string;
+  previousContent: string;
+  createdAt: string;
+}
+
+export const coverLetters = pgTable('cover_letters', {
+  id: text('id').primaryKey(),
+  status: coverLetterStatusEnum('status').notNull().default('draft'),
+  title: text('title').notNull(),
+  targetCompany: text('target_company').notNull(),
+  targetRole: text('target_role').notNull(),
+  tone: tonePreferenceEnum('tone').notNull().default('professional'),
+  lengthVariant: lengthVariantEnum('length_variant').notNull().default('standard'),
+  emphasis: emphasisPreferenceEnum('emphasis').notNull().default('balanced'),
+  jobDescriptionText: text('job_description_text'),
+  jobDescriptionUrl: text('job_description_url'),
+  jobFitAnalysisId: text('job_fit_analysis_id'),
+  selectedStarEntryIds: jsonb('selected_star_entry_ids').$type<string[]>().notNull().default([]),
+  content: text('content').notNull(),
+  revisionHistory: jsonb('revision_history').$type<RevisionEntry[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export const outreachMessages = pgTable('outreach_messages', {
+  id: text('id').primaryKey(),
+  platform: outreachPlatformEnum('platform').notNull(),
+  targetCompany: text('target_company').notNull(),
+  targetRole: text('target_role'),
+  targetName: text('target_name'),
+  targetTitle: text('target_title'),
+  coverLetterId: text('cover_letter_id').references(() => coverLetters.id, {
+    onDelete: 'set null',
+  }),
+  jobFitAnalysisId: text('job_fit_analysis_id'),
+  subject: text('subject'),
+  body: text('body').notNull(),
+  characterCount: integer('character_count').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CoverLetter = typeof coverLetters.$inferSelect;
+export type NewCoverLetter = typeof coverLetters.$inferInsert;
+export type OutreachMessage = typeof outreachMessages.$inferSelect;
+export type NewOutreachMessage = typeof outreachMessages.$inferInsert;
+export type CoverLetterStatus = (typeof coverLetterStatusEnum.enumValues)[number];
+export type TonePreference = (typeof tonePreferenceEnum.enumValues)[number];
+export type LengthVariant = (typeof lengthVariantEnum.enumValues)[number];
+export type EmphasisPreference = (typeof emphasisPreferenceEnum.enumValues)[number];
+export type OutreachPlatform = (typeof outreachPlatformEnum.enumValues)[number];

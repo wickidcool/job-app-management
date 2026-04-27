@@ -664,3 +664,424 @@ flowchart LR
    - Cache analysis results for 24 hours to avoid re-analysis
    - Persist input text in localStorage to prevent data loss
    - Use progressive disclosure for match details (expand on click)
+
+---
+
+## 8. Cover Letter Generation (UC-4)
+
+### Overview
+
+Generate personalized cover letters from the user's catalog of STAR entries, guided by job fit analysis results. The system produces honest, tailored content that highlights relevant experience while transparently addressing gaps.
+
+### Content Integrity Constraints
+
+All generated cover letters MUST adhere to these rules:
+
+| Constraint | Description |
+|------------|-------------|
+| No fabrication | Never invent metrics, engagement numbers, credentials, or experiences not in the catalog |
+| Tool attribution accuracy | If the user used Claude for project X, say "Claude" — never substitute generic "AI tools" |
+| Honest gap framing | Address skill gaps with growth framing ("actively developing") rather than false claims |
+| Format preference | Default output is `.docx`; PDF available on explicit request |
+
+---
+
+### 8a. UC-4 Base: Generate Cover Letter
+
+**User Story:**
+> As a job seeker, I want to generate a tailored cover letter from my catalog and job fit analysis so that I can quickly produce compelling, honest applications.
+
+**Entry Points:**
+- Job Fit Analysis results → "Generate Cover Letter" button
+- Application detail page → "Create Cover Letter" action
+- Cover Letters page → "New Cover Letter" button
+
+```mermaid
+flowchart TD
+    A[User Initiates Cover Letter] --> B{Has Job Fit Analysis?}
+    B -->|Yes| C[Pre-load Analysis + Recommendations]
+    B -->|No| D[Prompt: Run Job Fit First?]
+    
+    D -->|Yes| E[Navigate to Job Fit Analysis]
+    D -->|No| F[Manual Mode: Select STAR Entries]
+    
+    C --> G[Display Generation Form]
+    F --> G
+    
+    G --> H[Configure Options:<br/>- Tone<br/>- Length<br/>- Format]
+    H --> I[Preview Selected STAR Entries]
+    I --> J{Minimum 2 Entries Selected?}
+    
+    J -->|No| K[Show Warning: Select More]
+    J -->|Yes| L[Enable Generate Button]
+    
+    K --> I
+    L --> M[User Clicks Generate]
+    M --> N[See Flow 8b: Processing]
+```
+
+**Acceptance Criteria:**
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| Happy path with fit analysis | User has completed job fit analysis for target role | User clicks "Generate Cover Letter" from results | Form pre-populates with job details, recommended STAR entries are pre-selected, overall fit level is displayed |
+| Manual entry selection | User has catalog entries but no fit analysis | User selects 2+ STAR entries manually | Generate button enables, selected entries shown in preview panel |
+| Insufficient entries | User has fewer than 2 STAR entries in catalog | User attempts to generate cover letter | Show blocking message: "Add more experiences to your catalog first" with link to resume upload |
+| Tone selection | User is on generation form | User selects tone (Professional/Conversational/Enthusiastic) | Preview updates to reflect tone choice, tooltip explains tone characteristics |
+| Length variant | User is on generation form | User selects length (Standard 300-400 words / Concise 150-200 words / Detailed 500-600 words) | Word count target displayed, output adheres to selected range |
+
+**Input Requirements:**
+
+| Input | Required | Source | Validation |
+|-------|----------|--------|------------|
+| Job Description | Yes | Job Fit Analysis or manual paste | Min 100 chars, max 50k chars |
+| Company Name | Yes | Job Fit Analysis or manual entry | Non-empty string |
+| Job Title | Yes | Job Fit Analysis or manual entry | Non-empty string |
+| STAR Entries | Yes (min 2) | Catalog selection | At least 2 entries with complete STAR format |
+| Tone | Yes | User selection | Enum: professional, conversational, enthusiastic |
+| Length | Yes | User selection | Enum: concise, standard, detailed |
+| Output Format | No | User selection | Default: docx, Options: docx, pdf |
+
+**Output Specifications:**
+
+| Attribute | Specification |
+|-----------|---------------|
+| Format | Microsoft Word (.docx) default; PDF on request |
+| Structure | Opening hook → Body paragraphs (2-3) → Closing with call-to-action |
+| Length variants | Concise: 150-200 words, Standard: 300-400 words, Detailed: 500-600 words |
+| Personalization | Company name, job title, and specific requirements woven throughout |
+| STAR integration | Selected achievements paraphrased naturally, not copied verbatim |
+
+---
+
+### 8b. Generation Processing
+
+```mermaid
+flowchart TD
+    A[Generation Submitted] --> B[Show Progress Modal]
+    B --> C[Step 1: Analyzing Requirements]
+    C --> D[Step 2: Selecting Relevant Content]
+    D --> E[Step 3: Drafting Paragraphs]
+    E --> F[Step 4: Applying Tone]
+    F --> G[Step 5: Formatting Output]
+    
+    G --> H{Generation Complete?}
+    H -->|Success| I[Display Draft Preview]
+    H -->|Error| J{Error Type}
+    
+    J -->|Content Violation| K[Show Error: Cannot Fabricate Content]
+    J -->|Network| L[Show Retry Option]
+    J -->|Timeout| M[Show Timeout + Retry]
+    
+    K --> N[Suggest: Add More Catalog Entries]
+    L --> O[User Retries]
+    M --> O
+    O --> A
+    
+    I --> P[See Flow 8c: Review Draft]
+```
+
+**Processing States:**
+
+| Step | Duration | User Feedback |
+|------|----------|---------------|
+| Analyzing Requirements | 2-3s | "Understanding what the role needs..." |
+| Selecting Relevant Content | 2-3s | "Matching your experience to requirements..." |
+| Drafting Paragraphs | 5-8s | "Writing your cover letter..." |
+| Applying Tone | 1-2s | "Adjusting voice and style..." |
+| Formatting Output | 1s | "Preparing your document..." |
+
+---
+
+### 8c. Review and Edit Draft
+
+```mermaid
+flowchart TD
+    A[Draft Preview Displayed] --> B[Show Full Text in Editor]
+    B --> C[Display Source Attribution Panel]
+    C --> D{User Action}
+    
+    D -->|Edit Inline| E[Enable Rich Text Editor]
+    D -->|Request Revision| F[See Flow 8d: Revise Draft]
+    D -->|Accept| G[Finalize Document]
+    D -->|Regenerate| H[Return to Form with Options]
+    D -->|Cancel| I[Discard Draft]
+    
+    E --> J[User Makes Changes]
+    J --> K{Validate Edits}
+    K -->|Clean| L[Update Preview]
+    K -->|Fabrication Detected| M[Warn: Added Content Not in Catalog]
+    
+    M --> N{User Acknowledges?}
+    N -->|Keep Anyway| L
+    N -->|Revert| J
+    
+    L --> D
+    
+    G --> O[Generate Final Document]
+    O --> P{Output Format}
+    P -->|DOCX| Q[Download .docx File]
+    P -->|PDF| R[Download .pdf File]
+    
+    Q --> S[Prompt: Link to Application?]
+    R --> S
+    S --> T{User Choice}
+    T -->|Link| U[Associate with Application Record]
+    T -->|Skip| V[Save to Cover Letters Library]
+    
+    U --> V
+    V --> W[Success Toast + Navigate to Library]
+    
+    I --> X[Confirm Discard Dialog]
+    X -->|Confirm| Y[Return to Previous Page]
+    X -->|Cancel| A
+```
+
+**Acceptance Criteria for Review:**
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| View source attribution | Draft is displayed | User views attribution panel | Each claim in the letter shows linked STAR entry source |
+| Inline edit | Draft is displayed | User edits text directly | Changes are tracked, fabrication warnings shown if new claims added |
+| Accept and download | Draft is finalized | User clicks Accept | Document downloads in selected format within 2 seconds |
+| Link to application | Document is generated | User chooses to link | Cover letter appears in application detail page |
+
+---
+
+### 8d. UC-4a: Revise Existing Draft
+
+**User Story:**
+> As a job seeker, I want to request targeted revisions to my cover letter draft so that I can refine the content without regenerating from scratch.
+
+**Entry Points:**
+- Draft preview → "Request Revision" button
+- Cover Letter library → "Revise" action on existing letter
+
+```mermaid
+flowchart TD
+    A[User Clicks Request Revision] --> B[Open Revision Panel]
+    B --> C[Display Current Draft]
+    C --> D[Show Revision Options]
+    
+    D --> E{Revision Type}
+    E -->|Tone Adjustment| F[Select New Tone]
+    E -->|Length Change| G[Select New Length Target]
+    E -->|Emphasis Shift| H[Highlight Sections to Emphasize/De-emphasize]
+    E -->|Custom Instruction| I[Enter Free-text Guidance]
+    
+    F --> J[Queue Revision]
+    G --> J
+    H --> J
+    I --> J
+    
+    J --> K{Multiple Revisions?}
+    K -->|Add More| D
+    K -->|Done| L[Submit Revision Request]
+    
+    L --> M[Process Revision]
+    M --> N[Display Side-by-Side Diff]
+    N --> O{User Decision}
+    
+    O -->|Accept Changes| P[Replace Draft with Revision]
+    O -->|Reject Changes| Q[Keep Original Draft]
+    O -->|Request Another| B
+    
+    P --> R[Update Preview]
+    Q --> R
+    R --> S[Return to Review Flow 8c]
+```
+
+**Acceptance Criteria:**
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| Tone adjustment | User has generated draft | User requests tone change to "Conversational" | Revised draft maintains same content but uses warmer, less formal language |
+| Length reduction | User has 400-word draft | User requests "Concise" version | Revised draft is 150-200 words, key points preserved, filler removed |
+| Emphasis shift | User has draft with 3 achievements | User marks achievement #2 for emphasis | Revised draft expands achievement #2, condenses others proportionally |
+| Custom instruction | User has draft | User enters "Emphasize leadership experience" | Revision highlights leadership language, promotes relevant STAR entries |
+| Diff view | Revision is complete | User views result | Side-by-side diff shows additions (green), removals (red), unchanged (gray) |
+
+**Revision Constraints:**
+
+| Constraint | Behavior |
+|------------|----------|
+| Preserve accuracy | Revisions cannot add claims not sourced from catalog |
+| Respect format | Revision maintains selected output format |
+| Track history | Each revision is versioned; user can revert to any previous version |
+| Limit revisions | Maximum 10 revisions per draft to prevent infinite loops |
+
+---
+
+### 8e. UC-4b: Short-Form Outreach
+
+**User Story:**
+> As a job seeker, I want to generate short-form outreach messages (LinkedIn, email) so that I can reach out to recruiters and hiring managers with tailored, concise content.
+
+**Entry Points:**
+- Cover Letter library → "Create Outreach" action
+- Job Fit Analysis → "Generate Outreach" button
+- Application detail → "Draft Outreach" action
+
+```mermaid
+flowchart TD
+    A[User Initiates Outreach] --> B[Select Outreach Type]
+    B --> C{Type Selection}
+    
+    C -->|LinkedIn Message| D[LinkedIn Template]
+    C -->|LinkedIn Connection Request| E[Connection Request Template]
+    C -->|Email to Recruiter| F[Recruiter Email Template]
+    C -->|Email to Hiring Manager| G[Hiring Manager Email Template]
+    
+    D --> H[Configure: 300 char limit]
+    E --> I[Configure: 200 char limit]
+    F --> J[Configure: 150-200 words]
+    G --> J
+    
+    H --> K[Enter Recipient Context]
+    I --> K
+    J --> K
+    
+    K --> L[Optional: Add Mutual Connection/Shared Interest]
+    L --> M[Select 1-2 Key STAR Highlights]
+    M --> N[Generate Outreach]
+    
+    N --> O[Display Draft with Character Count]
+    O --> P{Within Limits?}
+    
+    P -->|Yes| Q[Enable Copy/Send Actions]
+    P -->|No| R[Show Warning + Auto-Trim Option]
+    
+    R --> S{User Choice}
+    S -->|Auto-Trim| T[Trim to Limit]
+    S -->|Edit Manually| U[User Edits]
+    
+    T --> Q
+    U --> O
+    
+    Q --> V{User Action}
+    V -->|Copy to Clipboard| W[Copy + Success Toast]
+    V -->|Edit| U
+    V -->|Save| X[Save to Outreach Library]
+    V -->|Discard| Y[Confirm Discard]
+    
+    W --> X
+    X --> Z[Link to Application if Applicable]
+```
+
+**Acceptance Criteria:**
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| LinkedIn message | User selects LinkedIn Message type | User generates outreach | Output is ≤300 characters, includes hook + value proposition + soft CTA |
+| Connection request | User selects Connection Request type | User generates outreach | Output is ≤200 characters, focuses on shared context + reason to connect |
+| Recruiter email | User selects Recruiter Email type | User generates outreach | Output is 150-200 words with subject line, includes role interest + key qualification + availability |
+| Hiring manager email | User selects Hiring Manager Email type | User generates outreach | Output is 150-200 words with subject line, includes specific company interest + relevant achievement + meeting request |
+| Mutual connection | User adds mutual connection name | User generates outreach | Output naturally references the mutual connection in opening |
+| Character limit exceeded | Generated content exceeds platform limit | User views draft | Warning badge shows overage, auto-trim button available |
+
+**Output Templates:**
+
+| Type | Max Length | Structure |
+|------|------------|-----------|
+| LinkedIn Message | 300 chars | Hook → Value prop → Soft CTA |
+| LinkedIn Connection Request | 200 chars | Shared context → Reason to connect |
+| Recruiter Email | 150-200 words | Subject → Greeting → Role interest → Key qualification → Availability → Sign-off |
+| Hiring Manager Email | 150-200 words | Subject → Greeting → Company-specific interest → Relevant achievement → Meeting request → Sign-off |
+
+---
+
+### 8f. Edge Cases and Error Handling
+
+```mermaid
+flowchart TD
+    A[Edge Case Detected] --> B{Case Type}
+    
+    B -->|Empty Catalog| C[Block Generation]
+    B -->|No Fit Analysis| D[Offer Manual Mode]
+    B -->|Insufficient STAR Entries| E[Warn + Suggest Upload]
+    B -->|Gap-Heavy Profile| F[Generate with Gap Framing]
+    B -->|Stale Fit Analysis| G[Warn + Offer Re-analysis]
+    
+    C --> H[Show Empty State:<br/>'Upload a resume to get started']
+    H --> I[Navigate to Resume Upload]
+    
+    D --> J[Show Manual Selection UI]
+    J --> K[User Picks Entries Manually]
+    
+    E --> L[Show Warning:<br/>'2+ STAR entries needed']
+    L --> M[Link to Catalog Curation]
+    
+    F --> N[Generate with Honest Gap Language]
+    N --> O[Highlight Gap Sections in Preview]
+    O --> P[Tooltip: 'This addresses a gap area']
+    
+    G --> Q[Show Warning:<br/>'Analysis is 30+ days old']
+    Q --> R{User Choice}
+    R -->|Re-analyze| S[Navigate to Job Fit]
+    R -->|Proceed Anyway| T[Continue with Stale Data]
+```
+
+**Edge Case Handling:**
+
+| Edge Case | Detection | User Experience |
+|-----------|-----------|-----------------|
+| Empty catalog | `catalogEntries.length === 0` | Blocking empty state with upload CTA |
+| No fit analysis | `fitAnalysisId === null` when entering from non-fit flow | Manual mode available, fit analysis suggested |
+| Fewer than 2 STAR entries | `selectedEntries.length < 2` | Warning message, generate button disabled |
+| All gaps, no matches | `fitAnalysis.strongMatches.length === 0` | Warning: "This role may not be a good fit", generate allowed with honest framing |
+| Fit analysis > 30 days old | `fitAnalysis.createdAt < now - 30d` | Warning badge, re-analysis suggested but not required |
+| Selected STAR entry deleted | Entry removed from catalog after selection | Toast: "Some selections are no longer available", auto-deselect |
+
+---
+
+### 8g. Accessibility Requirements
+
+**Screen Reader Support:**
+- Draft content: "Cover letter draft, 350 words, Professional tone"
+- Source attribution: "Paragraph 2 sources from: Project Alpha achievement, Cloud migration experience"
+- Character count: "LinkedIn message, 280 of 300 characters used"
+- Revision diff: "Change 1 of 3: Removed 'extensive', added 'significant'"
+
+**Keyboard Navigation:**
+- Tab order: Type selection → Options → STAR selection → Generate → Preview → Actions
+- Enter/Space: Toggle selections, submit forms
+- Escape: Close modals, cancel operations
+- Arrow keys: Navigate STAR entry list, revision options
+
+**Focus Management:**
+1. On generation complete: Focus moves to draft preview heading
+2. On error: Focus moves to error message with retry option
+3. On revision complete: Focus moves to diff panel
+4. On download: Focus remains on download button, success announced
+
+---
+
+### 8h. Data Model Integration
+
+**Cover Letter Record:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | ULID | Unique identifier |
+| `applicationId` | ULID | Linked application |
+| `fitAnalysisId` | ULID | Source job fit analysis |
+| `type` | Enum | `cover_letter`, `linkedin_message`, `linkedin_connection`, `recruiter_email`, `hiring_manager_email` |
+| `tone` | Enum | `professional`, `conversational`, `enthusiastic` |
+| `length` | Enum | `concise`, `standard`, `detailed` |
+| `content` | Text | Generated content |
+| `sourceEntryIds` | ULID[] | STAR entries used |
+| `version` | Integer | Optimistic locking |
+| `createdAt` | Timestamp | Creation time |
+| `updatedAt` | Timestamp | Last modification |
+
+**Revision History:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | ULID | Revision identifier |
+| `coverLetterId` | ULID | Parent cover letter |
+| `revisionType` | Enum | `tone`, `length`, `emphasis`, `custom` |
+| `instruction` | Text | User's revision request |
+| `previousContent` | Text | Content before revision |
+| `newContent` | Text | Content after revision |
+| `createdAt` | Timestamp | Revision timestamp |

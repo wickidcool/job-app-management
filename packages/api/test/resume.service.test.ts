@@ -109,7 +109,7 @@ describe('generateStarMarkdown', () => {
 describe('extractExperienceEntries', () => {
   it('parses entries with pipe-delimited company, role, and period', () => {
     const parsed = parseResumeText(
-      `Experience\nAcme Corp | Senior Engineer | 2021-2023\n- Built APIs\n- Led migrations`,
+      `Experience\nAcme Corp | Senior Engineer | 2021-2023\n- Built APIs\n- Led migrations`
     );
     const entries = extractExperienceEntries(parsed);
     expect(entries).toHaveLength(1);
@@ -143,7 +143,7 @@ describe('extractExperienceEntries', () => {
 
   it('parses multiple entries within one section', () => {
     const parsed = parseResumeText(
-      `Experience\nAcme Corp | Dev | 2022\n- Shipped features\nBeta Inc | Lead | 2020\n- Managed team`,
+      `Experience\nAcme Corp | Dev | 2022\n- Shipped features\nBeta Inc | Lead | 2020\n- Managed team`
     );
     const entries = extractExperienceEntries(parsed);
     expect(entries).toHaveLength(2);
@@ -154,7 +154,12 @@ describe('extractExperienceEntries', () => {
 
 describe('generateProjectMarkdown', () => {
   it('renders frontmatter with company, role, period, industry, tech, and job_fit', () => {
-    const entry = { company: 'Acme Corp', role: 'Senior Engineer', period: '2021-2023', bullets: [] };
+    const entry = {
+      company: 'Acme Corp',
+      role: 'Senior Engineer',
+      period: '2021-2023',
+      bullets: [],
+    };
     const md = generateProjectMarkdown(entry);
     expect(md).toContain('company: Acme Corp');
     expect(md).toContain('role: Senior Engineer');
@@ -180,7 +185,12 @@ describe('generateProjectMarkdown', () => {
   });
 
   it('includes per-bullet STAR sections without numbered prefix or Index', () => {
-    const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: ['Built APIs', 'Led migrations'] };
+    const entry = {
+      company: 'Acme Corp',
+      role: 'Dev',
+      period: '2022',
+      bullets: ['Built APIs', 'Led migrations'],
+    };
     const md = generateProjectMarkdown(entry);
     expect(md).not.toContain('## Index');
     expect(md).toContain('## ⭐ Built APIs');

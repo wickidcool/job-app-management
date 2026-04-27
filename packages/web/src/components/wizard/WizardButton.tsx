@@ -24,7 +24,8 @@ export function WizardButton({
   'aria-label': ariaLabel,
 }: WizardButtonProps) {
   const getVariantClasses = () => {
-    const baseClasses = 'inline-flex items-center justify-center rounded-lg font-semibold transition-all duration-base focus:outline-none';
+    const baseClasses =
+      'inline-flex items-center justify-center rounded-lg font-semibold transition-all duration-base focus:outline-none';
 
     switch (variant) {
       case 'primary':

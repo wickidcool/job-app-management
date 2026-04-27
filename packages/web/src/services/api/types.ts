@@ -166,3 +166,179 @@ export interface APIResume {
 export interface ListResumesResponse {
   resumes: APIResume[];
 }
+
+/**
+ * Cover Letter Types
+ */
+
+export type CoverLetterTone = 'professional' | 'conversational' | 'enthusiastic' | 'technical';
+export type CoverLetterLength = 'concise' | 'standard' | 'detailed';
+export type CoverLetterEmphasis = 'technical' | 'leadership' | 'balanced';
+
+export interface CoverLetterVariant {
+  tone: CoverLetterTone;
+  length: CoverLetterLength;
+  emphasis: CoverLetterEmphasis;
+}
+
+export interface CoverLetterSummary {
+  id: string;
+  title: string;
+  keywords: string[];
+  createdAt: string;
+  preview: string;
+}
+
+export interface CoverLetterResult {
+  id: string;
+  content: string;
+  variant: CoverLetterVariant;
+  selectedSTARs: string[];
+  generatedAt: string;
+  applicationId?: string;
+}
+
+export interface ListCoverLettersResponse {
+  coverLetters: CoverLetterSummary[];
+}
+
+/**
+ * Cover Letter API Request/Response Types
+ */
+
+export interface GenerateCoverLetterRequest {
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+  jobFitAnalysisId?: string;
+  selectedStarEntryIds: string[];
+  targetCompany?: string;
+  targetRole?: string;
+  tone?: CoverLetterTone;
+  lengthVariant?: CoverLetterLength;
+  emphasis?: CoverLetterEmphasis;
+  emphasizeThemes?: string[];
+  customInstructions?: string;
+}
+
+export interface GenerateCoverLetterResponse {
+  coverLetter: {
+    id: string;
+    title: string;
+    content: string;
+    tone: CoverLetterTone;
+    lengthVariant: CoverLetterLength;
+    emphasis: CoverLetterEmphasis;
+    wordCount: number;
+    selectedStarEntryIds: string[];
+    status: 'draft' | 'finalized';
+    version: number;
+    createdAt: string;
+    updatedAt: string;
+  };
+}
+
+export interface ReviseCoverLetterRequest {
+  instructions: string;
+  selectedStarEntryIds?: string[];
+  tone?: CoverLetterTone;
+  lengthVariant?: CoverLetterLength;
+  version: number;
+}
+
+export interface ReviseCoverLetterResponse {
+  coverLetter: {
+    id: string;
+    title: string;
+    content: string;
+    tone: CoverLetterTone;
+    lengthVariant: CoverLetterLength;
+    emphasis: CoverLetterEmphasis;
+    wordCount: number;
+    selectedStarEntryIds: string[];
+    status: 'draft' | 'finalized';
+    version: number;
+    createdAt: string;
+    updatedAt: string;
+  };
+}
+
+export interface UpdateCoverLetterRequest {
+  title?: string;
+  content?: string;
+  status?: 'draft' | 'finalized';
+  version: number;
+}
+
+export interface GenerateOutreachRequest {
+  platform: 'linkedin' | 'email';
+  targetName?: string;
+  targetTitle?: string;
+  targetCompany: string;
+  targetRole?: string;
+  coverLetterId?: string;
+  jobFitAnalysisId?: string;
+  selectedStarEntryIds?: string[];
+  keyPoints?: string[];
+  callToAction?: 'coffee_chat' | 'referral' | 'application_follow_up' | 'informational';
+  maxLength?: number;
+}
+
+export interface GenerateOutreachResponse {
+  message: OutreachMessage;
+}
+
+export interface ExportCoverLetterRequest {
+  format: 'docx';
+  includeHeader?: boolean;
+  headerInfo?: {
+    name: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+  };
+  fontSize?: 11 | 12;
+}
+
+export interface ExportCoverLetterResponse {
+  exportId: string;
+  format: 'docx';
+  filename: string;
+  fileSize: number;
+  base64Content: string;
+  createdAt: string;
+}
+
+/**
+ * Catalog / STAR Entry Types
+ */
+
+export interface CatalogEntry {
+  id: string;
+  title: string;
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+  tags: string[];
+  timeframe?: string;
+  relevanceScore?: number; // For fit analysis context
+  relevanceReasoning?: string;
+}
+
+export interface ListCatalogEntriesResponse {
+  entries: CatalogEntry[];
+}
+
+/**
+ * Outreach Types
+ */
+
+export type OutreachPlatform = 'linkedin' | 'email';
+
+export interface OutreachMessage {
+  platform: OutreachPlatform;
+  subject?: string; // Email only
+  body: string;
+  characterCount: number;
+  generatedAt: string;
+}

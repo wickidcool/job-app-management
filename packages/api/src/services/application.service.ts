@@ -46,7 +46,7 @@ function historyToDTO(h: StatusHistoryEntry): StatusHistoryDTO {
 }
 
 export async function createApplication(
-  input: CreateApplicationInput,
+  input: CreateApplicationInput
 ): Promise<{ application: ApplicationDTO }> {
   const db = getDb();
   const id = ulid();
@@ -87,7 +87,7 @@ export async function createApplication(
 }
 
 export async function getApplication(
-  id: string,
+  id: string
 ): Promise<{ application: ApplicationDTO; statusHistory: StatusHistoryDTO[] }> {
   const db = getDb();
 
@@ -118,7 +118,13 @@ export async function listApplications(params: ListApplicationsParams): Promise<
 
   if (params.status) {
     const VALID_STATUSES: ApplicationStatus[] = [
-      'saved', 'applied', 'phone_screen', 'interview', 'offer', 'rejected', 'withdrawn',
+      'saved',
+      'applied',
+      'phone_screen',
+      'interview',
+      'offer',
+      'rejected',
+      'withdrawn',
     ];
     const statuses = params.status
       .split(',')
@@ -143,8 +149,8 @@ export async function listApplications(params: ListApplicationsParams): Promise<
     conditions.push(
       or(
         ilike(applications.jobTitle, `%${params.search}%`),
-        ilike(applications.company, `%${params.search}%`),
-      ),
+        ilike(applications.company, `%${params.search}%`)
+      )
     );
   }
 
@@ -205,7 +211,7 @@ export async function listApplications(params: ListApplicationsParams): Promise<
 
 export async function updateApplication(
   id: string,
-  input: UpdateApplicationInput,
+  input: UpdateApplicationInput
 ): Promise<{ application: ApplicationDTO }> {
   const db = getDb();
 
@@ -248,7 +254,7 @@ export async function deleteApplication(id: string): Promise<void> {
 
 export async function updateApplicationStatus(
   id: string,
-  input: UpdateStatusInput,
+  input: UpdateStatusInput
 ): Promise<{ application: ApplicationDTO; statusHistory: StatusHistoryDTO[] }> {
   const db = getDb();
 

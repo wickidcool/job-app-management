@@ -19,7 +19,7 @@ export function enqueueChange(
   sourceType: ChangeEvent['sourceType'],
   sourceId: string,
   changeType: ChangeEvent['changeType'],
-  metadata?: Record<string, unknown>,
+  metadata?: Record<string, unknown>
 ): void {
   const key = `${sourceType}:${sourceId}`;
   pending.set(key, {

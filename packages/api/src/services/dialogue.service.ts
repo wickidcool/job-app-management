@@ -64,7 +64,7 @@ export function generateDialogueMarkdown(data: ProjectCaptureInput): string {
   const title = `${data.company} — ${data.role}`;
   lines.push(`# ${title}`);
   lines.push(
-    `**Role:** ${data.role} | **Period:** ${data.period} | **Industry:** ${data.industry || '_[Industry]_'}`,
+    `**Role:** ${data.role} | **Period:** ${data.period} | **Industry:** ${data.industry || '_[Industry]_'}`
   );
   lines.push('');
 
@@ -164,7 +164,10 @@ function parseExistingFile(content: string): ProjectCaptureInput {
   };
 }
 
-function mergeProjectData(existing: ProjectCaptureInput, additions: ProjectEnrichInput): ProjectCaptureInput {
+function mergeProjectData(
+  existing: ProjectCaptureInput,
+  additions: ProjectEnrichInput
+): ProjectCaptureInput {
   return {
     company: additions.company || existing.company,
     role: additions.role || existing.role,
@@ -187,7 +190,7 @@ function mergeProjectData(existing: ProjectCaptureInput, additions: ProjectEnric
 export async function captureProjectFile(
   slug: string,
   data: ProjectCaptureInput,
-  overrideFileName?: string,
+  overrideFileName?: string
 ): Promise<CaptureResult> {
   await getOrCreateProjectBySlug(slug, data.company);
   const fileName = overrideFileName ?? generateFileName(data.company, data.role);
@@ -204,7 +207,7 @@ export async function captureProjectFile(
 export async function enrichProjectFile(
   slug: string,
   fileName: string,
-  additions: ProjectEnrichInput,
+  additions: ProjectEnrichInput
 ): Promise<{ content: string }> {
   const existing = await getProjectFile(slug, fileName);
   const parsed = parseExistingFile(existing);
@@ -217,7 +220,7 @@ export async function enrichProjectFile(
 export async function correctProjectFile(
   slug: string,
   fileName: string,
-  data: ProjectCaptureInput,
+  data: ProjectCaptureInput
 ): Promise<{ content: string }> {
   await getProjectFile(slug, fileName); // verify file exists
   const content = generateDialogueMarkdown(data);

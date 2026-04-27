@@ -74,7 +74,8 @@ export function parseResumeText(rawText: string): ParsedResume {
   const sections: ParsedSection[] = [];
   let currentSection: ParsedSection | null = null;
 
-  const SECTION_HEADINGS = /^(experience|work experience|employment|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
+  const SECTION_HEADINGS =
+    /^(experience|work experience|employment|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
 
   for (const line of lines) {
     if (SECTION_HEADINGS.test(line) && line.length < 60) {
@@ -113,7 +114,8 @@ export function generateStarMarkdown(parsed: ParsedResume, fileName: string): st
       while (i < section.bullets.length) {
         const bullet = section.bullets[i];
         // Heuristic: lines that look like a job title/company entry (no leading dash/bullet)
-        const isEntry = !bullet.startsWith('-') && !bullet.startsWith('•') && !bullet.startsWith('*');
+        const isEntry =
+          !bullet.startsWith('-') && !bullet.startsWith('•') && !bullet.startsWith('*');
         if (isEntry) {
           lines.push(`### ${bullet}`);
           lines.push('');
@@ -180,7 +182,11 @@ export function extractExperienceEntries(parsed: ParsedResume): ExperienceEntry[
     let currentEntry: ExperienceEntry | null = null;
 
     for (const bullet of section.bullets) {
-      const isEntry = !bullet.startsWith('-') && !bullet.startsWith('•') && !bullet.startsWith('*') && !bullet.startsWith('·');
+      const isEntry =
+        !bullet.startsWith('-') &&
+        !bullet.startsWith('•') &&
+        !bullet.startsWith('*') &&
+        !bullet.startsWith('·');
 
       if (isEntry) {
         if (currentEntry) entries.push(currentEntry);
@@ -226,7 +232,9 @@ export function generateProjectMarkdown(entry: ExperienceEntry): string {
   const title = entry.role ? `${entry.company} — ${entry.role}` : entry.company;
   lines.push(`# ${title}`);
   if (entry.role && entry.period) {
-    lines.push(`**Role:** ${entry.role} | **Period:** ${entry.period} | **Industry:** _[Industry / sector]_`);
+    lines.push(
+      `**Role:** ${entry.role} | **Period:** ${entry.period} | **Industry:** _[Industry / sector]_`
+    );
   }
   lines.push('');
 
@@ -286,7 +294,7 @@ function exportToDTO(e: typeof resumeExports.$inferSelect): ResumeExportDTO {
 export async function uploadResume(
   fileBuffer: Buffer,
   fileName: string,
-  mimeType: string,
+  mimeType: string
 ): Promise<UploadResumeResult> {
   if (!ALLOWED_MIME_TYPES.has(mimeType)) {
     throw new Error(`Unsupported file type: ${mimeType}. Only PDF and DOCX are accepted.`);
@@ -413,15 +421,15 @@ export async function listResumeExports(resumeId: string): Promise<ResumeExportD
     throw new NotFoundError('Resume');
   }
 
-  const exports = await db
-    .select()
-    .from(resumeExports)
-    .where(eq(resumeExports.resumeId, resumeId));
+  const exports = await db.select().from(resumeExports).where(eq(resumeExports.resumeId, resumeId));
 
   return exports.map(exportToDTO);
 }
 
-export async function getResumeExport(resumeId: string, exportId: string): Promise<ResumeExportDTO> {
+export async function getResumeExport(
+  resumeId: string,
+  exportId: string
+): Promise<ResumeExportDTO> {
   const db = getDb();
 
   const resume = await db.select().from(resumes).where(eq(resumes.id, resumeId)).limit(1);
@@ -451,10 +459,7 @@ export async function deleteResume(resumeId: string): Promise<void> {
   await fs.unlink(resume.filePath).catch(() => null);
 
   // Delete exports (cascade will handle DB records, but we need to delete files)
-  const exports = await db
-    .select()
-    .from(resumeExports)
-    .where(eq(resumeExports.resumeId, resumeId));
+  const exports = await db.select().from(resumeExports).where(eq(resumeExports.resumeId, resumeId));
   for (const exp of exports) {
     await fs.unlink(exp.filePath).catch(() => null);
   }

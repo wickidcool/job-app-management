@@ -5,6 +5,7 @@ This module provides the real backend API integration for the Job Application Ma
 ## Status: ⏸️ Ready for Backend
 
 All API integration code is prepared and waiting for:
+
 - ✅ API service structure built
 - ✅ TypeScript types matching API contracts
 - ✅ Authentication infrastructure ready
@@ -57,11 +58,13 @@ async function getAuthToken(): Promise<string | null> {
 In all components using `mockApplicationService`, change the import:
 
 **Before:**
+
 ```typescript
 import { mockApplicationService } from '../services/mockApplicationService';
 ```
 
 **After:**
+
 ```typescript
 import { applicationService } from '../services/api';
 ```
@@ -80,17 +83,20 @@ The interface is identical, so no other code changes needed!
 ## API Client Features
 
 ### Authentication
+
 - Automatic Bearer token injection
 - Token refresh support (when implemented)
 - 401/403 error handling
 
 ### Error Handling
+
 - Custom `APIError` class with error codes
 - Network error handling
 - API error response parsing
 - Type-safe error details
 
 ### Type Safety
+
 - Full TypeScript types from API contracts
 - Date transformation (ISO strings ↔ Date objects)
 - Request/response validation
@@ -122,9 +128,9 @@ try {
   await applicationService.delete(id);
 } catch (error) {
   if (error instanceof APIError) {
-    console.log(error.code);    // "NOT_FOUND"
-    console.log(error.message);  // "Application not found"
-    console.log(error.status);   // 404
+    console.log(error.code); // "NOT_FOUND"
+    console.log(error.message); // "Application not found"
+    console.log(error.status); // 404
   }
 }
 ```

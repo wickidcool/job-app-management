@@ -1,8 +1,5 @@
 import type { APIClient } from './apiClient';
-import type {
-  AnalyzeJobFitRequest,
-  AnalyzeJobFitResponse,
-} from '../../types/jobFit';
+import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../../types/jobFit';
 
 export interface JobFitService {
   /**

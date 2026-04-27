@@ -95,9 +95,7 @@ export function ApplicationCard({
 
         <div className="flex-1 min-w-0">
           {/* Job Title */}
-          <h3 className="text-lg font-semibold truncate text-gray-900">
-            {application.jobTitle}
-          </h3>
+          <h3 className="text-lg font-semibold truncate text-gray-900">{application.jobTitle}</h3>
 
           {/* Company Name */}
           <p className="text-sm text-gray-600 truncate">{application.company}</p>

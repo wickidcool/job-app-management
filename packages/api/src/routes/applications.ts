@@ -65,7 +65,11 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
     const query = listQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid query parameters',
+          details: query.error.flatten(),
+        },
       });
     }
     const result = await listApplications(query.data);
@@ -84,7 +88,11 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
     const body = createApplicationSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid request body', details: body.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: body.error.flatten(),
+        },
       });
     }
     const result = await createApplication(body.data);
@@ -97,7 +105,11 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
     const body = updateApplicationSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid request body', details: body.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: body.error.flatten(),
+        },
       });
     }
     const result = await updateApplication(id, body.data);
@@ -117,7 +129,11 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
     const body = updateStatusSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid request body', details: body.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: body.error.flatten(),
+        },
       });
     }
     const result = await updateApplicationStatus(id, body.data);

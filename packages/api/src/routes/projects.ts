@@ -25,24 +25,25 @@ export async function projectsRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: { name: string; slug?: string; description?: string } }>(
     '/projects',
     async (request, reply) => {
-      const { name, slug, description } = request.body as { name: string; slug?: string; description?: string };
+      const { name, slug, description } = request.body as {
+        name: string;
+        slug?: string;
+        description?: string;
+      };
       if (!name || typeof name !== 'string') {
         throw new AppError('BAD_REQUEST', 'name is required', undefined, 400);
       }
       const project = await createProject({ name, slug, description });
       return reply.status(201).send(project);
-    },
+    }
   );
 
   // GET /api/projects/:projectId
-  fastify.get<{ Params: { projectId: string } }>(
-    '/projects/:projectId',
-    async (request, reply) => {
-      const { projectId } = request.params;
-      const project = await getProjectBySlug(projectId);
-      return reply.send(project);
-    },
-  );
+  fastify.get<{ Params: { projectId: string } }>('/projects/:projectId', async (request, reply) => {
+    const { projectId } = request.params;
+    const project = await getProjectBySlug(projectId);
+    return reply.send(project);
+  });
 
   // DELETE /api/projects/:projectId
   fastify.delete<{ Params: { projectId: string } }>(
@@ -52,7 +53,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       const project = await getProjectBySlug(projectId);
       await deleteProject(project.id);
       return reply.status(204).send();
-    },
+    }
   );
 
   // GET /api/projects/:projectId/files
@@ -62,7 +63,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       const { projectId } = request.params;
       const files = await listProjectFiles(projectId);
       return reply.send({ files });
-    },
+    }
   );
 
   // GET /api/projects/:projectId/files/:fileName
@@ -72,7 +73,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       const { projectId, fileName } = request.params;
       const content = await getProjectFile(projectId, fileName);
       return reply.send({ content });
-    },
+    }
   );
 
   // PUT /api/projects/:projectId/files/:fileName
@@ -86,7 +87,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       }
       await updateProjectFile(projectId, fileName, content);
       return reply.status(204).send();
-    },
+    }
   );
 
   // POST /api/projects/:projectId/files
@@ -103,7 +104,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       }
       await createProjectFile(projectId, fileName, content);
       return reply.status(201).send({ fileName });
-    },
+    }
   );
 
   // DELETE /api/projects/:projectId/files/:fileName
@@ -113,7 +114,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       const { projectId, fileName } = request.params;
       await deleteProjectFile(projectId, fileName);
       return reply.status(204).send();
-    },
+    }
   );
 
   // POST /api/projects/generate-index

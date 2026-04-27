@@ -26,8 +26,7 @@ export function CatalogBrowseTable({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const handleSort = (column: string) => {
-    const newDirection =
-      sortColumn === column && sortDirection === 'asc' ? 'desc' : 'asc';
+    const newDirection = sortColumn === column && sortDirection === 'asc' ? 'desc' : 'asc';
     setSortColumn(column);
     setSortDirection(newDirection);
     onSort?.(column, newDirection);
@@ -150,9 +149,7 @@ export function CatalogBrowseTable({
             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-neutral-900">
               {tag.displayName}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-700">
-              {tag.category}
-            </td>
+            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-700">{tag.category}</td>
             <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-700">
               {tag.mentionCount}
             </td>
@@ -205,7 +202,9 @@ export function CatalogBrowseTable({
               <div className="max-w-2xl">
                 {bullet.rawText}
                 <div className="mt-1 space-x-4 text-xs text-neutral-500">
-                  <span>• Metric: {bullet.metricType} {bullet.metricValue}</span>
+                  <span>
+                    • Metric: {bullet.metricType} {bullet.metricValue}
+                  </span>
                 </div>
               </div>
             </td>
@@ -231,12 +230,10 @@ export function CatalogBrowseTable({
 
   return (
     <div className="overflow-x-auto">
-      {catalogType === 'companies' &&
-        renderCompaniesTable(data as CompanyCatalogEntry[])}
+      {catalogType === 'companies' && renderCompaniesTable(data as CompanyCatalogEntry[])}
       {(catalogType === 'techStackTags' || catalogType === 'jobFitTags') &&
         renderTagsTable(data as (TechStackTag | JobFitTag)[])}
-      {catalogType === 'quantifiedBullets' &&
-        renderBulletsTable(data as QuantifiedBullet[])}
+      {catalogType === 'quantifiedBullets' && renderBulletsTable(data as QuantifiedBullet[])}
     </div>
   );
 }

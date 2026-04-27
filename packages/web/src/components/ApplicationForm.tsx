@@ -26,7 +26,15 @@ const applicationFormSchema = z.object({
     .string()
     .max(10000, 'Job description must be less than 10,000 characters')
     .optional(),
-  status: z.enum(['saved', 'applied', 'phone_screen', 'interview', 'offer', 'rejected', 'withdrawn']),
+  status: z.enum([
+    'saved',
+    'applied',
+    'phone_screen',
+    'interview',
+    'offer',
+    'rejected',
+    'withdrawn',
+  ]),
   linkCoverLetter: z.boolean().optional(),
   coverLetterId: z.string().optional(),
 });
@@ -233,7 +241,10 @@ export function ApplicationForm({
               </div>
 
               <div>
-                <label htmlFor="salaryRange" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="salaryRange"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Salary Range
                 </label>
                 <input
@@ -269,7 +280,10 @@ export function ApplicationForm({
 
             {/* Job Description */}
             <div>
-              <label htmlFor="jobDescription" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="jobDescription"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Job Description
               </label>
               <textarea
@@ -304,7 +318,10 @@ export function ApplicationForm({
             {/* Cover Letter Picker (shown when checkbox is checked) */}
             {linkCoverLetter && (
               <div>
-                <label htmlFor="coverLetterId" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="coverLetterId"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Select Cover Letter
                 </label>
                 <select

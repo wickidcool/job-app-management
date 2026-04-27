@@ -52,9 +52,7 @@ export function FilterPanel({
   const [selectedStatuses, setSelectedStatuses] = useState<ApplicationStatus[]>(
     activeFilters.status || []
   );
-  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(
-    activeFilters.company || []
-  );
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(activeFilters.company || []);
 
   const debouncedSearch = useDebounce(searchInput, 300);
 

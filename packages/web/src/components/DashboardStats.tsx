@@ -50,11 +50,7 @@ export function DashboardStats({ stats, loading = false }: DashboardStatsProps) 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {statItems.map((stat, index) => (
-        <StatCard
-          key={index}
-          value={stat.formatValue(stat.value)}
-          label={stat.label}
-        />
+        <StatCard key={index} value={stat.formatValue(stat.value)} label={stat.label} />
       ))}
     </div>
   );
@@ -78,12 +74,8 @@ function StatCard({ value, label }: StatCardProps) {
                  flex flex-col items-center justify-center
                  text-center"
     >
-      <div className="text-3xl font-bold text-primary-600 mb-1">
-        {value}
-      </div>
-      <div className="text-sm text-neutral-600">
-        {label}
-      </div>
+      <div className="text-3xl font-bold text-primary-600 mb-1">{value}</div>
+      <div className="text-sm text-neutral-600">{label}</div>
     </div>
   );
 }

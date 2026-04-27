@@ -15,6 +15,9 @@ import { DialogueCapture } from './pages/DialogueCapture';
 import { CatalogPage } from './pages/CatalogPage';
 import { Settings } from './pages/Settings';
 import { JobFitAnalysis } from './pages/JobFitAnalysis';
+import { CoverLetterNew } from './pages/CoverLetterNew';
+import { CoverLetterDetail } from './pages/CoverLetterDetail';
+import { OutreachNew } from './pages/OutreachNew';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
@@ -32,16 +35,10 @@ function App() {
     <BrowserRouter>
       <div className="min-h-screen bg-neutral-50">
         <div className="hidden md:block">
-          <TopNavigation
-            applicationCount={inProgressCount}
-            exportCount={exportCount}
-          />
+          <TopNavigation applicationCount={inProgressCount} exportCount={exportCount} />
         </div>
         <div className="md:hidden">
-          <MobileNavigation
-            applicationCount={inProgressCount}
-            exportCount={exportCount}
-          />
+          <MobileNavigation applicationCount={inProgressCount} exportCount={exportCount} />
         </div>
 
         <main>
@@ -55,13 +52,13 @@ function App() {
             <Route path="/resumes/exports" element={<ResumeExports />} />
             <Route path="/catalog" element={<CatalogPage />} />
             <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
+            <Route path="/cover-letters/new" element={<CoverLetterNew />} />
+            <Route path="/cover-letters/:id" element={<CoverLetterDetail />} />
+            <Route path="/outreach/new" element={<OutreachNew />} />
             <Route path="/projects" element={<ProjectsList />} />
             <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
             <Route path="/projects/:projectId" element={<ProjectDetail />} />
-            <Route
-              path="/projects/:projectId/files/:fileName"
-              element={<ProjectFileEditor />}
-            />
+            <Route path="/projects/:projectId/files/:fileName" element={<ProjectFileEditor />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>

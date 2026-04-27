@@ -10,10 +10,7 @@ export type CatalogEntityType =
 
 export type CatalogChangeAction = 'create' | 'update' | 'delete';
 
-export type AmbiguityType =
-  | 'ambiguous_tag'
-  | 'unresolved_wikilink'
-  | 'fuzzy_match';
+export type AmbiguityType = 'ambiguous_tag' | 'unresolved_wikilink' | 'fuzzy_match';
 
 export interface DiffSummary {
   summary: string;
@@ -117,11 +114,7 @@ export interface QuantifiedBullet {
   sourceName: string;
 }
 
-export type CatalogEntry =
-  | CompanyCatalogEntry
-  | TechStackTag
-  | JobFitTag
-  | QuantifiedBullet;
+export type CatalogEntry = CompanyCatalogEntry | TechStackTag | JobFitTag | QuantifiedBullet;
 
 export interface FilterCriteria {
   category?: string;

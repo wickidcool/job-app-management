@@ -8,6 +8,7 @@ import type {
   JobFitTag,
   QuantifiedBullet,
 } from '../../types/catalog';
+import type { CatalogEntry } from './types';
 
 /**
  * Catalog API service for UC-2 Catalog Diff Review
@@ -37,6 +38,7 @@ export interface CatalogService {
     search?: string;
     sort?: string;
   }): Promise<QuantifiedBullet[]>;
+  getStarEntries(): Promise<CatalogEntry[]>;
 }
 
 export function createCatalogService(client: APIClient): CatalogService {
@@ -68,10 +70,7 @@ export function createCatalogService(client: APIClient): CatalogService {
     /**
      * Apply selected changes from a diff
      */
-    async applyDiff(
-      diffId: string,
-      request: ApplyDiffRequest
-    ): Promise<ApplyDiffResponse> {
+    async applyDiff(diffId: string, request: ApplyDiffRequest): Promise<ApplyDiffResponse> {
       return client.post<ApplyDiffResponse>(`/catalog/diffs/${diffId}/apply`, request);
     },
 
@@ -123,6 +122,14 @@ export function createCatalogService(client: APIClient): CatalogService {
       sort?: string;
     }): Promise<QuantifiedBullet[]> {
       return client.get<QuantifiedBullet[]>('/catalog/quantified-bullets', params);
+    },
+
+    /**
+     * Get STAR catalog entries for cover letter generation
+     */
+    async getStarEntries(): Promise<CatalogEntry[]> {
+      const response = await client.get<{ entries: CatalogEntry[] }>('/star-entries');
+      return response.entries;
     },
   };
 }

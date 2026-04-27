@@ -20,6 +20,7 @@ import { createResumeService } from './resumeService';
 import { createProjectService } from './projectService';
 import { createCatalogService } from './catalog.service';
 import { createJobFitService } from './jobFitService';
+import { createCoverLetterService } from './coverLetters';
 
 // API Configuration
 // Local backend runs on port 3000
@@ -47,6 +48,7 @@ export const resumeService = createResumeService(apiClient);
 export const projectService = createProjectService(apiClient);
 export const catalogService = createCatalogService(apiClient);
 export const jobFitService = createJobFitService(apiClient);
+export const coverLetterService = createCoverLetterService(apiClient);
 
 // Re-export types for convenience
 export type { ApplicationService } from './applicationService';
@@ -56,4 +58,5 @@ export type { ResumeService, Resume } from './resumeService';
 export type { ProjectService, Project, ProjectFile, CreateProjectInput } from './projectService';
 export type { CatalogService } from './catalog.service';
 export type { JobFitService } from './jobFitService';
+export type { CoverLetterService, CoverLetter } from './coverLetters';
 export type * from './types';

@@ -1425,6 +1425,655 @@ Rate limits are per session. When exceeded, responses return `429 Too Many Reque
 
 ---
 
+### Cover Letter Generation (UC-4)
+
+AI-powered cover letter generation from catalog STAR entries, with support for revision and short-form outreach.
+
+#### Data Model
+
+```typescript
+interface CoverLetter {
+  id: string;                    // ULID
+  status: 'draft' | 'finalized';
+  title: string;                 // Auto-generated or user-provided
+  targetCompany: string;
+  targetRole: string;
+  tone: TonePreference;
+  lengthVariant: LengthVariant;
+  emphasis: EmphasisPreference;  // Content focus: 'technical' | 'leadership' | 'balanced'
+  jobDescriptionText?: string;   // Original JD text if provided
+  jobDescriptionUrl?: string;    // Original JD URL if provided
+  jobFitAnalysisId?: string;     // Reference to job fit analysis if used
+  selectedStarEntryIds: string[];
+  content: string;               // Generated markdown
+  revisionHistory: RevisionEntry[];
+  createdAt: string;             // ISO 8601
+  updatedAt: string;             // ISO 8601
+  version: number;
+}
+
+type TonePreference = 
+  | 'professional'     // Default, formal business tone
+  | 'conversational'   // Friendly but professional
+  | 'enthusiastic'     // High energy, startup-friendly
+  | 'technical';       // Emphasizes technical depth
+
+type LengthVariant =
+  | 'concise'          // ~200 words, 2-3 paragraphs
+  | 'standard'         // ~350 words, 4-5 paragraphs (default)
+  | 'detailed';        // ~500 words, 5-6 paragraphs
+
+type EmphasisPreference =
+  | 'technical'        // Focus on technical skills and achievements
+  | 'leadership'       // Focus on leadership and team impact
+  | 'balanced';        // Balanced mix (default)
+
+interface RevisionEntry {
+  id: string;
+  instructions: string;
+  previousContent: string;
+  createdAt: string;             // ISO 8601
+}
+```
+
+---
+
+#### Generate Cover Letter
+
+```
+POST /cover-letters/generate
+```
+
+Generates a new cover letter using catalog STAR entries and optional job fit analysis.
+
+**Request Body**:
+
+```typescript
+interface GenerateCoverLetterRequest {
+  // Job context (at least one required)
+  jobDescriptionText?: string;   // 50-50,000 characters
+  jobDescriptionUrl?: string;    // Valid URL to job posting
+  jobFitAnalysisId?: string;     // ID from prior /catalog/job-fit/analyze call
+
+  // STAR entry selection
+  selectedStarEntryIds: string[];  // At least 1, max 10 quantified bullet IDs
+
+  // Target info (required if not using jobFitAnalysisId)
+  targetCompany?: string;        // 1-200 characters
+  targetRole?: string;           // 1-200 characters
+
+  // Generation preferences
+  tone?: TonePreference;         // Default: 'professional'
+  lengthVariant?: LengthVariant; // Default: 'standard'
+  emphasis?: EmphasisPreference; // Default: 'balanced'
+  
+  // Optional customization
+  emphasizeThemes?: string[];    // Theme slugs to highlight
+  customInstructions?: string;   // Additional guidance, max 500 chars
+}
+```
+
+**Validation Rules**:
+
+- At least one of `jobDescriptionText`, `jobDescriptionUrl`, or `jobFitAnalysisId` must be provided
+- If `jobFitAnalysisId` is provided, `targetCompany` and `targetRole` are derived from the analysis
+- If no `jobFitAnalysisId`, both `targetCompany` and `targetRole` are required
+- `selectedStarEntryIds` must reference existing quantified bullets in the catalog
+- Cannot combine `jobDescriptionText` and `jobDescriptionUrl` (conflict)
+
+**Response**: `201 Created`
+
+```typescript
+interface GenerateCoverLetterResponse {
+  coverLetter: CoverLetter;
+  
+  // Generation metadata
+  usedStarEntries: UsedStarEntry[];
+  matchedThemes: string[];       // Themes incorporated from catalog
+  warnings: GenerationWarning[];
+}
+
+interface UsedStarEntry {
+  id: string;
+  rawText: string;
+  placement: 'opening' | 'body' | 'closing';  // Where it was used
+}
+
+interface GenerationWarning {
+  code: string;
+  message: string;
+}
+```
+
+**Warning Codes**:
+
+| Code | Description |
+|------|-------------|
+| `STAR_ENTRY_LOW_RELEVANCE` | Selected STAR entry has low relevance to JD |
+| `GAP_MENTIONED` | Cover letter addresses a skill gap honestly |
+| `SENIORITY_MISMATCH` | Target role seniority differs from catalog profile |
+| `LIMITED_STAR_ENTRIES` | Fewer STAR entries selected than recommended |
+
+**Example Request**:
+
+```bash
+curl -X POST "http://localhost:3000/api/cover-letters/generate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
+    "selectedStarEntryIds": [
+      "01HXK5R3J7Q8N2M4P6W9Y1Z3C7",
+      "01HXK5R3J7Q8N2M4P6W9Y1Z3C8"
+    ],
+    "tone": "professional",
+    "lengthVariant": "standard"
+  }'
+```
+
+**Example Response**:
+
+```json
+{
+  "coverLetter": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3E1",
+    "status": "draft",
+    "title": "Cover Letter - Senior Software Engineer at Acme Corp",
+    "targetCompany": "Acme Corp",
+    "targetRole": "Senior Software Engineer",
+    "tone": "professional",
+    "lengthVariant": "standard",
+    "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
+    "selectedStarEntryIds": [
+      "01HXK5R3J7Q8N2M4P6W9Y1Z3C7",
+      "01HXK5R3J7Q8N2M4P6W9Y1Z3C8"
+    ],
+    "content": "Dear Hiring Manager,\n\nI am writing to express my interest in the Senior Software Engineer position at Acme Corp. With extensive experience in TypeScript and React, I am excited about the opportunity to contribute to your engineering team.\n\nIn my current role, I reduced API response times by 40% through query optimization and caching strategies, demonstrating my commitment to building performant systems. Additionally, I led the migration of a legacy codebase to TypeScript, improving developer productivity by 25%.\n\nWhile I have not worked directly with AWS, my experience with Azure cloud services provides a strong foundation for quickly adapting to your infrastructure. I am eager to expand my cloud expertise in this direction.\n\nI look forward to discussing how my technical skills and collaborative approach can benefit Acme Corp.\n\nSincerely,\n[Your Name]",
+    "revisionHistory": [],
+    "createdAt": "2026-04-26T14:30:00.000Z",
+    "updatedAt": "2026-04-26T14:30:00.000Z",
+    "version": 1
+  },
+  "usedStarEntries": [
+    {
+      "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3C7",
+      "rawText": "Reduced API response times by 40% through query optimization and caching",
+      "placement": "body"
+    },
+    {
+      "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3C8",
+      "rawText": "Led TypeScript migration improving developer productivity by 25%",
+      "placement": "body"
+    }
+  ],
+  "matchedThemes": ["performance-optimization", "technical-leadership"],
+  "warnings": [
+    {
+      "code": "GAP_MENTIONED",
+      "message": "Cover letter addresses AWS gap with transferable Azure experience"
+    }
+  ]
+}
+```
+
+---
+
+#### Revise Cover Letter (UC-4a)
+
+```
+POST /cover-letters/{id}/revise
+```
+
+Revises an existing cover letter draft based on user instructions.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Cover letter ID (ULID) |
+
+**Request Body**:
+
+```typescript
+interface ReviseCoverLetterRequest {
+  instructions: string;            // 10-2,000 characters, revision guidance
+  
+  // Optional: update STAR selections
+  selectedStarEntryIds?: string[]; // Replaces current selection if provided
+  
+  // Optional: update preferences
+  tone?: TonePreference;
+  lengthVariant?: LengthVariant;
+  emphasis?: EmphasisPreference;
+  
+  version: number;                 // Required for optimistic locking
+}
+```
+
+**Response**: `200 OK`
+
+```typescript
+interface ReviseCoverLetterResponse {
+  coverLetter: CoverLetter;        // Updated with new content
+  
+  // Revision metadata
+  changesApplied: string[];        // Summary of changes made
+  usedStarEntries: UsedStarEntry[];
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instructions": "Make the opening more enthusiastic and add a sentence about my passion for developer tooling",
+    "version": 1
+  }'
+```
+
+**Example Response**:
+
+```json
+{
+  "coverLetter": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3E1",
+    "status": "draft",
+    "title": "Cover Letter - Senior Software Engineer at Acme Corp",
+    "targetCompany": "Acme Corp",
+    "targetRole": "Senior Software Engineer",
+    "tone": "professional",
+    "lengthVariant": "standard",
+    "content": "Dear Hiring Manager,\n\nI am thrilled to apply for the Senior Software Engineer position at Acme Corp! Building great developer experiences is my passion, and I see a fantastic opportunity to bring that energy to your team.\n\n[...updated content...]",
+    "revisionHistory": [
+      {
+        "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3F1",
+        "instructions": "Make the opening more enthusiastic and add a sentence about my passion for developer tooling",
+        "previousContent": "Dear Hiring Manager,\n\nI am writing to express my interest...",
+        "createdAt": "2026-04-26T14:45:00.000Z"
+      }
+    ],
+    "createdAt": "2026-04-26T14:30:00.000Z",
+    "updatedAt": "2026-04-26T14:45:00.000Z",
+    "version": 2
+  },
+  "changesApplied": [
+    "Updated opening paragraph tone to enthusiastic",
+    "Added developer tooling passion statement"
+  ],
+  "usedStarEntries": [
+    {
+      "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3C7",
+      "rawText": "Reduced API response times by 40% through query optimization and caching",
+      "placement": "body"
+    }
+  ]
+}
+```
+
+---
+
+#### Generate Outreach Message (UC-4b)
+
+```
+POST /cover-letters/outreach
+```
+
+Generates a short-form outreach message for LinkedIn or email.
+
+**Request Body**:
+
+```typescript
+interface GenerateOutreachRequest {
+  platform: 'linkedin' | 'email';
+  
+  // Target context
+  targetName?: string;           // Recipient name (optional)
+  targetTitle?: string;          // Recipient job title (optional)
+  targetCompany: string;         // Required, 1-200 characters
+  targetRole?: string;           // Role you're reaching out about (optional)
+  
+  // Content source (at least one)
+  coverLetterId?: string;        // Derive from existing cover letter
+  jobFitAnalysisId?: string;     // Derive from job fit analysis
+  selectedStarEntryIds?: string[]; // Max 3 for short-form
+  
+  // Message customization
+  keyPoints?: string[];          // 1-3 specific points to mention
+  callToAction?: 'coffee_chat' | 'referral' | 'application_follow_up' | 'informational';
+  
+  // Optional constraints
+  maxLength?: number;            // Character limit (LinkedIn default: 300, email: 500)
+}
+```
+
+**Validation Rules**:
+
+- At least one of `coverLetterId`, `jobFitAnalysisId`, or `selectedStarEntryIds` must be provided
+- `selectedStarEntryIds` max 3 for outreach (keeps message concise)
+- `keyPoints` max 3 items, each max 200 characters
+- `maxLength` for LinkedIn capped at 500, for email capped at 1000
+
+**Response**: `201 Created`
+
+```typescript
+interface GenerateOutreachResponse {
+  message: OutreachMessage;
+}
+
+interface OutreachMessage {
+  id: string;
+  platform: 'linkedin' | 'email';
+  targetCompany: string;
+  targetRole?: string;
+  subject?: string;              // Only for email
+  body: string;
+  characterCount: number;
+  createdAt: string;             // ISO 8601
+}
+```
+
+**Example Request (LinkedIn)**:
+
+```bash
+curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "linkedin",
+    "targetName": "Sarah Chen",
+    "targetTitle": "Engineering Manager",
+    "targetCompany": "Acme Corp",
+    "targetRole": "Senior Software Engineer",
+    "coverLetterId": "01HXK5R3J7Q8N2M4P6W9Y1Z3E1",
+    "callToAction": "coffee_chat"
+  }'
+```
+
+**Example Response (LinkedIn)**:
+
+```json
+{
+  "message": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3G1",
+    "platform": "linkedin",
+    "targetCompany": "Acme Corp",
+    "targetRole": "Senior Software Engineer",
+    "body": "Hi Sarah,\n\nI came across the Senior Software Engineer opening at Acme Corp and am excited about the team's work on developer tooling. In my current role, I've driven 40% performance improvements through optimization work that aligns well with your infrastructure challenges.\n\nWould you have 15 minutes for a quick chat about the role and team?\n\nBest,\n[Your Name]",
+    "characterCount": 298,
+    "createdAt": "2026-04-26T15:00:00.000Z"
+  }
+}
+```
+
+**Example Request (Email)**:
+
+```bash
+curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "email",
+    "targetName": "Sarah Chen",
+    "targetTitle": "Engineering Manager",
+    "targetCompany": "Acme Corp",
+    "targetRole": "Senior Software Engineer",
+    "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
+    "keyPoints": ["TypeScript expertise", "Performance optimization background"],
+    "callToAction": "referral"
+  }'
+```
+
+**Example Response (Email)**:
+
+```json
+{
+  "message": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3G2",
+    "platform": "email",
+    "targetCompany": "Acme Corp",
+    "targetRole": "Senior Software Engineer",
+    "subject": "Senior Software Engineer Role at Acme Corp",
+    "body": "Hi Sarah,\n\nI hope this email finds you well. I recently applied for the Senior Software Engineer position at Acme Corp and wanted to reach out directly.\n\nMy background in TypeScript and performance optimization aligns well with the role requirements. In my current position, I've led initiatives that reduced response times by 40% and improved developer productivity through tooling investments.\n\nIf you think I might be a good fit, I would greatly appreciate a referral or any insights you could share about the team.\n\nThank you for your time!\n\nBest regards,\n[Your Name]",
+    "characterCount": 487,
+    "createdAt": "2026-04-26T15:05:00.000Z"
+  }
+}
+```
+
+---
+
+#### Export Cover Letter
+
+```
+POST /cover-letters/{id}/export
+```
+
+Exports a cover letter to downloadable document format.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Cover letter ID (ULID) |
+
+**Request Body**:
+
+```typescript
+interface ExportCoverLetterRequest {
+  format: 'docx' | 'pdf';
+  
+  // Document customization
+  includeHeader?: boolean;       // Include name/contact header (default: false)
+  headerInfo?: {
+    name: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+  };
+  
+  // Styling (optional)
+  fontFamily?: 'default' | 'serif' | 'modern';  // Default: 'default' (Calibri-like)
+  fontSize?: 11 | 12;            // Default: 11
+}
+```
+
+**Response**: `200 OK`
+
+For `format: 'docx'` or `format: 'pdf'`:
+
+```
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+Content-Disposition: attachment; filename="cover-letter-acme-corp-2026-04-26.docx"
+
+[binary file content]
+```
+
+**Alternative JSON Response** (if `Accept: application/json` header):
+
+```typescript
+interface ExportCoverLetterResponse {
+  exportId: string;
+  format: 'docx' | 'pdf';
+  filename: string;
+  fileSize: number;              // Bytes
+  base64Content: string;         // Base64-encoded file
+  createdAt: string;             // ISO 8601
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "docx",
+    "includeHeader": true,
+    "headerInfo": {
+      "name": "Alex Johnson",
+      "email": "alex@example.com",
+      "phone": "(555) 123-4567"
+    }
+  }' \
+  -o cover-letter.docx
+```
+
+---
+
+#### List Cover Letters
+
+```
+GET /cover-letters
+```
+
+Returns saved cover letters with search and filtering.
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | string | No | Filter by status: `draft`, `finalized` |
+| `company` | string | No | Filter by target company (partial match) |
+| `search` | string | No | Search in title, company, role, content |
+| `limit` | number | No | Max results (default: 20, max: 100) |
+| `cursor` | string | No | Pagination cursor |
+
+**Response**: `200 OK`
+
+```typescript
+interface ListCoverLettersResponse {
+  coverLetters: CoverLetterSummary[];
+  nextCursor?: string;
+}
+
+interface CoverLetterSummary {
+  id: string;
+  status: 'draft' | 'finalized';
+  title: string;
+  targetCompany: string;
+  targetRole: string;
+  tone: TonePreference;
+  lengthVariant: LengthVariant;
+  preview: string;               // First 200 characters of content
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+---
+
+#### Get Cover Letter
+
+```
+GET /cover-letters/{id}
+```
+
+Returns a single cover letter with full content and revision history.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Cover letter ID (ULID) |
+
+**Response**: `200 OK`
+
+```typescript
+interface GetCoverLetterResponse {
+  coverLetter: CoverLetter;
+  usedStarEntries: UsedStarEntry[];
+}
+```
+
+---
+
+#### Update Cover Letter
+
+```
+PATCH /cover-letters/{id}
+```
+
+Updates cover letter metadata (not content - use revise for that).
+
+**Request Body**:
+
+```typescript
+interface UpdateCoverLetterRequest {
+  title?: string;
+  status?: 'draft' | 'finalized';
+  version: number;               // Required for optimistic locking
+}
+```
+
+**Response**: `200 OK` — returns updated `CoverLetter`
+
+---
+
+#### Delete Cover Letter
+
+```
+DELETE /cover-letters/{id}
+```
+
+Permanently deletes a cover letter.
+
+**Response**: `204 No Content`
+
+---
+
+#### Cover Letter Error Codes
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `COVER_LETTER_NOT_FOUND` | 404 | Cover letter ID does not exist |
+| `JOB_CONTEXT_REQUIRED` | 400 | No job description, URL, or analysis ID provided |
+| `JOB_CONTEXT_CONFLICT` | 400 | Both text and URL provided |
+| `STAR_ENTRIES_REQUIRED` | 400 | No STAR entry IDs provided |
+| `STAR_ENTRY_NOT_FOUND` | 404 | One or more STAR entry IDs invalid |
+| `STAR_ENTRIES_LIMIT` | 400 | More than 10 STAR entries selected (3 for outreach) |
+| `TARGET_INFO_REQUIRED` | 400 | Company/role required when not using job fit analysis |
+| `REVISION_INSTRUCTIONS_REQUIRED` | 400 | Revise request missing instructions |
+| `COVER_LETTER_VERSION_CONFLICT` | 409 | Version mismatch during update |
+| `EXPORT_FORMAT_INVALID` | 400 | Unsupported export format |
+| `CATALOG_EMPTY` | 422 | Cannot generate without catalog data |
+| `FABRICATION_BLOCKED` | 422 | Request would require fabricating credentials |
+
+**Error Response Example**:
+
+```json
+{
+  "error": {
+    "code": "STAR_ENTRY_NOT_FOUND",
+    "message": "One or more selected STAR entry IDs do not exist in your catalog",
+    "details": {
+      "invalidIds": ["01HXK5R3J7Q8N2M4P6W9INVALID"]
+    }
+  }
+}
+```
+
+---
+
+#### Content Generation Constraints
+
+The cover letter generation system enforces these constraints:
+
+1. **No Fabrication**: Generated content only uses information from the user's catalog. Metrics, achievements, and credentials are never invented.
+
+2. **Honest Gap Framing**: When the job fit analysis identifies gaps, the cover letter acknowledges them constructively (e.g., "While I haven't worked directly with X, my experience with Y provides a strong foundation").
+
+3. **AI Attribution**: If the user's catalog indicates they used specific AI tools (e.g., "Built feature using Claude"), the cover letter preserves that attribution rather than genericizing to "AI tools."
+
+4. **Length Compliance**: Generated content respects the `lengthVariant` constraint:
+   - `concise`: 150-250 words
+   - `standard`: 300-400 words
+   - `detailed`: 450-550 words
+
+5. **Outreach Brevity**: Outreach messages are constrained to platform norms:
+   - LinkedIn: max 500 characters
+   - Email: max 1000 characters
+
+---
+
 ## References
 
 - [Architecture Overview](./ARCHITECTURE.md)

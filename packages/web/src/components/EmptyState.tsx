@@ -1,7 +1,4 @@
-type EmptyStateVariant =
-  | 'no-applications'
-  | 'no-results'
-  | 'no-documents';
+type EmptyStateVariant = 'no-applications' | 'no-results' | 'no-documents';
 
 export interface EmptyStateProps {
   variant: EmptyStateVariant;
@@ -13,11 +10,7 @@ export interface EmptyStateProps {
  * EmptyState Component
  * Friendly message when no data is available
  */
-export function EmptyState({
-  variant,
-  onAction,
-  actionLabel,
-}: EmptyStateProps) {
+export function EmptyState({ variant, onAction, actionLabel }: EmptyStateProps) {
   // Variant configuration
   const variantConfig: Record<
     EmptyStateVariant,
@@ -38,15 +31,13 @@ export function EmptyState({
     'no-results': {
       icon: '🔍',
       heading: 'No matching results',
-      message:
-        'Try adjusting your filters or search terms to find what you\'re looking for.',
+      message: "Try adjusting your filters or search terms to find what you're looking for.",
       defaultActionLabel: 'Clear Filters',
     },
     'no-documents': {
       icon: '📄',
       heading: 'No documents found',
-      message:
-        'Generate a cover letter to get started with your application materials.',
+      message: 'Generate a cover letter to get started with your application materials.',
       defaultActionLabel: 'Create Cover Letter',
     },
   };
@@ -62,22 +53,15 @@ export function EmptyState({
       aria-label="Empty state"
     >
       {/* Icon */}
-      <div
-        className="text-6xl mb-4 opacity-50"
-        aria-hidden="true"
-      >
+      <div className="text-6xl mb-4 opacity-50" aria-hidden="true">
         {config.icon}
       </div>
 
       {/* Heading */}
-      <h3 className="text-h4 text-neutral-800 mb-2 font-semibold">
-        {config.heading}
-      </h3>
+      <h3 className="text-h4 text-neutral-800 mb-2 font-semibold">{config.heading}</h3>
 
       {/* Message */}
-      <p className="text-body text-neutral-600 max-w-md mb-6">
-        {config.message}
-      </p>
+      <p className="text-body text-neutral-600 max-w-md mb-6">{config.message}</p>
 
       {/* Action Button */}
       {onAction && (

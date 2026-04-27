@@ -5,6 +5,7 @@ export default {
   out: './src/db/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/job_app_manager',
+    url:
+      process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/job_app_manager',
   },
 } satisfies Config;

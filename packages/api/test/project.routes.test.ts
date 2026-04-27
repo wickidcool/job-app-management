@@ -121,14 +121,12 @@ describe('Project Routes', () => {
       expect(response.json()).toEqual({ content });
       expect(projectService.getProjectFile).toHaveBeenCalledWith(
         'acme-corp',
-        'resume-01HXTEST000000000000000001.md',
+        'resume-01HXTEST000000000000000001.md'
       );
     });
 
     it('returns 404 when file not found', async () => {
-      vi.mocked(projectService.getProjectFile).mockRejectedValue(
-        new NotFoundError('Project file'),
-      );
+      vi.mocked(projectService.getProjectFile).mockRejectedValue(new NotFoundError('Project file'));
 
       const response = await app.inject({
         method: 'GET',
@@ -154,7 +152,7 @@ describe('Project Routes', () => {
       expect(projectService.updateProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
-        '# Updated content',
+        '# Updated content'
       );
     });
 

@@ -22,7 +22,11 @@ export interface StatusDropdownProps {
   disabled?: boolean;
 }
 
-export function StatusDropdown({ currentStatus, onStatusChange, disabled = false }: StatusDropdownProps) {
+export function StatusDropdown({
+  currentStatus,
+  onStatusChange,
+  disabled = false,
+}: StatusDropdownProps) {
   const currentOption = statusOptions.find((opt) => opt.value === currentStatus);
 
   const handleSelect = (value: string) => {
@@ -69,9 +73,7 @@ export function StatusDropdown({ currentStatus, onStatusChange, disabled = false
             >
               <span>{option.icon}</span>
               <span className={option.color}>{option.label}</span>
-              {option.value === currentStatus && (
-                <span className="ml-auto text-blue-600">✓</span>
-              )}
+              {option.value === currentStatus && <span className="ml-auto text-blue-600">✓</span>}
             </DropdownMenu.Item>
           ))}
 

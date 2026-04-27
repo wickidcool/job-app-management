@@ -64,7 +64,12 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectM
   const slug = input.slug || toSlug(input.name);
 
   if (!slug) {
-    throw new AppError('BAD_REQUEST', 'Project name must contain alphanumeric characters', undefined, 400);
+    throw new AppError(
+      'BAD_REQUEST',
+      'Project name must contain alphanumeric characters',
+      undefined,
+      400
+    );
   }
 
   const existing = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
@@ -100,11 +105,7 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectM
 
 export async function getProject(projectId: string): Promise<ProjectMeta> {
   const db = getDb();
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1);
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) {
     throw new NotFoundError('Project');
@@ -126,11 +127,7 @@ export async function getProject(projectId: string): Promise<ProjectMeta> {
 
 export async function getProjectBySlug(slug: string): Promise<ProjectMeta> {
   const db = getDb();
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.slug, slug))
-    .limit(1);
+  const [project] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
 
   if (project) {
     const fileCount = await getFileCount(project.slug);
@@ -157,7 +154,7 @@ export async function getProjectBySlug(slug: string): Promise<ProjectMeta> {
   const mdFiles = files.filter((f) => f.endsWith('.md'));
 
   const mtimes = await Promise.all(
-    mdFiles.map((f) => fs.stat(path.join(dir, f)).catch(() => null)),
+    mdFiles.map((f) => fs.stat(path.join(dir, f)).catch(() => null))
   );
   const latest = mtimes.reduce<Date | null>((max, s) => {
     if (!s) return max;
@@ -188,10 +185,7 @@ export async function listProjects(): Promise<ProjectMeta[]> {
   const dir = projectsDir();
 
   // Get projects from database
-  const dbProjects = await db
-    .select()
-    .from(projects)
-    .orderBy(desc(projects.updatedAt));
+  const dbProjects = await db.select().from(projects).orderBy(desc(projects.updatedAt));
 
   const dbSlugs = new Set(dbProjects.map((p) => p.slug));
   const result: ProjectMeta[] = [];
@@ -230,7 +224,7 @@ export async function listProjects(): Promise<ProjectMeta[]> {
     if (mdFiles.length === 0) continue;
 
     const mtimes = await Promise.all(
-      mdFiles.map((f) => fs.stat(path.join(entryPath, f)).catch(() => null)),
+      mdFiles.map((f) => fs.stat(path.join(entryPath, f)).catch(() => null))
     );
     const latest = mtimes.reduce<Date | null>((max, s) => {
       if (!s) return max;
@@ -254,11 +248,7 @@ export async function listProjects(): Promise<ProjectMeta[]> {
 
 export async function deleteProject(projectId: string): Promise<void> {
   const db = getDb();
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1);
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) {
     throw new NotFoundError('Project');
@@ -302,7 +292,7 @@ export async function getProjectFile(slug: string, fileName: string): Promise<st
 export async function updateProjectFile(
   slug: string,
   fileName: string,
-  content: string,
+  content: string
 ): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
@@ -318,16 +308,13 @@ export async function updateProjectFile(
 
   // Update project's updatedAt timestamp
   const db = getDb();
-  await db
-    .update(projects)
-    .set({ updatedAt: new Date() })
-    .where(eq(projects.slug, slug));
+  await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
 
 export async function createProjectFile(
   slug: string,
   fileName: string,
-  content: string,
+  content: string
 ): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
@@ -352,10 +339,7 @@ export async function createProjectFile(
 
   // Update project's updatedAt timestamp
   const db = getDb();
-  await db
-    .update(projects)
-    .set({ updatedAt: new Date() })
-    .where(eq(projects.slug, slug));
+  await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
 
 export async function deleteProjectFile(slug: string, fileName: string): Promise<void> {
@@ -371,10 +355,7 @@ export async function deleteProjectFile(slug: string, fileName: string): Promise
 
   // Update project's updatedAt timestamp
   const db = getDb();
-  await db
-    .update(projects)
-    .set({ updatedAt: new Date() })
-    .where(eq(projects.slug, slug));
+  await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
 
 export async function generateProjectIndex(): Promise<{ path: string; projectCount: number }> {
@@ -408,16 +389,9 @@ export async function generateProjectIndex(): Promise<{ path: string; projectCou
   return { path: 'projects/index.md', projectCount: allProjects.length };
 }
 
-export async function getOrCreateProjectBySlug(
-  slug: string,
-  name?: string,
-): Promise<ProjectMeta> {
+export async function getOrCreateProjectBySlug(slug: string, name?: string): Promise<ProjectMeta> {
   const db = getDb();
-  const [existing] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.slug, slug))
-    .limit(1);
+  const [existing] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
 
   if (existing) {
     const fileCount = await getFileCount(existing.slug);
