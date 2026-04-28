@@ -99,10 +99,11 @@ export class APIClient {
   /**
    * POST request
    */
-  async post<T>(endpoint: string, body?: unknown): Promise<T> {
+  async post<T>(endpoint: string, body?: unknown, customHeaders?: Record<string, string>): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
+      headers: customHeaders,
     });
   }
 

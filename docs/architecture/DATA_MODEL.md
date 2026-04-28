@@ -814,6 +814,42 @@ Diffs expire 7 days after creation (`expires_at = created_at + INTERVAL '7 days'
 
 ---
 
+## Resume Variants (UC-6)
+
+Resume variants are tailored resume versions generated for specific job applications.
+
+### Schema Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                          resume_variants                              │
+├──────────────────────────────────────────────────────────────────────┤
+│ PK │ id                    │ TEXT              │ ULID primary key    │
+│    │ status                │ resume_variant_status │ draft/finalized │
+│    │ title                 │ TEXT              │ NOT NULL            │
+│    │ target_company        │ TEXT              │ NOT NULL            │
+│    │ target_role           │ TEXT              │ NOT NULL            │
+│    │ format                │ resume_format     │ chronological/etc   │
+│    │ section_emphasis      │ section_emphasis  │ balanced/etc        │
+│ FK │ base_resume_id        │ TEXT              │ references resumes  │
+│    │ job_fit_analysis_id   │ TEXT              │ nullable            │
+│    │ selected_bullets      │ JSONB             │ bullet selections   │
+│    │ selected_tech_tags    │ JSONB             │ tag IDs array       │
+│    │ selected_themes       │ JSONB             │ theme slugs array   │
+│    │ section_order         │ JSONB             │ section ordering    │
+│    │ hidden_sections       │ JSONB             │ sections to hide    │
+│    │ content               │ JSONB             │ structured content  │
+│    │ revision_history      │ JSONB             │ revision entries    │
+│    │ created_at            │ TIMESTAMPTZ       │ NOT NULL            │
+│    │ updated_at            │ TIMESTAMPTZ       │ NOT NULL            │
+│    │ version               │ INTEGER           │ optimistic locking  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+See [UC-6 Resume Variant Generation API](./UC-6_RESUME_VARIANT_API.md) for full schema and endpoint documentation.
+
+---
+
 ## References
 
 - [Architecture Overview](./ARCHITECTURE.md)

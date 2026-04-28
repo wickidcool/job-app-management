@@ -29,6 +29,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
       badge: exportCount,
       isNew: true,
     },
+    { icon: '📝', label: 'Resume Variants', path: '/resume-variants' },
     { icon: '📚', label: 'Catalog', path: '/catalog' },
     { icon: '🔍', label: 'Job Fit Analysis', path: '/job-fit-analysis' },
     { icon: '📁', label: 'Projects', path: '/projects' },

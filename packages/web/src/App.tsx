@@ -24,6 +24,9 @@ import { JobFitAnalysis } from './pages/JobFitAnalysis';
 import { CoverLetterNew } from './pages/CoverLetterNew';
 import { CoverLetterDetail } from './pages/CoverLetterDetail';
 import { OutreachNew } from './pages/OutreachNew';
+import { ResumeVariantsList } from './pages/ResumeVariantsList';
+import { ResumeVariantDetail } from './pages/ResumeVariantDetail';
+import { ResumeVariantNew } from './pages/ResumeVariantNew';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
@@ -67,6 +70,9 @@ function App() {
             <Route path="/cover-letters/new" element={<CoverLetterNew />} />
             <Route path="/cover-letters/:id" element={<CoverLetterDetail />} />
             <Route path="/outreach/new" element={<OutreachNew />} />
+            <Route path="/resume-variants" element={<ResumeVariantsList />} />
+            <Route path="/resume-variants/new" element={<ResumeVariantNew />} />
+            <Route path="/resume-variants/:id" element={<ResumeVariantDetail />} />
             <Route path="/projects" element={<ProjectsList />} />
             <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
             <Route path="/projects/:projectId" element={<ProjectDetail />} />

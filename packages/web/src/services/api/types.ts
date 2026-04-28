@@ -342,3 +342,248 @@ export interface OutreachMessage {
   characterCount: number;
   generatedAt: string;
 }
+
+/**
+ * Resume Variant Types (UC-6)
+ */
+
+export type ResumeFormat = 'chronological' | 'functional' | 'hybrid';
+export type SectionEmphasis = 'experience_heavy' | 'skills_heavy' | 'balanced';
+export type SectionType = 'summary' | 'experience' | 'skills' | 'projects' | 'education' | 'certifications';
+
+export interface SectionBulletSelection {
+  sectionId: string;
+  bulletIds: string[];
+  customBullets?: string[];
+}
+
+export interface BulletContent {
+  id: string;
+  text: string;
+  source: 'catalog' | 'custom';
+  impactCategory?: string;
+}
+
+export interface ExperienceSection {
+  id: string;
+  company: string;
+  role: string;
+  location?: string;
+  startDate: string;
+  endDate?: string;
+  bullets: BulletContent[];
+}
+
+export interface SkillCategory {
+  name: string;
+  skills: string[];
+}
+
+export interface SkillsSection {
+  categories: SkillCategory[];
+}
+
+export interface ProjectSection {
+  id: string;
+  name: string;
+  description?: string;
+  techStack: string[];
+  bullets: BulletContent[];
+}
+
+export interface EducationSection {
+  institution: string;
+  degree: string;
+  field?: string;
+  graduationDate?: string;
+  gpa?: string;
+  honors?: string[];
+}
+
+export interface ResumeContent {
+  summary?: string;
+  experience: ExperienceSection[];
+  skills: SkillsSection;
+  projects?: ProjectSection[];
+  education?: EducationSection[];
+  certifications?: string[];
+}
+
+export interface RevisionEntry {
+  id: string;
+  instructions: string;
+  previousContent: ResumeContent;
+  appliedAt: string;
+}
+
+export interface ResumeVariant {
+  id: string;
+  status: 'draft' | 'finalized';
+  title: string;
+  targetCompany: string;
+  targetRole: string;
+  format: ResumeFormat;
+  sectionEmphasis: SectionEmphasis;
+  baseResumeId?: string;
+  jobFitAnalysisId?: string;
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+  selectedBullets: SectionBulletSelection[];
+  selectedTechTags: string[];
+  selectedThemes: string[];
+  sectionOrder: SectionType[];
+  hiddenSections: SectionType[];
+  content: ResumeContent;
+  revisionHistory: RevisionEntry[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface ResumeVariantSummary {
+  id: string;
+  status: 'draft' | 'finalized';
+  title: string;
+  targetCompany: string;
+  targetRole: string;
+  format: ResumeFormat;
+  atsScore?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UsedBullet {
+  id: string;
+  rawText: string;
+  section: string;
+  impactCategory: string;
+  relevanceScore: number;
+}
+
+export interface GenerationWarning {
+  code: string;
+  message: string;
+}
+
+export interface BulletSuggestion {
+  bulletId: string;
+  rawText: string;
+  impactCategory: string;
+  relevanceScore: number;
+  matchedKeywords: string[];
+  suggestedSection: string;
+  reasoning: string;
+}
+
+export interface GenerateResumeVariantRequest {
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+  jobFitAnalysisId?: string;
+  targetCompany?: string;
+  targetRole?: string;
+  baseResumeId?: string;
+  selectedBullets?: SectionBulletSelection[];
+  selectedTechTags?: string[];
+  selectedThemes?: string[];
+  format?: ResumeFormat;
+  sectionEmphasis?: SectionEmphasis;
+  sectionOrder?: SectionType[];
+  hiddenSections?: SectionType[];
+  maxBulletsPerRole?: number;
+  includeProjects?: boolean;
+  atsOptimized?: boolean;
+  summaryInstructions?: string;
+}
+
+export interface GenerateResumeVariantResponse {
+  variant: ResumeVariant;
+  usedBullets: UsedBullet[];
+  matchedTechTags: string[];
+  matchedThemes: string[];
+  atsScore?: number;
+  warnings: GenerationWarning[];
+}
+
+export interface ReviseResumeVariantRequest {
+  instructions: string;
+  selectedBullets?: SectionBulletSelection[];
+  selectedTechTags?: string[];
+  sectionOrder?: SectionType[];
+  hiddenSections?: SectionType[];
+  format?: ResumeFormat;
+  sectionEmphasis?: SectionEmphasis;
+  version: number;
+}
+
+export interface ReviseResumeVariantResponse {
+  variant: ResumeVariant;
+  changesApplied: string[];
+  usedBullets: UsedBullet[];
+  atsScore?: number;
+}
+
+export interface UpdateResumeVariantRequest {
+  title?: string;
+  status?: 'draft' | 'finalized';
+  version: number;
+}
+
+export interface ListResumeVariantsResponse {
+  variants: ResumeVariantSummary[];
+  nextCursor?: string;
+}
+
+export interface GetResumeVariantResponse {
+  variant: ResumeVariant;
+  usedBullets: UsedBullet[];
+  baseResume?: {
+    id: string;
+    fileName: string;
+  };
+  jobFitAnalysis?: {
+    id: string;
+    recommendation: string;
+  };
+}
+
+export interface SuggestBulletsRequest {
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+  jobFitAnalysisId?: string;
+  maxBulletsPerSection?: number;
+  impactCategories?: string[];
+  excludeBulletIds?: string[];
+}
+
+export interface SuggestBulletsResponse {
+  suggestions: BulletSuggestion[];
+  totalCatalogBullets: number;
+}
+
+export interface ExportResumeVariantRequest {
+  format: 'docx';
+  template?: 'modern' | 'classic' | 'minimal' | 'ats_optimized';
+  headerInfo: {
+    name: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+    github?: string;
+    location?: string;
+    portfolio?: string;
+  };
+  fontFamily?: 'default' | 'serif' | 'modern';
+  fontSize?: 10 | 11 | 12;
+  margins?: 'normal' | 'narrow' | 'wide';
+  targetPages?: 1 | 2;
+}
+
+export interface ExportResumeVariantResponse {
+  exportId: string;
+  format: 'pdf' | 'docx';
+  filename: string;
+  fileSize: number;
+  base64Content: string;
+  pageCount: number;
+  createdAt: string;
+}

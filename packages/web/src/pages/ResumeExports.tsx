@@ -32,7 +32,7 @@ export function ResumeExports() {
   };
 
   const handleCreateNew = () => {
-    navigate('/resumes/exports/new');
+    navigate('/resume-variants/new');
   };
 
   return (

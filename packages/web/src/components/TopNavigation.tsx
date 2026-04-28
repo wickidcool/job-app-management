@@ -27,6 +27,7 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
       path: '/resumes',
       badge: exportCount,
     },
+    { label: 'Resume Variants', path: '/resume-variants' },
     { label: 'Catalog', path: '/catalog' },
     { label: 'Job Fit Analysis', path: '/job-fit-analysis' },
     { label: 'Projects', path: '/projects' },

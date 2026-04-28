@@ -2393,6 +2393,805 @@ Optional sorts (dropdown):
 
 ---
 
+---
+
+## 18. ResumeVariantGenerator
+
+### Purpose
+Multi-step wizard for generating targeted resume variants by scoring catalog STAR bullets against a target role, selecting top bullets, and generating a tailored resume with real-time preview and traceability.
+
+### Props
+
+```tsx
+interface ResumeVariantGeneratorProps {
+  fitAnalysisId?: string         // Pre-load from job fit analysis
+  applicationId?: string          // Link to specific application
+  existingVariantId?: string      // For rebalance mode
+  mode?: 'create' | 'rebalance' | 'compress'
+  onComplete?: (result: ResumeVariantResult) => void
+  onCancel?: () => void
+}
+
+interface ResumeVariantResult {
+  id: string
+  variantName: string
+  content: string                 // Markdown format
+  configuration: VariantConfig
+  selectedBullets: ScoredBullet[]
+  metadata: {
+    wordCount: number
+    pageCount: number
+    companiesIncluded: number
+    bulletCount: number
+  }
+  generatedAt: Date
+  applicationId?: string
+}
+
+interface VariantConfig {
+  targetRole: string
+  seniority: 'junior' | 'mid' | 'senior' | 'lead'
+  keySkills: string[]              // 3-5 skills to emphasize
+  constraints: {
+    maxPages: 1 | 2 | null         // null = no limit
+    targetWordCount: number
+    bulletRange: { min: number; max: number }
+    companyRange: { min: number; max: number }
+  }
+}
+
+interface ScoredBullet {
+  starEntryId: string
+  title: string
+  company: string
+  timeframe: string
+  tags: string[]
+  relevanceScore: number           // 0-100
+  reasoning: string
+  selected: boolean
+}
+```
+
+### Wizard Flow (5 Steps)
+
+#### Step 1: Configure Target
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Step 1/5: Configure Target                                   │
+│ ━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━    │
+│                                                              │
+│ Target Role Configuration                                    │
+│ • Job Title (required)                                       │
+│ • Seniority Level (radio buttons)                           │
+│ • Key Skills (multi-select checkboxes, 3-5 max)             │
+│ • Optional: Use Job Fit Analysis checkbox                   │
+│                                                              │
+│ Resume Constraints                                           │
+│ • Max Pages (radio: 1, 2, no limit)                         │
+│ • Target Word Count (slider: 300-1100 words)                │
+│ • Bullet Range (dropdowns: min 15, max 25)                  │
+│ • Company Range (dropdowns: min 5, max 7)                   │
+│                                                              │
+│ [Cancel]  [Next: Score Bullets →]                           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Validation:**
+- Job title: required, 2-200 chars
+- Key skills: minimum 1, maximum 5 selections
+- Bullet range: min must be ≤ max
+- Company range: min must be ≤ max
+- If from fit analysis: pre-populate fields from analysis data
+
+#### Step 2: Bullet Scoring
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Step 2/5: Scoring Bullets                                    │
+│ ━━━━━━━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━    │
+│                                                              │
+│ [Progress indicator with steps]                             │
+│ ✓ Analyzing target role                                     │
+│ ⏳ Scoring catalog bullets (30 of 45)                       │
+│ ⏳ Ranking results                                           │
+│                                                              │
+│ [Progress bar: 67%]                                          │
+│ Estimated time remaining: ~4 seconds                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Behavior:**
+- Auto-advances when scoring complete (no user interaction)
+- Progress updates every 500ms
+- Cannot cancel once started (committed operation)
+- Error state triggers retry dialog
+
+#### Step 3: Bullet Selection
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Step 3/5: Select Bullets                                     │
+│ ━━━━━━━━━━━━━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━    │
+│                                                              │
+│ Selection Summary (sticky panel)                             │
+│ • Selected: 18 bullets across 6 companies                    │
+│ • Progress bar: 72% of target (15-25 bullets, 5-7 companies) │
+│ • Est. Length: 650 words (~1.3 pages)                        │
+│ • Constraint Status: ✅ All valid                           │
+│                                                              │
+│ [Auto-Select Top Bullets]  [Clear Selection]                │
+│                                                              │
+│ Scored Bullets List (grouped by score range)                │
+│ ─── Excellent Matches (90-100%) ────                        │
+│ ☑ [95%] React migration... [Preview]                        │
+│ ☑ [92%] Node.js scaling... [Preview]                        │
+│                                                              │
+│ ─── Great Matches (80-89%) ──────                           │
+│ ☑ [87%] DB optimization... [Preview]                        │
+│ ☐ [84%] Team mentoring... [Preview]                         │
+│                                                              │
+│ [Show More...]                                               │
+│                                                              │
+│ [← Back]  [Next: Generate Preview →]                        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- Real-time constraint validation with color-coded indicators
+- Auto-select intelligently chooses top-scoring bullets to meet constraints
+- Preview button opens modal with full STAR entry
+- Search/filter by keywords, score range, company, tags
+- Visual grouping by relevance score ranges
+
+#### Step 4: Preview & Edit
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Step 4/5: Preview & Edit                                     │
+│ ━━━━━━━━━━━━━━━━━━━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━    │
+│                                                              │
+│ ┌─────────────────────┬──────────────────────────────────┐ │
+│ │ 📝 Resume Preview   │ 🔗 Traceability Panel            │ │
+│ │ [Edit] [View]       │ [Show All Sources]               │ │
+│ │ ─────────────────── │ ──────────────────────────────── │ │
+│ │ [Markdown preview]  │ 📊 Content Summary               │ │
+│ │                     │ • 18 bullets from 6 companies    │ │
+│ │ Hover bullets to    │ • 687 words (~1.4 pages)         │ │
+│ │ see traceability    │ • Constraints: ✅ All met       │ │
+│ │                     │                                  │ │
+│ │                     │ 🏢 Companies Included            │ │
+│ │                     │ ☑ StartupCo (5)                 │ │
+│ │                     │ ☑ BigCorp (4)                   │ │
+│ │                     │                                  │ │
+│ │                     │ 🎯 Active Bullet:                │ │
+│ │                     │ [95%] React migration            │ │
+│ │                     │ [View Full STAR Entry]           │ │
+│ └─────────────────────┴──────────────────────────────────┘ │
+│                                                              │
+│ [← Reselect]  [Regenerate]  [Next: Export →]                │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+- Split-pane layout: preview (left) + traceability (right)
+- Bidirectional highlighting: hover bullet → highlights source
+- Edit mode: inline markdown editing with live preview
+- Traceability shows source STAR entry and relevance score
+- Skills coverage visualization
+- Real-time constraint validation as user edits
+
+#### Step 5: Export
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Step 5/5: Export Resume                                      │
+│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━    │
+│                                                              │
+│ Variant Name: [Senior Full Stack Engineer - TechCo]         │
+│                                                              │
+│ Export Formats:                                              │
+│ ☑ Markdown (.md)                                            │
+│ ☑ Microsoft Word (.docx)                                    │
+│ ☐ PDF (.pdf)                                                │
+│                                                              │
+│ Link to Application?                                         │
+│ ● Yes → [Select Application ▾]                              │
+│ ○ No, save as standalone                                    │
+│                                                              │
+│ 📊 Variant Summary                                           │
+│ • 18 bullets, 687 words, ~1.4 pages                          │
+│ • Target: Senior Full Stack Engineer                         │
+│ • Skills: React, Node.js, PostgreSQL, Leadership             │
+│                                                              │
+│ [← Back]  [Save & Export]                                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Behavior:**
+- Variant name auto-populated, editable
+- Multiple export formats supported, downloads all selected
+- Application linking optional
+- Saves to resumes library regardless of download choice
+- Success toast on completion
+
+### States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Step 1 | Generator loads | Configuration form, Next disabled until valid |
+| Scoring | Next from Step 1 | Progress animation, cannot cancel |
+| Step 3 | Scoring complete | Bullet list with scores, selection summary |
+| Constraint Violation | Invalid selection | Red warning banner, Next disabled |
+| Step 4 | Valid selection | Split preview/traceability, real-time updates |
+| Generating | Generate clicked | Loading overlay, "Generating..." |
+| Step 5 | Generation complete | Export form, summary, save options |
+| Error | Any step fails | Error modal with retry option |
+
+### Accessibility
+
+- **ARIA Landmarks:** `role="region"` for each step with `aria-label="Step {n} of 5: {title}"`
+- **Progress:** Screen reader announces step changes and progress updates
+- **Focus Management:**
+  - Focus moves to step heading on step change
+  - Focus on first field when step loads
+  - Focus on error message if validation fails
+- **Keyboard Navigation:**
+  - Tab through form fields
+  - Ctrl/Cmd + Left/Right to navigate steps (if visited)
+  - Ctrl/Cmd + Enter to advance to next step (when valid)
+  - Space to toggle bullet selection
+  - Enter to preview bullet
+  - Escape to close modals
+
+### Responsive Behavior
+
+- **Desktop (>1024px):**
+  - Full wizard layout
+  - Split-pane preview/traceability in Step 4
+  - Side-by-side scoring groups in Step 3
+
+- **Tablet (768-1024px):**
+  - Single column wizard
+  - Tabbed preview/traceability in Step 4
+
+- **Mobile (<768px):**
+  - Compact wizard steps
+  - Stacked preview then traceability in Step 4
+  - Bottom sheet for filters/options
+  - Sticky selection summary
+
+### Error Handling
+
+| Error Type | User Message | Recovery Action |
+|------------|--------------|-----------------|
+| Empty Catalog | "No catalog entries found. Upload a resume first." | [Upload Resume] link |
+| Scoring Timeout | "Scoring took too long. Please try again." | [Retry] button, preserves config |
+| Insufficient Bullets | "Only 8 bullets scored >60%. Lower threshold or broaden role." | Adjust settings or proceed anyway |
+| Generation Failed | "Unable to generate resume. Try again." | [Retry] or [Edit Selection] |
+| Constraint Violation | "Selection exceeds max bullets (27/25)." | [Auto-Remove] or [Manual Adjust] |
+| Network Error | "Connection lost. Check network and retry." | [Retry] preserves all state |
+
+---
+
+## 19. BulletScoreCard
+
+### Purpose
+Display a single scored STAR bullet with relevance score, metadata, preview action, and selection checkbox. Used in resume variant generator bullet selection step.
+
+### Props
+
+```tsx
+interface BulletScoreCardProps {
+  bullet: ScoredBullet
+  selected: boolean
+  onToggleSelect: (bulletId: string) => void
+  onPreview: (bulletId: string) => void
+  showScore?: boolean
+  compact?: boolean
+}
+
+interface ScoredBullet {
+  id: string
+  title: string
+  company: string
+  timeframe: string
+  tags: string[]
+  relevanceScore: number           // 0-100
+  reasoning: string
+  starEntry: {
+    situation: string
+    task: string
+    action: string
+    result: string
+  }
+}
+```
+
+### Variants
+
+**Default (Full):**
+```
+┌────────────────────────────────────────────────────────────┐
+│ ☑ [95%] Led React migration for client portal             │
+│    StartupCo · Q3 2024 · Frontend, Technical Leadership    │
+│    → Directly demonstrates React expertise and leadership  │
+│    [Preview Full STAR Entry]                               │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Compact:**
+```
+┌────────────────────────────────────────────────────────────┐
+│ ☑ [95%] Led React migration... [Preview]                  │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Default | Card renders | Border: neutral-200, Background: white |
+| Hover | Mouse over | Border: primary-300, Shadow: md, Cursor: pointer |
+| Selected | Checkbox checked | Border: primary-500, Background: primary-50 |
+| Disabled | Max selection reached | Opacity: 0.5, Cursor: not-allowed, Checkbox disabled |
+| Loading | Preview clicked | Preview button shows spinner |
+
+### Relevance Score Badge
+
+```typescript
+const scoreConfig = {
+  excellent: { range: [90, 100], color: 'green-600', label: 'Excellent' },
+  great: { range: [80, 89], color: 'green-500', label: 'Great' },
+  good: { range: [70, 79], color: 'yellow-600', label: 'Good' },
+  fair: { range: [60, 69], color: 'yellow-500', label: 'Fair' },
+  low: { range: [0, 59], color: 'gray-500', label: 'Low' }
+}
+```
+
+Visual: `[95%]` badge in green for excellent, yellow for good/fair, gray for low.
+
+### Behavior
+
+| Action | Trigger | Response |
+|--------|---------|----------|
+| Select | Click checkbox or card body | Toggle selected state, fire `onToggleSelect` |
+| Preview | Click Preview button | Fire `onPreview`, opens modal with full STAR entry |
+| Hover | Mouse over card | Highlight, show tooltip with full reasoning |
+| Disabled | Max selection reached, card not selected | Gray out, disable checkbox, tooltip explains why |
+
+### Accessibility
+
+- **ARIA Role:** `article` with `aria-label="{title}, relevance: {score}%"`
+- **Checkbox:** `aria-checked`, `aria-disabled` when max reached
+- **Focus:** 2px outline primary-500 on keyboard focus
+- **Screen Reader:** Announces score, company, tags, selected state
+
+---
+
+## 20. ResumeTraceabilityPanel
+
+### Purpose
+Shows which catalog STAR entries contributed to each bullet in the generated resume, with bidirectional highlighting and navigation.
+
+### Props
+
+```tsx
+interface ResumeTraceabilityPanelProps {
+  selectedBullets: ScoredBullet[]
+  activeRevBulletId?: string         // Currently highlighted bullet in preview
+  onBulletClick: (bulletId: string) => void
+  onViewSTAR: (starEntryId: string) => void
+  showSkillsCoverage?: boolean
+}
+```
+
+### Layout
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 🔗 Traceability                                          │
+│ [Show All Sources]                                       │
+│ ──────────────────────────────────────────────────────── │
+│                                                          │
+│ 📊 Content Summary                                       │
+│ • 18 bullets from 6 companies                            │
+│ • 687 words (~1.4 pages)                                 │
+│ • All constraints met ✅                                │
+│                                                          │
+│ 🏢 Companies Included                                    │
+│ ☑ StartupCo (5 bullets)                                 │
+│ ☑ BigCorp (4 bullets)                                   │
+│ ☑ TechCo (3 bullets)                                    │
+│ ☑ WebCo (2 bullets)                                     │
+│ ☑ CloudInc (2 bullets)                                  │
+│ ☑ DataCorp (2 bullets)                                  │
+│                                                          │
+│ 🎯 Active Bullet:                                        │
+│ [95%] Led React migration                                │
+│                                                          │
+│ 📍 Original STAR Entry                                   │
+│ ─────────────────────────────────────────────────────── │
+│ StartupCo · Q3 2024                                      │
+│ Frontend, Technical Leadership                           │
+│                                                          │
+│ Situation: Legacy Angular app slow...                   │
+│ Task: Lead migration without disruption...              │
+│ Action: Created incremental plan...                     │
+│ Result: 40% bundle size reduction...                    │
+│                                                          │
+│ [View Full Entry]                                        │
+│                                                          │
+│ ──────────────────────────────────────────────────────── │
+│                                                          │
+│ 🔍 Skills Coverage                                       │
+│ React.js: 7 bullets ████████░░                          │
+│ Node.js: 6 bullets ███████░░░                           │
+│ PostgreSQL: 4 bullets █████░░░░                         │
+│ Leadership: 3 bullets ████░░░░░                         │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+
+**Bidirectional Highlighting:**
+- When user hovers over bullet in resume preview → highlights corresponding source in traceability panel
+- When user clicks source in traceability panel → scrolls to and highlights bullet in resume preview
+
+**Content Summary:**
+- Real-time bullet count, word count, page estimate
+- Constraint validation status with color indicators
+- Company distribution breakdown
+
+**Skills Coverage:**
+- Visual progress bars showing how many bullets cover each key skill
+- Helps user see if emphasis is balanced or skewed
+
+### States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Default | Panel loads | Shows summary, no active bullet |
+| Active Bullet | Bullet hovered/selected | Highlights active bullet, shows STAR preview |
+| Expanded STAR | View Full Entry clicked | Modal with complete STAR entry |
+| Loading | Fetching STAR details | Skeleton loader in STAR preview area |
+
+### Behavior
+
+- **Synchronized Highlighting:** Active bullet highlights in both preview and traceability
+- **Sticky Panel:** On desktop, panel scrolls independently from preview
+- **Collapsible Sections:** Companies, Skills Coverage collapsible to save space
+- **View Full Entry:** Opens modal with complete STAR entry, similar to BulletScoreCard preview
+
+### Accessibility
+
+- **ARIA Role:** `complementary` with `aria-label="Resume traceability and sources"`
+- **Live Region:** Active bullet updates announced to screen readers
+- **Focus Management:** Focus moves to active bullet when clicked from traceability
+- **Keyboard:** Tab through companies/bullets, Enter to view STAR, Escape to close modal
+
+### Responsive Behavior
+
+- **Desktop (>1024px):** Fixed right panel, scrolls independently
+- **Tablet (768-1024px):** Tabbed view with preview (below preview)
+- **Mobile (<768px):** Bottom sheet triggered by "View Sources" button
+
+---
+
+## 21. ConstraintValidator
+
+### Purpose
+Real-time validation component that checks resume variant configuration and selection against user-defined constraints, providing visual feedback and suggestions.
+
+### Props
+
+```tsx
+interface ConstraintValidatorProps {
+  configuration: VariantConfig
+  selectedBullets: ScoredBullet[]
+  currentContent?: string           // For word/page count validation
+  onConstraintViolation?: (violations: ConstraintViolation[]) => void
+  showWarnings?: boolean
+  autoSuggest?: boolean
+}
+
+interface ConstraintViolation {
+  type: 'bullet_count' | 'company_count' | 'page_length' | 'word_count'
+  severity: 'critical' | 'warning'
+  current: number
+  expected: number | { min: number; max: number }
+  message: string
+  suggestion?: string
+}
+```
+
+### Visual Indicator
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 📊 Constraint Status                                     │
+│ ──────────────────────────────────────────────────────── │
+│                                                          │
+│ Bullet Count: 18 / 15-25                                 │
+│ ████████████████░░░░░  72%                               │
+│ ✅ Valid                                                │
+│                                                          │
+│ Company Count: 6 / 5-7                                   │
+│ ████████████████████░  86%                               │
+│ ✅ Valid                                                │
+│                                                          │
+│ Word Count: 687 / ~700 target                            │
+│ ████████████████████░  98%                               │
+│ ✅ On target                                            │
+│                                                          │
+│ Page Length: ~1.4 pages / 2 max                          │
+│ ██████████░░░░░░░░░░  70%                                │
+│ ✅ Within limit                                         │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Violation Warning
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ ⚠️ Constraint Violations                                 │
+│ ──────────────────────────────────────────────────────── │
+│                                                          │
+│ 🔴 Bullet Count: 27 (max: 25)                           │
+│    → Remove 2 bullets to meet constraint                │
+│    [Auto-Remove Lowest-Scored]                          │
+│                                                          │
+│ 🟡 Page Length: 1.8 pages (target: 1.5, max: 2)        │
+│    → Consider removing 2-3 bullets to optimize          │
+│    [Smart Trim]                                         │
+│                                                          │
+│ ✅ Companies: 6 (target: 5-7)                           │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Validation Rules
+
+```typescript
+const validationRules = {
+  bulletCount: {
+    check: (current, config) => {
+      const { min, max } = config.constraints.bulletRange
+      return current >= min && current <= max
+    },
+    severity: (current, config) => {
+      const { max } = config.constraints.bulletRange
+      return current > max ? 'critical' : 'warning'
+    }
+  },
+  companyCount: {
+    check: (current, config) => {
+      const { min, max } = config.constraints.companyRange
+      return current >= min && current <= max
+    },
+    severity: 'warning'
+  },
+  pageLength: {
+    check: (current, config) => {
+      return config.constraints.maxPages === null || 
+             current <= config.constraints.maxPages
+    },
+    severity: 'critical'
+  },
+  wordCount: {
+    check: (current, config) => {
+      const target = config.constraints.targetWordCount
+      const tolerance = 0.2  // ±20%
+      return Math.abs(current - target) / target <= tolerance
+    },
+    severity: 'warning'
+  }
+}
+```
+
+### Color Coding
+
+- **Green (✅):** All constraints met, in valid range
+- **Yellow (🟡):** Warning level, approaching limit or slightly off target
+- **Red (🔴):** Critical violation, exceeds hard limit
+
+### Behavior
+
+- **Real-Time Updates:** Validates on every selection/deselection change
+- **Auto-Suggestions:** If enabled, suggests specific actions to resolve violations
+- **Severity Levels:** 
+  - Critical: Blocks progression to next step
+  - Warning: Allows progression but shows warning
+- **Quick Fix Buttons:** One-click actions like "Auto-Remove" or "Smart Trim"
+
+### Accessibility
+
+- **ARIA Role:** `status` for real-time constraint updates
+- **Live Region:** `aria-live="polite"` announces constraint changes
+- **Color Independence:** Uses icons (✅🟡🔴) + text, not just color
+- **Screen Reader:** "Bullet count: 18 of 15 to 25, valid"
+
+---
+
+## 22. MarkdownResumePreview
+
+### Purpose
+Renders resume content from markdown with proper typography, formatting, and print-ready styling. Supports hover tooltips showing traceability to source STAR entries.
+
+### Props
+
+```tsx
+interface MarkdownResumePreviewProps {
+  content: string                    // Markdown format
+  bulletTraceability: Map<string, BulletTrace>
+  onBulletHover?: (bulletId: string | null) => void
+  onBulletClick?: (bulletId: string) => void
+  editable?: boolean
+  onContentChange?: (newContent: string) => void
+  showPageBreaks?: boolean
+}
+
+interface BulletTrace {
+  starEntryId: string
+  relevanceScore: number
+  company: string
+  title: string
+}
+```
+
+### Layout
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 📝 Resume Preview                                        │
+│ [Edit Mode] [View Mode] [Print]                          │
+│ ──────────────────────────────────────────────────────── │
+│                                                          │
+│ YOUR NAME                                                │
+│ email@example.com · 555-1234-5678                        │
+│ linkedin.com/in/yourname                                 │
+│                                                          │
+│ PROFESSIONAL SUMMARY                                     │
+│                                                          │
+│ Full Stack Engineer with 5 years building scalable      │
+│ React/Node.js applications. Led frontend migration      │
+│ reducing load time by 2s. Optimized APIs handling       │
+│ 10k req/sec.                                             │
+│                                                          │
+│ EXPERIENCE                                               │
+│                                                          │
+│ Senior Engineer · StartupCo                              │
+│ Mar 2024 - Present · San Francisco, CA                  │
+│                                                          │
+│ • Led React migration for client portal, reducing       │
+│   bundle size 40% and improving load time by 2 seconds  │
+│   with zero downtime                                     │
+│   [Hover: from STAR #12, 95% relevance]                 │
+│                                                          │
+│ • Built automated testing framework achieving 85% code  │
+│   coverage and catching 20 bugs pre-deployment          │
+│   [Hover: from STAR #18, 82% relevance]                 │
+│                                                          │
+│ Engineer · BigCorp                                       │
+│ Jan 2022 - Mar 2024 · New York, NY                      │
+│                                                          │
+│ • Scaled Node.js API to 10k requests/second using       │
+│   Redis caching and database connection pooling         │
+│   [Hover: from STAR #7, 92% relevance]                  │
+│                                                          │
+│ [Scroll for more...]                                    │
+│                                                          │
+│ ──────────────────────────────────────────────────────── │
+│ 📄 Page 1 of 1.4        687 words                       │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Typography
+
+```css
+.resume-preview {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 11pt;
+  line-height: 1.5;
+  color: #1a1a1a;
+  max-width: 8.5in;
+  padding: 1in;
+  background: white;
+}
+
+.resume-preview h1 {
+  font-size: 18pt;
+  font-weight: 700;
+  margin-bottom: 0.25em;
+}
+
+.resume-preview h2 {
+  font-size: 12pt;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  border-bottom: 1px solid #333;
+}
+
+.resume-preview ul {
+  margin-left: 1.5em;
+  list-style-type: disc;
+}
+
+.resume-preview li {
+  margin-bottom: 0.5em;
+}
+```
+
+### Traceability Tooltips
+
+```
+[Hover over bullet]
+┌────────────────────────────────────┐
+│ Source: STAR Entry #12             │
+│ Company: StartupCo                 │
+│ Relevance: 95%                     │
+│ Original: Led React migration...   │
+│                                    │
+│ [Click to view full STAR entry]    │
+└────────────────────────────────────┘
+```
+
+### States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| View Mode | Default | Rendered markdown, tooltips on hover |
+| Edit Mode | Edit button clicked | Markdown editor, live preview split |
+| Hovering Bullet | Mouse over bullet | Highlight bullet, show tooltip, emit `onBulletHover` |
+| Clicked Bullet | Click bullet | Scroll traceability panel, emit `onBulletClick` |
+| Print Mode | Print button clicked | Hide UI chrome, optimize for print media |
+
+### Edit Mode
+
+```
+┌─────────────────────────────────────┬──────────────────────┐
+│ Markdown Editor                     │ Live Preview         │
+│ ─────────────────────────────────── │ ──────────────────── │
+│ # YOUR NAME                         │ YOUR NAME            │
+│ email@example.com                   │ email@example.com    │
+│                                     │                      │
+│ ## PROFESSIONAL SUMMARY             │ PROFESSIONAL SUMMARY │
+│                                     │                      │
+│ Full Stack Engineer with 5 years... │ Full Stack Engineer...│
+│                                     │                      │
+│ [Auto-saves every 2s]               │ [Updates live]       │
+└─────────────────────────────────────┴──────────────────────┘
+```
+
+### Behavior
+
+- **Hover Traceability:** Hovering bullet shows tooltip + fires `onBulletHover` for panel sync
+- **Click Navigation:** Clicking bullet scrolls traceability panel to source
+- **Edit Mode:** Split view with markdown editor (left) and live preview (right)
+- **Auto-Save:** Edits auto-save every 2 seconds, debounced
+- **Page Count:** Real-time page count estimation (1 page ≈ 450-500 words)
+- **Print Optimization:** CSS print media query hides chrome, optimizes margins
+
+### Accessibility
+
+- **Semantic HTML:** Proper heading hierarchy (h1 for name, h2 for sections)
+- **ARIA Labels:** Bullet tooltips have `aria-describedby` linking to trace info
+- **Focus Management:** Focus visible on keyboard navigation
+- **Screen Reader:** Tooltips read aloud on bullet focus
+
+### Responsive Behavior
+
+- **Desktop (>1024px):** Full 8.5" page width simulation
+- **Tablet (768-1024px):** Reduced padding, full width
+- **Mobile (<768px):** Single column, minimal padding, edit mode stacks vertically
+
+---
+
 ## Testing Checklist
 
 For each component:

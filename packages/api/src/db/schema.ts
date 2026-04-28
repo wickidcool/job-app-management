@@ -359,3 +359,103 @@ export type TonePreference = (typeof tonePreferenceEnum.enumValues)[number];
 export type LengthVariant = (typeof lengthVariantEnum.enumValues)[number];
 export type EmphasisPreference = (typeof emphasisPreferenceEnum.enumValues)[number];
 export type OutreachPlatform = (typeof outreachPlatformEnum.enumValues)[number];
+
+// Resume Variant enums (UC-6)
+export const resumeVariantStatusEnum = pgEnum('resume_variant_status', ['draft', 'finalized']);
+export const resumeFormatEnum = pgEnum('resume_format', ['chronological', 'functional', 'hybrid']);
+export const sectionEmphasisEnum = pgEnum('section_emphasis', ['experience_heavy', 'skills_heavy', 'balanced']);
+
+export interface SectionBulletSelection {
+  sectionId: string;
+  bulletIds: string[];
+}
+
+export interface BulletContent {
+  id: string;
+  text: string;
+  source: 'catalog' | 'custom';
+  impactCategory?: string;
+}
+
+export interface ExperienceSection {
+  id: string;
+  company: string;
+  role: string;
+  location?: string;
+  startDate: string;
+  endDate?: string;
+  bullets: BulletContent[];
+}
+
+export interface SkillCategory {
+  name: string;
+  skills: string[];
+}
+
+export interface SkillsSection {
+  categories: SkillCategory[];
+}
+
+export interface ProjectSection {
+  id: string;
+  name: string;
+  description?: string;
+  techStack: string[];
+  bullets: BulletContent[];
+}
+
+export interface EducationSection {
+  institution: string;
+  degree: string;
+  field?: string;
+  graduationDate?: string;
+  gpa?: string;
+  honors?: string[];
+}
+
+export interface ResumeContent {
+  summary?: string;
+  experience: ExperienceSection[];
+  skills: SkillsSection;
+  projects?: ProjectSection[];
+  education?: EducationSection[];
+  certifications?: string[];
+}
+
+export interface VariantRevisionEntry {
+  id: string;
+  instructions: string;
+  previousContent: ResumeContent;
+  appliedAt: string;
+}
+
+export const resumeVariants = pgTable('resume_variants', {
+  id: text('id').primaryKey(),
+  status: resumeVariantStatusEnum('status').notNull().default('draft'),
+  title: text('title').notNull(),
+  targetCompany: text('target_company').notNull(),
+  targetRole: text('target_role').notNull(),
+  format: resumeFormatEnum('format').notNull().default('chronological'),
+  sectionEmphasis: sectionEmphasisEnum('section_emphasis').notNull().default('balanced'),
+  baseResumeId: text('base_resume_id').references(() => resumes.id, { onDelete: 'set null' }),
+  jobFitAnalysisId: text('job_fit_analysis_id'),
+  jobDescriptionText: text('job_description_text'),
+  jobDescriptionUrl: text('job_description_url'),
+  selectedBullets: jsonb('selected_bullets').$type<SectionBulletSelection[]>().notNull().default([]),
+  selectedTechTags: jsonb('selected_tech_tags').$type<string[]>().notNull().default([]),
+  selectedThemes: jsonb('selected_themes').$type<string[]>().notNull().default([]),
+  sectionOrder: jsonb('section_order').$type<string[]>().notNull().default(['summary', 'experience', 'skills', 'projects', 'education']),
+  hiddenSections: jsonb('hidden_sections').$type<string[]>().notNull().default([]),
+  content: jsonb('content').$type<ResumeContent>().notNull(),
+  atsScore: integer('ats_score'),
+  revisionHistory: jsonb('revision_history').$type<VariantRevisionEntry[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export type ResumeVariantRow = typeof resumeVariants.$inferSelect;
+export type NewResumeVariant = typeof resumeVariants.$inferInsert;
+export type ResumeVariantStatus = (typeof resumeVariantStatusEnum.enumValues)[number];
+export type ResumeFormat = (typeof resumeFormatEnum.enumValues)[number];
+export type SectionEmphasis = (typeof sectionEmphasisEnum.enumValues)[number];
