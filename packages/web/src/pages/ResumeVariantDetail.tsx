@@ -97,8 +97,8 @@ export function ResumeVariantDetail() {
       const response = await exportVariant.mutateAsync({ id, request });
 
       // Download the file
-      const blob = new Blob([atob(response.base64Content)], {
-        type: format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      const blob = new Blob([Uint8Array.from(atob(response.base64Content), c => c.charCodeAt(0))], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
