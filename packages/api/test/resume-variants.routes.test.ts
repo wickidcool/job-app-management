@@ -350,4 +350,173 @@ describe('Resume Variants Routes', () => {
       expect(body.totalCatalogBullets).toBe(42);
     });
   });
+
+  // ── POST /api/resume-variants/:id/export ──────────────────────────────────
+
+  describe('POST /api/resume-variants/:id/export', () => {
+    const mockExportResult = {
+      buffer: Buffer.from('mock-docx-content'),
+      filename: 'resume-variant-senior-engineer.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      pageCount: 2,
+    };
+
+    it('returns JSON response when Accept: application/json header is present (DOCX)', async () => {
+      vi.mocked(variantService.exportResumeVariant).mockResolvedValue(mockExportResult);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/resume-variants/01HZ_VAR_001/export',
+        headers: {
+          'content-type': 'application/json',
+          'accept': 'application/json',
+        },
+        body: JSON.stringify({
+          format: 'docx',
+          headerInfo: {
+            name: 'John Doe',
+            email: 'john@example.com',
+            phone: '555-0100',
+          },
+          template: 'modern',
+        }),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.exportId).toBeDefined();
+      expect(body.format).toBe('docx');
+      expect(body.filename).toBe('resume-variant-senior-engineer.docx');
+      expect(body.fileSize).toBe(mockExportResult.buffer.length);
+      expect(body.base64Content).toBe(mockExportResult.buffer.toString('base64'));
+      expect(body.pageCount).toBe(2);
+      expect(body.createdAt).toBeDefined();
+    });
+
+    it('returns JSON response when Accept: application/json header is present (PDF)', async () => {
+      const pdfResult = {
+        buffer: Buffer.from('mock-pdf-content'),
+        filename: 'resume-variant-senior-engineer.pdf',
+        contentType: 'application/pdf',
+        pageCount: 1,
+      };
+      vi.mocked(variantService.exportResumeVariant).mockResolvedValue(pdfResult);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/resume-variants/01HZ_VAR_001/export',
+        headers: {
+          'content-type': 'application/json',
+          'accept': 'application/json',
+        },
+        body: JSON.stringify({
+          format: 'pdf',
+          headerInfo: {
+            name: 'Jane Smith',
+            email: 'jane@example.com',
+          },
+          template: 'minimal',
+        }),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.format).toBe('pdf');
+      expect(body.filename).toBe('resume-variant-senior-engineer.pdf');
+      expect(body.base64Content).toBe(pdfResult.buffer.toString('base64'));
+      expect(body.pageCount).toBe(1);
+    });
+
+    it('returns binary response when Accept header is not application/json', async () => {
+      vi.mocked(variantService.exportResumeVariant).mockResolvedValue(mockExportResult);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/resume-variants/01HZ_VAR_001/export',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          format: 'docx',
+          headerInfo: {
+            name: 'John Doe',
+            email: 'john@example.com',
+          },
+        }),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe(mockExportResult.contentType);
+      expect(res.headers['content-disposition']).toContain('attachment');
+      expect(res.headers['content-disposition']).toContain(mockExportResult.filename);
+      expect(res.rawPayload).toEqual(mockExportResult.buffer);
+    });
+
+    it('returns 400 when format is missing', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/resume-variants/01HZ_VAR_001/export',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          headerInfo: {
+            name: 'John Doe',
+          },
+        }),
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('BAD_REQUEST');
+    });
+
+    it('returns 400 when format is invalid', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/resume-variants/01HZ_VAR_001/export',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          format: 'txt',
+          headerInfo: {
+            name: 'John Doe',
+          },
+        }),
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('BAD_REQUEST');
+    });
+
+    it('returns 400 when headerInfo is missing', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/resume-variants/01HZ_VAR_001/export',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          format: 'docx',
+        }),
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('BAD_REQUEST');
+    });
+
+    it('returns 404 when variant not found', async () => {
+      vi.mocked(variantService.exportResumeVariant).mockRejectedValue(
+        new NotFoundError('ResumeVariant')
+      );
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/resume-variants/nonexistent/export',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          format: 'docx',
+          headerInfo: {
+            name: 'John Doe',
+          },
+        }),
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
 });

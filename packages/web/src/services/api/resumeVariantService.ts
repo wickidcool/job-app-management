@@ -78,7 +78,8 @@ export class ResumeVariantService {
   async export(id: string, request: ExportResumeVariantRequest): Promise<ExportResumeVariantResponse> {
     const response = await this.client.post<ExportResumeVariantResponse>(
       `/resume-variants/${id}/export`,
-      request
+      request,
+      { 'Accept': 'application/json' }
     );
     return response;
   }

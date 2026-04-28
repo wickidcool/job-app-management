@@ -86,7 +86,7 @@ const listQuerySchema = z.object({
 
 const exportSchema = z
   .object({
-    format: z.enum(['docx']),
+    format: z.enum(['pdf', 'docx']),
     template: z.enum(['modern', 'classic', 'minimal', 'ats_optimized']).optional(),
     headerInfo: z.object({
       name: z.string().min(1),
