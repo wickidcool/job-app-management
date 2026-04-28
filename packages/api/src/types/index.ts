@@ -637,3 +637,207 @@ export interface FitTierParams {
   sortBy?: 'updatedAt' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
 }
+
+// ============================================================================
+// Resume Variants (UC-6)
+// ============================================================================
+
+export type ResumeFormat = 'chronological' | 'functional' | 'hybrid';
+export type SectionEmphasis = 'experience_heavy' | 'skills_heavy' | 'balanced';
+export type SectionType = 'summary' | 'experience' | 'skills' | 'projects' | 'education' | 'certifications';
+
+export interface SectionBulletSelectionDTO {
+  sectionId: string;
+  bulletIds: string[];
+  customBullets?: string[];
+}
+
+export interface BulletContentDTO {
+  id: string;
+  text: string;
+  source: 'catalog' | 'custom';
+  impactCategory?: string;
+}
+
+export interface ExperienceSectionDTO {
+  id: string;
+  company: string;
+  role: string;
+  location?: string;
+  startDate: string;
+  endDate?: string;
+  bullets: BulletContentDTO[];
+}
+
+export interface SkillCategoryDTO {
+  name: string;
+  skills: string[];
+}
+
+export interface SkillsSectionDTO {
+  categories: SkillCategoryDTO[];
+}
+
+export interface ProjectSectionDTO {
+  id: string;
+  name: string;
+  description?: string;
+  techStack: string[];
+  bullets: BulletContentDTO[];
+}
+
+export interface EducationSectionDTO {
+  institution: string;
+  degree: string;
+  field?: string;
+  graduationDate?: string;
+  gpa?: string;
+  honors?: string[];
+}
+
+export interface ResumeContentDTO {
+  summary?: string;
+  experience: ExperienceSectionDTO[];
+  skills: SkillsSectionDTO;
+  projects?: ProjectSectionDTO[];
+  education?: EducationSectionDTO[];
+  certifications?: string[];
+}
+
+export interface VariantRevisionEntryDTO {
+  id: string;
+  instructions: string;
+  previousContent: ResumeContentDTO;
+  appliedAt: string;
+}
+
+export interface ResumeVariantDTO {
+  id: string;
+  status: 'draft' | 'finalized';
+  title: string;
+  targetCompany: string;
+  targetRole: string;
+  format: ResumeFormat;
+  sectionEmphasis: SectionEmphasis;
+  baseResumeId?: string | null;
+  jobFitAnalysisId?: string | null;
+  jobDescriptionText?: string | null;
+  jobDescriptionUrl?: string | null;
+  selectedBullets: SectionBulletSelectionDTO[];
+  selectedTechTags: string[];
+  selectedThemes: string[];
+  sectionOrder: string[];
+  hiddenSections: string[];
+  content: ResumeContentDTO;
+  atsScore?: number | null;
+  revisionHistory: VariantRevisionEntryDTO[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface ResumeVariantSummaryDTO {
+  id: string;
+  status: 'draft' | 'finalized';
+  title: string;
+  targetCompany: string;
+  targetRole: string;
+  format: ResumeFormat;
+  atsScore?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UsedBulletDTO {
+  id: string;
+  rawText: string;
+  section: string;
+  impactCategory: string;
+  relevanceScore: number;
+}
+
+export interface VariantGenerationWarningDTO {
+  code: string;
+  message: string;
+}
+
+export interface GenerateResumeVariantInput {
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+  jobFitAnalysisId?: string;
+  targetCompany?: string;
+  targetRole?: string;
+  baseResumeId?: string;
+  selectedBullets?: SectionBulletSelectionDTO[];
+  selectedTechTags?: string[];
+  selectedThemes?: string[];
+  format?: ResumeFormat;
+  sectionEmphasis?: SectionEmphasis;
+  sectionOrder?: SectionType[];
+  hiddenSections?: SectionType[];
+  maxBulletsPerRole?: number;
+  includeProjects?: boolean;
+  atsOptimized?: boolean;
+  summaryInstructions?: string;
+}
+
+export interface ReviseResumeVariantInput {
+  instructions: string;
+  selectedBullets?: SectionBulletSelectionDTO[];
+  selectedTechTags?: string[];
+  sectionOrder?: SectionType[];
+  hiddenSections?: SectionType[];
+  format?: ResumeFormat;
+  sectionEmphasis?: SectionEmphasis;
+  version: number;
+}
+
+export interface UpdateResumeVariantInput {
+  title?: string;
+  status?: 'draft' | 'finalized';
+  version: number;
+}
+
+export interface SuggestBulletsInput {
+  jobDescriptionText?: string;
+  jobDescriptionUrl?: string;
+  jobFitAnalysisId?: string;
+  maxBulletsPerSection?: number;
+  impactCategories?: string[];
+  excludeBulletIds?: string[];
+}
+
+export interface BulletSuggestionDTO {
+  bulletId: string;
+  rawText: string;
+  impactCategory: string;
+  relevanceScore: number;
+  matchedKeywords: string[];
+  suggestedSection: string;
+  reasoning: string;
+}
+
+export interface ExportResumeVariantInput {
+  format: 'pdf' | 'docx';
+  template?: 'modern' | 'classic' | 'minimal' | 'ats_optimized';
+  headerInfo: {
+    name: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+    github?: string;
+    location?: string;
+    portfolio?: string;
+  };
+  fontFamily?: 'default' | 'serif' | 'modern';
+  fontSize?: 10 | 11 | 12;
+  margins?: 'normal' | 'narrow' | 'wide';
+  targetPages?: 1 | 2;
+}
+
+export class ResumeVariantError extends AppError {
+  constructor(code: string, message: string, details?: unknown, statusCode = 400) {
+    super(code, message, details, statusCode);
+    this.name = 'ResumeVariantError';
+  }
+}
