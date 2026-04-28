@@ -117,7 +117,7 @@ export function ReportsPipeline() {
           else if (diffDays <= 7) dueSoon++;
         }
         const daysSince = Math.floor(
-          (today.getTime() - new Date(app.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
+          (Date.now() - new Date(app.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
         );
         if (daysSince >= 14) stale++;
       }
