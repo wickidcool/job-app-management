@@ -1,4 +1,4 @@
-import { eq, ilike, or, desc, and, sql, inArray } from 'drizzle-orm';
+import { eq, ilike, or, desc, and, sql, inArray, notInArray } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -347,7 +347,6 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
   const selectedBulletsSaved: SectionBulletSelection[] = (input.selectedBullets ?? []).map((s) => ({
     sectionId: s.sectionId,
     bulletIds: s.bulletIds,
-    customBullets: s.customBullets,
   }));
 
   const [row] = await db
@@ -646,21 +645,6 @@ export async function suggestBullets(input: SuggestBulletsInput): Promise<{
   }
 
   const db = getDb();
-  let query = db
-    .select({
-      id: quantifiedBullets.id,
-      rawText: quantifiedBullets.rawText,
-      impactCategory: quantifiedBullets.impactCategory,
-      sourceId: quantifiedBullets.sourceId,
-    })
-    .from(quantifiedBullets);
-
-  if (input.excludeBulletIds && input.excludeBulletIds.length > 0) {
-    query = query.where(
-      sql`${quantifiedBullets.id} NOT IN (${sql.raw(input.excludeBulletIds.map(() => '?').join(','))})` as any
-    ) as any;
-  }
-
   const allBullets = await db
     .select({
       id: quantifiedBullets.id,
@@ -669,6 +653,11 @@ export async function suggestBullets(input: SuggestBulletsInput): Promise<{
       sourceId: quantifiedBullets.sourceId,
     })
     .from(quantifiedBullets)
+    .where(
+      input.excludeBulletIds?.length
+        ? notInArray(quantifiedBullets.id, input.excludeBulletIds)
+        : undefined
+    )
     .limit(500);
 
   const totalCatalogBullets = allBullets.length;
@@ -678,7 +667,6 @@ export async function suggestBullets(input: SuggestBulletsInput): Promise<{
   const maxPerSection = input.maxBulletsPerSection ?? 5;
 
   const filtered = allBullets.filter((b) => {
-    if (input.excludeBulletIds?.includes(b.id)) return false;
     if (input.impactCategories?.length && !input.impactCategories.includes(b.impactCategory as string)) return false;
     return true;
   });
@@ -716,12 +704,6 @@ export async function exportResumeVariant(
   const db = getDb();
   const [row] = await db.select().from(resumeVariants).where(eq(resumeVariants.id, id)).limit(1);
   if (!row) throw new NotFoundError('Resume variant');
-
-  if (input.format === 'pdf') {
-    // PDF not supported without a headless browser — return a DOCX always
-    // The spec allows this via the docx path; we treat pdf as not yet supported
-    throw new ResumeVariantError('EXPORT_FORMAT_INVALID', 'PDF export is not yet supported; use docx', undefined, 400);
-  }
 
   const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = await import('docx');
 

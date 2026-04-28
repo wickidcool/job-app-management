@@ -19,7 +19,6 @@ const sectionTypes = ['summary', 'experience', 'skills', 'projects', 'education'
 const bulletSelectionSchema = z.object({
   sectionId: z.string().min(1),
   bulletIds: z.array(z.string()).min(1),
-  customBullets: z.array(z.string()).optional(),
 });
 
 const generateSchema = z
@@ -87,7 +86,7 @@ const listQuerySchema = z.object({
 
 const exportSchema = z
   .object({
-    format: z.enum(['pdf', 'docx']),
+    format: z.enum(['docx']),
     template: z.enum(['modern', 'classic', 'minimal', 'ats_optimized']).optional(),
     headerInfo: z.object({
       name: z.string().min(1),

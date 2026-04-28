@@ -649,7 +649,6 @@ export type SectionType = 'summary' | 'experience' | 'skills' | 'projects' | 'ed
 export interface SectionBulletSelectionDTO {
   sectionId: string;
   bulletIds: string[];
-  customBullets?: string[];
 }
 
 export interface BulletContentDTO {

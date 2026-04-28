@@ -368,7 +368,6 @@ export const sectionEmphasisEnum = pgEnum('section_emphasis', ['experience_heavy
 export interface SectionBulletSelection {
   sectionId: string;
   bulletIds: string[];
-  customBullets?: string[];
 }
 
 export interface BulletContent {
