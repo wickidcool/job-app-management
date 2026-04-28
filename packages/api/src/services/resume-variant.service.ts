@@ -645,6 +645,11 @@ export async function suggestBullets(input: SuggestBulletsInput): Promise<{
   }
 
   const db = getDb();
+
+  const [{ count: totalCatalogBullets }] = await db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(quantifiedBullets);
+
   const allBullets = await db
     .select({
       id: quantifiedBullets.id,
@@ -659,8 +664,6 @@ export async function suggestBullets(input: SuggestBulletsInput): Promise<{
         : undefined
     )
     .limit(500);
-
-  const totalCatalogBullets = allBullets.length;
 
   const jdText = input.jobDescriptionText ?? '';
   const keywords = jdText ? extractKeywords(jdText) : [];
