@@ -21,6 +21,11 @@ export interface ApplicationDTO {
   updatedAt: string;
   appliedAt?: string | null;
   version: number;
+  // UC-5 Extended Tracking Fields
+  contact?: string | null;
+  compTarget?: string | null;
+  nextAction?: string | null;
+  nextActionDue?: string | null;
 }
 
 export interface StatusHistoryDTO {
@@ -39,6 +44,11 @@ export interface CreateApplicationInput {
   status?: ApplicationStatus;
   coverLetterId?: string;
   resumeVersionId?: string;
+  // UC-5 Extended Tracking Fields
+  contact?: string;
+  compTarget?: string;
+  nextAction?: string;
+  nextActionDue?: string;
 }
 
 export interface UpdateApplicationInput {
@@ -49,6 +59,11 @@ export interface UpdateApplicationInput {
   salaryRange?: string | null;
   coverLetterId?: string | null;
   resumeVersionId?: string | null;
+  // UC-5 Extended Tracking Fields
+  contact?: string | null;
+  compTarget?: string | null;
+  nextAction?: string | null;
+  nextActionDue?: string | null;
   version: number;
 }
 
@@ -450,4 +465,175 @@ export class CoverLetterError extends AppError {
     super(code, message, details, statusCode);
     this.name = 'CoverLetterError';
   }
+}
+
+// ============================================================================
+// Reports (UC-5)
+// ============================================================================
+
+export type ActiveStatus = 'saved' | 'applied' | 'phone_screen' | 'interview';
+export type FitTier = 'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed';
+
+export interface PipelineApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  location?: string | null;
+  nextAction?: string | null;
+  nextActionDue?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface PipelineGroup {
+  status: ActiveStatus;
+  count: number;
+  applications: PipelineApplication[];
+}
+
+export interface PipelineReportResponse {
+  groups: PipelineGroup[];
+  totals: {
+    active: number;
+    byStatus: Partial<Record<ActiveStatus, number>>;
+  };
+  generatedAt: string;
+}
+
+export interface NeedsActionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  nextAction: string;
+  nextActionDue: string;
+  daysUntilDue: number;
+  urgency: 'overdue' | 'due_soon' | 'upcoming';
+  contact?: string | null;
+  updatedAt: string;
+}
+
+export interface NeedsActionReportResponse {
+  applications: NeedsActionApplication[];
+  summary: {
+    overdue: number;
+    dueSoon: number;
+    upcoming: number;
+    total: number;
+  };
+  nextCursor?: string;
+  generatedAt: string;
+}
+
+export interface StaleApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  daysSinceUpdate: number;
+  lastStatusChange: string;
+  contact?: string | null;
+  url?: string | null;
+  updatedAt: string;
+}
+
+export interface StaleReportResponse {
+  applications: StaleApplication[];
+  summary: {
+    total: number;
+    byStatus: Partial<Record<ApplicationStatus, number>>;
+    averageDaysStale: number;
+  };
+  nextCursor?: string;
+  generatedAt: string;
+}
+
+export interface RejectionStageStats {
+  stage: ApplicationStatus;
+  count: number;
+  percentage: number;
+}
+
+export interface ClosedLoopApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: 'rejected' | 'offer' | 'withdrawn';
+  closedAt: string;
+  previousStatus?: ApplicationStatus | null;
+  daysInPipeline: number;
+  salaryRange?: string | null;
+  compTarget?: string | null;
+}
+
+export interface ClosedLoopReportResponse {
+  applications: ClosedLoopApplication[];
+  summary: {
+    total: number;
+    offers: number;
+    rejections: number;
+    withdrawn: number;
+    rejectionsByStage: RejectionStageStats[];
+    averageTimeToClose: number;
+  };
+  nextCursor?: string;
+  generatedAt: string;
+}
+
+export interface FitTierApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  fitTier: FitTier;
+  updatedAt: string;
+}
+
+export interface FitTierGroup {
+  tier: FitTier;
+  count: number;
+  applications: FitTierApplication[];
+}
+
+export interface ByFitTierReportResponse {
+  groups: FitTierGroup[];
+  summary: {
+    total: number;
+    analyzed: number;
+    notAnalyzed: number;
+    byTier: Partial<Record<FitTier, number>>;
+  };
+  generatedAt: string;
+}
+
+export interface PipelineParams {
+  sortBy?: 'updatedAt' | 'createdAt' | 'company';
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface NeedsActionParams {
+  days?: number;
+  includeOverdue?: boolean;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface StaleParams {
+  days?: number;
+  status?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ClosedLoopParams {
+  period?: '30d' | '60d' | '90d' | 'all';
+  status?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface FitTierParams {
+  includeTerminal?: boolean;
+  sortBy?: 'updatedAt' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
 }

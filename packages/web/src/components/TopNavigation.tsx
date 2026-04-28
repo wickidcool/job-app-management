@@ -21,6 +21,7 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
       path: '/applications',
       badge: applicationCount,
     },
+    { label: 'Reports', path: '/reports' },
     {
       label: 'Resume Manager',
       path: '/resumes',

@@ -21,6 +21,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
       path: '/applications',
       badge: applicationCount,
     },
+    { icon: '📊', label: 'Reports', path: '/reports' },
     {
       icon: '📄',
       label: 'Resume Manager',

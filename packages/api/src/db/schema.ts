@@ -7,6 +7,7 @@ import {
   jsonb,
   boolean,
   numeric,
+  date,
 } from 'drizzle-orm/pg-core';
 
 export const appStatusEnum = pgEnum('app_status', [
@@ -30,6 +31,11 @@ export const applications = pgTable('applications', {
   coverLetterId: text('cover_letter_id'),
   resumeVersionId: text('resume_version_id'),
   appliedAt: timestamp('applied_at', { withTimezone: true }),
+  // UC-5 Extended Tracking Fields
+  contact: text('contact'),
+  compTarget: text('comp_target'),
+  nextAction: text('next_action'),
+  nextActionDue: date('next_action_due', { mode: 'string' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   version: integer('version').notNull().default(1),

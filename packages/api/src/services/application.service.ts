@@ -33,6 +33,10 @@ function toDTO(app: Application): ApplicationDTO {
     updatedAt: app.updatedAt.toISOString(),
     appliedAt: app.appliedAt?.toISOString() ?? null,
     version: app.version,
+    contact: app.contact,
+    compTarget: app.compTarget,
+    nextAction: app.nextAction,
+    nextActionDue: app.nextActionDue,
   };
 }
 
@@ -67,6 +71,10 @@ export async function createApplication(
         coverLetterId: input.coverLetterId ?? null,
         resumeVersionId: input.resumeVersionId ?? null,
         appliedAt: status === 'applied' ? now : null,
+        contact: input.contact ?? null,
+        compTarget: input.compTarget ?? null,
+        nextAction: input.nextAction ?? null,
+        nextActionDue: input.nextActionDue ?? null,
         createdAt: now,
         updatedAt: now,
         version: 1,
@@ -224,6 +232,10 @@ export async function updateApplication(
   if ('salaryRange' in input) updates.salaryRange = input.salaryRange;
   if ('coverLetterId' in input) updates.coverLetterId = input.coverLetterId;
   if ('resumeVersionId' in input) updates.resumeVersionId = input.resumeVersionId;
+  if ('contact' in input) updates.contact = input.contact;
+  if ('compTarget' in input) updates.compTarget = input.compTarget;
+  if ('nextAction' in input) updates.nextAction = input.nextAction;
+  if ('nextActionDue' in input) updates.nextActionDue = input.nextActionDue;
 
   const [updated] = await db
     .update(applications)

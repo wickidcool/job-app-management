@@ -19,6 +19,7 @@ import { createDashboardService } from './dashboardService';
 import { createResumeService } from './resumeService';
 import { createProjectService } from './projectService';
 import { createCatalogService } from './catalog.service';
+import { createReportsService } from './reportsService';
 import { createJobFitService } from './jobFitService';
 import { createCoverLetterService } from './coverLetters';
 
@@ -47,6 +48,7 @@ export const dashboardService = createDashboardService(apiClient);
 export const resumeService = createResumeService(apiClient);
 export const projectService = createProjectService(apiClient);
 export const catalogService = createCatalogService(apiClient);
+export const reportsService = createReportsService(apiClient);
 export const jobFitService = createJobFitService(apiClient);
 export const coverLetterService = createCoverLetterService(apiClient);
 
@@ -57,6 +59,26 @@ export type { DashboardService } from './dashboardService';
 export type { ResumeService, Resume } from './resumeService';
 export type { ProjectService, Project, ProjectFile, CreateProjectInput } from './projectService';
 export type { CatalogService } from './catalog.service';
+export type {
+  ReportsService,
+  UrgencyLevel,
+  ActiveStatus,
+  FitTier,
+  ClosedStatus,
+  PipelineApplication,
+  PipelineGroup,
+  PipelineReportResponse,
+  NeedsActionApplication,
+  NeedsActionReportResponse,
+  StaleApplication,
+  StaleReportResponse,
+  ClosedLoopApplication,
+  RejectionStageStats,
+  ClosedLoopReportResponse,
+  FitTierApplication,
+  FitTierGroup,
+  ByFitTierReportResponse,
+} from './reportsService';
 export type { JobFitService } from './jobFitService';
 export type { CoverLetterService, CoverLetter } from './coverLetters';
 export type * from './types';
