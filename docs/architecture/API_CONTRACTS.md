@@ -2079,3 +2079,4 @@ The cover letter generation system enforces these constraints:
 - [Architecture Overview](./ARCHITECTURE.md)
 - [Data Model](./DATA_MODEL.md)
 - [User Flows](../design/USER_FLOWS.md)
+- [UC-6 Resume Variant Generation API](./UC-6_RESUME_VARIANT_API.md)

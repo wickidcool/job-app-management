@@ -1085,3 +1085,472 @@ flowchart TD
 | `previousContent` | Text | Content before revision |
 | `newContent` | Text | Content after revision |
 | `createdAt` | Timestamp | Revision timestamp |
+
+---
+
+## 9. Targeted Resume Variant Generation (UC-6)
+
+### Overview
+
+Allow users to generate tailored resume variants optimized for specific target roles by scoring and selecting catalog STAR bullets, then rewriting them into resume format. The system ensures traceability, validates constraints, and provides real-time preview.
+
+### 9a. UC-6 Base: Generate Targeted Resume Variant
+
+**User Story:**
+> As a job seeker, I want to generate a targeted resume variant for a specific role so that I can highlight my most relevant experience while staying within length constraints.
+
+**Entry Points:**
+- Resumes page → "Generate Variant" button
+- Application detail page → "Create Tailored Resume" action
+- Job Fit Analysis → "Generate Resume for This Role" button
+
+```mermaid
+flowchart TD
+    A[User Initiates Resume Variant] --> B{Has Catalog Data?}
+    B -->|No| C[Show Empty State:<br/>'Upload Resume First']
+    B -->|Yes| D[Open Variant Generator]
+    
+    C --> E[Navigate to Resume Upload]
+    
+    D --> F[Step 1: Configure Target]
+    F --> G[User Enters:<br/>- Target Role<br/>- Seniority Level<br/>- Key Skills to Emphasize]
+    G --> H[Set Constraints:<br/>- Max Pages 1-2<br/>- Target Word Count<br/>- Companies to Include 5-7]
+    
+    H --> I{From Job Fit Analysis?}
+    I -->|Yes| J[Pre-load Target Role Info]
+    I -->|No| K[Manual Entry]
+    
+    J --> L[Click 'Score Bullets']
+    K --> L
+    
+    L --> M[Step 2: Scoring Process]
+    M --> N[Show Progress:<br/>'Scoring catalog bullets...']
+    N --> O[AI Scores Each STAR Bullet<br/>Against Target Role]
+    O --> P[Sort by Relevance Score]
+    
+    P --> Q[Step 3: Bullet Selection]
+    Q --> R[Display Scored Bullets<br/>with Relevance %]
+    R --> S{Auto-Select Top Bullets?}
+    S -->|Yes| T[Select Top 15-25 Bullets<br/>Across 5-7 Companies]
+    S -->|No| U[User Manually Selects]
+    
+    T --> V[Show Selection Summary]
+    U --> V
+    
+    V --> W{Constraints Valid?}
+    W -->|No| X[Show Warnings:<br/>'Too many bullets'<br/>'Too few companies']
+    W -->|Yes| Y[Click 'Generate Preview']
+    
+    X --> Z[User Adjusts Selection]
+    Z --> V
+    
+    Y --> AA[Step 4: Generation]
+    AA --> AB[Show Progress:<br/>'Rewriting bullets...'<br/>'Formatting resume...']
+    AB --> AC[AI Rewrites STAR Bullets<br/>into Resume Format]
+    AC --> AD[Generate Markdown Output]
+    
+    AD --> AE[Step 5: Preview & Edit]
+    AE --> AF[Split View:<br/>- Left: Resume Preview<br/>- Right: Traceability Panel]
+    AF --> AG[Real-time Preview Updates]
+    
+    AG --> AH{User Action}
+    AH -->|Edit Constraints| AI[Return to Step 1]
+    AH -->|Reselect Bullets| AJ[Return to Step 3]
+    AH -->|Edit Content| AK[Inline Edit Mode]
+    AH -->|Export| AL[Choose Format]
+    
+    AI --> H
+    AJ --> Q
+    
+    AK --> AM[User Edits Markdown]
+    AM --> AN[Update Preview]
+    AN --> AH
+    
+    AL --> AO{Export Format}
+    AO -->|Markdown| AP[Download .md]
+    AO -->|Word| AQ[Download .docx]
+    AO -->|PDF| AR[Download .pdf]
+    
+    AP --> AS[Save Variant to Library]
+    AQ --> AS
+    AR --> AS
+    
+    AS --> AT[Link to Application?]
+    AT --> AU{User Choice}
+    AU -->|Yes| AV[Link to Application Record]
+    AU -->|No| AW[Save Standalone]
+    
+    AV --> AX[Success Toast]
+    AW --> AX
+    AX --> AY[Return to Resumes Library]
+```
+
+**Acceptance Criteria:**
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| Happy path from fit analysis | User has completed job fit analysis | User clicks "Generate Resume for This Role" | Generator pre-fills target role, seniority, key skills from analysis |
+| Manual configuration | User starts from Resumes page | User enters target role and constraints manually | All fields accept valid input, constraints validated |
+| Bullet scoring | User submits target role | System scores catalog bullets | Each bullet receives 0-100 relevance score with reasoning |
+| Auto-selection | Scoring complete, user clicks "Auto-Select" | System selects top 15-25 bullets across 5-7 companies | Selection summary shows count, companies, constraint status |
+| Constraint validation | User selects 30 bullets from 3 companies | System validates against constraints | Warning: "Too many bullets (max 25)" and "Need 5-7 companies (currently 3)" |
+| Preview generation | Valid selection, user clicks "Generate Preview" | System generates resume variant | Markdown preview displayed with traceability panel showing source bullets |
+| Real-time preview | User edits markdown content | Content changes trigger preview update | Preview updates within 200ms of edit |
+| Traceability | User hovers over bullet in preview | Traceability panel highlights source STAR entry | Tooltip shows original STAR entry and relevance score |
+| Export | User clicks "Download .docx" | System generates Word document | File downloads with proper formatting, filename: `Resume_{TargetRole}_{Date}.docx` |
+
+---
+
+### 9b. UC-6a: Rebalance Existing Resume
+
+**User Story:**
+> As a job seeker, I want to rebalance an existing resume variant for a different role emphasis so that I can quickly adjust without starting from scratch.
+
+**Entry Points:**
+- Resume variant detail page → "Rebalance" button
+- Resumes library → Context menu → "Rebalance for Different Role"
+
+```mermaid
+flowchart TD
+    A[User Selects Existing Variant] --> B[Open Rebalance Mode]
+    B --> C[Load Current Configuration:<br/>- Bullets Used<br/>- Target Role<br/>- Constraints]
+    
+    C --> D[Show Rebalance Form]
+    D --> E{User Action}
+    
+    E -->|Change Target Role| F[Update Target Role Field]
+    E -->|Adjust Emphasis| G[Modify Key Skills to Emphasize]
+    E -->|Keep Same Role| H[Adjust Constraints Only]
+    
+    F --> I[Click 'Re-Score Bullets']
+    G --> I
+    H --> J[Skip Scoring]
+    
+    I --> K[Re-score All Catalog Bullets<br/>Against New Target]
+    K --> L[Show Updated Scores]
+    L --> M[Highlight Score Changes:<br/>'↑ Relevance Increased'<br/>'↓ Relevance Decreased']
+    
+    J --> N[Keep Current Bullet Selection]
+    M --> N
+    
+    N --> O{User Adjusts Selection?}
+    O -->|Yes| P[Add/Remove Bullets<br/>Based on New Scores]
+    O -->|No| Q[Keep Current Selection]
+    
+    P --> R[Validate Constraints]
+    Q --> R
+    
+    R --> S{Constraints Valid?}
+    S -->|No| T[Show Warnings]
+    S -->|Yes| U[Click 'Regenerate']
+    
+    T --> V[User Fixes Issues]
+    V --> R
+    
+    U --> W[Regenerate Resume<br/>with New Bullet Order/Emphasis]
+    W --> X[Show Side-by-Side Diff:<br/>- Old Version (Left)<br/>- New Version (Right)]
+    
+    X --> Y{User Decision}
+    Y -->|Accept Changes| Z[Replace Existing Variant]
+    Y -->|Reject Changes| AA[Discard, Keep Original]
+    Y -->|Save as New| AB[Save New Variant Copy]
+    
+    Z --> AC[Update Variant Record]
+    AB --> AC
+    
+    AC --> AD[Success Toast:<br/>'Resume Rebalanced']
+    AA --> AE[Return to Variant Detail]
+    AD --> AE
+```
+
+**Acceptance Criteria:**
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| Load existing variant | User has saved variant for "Frontend Engineer" role | User clicks "Rebalance" | Form pre-fills with current target role, bullets, constraints |
+| Change target role | User changes target from "Frontend" to "Full Stack" | User clicks "Re-Score" | System re-scores all bullets, shows score changes (↑/↓) |
+| Adjust emphasis | User adds "Leadership" to key skills | System re-generates | Resume prioritizes leadership-focused bullets, adjusts order |
+| Constraint adjustment | User changes max pages from 2 to 1 | User clicks "Regenerate" | System reduces content to fit 1 page, shows warning if constraints violated |
+| Side-by-side diff | Regeneration complete | User views result | Diff view shows old (left) vs new (right) with additions (green), removals (red), changes (yellow) |
+| Save as new | User rebalances existing variant | User clicks "Save as New" | Creates new variant, preserves original, updates library |
+
+---
+
+### 9c. UC-6b: One-Page Compression
+
+**User Story:**
+> As a job seeker, I want to compress an existing resume variant to fit on one page so that I can meet application requirements without losing key information.
+
+**Entry Points:**
+- Resume variant detail page → "Compress to 1 Page" button
+- Resumes library → Quick action → "Compress"
+
+```mermaid
+flowchart TD
+    A[User Selects Variant to Compress] --> B{Current Length?}
+    B -->|1 Page| C[Show Info:<br/>'Already 1 page']
+    B -->|2+ Pages| D[Open Compression Mode]
+    
+    C --> E[No Action Needed]
+    
+    D --> F[Analyze Current Content:<br/>- Total Word Count<br/>- Bullets Count<br/>- Companies Count]
+    F --> G[Calculate Target Reduction:<br/>'Need to cut X words']
+    
+    G --> H[Show Compression Strategies]
+    H --> I{User Selects Strategy}
+    
+    I -->|Smart Trim| J[Auto-Select Lowest-Scored Bullets<br/>to Remove]
+    I -->|Manual Selection| K[User Chooses Bullets to Remove]
+    I -->|Condense| L[Keep All Bullets,<br/>Shorten Each by ~30%]
+    
+    J --> M[Preview Trimmed Version]
+    K --> M
+    L --> N[AI Condenses Bullet Text]
+    N --> M
+    
+    M --> O{Fits 1 Page?}
+    O -->|No| P[Show Status:<br/>'Still X words over']
+    O -->|Yes| Q[Show Success:<br/>'✓ Fits 1 page']
+    
+    P --> R[Offer Next Step:<br/>'Remove More' or 'Condense']
+    R --> S{User Choice}
+    S -->|Remove More| T[Remove Additional Bullets]
+    S -->|Condense More| U[Further Shorten Text]
+    
+    T --> M
+    U --> N
+    
+    Q --> V[Preview Compressed Resume]
+    V --> W{User Action}
+    
+    W -->|Accept| X[Save Compressed Variant]
+    W -->|Reject| Y[Discard, Keep Original]
+    W -->|Edit Manually| Z[Inline Edit Mode]
+    
+    Z --> AA[User Edits Content]
+    AA --> AB[Real-time Page Count]
+    AB --> AC{Still 1 Page?}
+    AC -->|Yes| W
+    AC -->|No| AD[Warning: 'Exceeds 1 page']
+    AD --> Z
+    
+    X --> AE[Save as New Variant or Replace]
+    AE --> AF{Save Option}
+    AF -->|Replace Original| AG[Update Existing Variant]
+    AF -->|Save as New| AH[Create '1-Page' Variant]
+    
+    AG --> AI[Success Toast]
+    AH --> AI
+    AI --> AJ[Return to Resumes Library]
+    
+    Y --> AK[Return to Variant Detail]
+```
+
+**Acceptance Criteria:**
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| 2-page to 1-page | User has 2-page variant with 25 bullets | User clicks "Compress to 1 Page" | System calculates "Need to cut ~400 words", offers strategies |
+| Smart trim | User selects "Smart Trim" strategy | System auto-selects lowest-scored 8 bullets to remove | Preview shows 17 bullets remaining, fits 1 page, traceability intact |
+| Manual selection | User selects "Manual Selection" | User deselects 6 specific bullets | Preview updates in real-time, shows page count |
+| Condense strategy | User selects "Condense" | AI shortens all bullets by ~30% | Preview shows same bullets, shorter text, fits 1 page |
+| Not enough reduction | User removes 3 bullets, still 1.2 pages | System detects overflow | Warning: "Still 50 words over, remove 2 more bullets or condense further" |
+| Real-time page count | User edits content manually | Each edit updates page count | Page indicator shows "Page 1 of 1 ✓" or "Page 1 of 1.1 ⚠" |
+| Save compressed | Compression successful, user clicks "Save" | User chooses "Save as New" | Creates new "1-Page" variant with suffix, original unchanged |
+
+---
+
+## Error Flows (UC-6 Family)
+
+### Empty Catalog State
+
+```mermaid
+flowchart TD
+    A[User Attempts Resume Variant] --> B{Has Catalog Entries?}
+    B -->|No| C[Show Empty State]
+    C --> D[Empty State Message:<br/>'No Catalog Data Yet']
+    D --> E[Display Call-to-Action:<br/>'Upload Resume to Build Catalog']
+    E --> F{User Action}
+    F -->|Upload Resume| G[Navigate to Resume Upload]
+    F -->|Cancel| H[Return to Previous Page]
+```
+
+### Insufficient Bullets for Constraints
+
+```mermaid
+flowchart TD
+    A[User Configures Constraints:<br/>'15-25 bullets, 5-7 companies'] --> B[Score Bullets]
+    B --> C{Enough Bullets Meet Threshold?}
+    C -->|No| D[Show Warning:<br/>'Only 8 bullets scored >60%']
+    D --> E[Offer Solutions:<br/>'Lower Score Threshold' or<br/>'Broaden Target Role']
+    E --> F{User Choice}
+    F -->|Lower Threshold| G[Adjust Min Score to 50%]
+    F -->|Broaden Role| H[Modify Target Role Keywords]
+    F -->|Cancel| I[Return to Configuration]
+    
+    G --> J[Re-score with New Threshold]
+    H --> J
+    J --> K{Now Enough Bullets?}
+    K -->|Yes| L[Proceed to Selection]
+    K -->|No| M[Show Persistent Warning:<br/>'Consider Adding More Catalog Entries']
+    M --> N[Allow Proceed Anyway]
+```
+
+### Generation Timeout
+
+```mermaid
+flowchart TD
+    A[User Clicks 'Generate Preview'] --> B[Start AI Generation]
+    B --> C{Response Within 30s?}
+    C -->|Yes| D[Show Preview]
+    C -->|No| E[Show Timeout Error:<br/>'Generation took too long']
+    E --> F[Offer Actions]
+    F --> G{User Choice}
+    G -->|Retry| H[Retry Generation]
+    G -->|Reduce Bullets| I[Remove Bullets to Speed Up]
+    G -->|Cancel| J[Return to Selection]
+    
+    H --> B
+    I --> K[User Removes 5-10 Bullets]
+    K --> B
+```
+
+---
+
+## Navigation Map (Updated with UC-6)
+
+```mermaid
+flowchart LR
+    A[Dashboard] --> B[Application Detail]
+    A --> C[Job Fit Analysis]
+    A --> D[Resumes Library]
+    
+    B --> E[Create Tailored Resume]
+    C --> E
+    D --> E
+    
+    E --> F[Resume Variant Generator]
+    F --> G[Preview & Edit]
+    G --> H[Export Dialog]
+    H --> D
+    
+    D --> I[Variant Detail]
+    I --> J[Rebalance Mode]
+    I --> K[Compress to 1 Page]
+    
+    J --> G
+    K --> G
+```
+
+---
+
+## Accessibility Requirements for UC-6
+
+### Screen Reader Support
+
+**Scoring Progress:**
+- "Scoring bullet 12 of 45 against target role"
+- "Bullet scored 87%, excellent match for Full Stack Engineer"
+
+**Selection Summary:**
+- "20 bullets selected across 6 companies. Estimated length: 1.5 pages. Constraint status: valid."
+
+**Preview Updates:**
+- "Preview updated. Current word count: 487 words, fits on 1 page."
+
+**Traceability:**
+- "This bullet traces to STAR entry: Led React migration, relevance: 95%"
+
+### Keyboard Navigation
+
+**Generator Flow:**
+- Tab order: Target Role → Constraints → Score Bullets → Bullet List → Generate Preview → Export
+- Enter/Space: Toggle bullet selection, submit forms
+- Ctrl/Cmd + A: Select all recommended bullets
+- Ctrl/Cmd + D: Deselect all bullets
+- Arrow keys: Navigate bullet list
+- Ctrl/Cmd + E: Toggle edit mode in preview
+- Escape: Close modals, exit edit mode
+
+### ARIA Attributes
+
+```html
+<section role="region" aria-label="Resume Variant Generator">
+  <div role="status" aria-live="polite" aria-atomic="true">
+    <!-- Scoring progress -->
+  </div>
+  <div role="alert" aria-live="assertive">
+    <!-- Constraint violations -->
+  </div>
+  <div role="feed">
+    <!-- Scored bullets list -->
+  </div>
+  <div role="complementary" aria-label="Traceability Panel">
+    <!-- Source STAR entries -->
+  </div>
+</section>
+```
+
+### Focus Management
+
+1. On generator load: Focus moves to "Target Role" field
+2. On scoring complete: Focus moves to bullet list heading
+3. On constraint violation: Focus moves to warning message
+4. On preview generate: Focus moves to preview heading
+5. On modal open: Focus trap within modal
+6. On modal close: Return focus to trigger element
+
+---
+
+## Performance Considerations for UC-6
+
+| Operation | Target Time | User Feedback |
+|-----------|-------------|---------------|
+| Bullet scoring (45 entries) | < 5 seconds | Progress bar with count |
+| Preview generation | < 3 seconds | "Generating..." spinner |
+| Real-time preview update | < 200ms | No spinner, instant update |
+| Constraint validation | < 100ms | Instant visual feedback |
+| Export .docx | < 2 seconds | Loading spinner on button |
+
+### Optimization Strategies
+
+- **Bullet Scoring:** Batch API requests (10 bullets per request), parallel processing
+- **Preview Rendering:** Debounce edits (200ms), virtual scrolling for long previews
+- **Constraint Checking:** Client-side validation (no server round-trip)
+- **Export Generation:** Generate on server, stream to client
+
+---
+
+## Notes for Frontend Developer (UC-6)
+
+1. **State Management:** Generator requires complex state (target, constraints, scores, selection, preview). Consider using a state machine (XState) or reducer pattern.
+
+2. **Real-time Preview:** Use debounced markdown rendering with `react-markdown` or similar. Preview should update within 200ms of edit.
+
+3. **Traceability Panel:** Implement bidirectional highlighting:
+   - Hover bullet in preview → highlight source in traceability panel
+   - Click source in traceability → scroll to bullet in preview
+
+4. **Constraint Validation:** Real-time validation with visual indicators:
+   - Green: All constraints met
+   - Yellow: Approaching limit (e.g., 23/25 bullets)
+   - Red: Constraint violated (e.g., 27/25 bullets)
+
+5. **Bullet Scoring:** Display relevance scores with visual hierarchy:
+   - Excellent (90-100%): Green badge, top of list
+   - Great (80-89%): Light green badge
+   - Good (70-79%): Yellow badge
+   - Fair (60-69%): Orange badge
+   - Low (< 60%): Gray, bottom of list
+
+6. **Page Count Estimation:** Client-side estimation:
+   - 1 page ≈ 400-500 words
+   - Use `window.print()` media query simulation for accurate count
+   - Update in real-time as user edits
+
+7. **Diff View (Rebalance):** Use `react-diff-view` or similar for side-by-side comparison with syntax highlighting for additions/removals.
+
+8. **Export Formats:**
+   - Markdown: Direct download (client-side)
+   - .docx: Server generates using `docx` library
+   - PDF: Server generates using `puppeteer` or `pdfkit`
