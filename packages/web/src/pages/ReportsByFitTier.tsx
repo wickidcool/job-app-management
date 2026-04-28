@@ -3,7 +3,7 @@ import { useReportsByFitTier } from '../hooks/useReports';
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
-  const { data, isLoading } = useReportsByFitTier();
+  const { data, isLoading, isError, error } = useReportsByFitTier();
 
   const summary = data?.summary ?? { total: 0, analyzed: 0, notAnalyzed: 0, byTier: {} };
 
@@ -11,6 +11,19 @@ export function ReportsByFitTier() {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="text-center">Loading by fit tier report...</div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-800 font-medium">Failed to load fit tier report</p>
+          <p className="mt-2 text-sm text-red-600">
+            {error instanceof Error ? error.message : 'Please try refreshing the page.'}
+          </p>
+        </div>
       </div>
     );
   }
@@ -34,10 +47,10 @@ export function ReportsByFitTier() {
             feature, you need to run job fit analysis on your applications first.
           </p>
           <button
-            onClick={() => navigate('/job-fit-analysis')}
+            onClick={() => navigate('/')}
             className="inline-flex items-center rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
-            Go to Job Fit Analysis
+            View Applications
             <svg
               className="ml-2 h-4 w-4"
               fill="none"

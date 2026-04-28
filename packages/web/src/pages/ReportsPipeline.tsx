@@ -94,7 +94,7 @@ function PipelineCard({
 
 export function ReportsPipeline() {
   const navigate = useNavigate();
-  const { data, isLoading } = useReportsPipeline();
+  const { data, isLoading, isError, error } = useReportsPipeline();
 
   const computeStats = () => {
     if (!data) return { overdue: 0, dueToday: 0, dueSoon: 0, stale: 0 };
@@ -132,6 +132,19 @@ export function ReportsPipeline() {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="text-center">Loading pipeline report...</div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-800 font-medium">Failed to load pipeline report</p>
+          <p className="mt-2 text-sm text-red-600">
+            {error instanceof Error ? error.message : 'Please try refreshing the page.'}
+          </p>
+        </div>
       </div>
     );
   }

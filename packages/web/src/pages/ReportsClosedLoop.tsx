@@ -74,7 +74,7 @@ export function ReportsClosedLoop() {
   const navigate = useNavigate();
   const [period, setPeriod] = useState<Period>('all');
 
-  const { data, isLoading } = useReportsClosedLoop({ period });
+  const { data, isLoading, isError, error } = useReportsClosedLoop({ period });
 
   const applications = data?.applications ?? [];
   const summary = data?.summary ?? {
@@ -96,6 +96,19 @@ export function ReportsClosedLoop() {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="text-center">Loading closed loop analysis...</div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-800 font-medium">Failed to load closed loop analysis</p>
+          <p className="mt-2 text-sm text-red-600">
+            {error instanceof Error ? error.message : 'Please try refreshing the page.'}
+          </p>
+        </div>
       </div>
     );
   }

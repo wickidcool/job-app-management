@@ -1,17 +1,21 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
-import { useApplication, useUpdateApplicationStatus, useDeleteApplication } from '../hooks/useApplications';
+import { formatDistanceToNow, format } from 'date-fns';
+import { useState } from 'react';
+import { useApplication, useUpdateApplicationStatus, useDeleteApplication, useUpdateApplication } from '../hooks/useApplications';
 import { StatusBadge } from '../components/StatusBadge';
 import { StatusDropdown } from '../components/StatusDropdown';
-import type { ApplicationStatus } from '../types/application';
+import { ApplicationForm } from '../components/ApplicationForm';
+import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
   // Fetch data using React Query
   const { data: application, isLoading: loading } = useApplication(id);
   const updateStatusMutation = useUpdateApplicationStatus();
+  const updateMutation = useUpdateApplication();
   const deleteMutation = useDeleteApplication();
 
   const handleStatusChange = (newStatus: ApplicationStatus) => {
@@ -26,6 +30,18 @@ export function ApplicationDetail() {
         },
       }
     );
+  };
+
+  const handleEdit = async (data: ApplicationFormData) => {
+    if (!id || !application) return;
+
+    await updateMutation.mutateAsync({
+      id,
+      data,
+      version: application.version,
+    });
+
+    setIsEditOpen(false);
   };
 
   const handleDelete = () => {
@@ -98,7 +114,7 @@ export function ApplicationDetail() {
 
             <div className="flex gap-2">
               <button
-                onClick={() => navigate('/')}
+                onClick={() => setIsEditOpen(true)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
               >
                 Edit
@@ -177,6 +193,41 @@ export function ApplicationDetail() {
           </div>
         </div>
 
+        {/* Extended Tracking (UC-5 fields) */}
+        {(application.contact || application.compTarget || application.nextAction || application.nextActionDue) && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Tracking</h2>
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {application.contact && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Contact</dt>
+                  <dd className="text-sm text-gray-900">{application.contact}</dd>
+                </div>
+              )}
+              {application.compTarget && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Comp Target</dt>
+                  <dd className="text-sm text-gray-900">{application.compTarget}</dd>
+                </div>
+              )}
+              {application.nextAction && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Next Action</dt>
+                  <dd className="text-sm text-gray-900">{application.nextAction}</dd>
+                </div>
+              )}
+              {application.nextActionDue && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Next Action Due</dt>
+                  <dd className="text-sm text-gray-900">
+                    {format(new Date(application.nextActionDue), 'MMM d, yyyy')}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        )}
+
         {/* Job Description */}
         {application.jobDescription && (
           <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
@@ -195,6 +246,15 @@ export function ApplicationDetail() {
           </div>
         )}
       </div>
+
+      {/* Edit Dialog */}
+      <ApplicationForm
+        open={isEditOpen}
+        onOpenChange={setIsEditOpen}
+        onSubmit={handleEdit}
+        application={application}
+        mode="edit"
+      />
     </div>
   );
 }

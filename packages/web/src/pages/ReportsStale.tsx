@@ -8,7 +8,7 @@ export function ReportsStale() {
   const navigate = useNavigate();
   const [staleThreshold, setStaleThreshold] = useState(14);
 
-  const { data, isLoading } = useReportsStale({ days: staleThreshold });
+  const { data, isLoading, isError, error } = useReportsStale({ days: staleThreshold });
 
   const applications = data?.applications ?? [];
   const summary = data?.summary ?? { total: 0, byStatus: {}, averageDaysStale: 0 };
@@ -17,6 +17,19 @@ export function ReportsStale() {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="text-center">Loading stale applications report...</div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-800 font-medium">Failed to load stale applications report</p>
+          <p className="mt-2 text-sm text-red-600">
+            {error instanceof Error ? error.message : 'Please try refreshing the page.'}
+          </p>
+        </div>
       </div>
     );
   }
