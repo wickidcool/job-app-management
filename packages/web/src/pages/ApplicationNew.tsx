@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ApplicationForm } from '../components/ApplicationForm';
@@ -18,17 +18,19 @@ export function ApplicationNew() {
   const createMutation = useCreateApplication();
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdApplicationId, setCreatedApplicationId] = useState<string | null>(null);
+  const submittedRef = useRef(false);
 
   const defaultValues = location.state as LocationState | null;
 
   const handleSubmit = async (data: ApplicationFormData) => {
     const application = await createMutation.mutateAsync(data);
+    submittedRef.current = true; // Set synchronously before state updates
     setCreatedApplicationId(application.id);
     setShowSuccessModal(true);
   };
 
   const handleOpenChange = (open: boolean) => {
-    if (!open && !createdApplicationId) {
+    if (!open && !submittedRef.current) {
       navigate('/applications');
     }
   };
