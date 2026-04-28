@@ -24,7 +24,7 @@ const applicationStatusEnum = z.enum([
 const createApplicationSchema = z.object({
   jobTitle: z.string().min(1).max(200),
   company: z.string().min(1).max(200),
-  url: z.string().url().optional(),
+  url: z.string().url().or(z.literal('')).optional(),
   location: z.string().min(1).max(100).optional(),
   salaryRange: z.string().min(1).max(50).optional(),
   status: applicationStatusEnum.optional(),
@@ -40,7 +40,7 @@ const createApplicationSchema = z.object({
 const updateApplicationSchema = z.object({
   jobTitle: z.string().min(1).max(200).optional(),
   company: z.string().min(1).max(200).optional(),
-  url: z.string().url().nullable().optional(),
+  url: z.string().url().or(z.literal('')).nullable().optional(),
   location: z.string().min(1).max(100).nullable().optional(),
   salaryRange: z.string().min(1).max(50).nullable().optional(),
   coverLetterId: z.string().nullable().optional(),
