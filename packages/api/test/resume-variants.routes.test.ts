@@ -393,15 +393,7 @@ describe('Resume Variants Routes', () => {
       expect(body.createdAt).toBeDefined();
     });
 
-    it('returns JSON response when Accept: application/json header is present (PDF)', async () => {
-      const pdfResult = {
-        buffer: Buffer.from('mock-pdf-content'),
-        filename: 'resume-variant-senior-engineer.pdf',
-        contentType: 'application/pdf',
-        pageCount: 1,
-      };
-      vi.mocked(variantService.exportResumeVariant).mockResolvedValue(pdfResult);
-
+    it('rejects PDF format with validation error', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/resume-variants/01HZ_VAR_001/export',
@@ -419,12 +411,8 @@ describe('Resume Variants Routes', () => {
         }),
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body.format).toBe('pdf');
-      expect(body.filename).toBe('resume-variant-senior-engineer.pdf');
-      expect(body.base64Content).toBe(pdfResult.buffer.toString('base64'));
-      expect(body.pageCount).toBe(1);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('BAD_REQUEST');
     });
 
     it('returns binary response when Accept header is not application/json', async () => {

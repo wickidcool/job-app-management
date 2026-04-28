@@ -561,7 +561,7 @@ export interface SuggestBulletsResponse {
 }
 
 export interface ExportResumeVariantRequest {
-  format: 'pdf' | 'docx';
+  format: 'docx';
   template?: 'modern' | 'classic' | 'minimal' | 'ats_optimized';
   headerInfo: {
     name: string;
