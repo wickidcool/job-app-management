@@ -7,6 +7,7 @@ interface CoverLetterNewState {
   jobDescriptionText?: string;
   targetCompany?: string;
   targetRole?: string;
+  applicationId?: string;
 }
 
 export function CoverLetterNew() {
@@ -16,7 +17,7 @@ export function CoverLetterNew() {
   const state = (location.state as CoverLetterNewState) || {};
 
   const fitAnalysisId = searchParams.get('fitAnalysisId') || undefined;
-  const applicationId = searchParams.get('applicationId') || undefined;
+  const applicationId = searchParams.get('applicationId') || state.applicationId || undefined;
   const jobDescriptionText = state.jobDescriptionText || '';
   const targetCompany = state.targetCompany || '';
   const targetRole = state.targetRole || '';

@@ -123,7 +123,7 @@ export class ApplicationService {
     version: number,
     note?: string
   ): Promise<Application> {
-    const response = await this.client.patch<{ application: APIApplication }>(
+    const response = await this.client.post<{ application: APIApplication }>(
       `/applications/${id}/status`,
       { status, version, note }
     );
