@@ -28,7 +28,7 @@ export function ApplicationNew() {
   };
 
   const handleOpenChange = (open: boolean) => {
-    if (!open) {
+    if (!open && !createdApplicationId) {
       navigate('/applications');
     }
   };
