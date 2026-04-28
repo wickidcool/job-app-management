@@ -19,9 +19,7 @@ export function DashboardResumeWidget({
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xl">📄</span>
-            <h2 className="text-lg font-semibold text-neutral-900">
-              Your Resumes
-            </h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Your Resumes</h2>
           </div>
           <span className="text-neutral-400">→</span>
         </div>
@@ -39,9 +37,7 @@ export function DashboardResumeWidget({
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xl">📄</span>
-            <h2 className="text-lg font-semibold text-neutral-900">
-              Your Resumes
-            </h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Your Resumes</h2>
           </div>
           <Link
             to="/resumes"
@@ -75,9 +71,7 @@ export function DashboardResumeWidget({
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xl">📄</span>
-          <h2 className="text-lg font-semibold text-neutral-900">
-            Your Resumes
-          </h2>
+          <h2 className="text-lg font-semibold text-neutral-900">Your Resumes</h2>
         </div>
         <Link
           to="/resumes"
@@ -91,9 +85,7 @@ export function DashboardResumeWidget({
       <div className="mb-4 space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="text-neutral-600">Master resumes:</span>
-          <span className="font-semibold text-neutral-900">
-            {masterResumeCount}
-          </span>
+          <span className="font-semibold text-neutral-900">{masterResumeCount}</span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-neutral-600">Exports:</span>

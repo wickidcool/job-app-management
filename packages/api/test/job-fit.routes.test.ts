@@ -133,11 +133,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     expect(JSON.parse(res.body).recommendation).toBe('strong_fit');
   });
 
-  it('returns 400 for missing input', async () => {
-    vi.mocked(jobFitService.analyzeJobFit).mockRejectedValue(
-      new JobFitInputError('JD_INPUT_REQUIRED', 'Either jobDescriptionText or jobDescriptionUrl is required'),
-    );
-
+  it('returns 400 for missing input (caught at route validation)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/catalog/job-fit/analyze',
@@ -145,32 +141,25 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('JD_INPUT_REQUIRED');
+    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
   });
 
-  it('returns 400 for both inputs provided', async () => {
-    vi.mocked(jobFitService.analyzeJobFit).mockRejectedValue(
-      new JobFitInputError('JD_INPUT_CONFLICT', 'Provide either jobDescriptionText or jobDescriptionUrl, not both'),
-    );
-
+  it('returns 400 for both inputs provided (caught at route validation)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/catalog/job-fit/analyze',
       payload: {
-        jobDescriptionText: 'Some job description text that is long enough to pass validation',
+        jobDescriptionText:
+          'Some job description text that is long enough to pass validation for minimum length requirements',
         jobDescriptionUrl: 'https://example.com/job',
       },
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('JD_INPUT_CONFLICT');
+    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
   });
 
-  it('returns 400 for text too short', async () => {
-    vi.mocked(jobFitService.analyzeJobFit).mockRejectedValue(
-      new JobFitInputError('JD_TEXT_TOO_SHORT', 'jobDescriptionText must be at least 50 characters'),
-    );
-
+  it('returns 400 for text too short (caught at route validation)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/catalog/job-fit/analyze',
@@ -178,14 +167,10 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('JD_TEXT_TOO_SHORT');
+    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
   });
 
-  it('returns 400 for invalid URL', async () => {
-    vi.mocked(jobFitService.analyzeJobFit).mockRejectedValue(
-      new JobFitInputError('JD_URL_INVALID', 'jobDescriptionUrl is not a valid URL'),
-    );
-
+  it('returns 400 for invalid URL (caught at route validation)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/catalog/job-fit/analyze',
@@ -193,7 +178,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('JD_URL_INVALID');
+    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
   });
 
   it('returns 429 when rate limit exceeded', async () => {
@@ -257,7 +242,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     expect(body.recommendation).toBeNull();
   });
 
-  it('calls analyzeJobFit with the parsed body', async () => {
+  it('calls analyzeJobFit with the parsed body and client IP', async () => {
     vi.mocked(jobFitService.analyzeJobFit).mockResolvedValue({
       response: mockAnalysisResponse,
       rateLimitHeaders: { remaining: 29, reset: 1714045860 },
@@ -266,11 +251,14 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     await app.inject({
       method: 'POST',
       url: '/api/catalog/job-fit/analyze',
-      payload: { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
+      payload: {
+        jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.',
+      },
     });
 
-    expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith({
-      jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.',
-    });
+    expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
+      { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
+      expect.any(String)
+    );
   });
 });

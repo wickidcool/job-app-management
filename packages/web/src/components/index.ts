@@ -14,3 +14,8 @@ export type { DashboardStatsProps } from './DashboardStats';
 
 export { ResumeUpload } from './ResumeUpload';
 export { ResumeExportList } from './ResumeExportList';
+
+export { CoverLetterGenerator } from './CoverLetterGenerator';
+export { CoverLetterPreview } from './CoverLetterPreview';
+export { OutreachComposer } from './OutreachComposer';
+export { StarEntryPicker } from './StarEntryPicker';

@@ -59,7 +59,11 @@ const mockDiff = {
   createdAt: '2026-04-24T20:00:00.000Z',
   expiresAt: '2026-05-01T20:00:00.000Z',
   changes: [
-    { entity: 'tech_stack_tags', action: 'create' as const, data: { id: '01HZ_TAG_001', tagSlug: 'react', displayName: 'React' } },
+    {
+      entity: 'tech_stack_tags',
+      action: 'create' as const,
+      data: { id: '01HZ_TAG_001', tagSlug: 'react', displayName: 'React' },
+    },
   ],
   pendingReview: [],
 };
@@ -112,7 +116,7 @@ describe('Catalog Routes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'approved' }),
+        expect.objectContaining({ status: 'approved' })
       );
     });
 
@@ -194,10 +198,9 @@ describe('Catalog Routes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ applied: 2, status: 'approved' });
-      expect(catalogService.applyDiff).toHaveBeenCalledWith(
-        '01HZ_DIFF_001',
-        { action: 'approve_all' },
-      );
+      expect(catalogService.applyDiff).toHaveBeenCalledWith('01HZ_DIFF_001', {
+        action: 'approve_all',
+      });
     });
 
     it('reject_all returns rejected count and rejected status', async () => {
@@ -372,7 +375,7 @@ describe('Catalog Routes', () => {
 
     it('returns 404 on version conflict', async () => {
       vi.mocked(catalogService.updateTechStackTag).mockRejectedValue(
-        new NotFoundError('TechStackTag (version conflict)'),
+        new NotFoundError('TechStackTag (version conflict)')
       );
 
       const response = await app.inject({
@@ -403,7 +406,7 @@ describe('Catalog Routes', () => {
 
     it('returns 404 on version conflict', async () => {
       vi.mocked(catalogService.updateJobFitTag).mockRejectedValue(
-        new NotFoundError('JobFitTag (version conflict)'),
+        new NotFoundError('JobFitTag (version conflict)')
       );
 
       const response = await app.inject({

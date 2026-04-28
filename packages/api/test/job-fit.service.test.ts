@@ -269,7 +269,65 @@ describe('computeRecommendation', () => {
     const exactMatches = Array(6).fill(makeMatch('exact'));
     const aliasMatches = Array(4).fill(makeMatch('alias'));
     expect(computeRecommendation([...exactMatches, ...aliasMatches], [], 10, false)).toBe(
-      'strong_fit',
+      'strong_fit'
     );
+  });
+});
+
+// ── isPrivateIP (SSRF protection) ─────────────────────────────────────────────
+
+import { isPrivateIP } from '../src/services/job-fit.service.js';
+
+describe('isPrivateIP', () => {
+  it('detects loopback addresses', () => {
+    expect(isPrivateIP('127.0.0.1')).toBe(true);
+    expect(isPrivateIP('127.255.255.255')).toBe(true);
+  });
+
+  it('detects 10.x.x.x private range', () => {
+    expect(isPrivateIP('10.0.0.1')).toBe(true);
+    expect(isPrivateIP('10.255.255.255')).toBe(true);
+  });
+
+  it('detects 172.16-31.x.x private range', () => {
+    expect(isPrivateIP('172.16.0.1')).toBe(true);
+    expect(isPrivateIP('172.31.255.255')).toBe(true);
+  });
+
+  it('detects 192.168.x.x private range', () => {
+    expect(isPrivateIP('192.168.0.1')).toBe(true);
+    expect(isPrivateIP('192.168.255.255')).toBe(true);
+  });
+
+  it('detects link-local addresses', () => {
+    expect(isPrivateIP('169.254.0.1')).toBe(true);
+    expect(isPrivateIP('169.254.169.254')).toBe(true);
+  });
+
+  it('detects reserved 0.x.x.x range', () => {
+    expect(isPrivateIP('0.0.0.0')).toBe(true);
+  });
+
+  it('detects IPv6 loopback', () => {
+    expect(isPrivateIP('::1')).toBe(true);
+  });
+
+  it('detects IPv6 link-local', () => {
+    expect(isPrivateIP('fe80::1')).toBe(true);
+  });
+
+  it('detects IPv6 unique local addresses', () => {
+    expect(isPrivateIP('fc00::1')).toBe(true);
+    expect(isPrivateIP('fd00::1')).toBe(true);
+  });
+
+  it('allows public IP addresses', () => {
+    expect(isPrivateIP('8.8.8.8')).toBe(false);
+    expect(isPrivateIP('1.1.1.1')).toBe(false);
+    expect(isPrivateIP('203.0.113.1')).toBe(false);
+  });
+
+  it('blocks metadata service IP (AWS)', () => {
+    expect(isPrivateIP('169.254.169.254')).toBe(true);
   });
 });

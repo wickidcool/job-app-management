@@ -1,6 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
-import { uploadResume, listResumes, listResumeExports, getResumeExport, deleteResume } from '../services/resume.service.js';
+import {
+  uploadResume,
+  listResumes,
+  listResumeExports,
+  getResumeExport,
+  deleteResume,
+} from '../services/resume.service.js';
 import { AppError } from '../types/index.js';
 import { getConfig } from '../config.js';
 
@@ -35,7 +41,7 @@ export async function resumesRoutes(fastify: FastifyInstance) {
         'UNSUPPORTED_FILE_TYPE',
         'Only PDF and DOCX files are accepted',
         { received: mimeType },
-        415,
+        415
       );
     }
 
@@ -58,7 +64,7 @@ export async function resumesRoutes(fastify: FastifyInstance) {
       const { id, exportId } = request.params;
       const exp = await getResumeExport(id, exportId);
       return reply.send(exp);
-    },
+    }
   );
 
   // DELETE /api/resumes/:id
@@ -76,7 +82,9 @@ export async function resumesRoutes(fastify: FastifyInstance) {
     }
 
     const key = config.anthropicApiKey;
-    console.log(`[test-api-key] Testing key: ${key.substring(0, 15)}...${key.substring(key.length - 4)}`);
+    console.log(
+      `[test-api-key] Testing key: ${key.substring(0, 15)}...${key.substring(key.length - 4)}`
+    );
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

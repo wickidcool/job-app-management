@@ -26,10 +26,11 @@ export function DiffReviewModal({
   const [expandAll, setExpandAll] = useState(false);
 
   const changes = useMemo(
-    () => diff.changes.map(change => ({
-      ...change,
-      selected: selectedIds.has(change.id),
-    })),
+    () =>
+      (diff.changes ?? []).map((change) => ({
+        ...change,
+        selected: selectedIds.has(change.id),
+      })),
     [diff.changes, selectedIds]
   );
 
@@ -91,13 +92,16 @@ export function DiffReviewModal({
   const selectedCount = changes.filter((c) => c.selected).length;
 
   // Group changes by entity type
-  const groupedChanges = changes.reduce((acc, change) => {
-    if (!acc[change.entity]) {
-      acc[change.entity] = [];
-    }
-    acc[change.entity].push(change);
-    return acc;
-  }, {} as Record<string, typeof changes>);
+  const groupedChanges = changes.reduce(
+    (acc, change) => {
+      if (!acc[change.entity]) {
+        acc[change.entity] = [];
+      }
+      acc[change.entity].push(change);
+      return acc;
+    },
+    {} as Record<string, typeof changes>
+  );
 
   if (!isOpen) return null;
 
@@ -134,11 +138,11 @@ export function DiffReviewModal({
               </span>
               <div>
                 <h3 className="font-bold text-neutral-900 mb-1">Summary</h3>
-                <p className="text-sm text-neutral-700">{diff.summary.summary}</p>
-                {diff.summary.pendingReviewCount > 0 && (
+                <p className="text-sm text-neutral-700">{diff.summary?.summary ?? 'No changes'}</p>
+                {(diff.summary?.pendingReviewCount ?? 0) > 0 && (
                   <p className="text-sm text-warning-700 mt-1">
-                    {diff.summary.pendingReviewCount} pending review
-                    {diff.summary.pendingReviewCount !== 1 ? 's' : ''} (ambiguous tags)
+                    {diff.summary?.pendingReviewCount ?? 0} pending review
+                    {(diff.summary?.pendingReviewCount ?? 0) !== 1 ? 's' : ''} (ambiguous tags)
                   </p>
                 )}
               </div>
@@ -174,13 +178,13 @@ export function DiffReviewModal({
           </div>
 
           {/* Pending Reviews */}
-          {diff.pendingReviews.length > 0 && (
+          {(diff.pendingReviews?.length ?? 0) > 0 && (
             <div className="mb-6">
               <h3 className="text-h4 font-bold text-neutral-900 mb-3 flex items-center gap-2">
                 <span aria-hidden="true">⚠️</span>
-                Pending Review ({diff.pendingReviews.length})
+                Pending Review ({diff.pendingReviews?.length ?? 0})
               </h3>
-              {diff.pendingReviews.map((item) => (
+              {(diff.pendingReviews ?? []).map((item) => (
                 <AmbiguityResolver
                   key={item.id}
                   item={item}
@@ -215,13 +219,11 @@ export function DiffReviewModal({
               return (
                 <div key={entity} className="mb-4">
                   <h4 className="text-body-lg font-bold text-neutral-900 mb-2 capitalize">
-                    ▼ {entity.replace(/_/g, ' ')} (
-                    {createCount > 0 && `${createCount} new`}
+                    ▼ {entity.replace(/_/g, ' ')} ({createCount > 0 && `${createCount} new`}
                     {createCount > 0 && updateCount > 0 && ', '}
                     {updateCount > 0 && `${updateCount} updated`}
                     {(createCount > 0 || updateCount > 0) && deleteCount > 0 && ', '}
-                    {deleteCount > 0 && `${deleteCount} deleted`}
-                    )
+                    {deleteCount > 0 && `${deleteCount} deleted`})
                   </h4>
                   <div className="space-y-2">
                     {entityChanges.map((change) => (

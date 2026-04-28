@@ -80,10 +80,16 @@ export class APIClient {
   /**
    * GET request
    */
-  async get<T>(endpoint: string, params?: Record<string, string | number>): Promise<T> {
-    const queryString = params
-      ? '?' + new URLSearchParams(params as Record<string, string>).toString()
-      : '';
+  async get<T>(endpoint: string, params?: Record<string, string | number | undefined>): Promise<T> {
+    let queryString = '';
+    if (params) {
+      const filtered = Object.fromEntries(
+        Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+      );
+      if (Object.keys(filtered).length > 0) {
+        queryString = '?' + new URLSearchParams(filtered as Record<string, string>).toString();
+      }
+    }
 
     return this.request<T>(`${endpoint}${queryString}`, {
       method: 'GET',

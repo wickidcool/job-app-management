@@ -1,12 +1,8 @@
 import { desc } from 'drizzle-orm';
+import { lookup } from 'node:dns/promises';
 import { getDb } from '../db/client.js';
 import { techStackTags, jobFitTags, quantifiedBullets } from '../db/schema.js';
-import {
-  AppError,
-  JobFitInputError,
-  JobFitUrlFetchError,
-  RateLimitError,
-} from '../types/index.js';
+import { AppError, JobFitInputError, JobFitUrlFetchError, RateLimitError } from '../types/index.js';
 import type {
   AnalyzeJobFitInput,
   AnalyzeJobFitResponse,
@@ -19,24 +15,50 @@ import type {
   FitRecommendation,
 } from '../types/index.js';
 
-// ── Rate limiting ────────────────────────────────────────────────────────────
+// ── Rate limiting (per-IP) ───────────────────────────────────────────────────
 
 interface RateLimitBucket {
   count: number;
   windowStart: number;
 }
 
-const textBucket: RateLimitBucket = { count: 0, windowStart: Date.now() };
-const urlBucket: RateLimitBucket = { count: 0, windowStart: Date.now() };
-
 const TEXT_LIMIT = 30;
 const URL_LIMIT = 10;
 const WINDOW_MS = 60_000;
+const BUCKET_CLEANUP_INTERVAL = 5 * 60_000;
+
+const textBuckets = new Map<string, RateLimitBucket>();
+const urlBuckets = new Map<string, RateLimitBucket>();
+
+function cleanupStaleBuckets(buckets: Map<string, RateLimitBucket>): void {
+  const now = Date.now();
+  for (const [key, bucket] of buckets) {
+    if (now - bucket.windowStart > WINDOW_MS * 2) {
+      buckets.delete(key);
+    }
+  }
+}
+
+setInterval(() => {
+  cleanupStaleBuckets(textBuckets);
+  cleanupStaleBuckets(urlBuckets);
+}, BUCKET_CLEANUP_INTERVAL);
+
+function getBucket(buckets: Map<string, RateLimitBucket>, clientId: string): RateLimitBucket {
+  let bucket = buckets.get(clientId);
+  if (!bucket) {
+    bucket = { count: 0, windowStart: Date.now() };
+    buckets.set(clientId, bucket);
+  }
+  return bucket;
+}
 
 export function checkRateLimit(
-  bucket: RateLimitBucket,
-  limit: number,
+  buckets: Map<string, RateLimitBucket>,
+  clientId: string,
+  limit: number
 ): { remaining: number; reset: number } {
+  const bucket = getBucket(buckets, clientId);
   const now = Date.now();
   if (now - bucket.windowStart > WINDOW_MS) {
     bucket.count = 0;
@@ -50,12 +72,89 @@ export function checkRateLimit(
   return { remaining: limit - bucket.count, reset };
 }
 
-// Exported for testing
-export const _buckets = { text: textBucket, url: urlBucket };
+/** @internal Exported for testing only */
+export const _rateLimitState = { textBuckets, urlBuckets, TEXT_LIMIT, URL_LIMIT };
+
+// ── SSRF Protection ──────────────────────────────────────────────────────────
+
+const PRIVATE_CIDR_RANGES = [
+  { prefix: '127.', label: 'loopback' },
+  { prefix: '10.', label: 'private' },
+  { prefix: '172.16.', label: 'private' },
+  { prefix: '172.17.', label: 'private' },
+  { prefix: '172.18.', label: 'private' },
+  { prefix: '172.19.', label: 'private' },
+  { prefix: '172.20.', label: 'private' },
+  { prefix: '172.21.', label: 'private' },
+  { prefix: '172.22.', label: 'private' },
+  { prefix: '172.23.', label: 'private' },
+  { prefix: '172.24.', label: 'private' },
+  { prefix: '172.25.', label: 'private' },
+  { prefix: '172.26.', label: 'private' },
+  { prefix: '172.27.', label: 'private' },
+  { prefix: '172.28.', label: 'private' },
+  { prefix: '172.29.', label: 'private' },
+  { prefix: '172.30.', label: 'private' },
+  { prefix: '172.31.', label: 'private' },
+  { prefix: '192.168.', label: 'private' },
+  { prefix: '169.254.', label: 'link-local' },
+  { prefix: '0.', label: 'reserved' },
+];
+
+/** @internal Exported for testing only */
+export function isPrivateIP(ip: string): boolean {
+  for (const { prefix } of PRIVATE_CIDR_RANGES) {
+    if (ip.startsWith(prefix)) return true;
+  }
+  if (ip === '::1' || ip.startsWith('fe80:') || ip.startsWith('fc') || ip.startsWith('fd')) {
+    return true;
+  }
+  return false;
+}
+
+async function validateUrlForSSRF(url: string): Promise<void> {
+  const parsed = new URL(url);
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new JobFitInputError(
+      'JD_URL_INVALID_SCHEME',
+      'Only http:// and https:// URLs are allowed'
+    );
+  }
+
+  if (parsed.port && !['80', '443', ''].includes(parsed.port)) {
+    throw new JobFitInputError('JD_URL_INVALID_PORT', 'Non-standard ports are not allowed');
+  }
+
+  const hostname = parsed.hostname;
+  if (!hostname || hostname === 'localhost') {
+    throw new JobFitInputError('JD_URL_BLOCKED', 'localhost URLs are not allowed');
+  }
+
+  const ipMatch = hostname.match(/^(\d+\.\d+\.\d+\.\d+)$/);
+  if (ipMatch) {
+    if (isPrivateIP(ipMatch[1])) {
+      throw new JobFitInputError('JD_URL_BLOCKED', 'Private/internal IP addresses are not allowed');
+    }
+    return;
+  }
+
+  try {
+    const { address } = await lookup(hostname);
+    if (isPrivateIP(address)) {
+      throw new JobFitInputError('JD_URL_BLOCKED', 'URL resolves to private/internal IP address');
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new JobFitInputError('JD_URL_DNS_FAILED', `Failed to resolve hostname: ${hostname}`);
+  }
+}
 
 // ── URL fetching ─────────────────────────────────────────────────────────────
 
 export async function fetchJobDescriptionFromUrl(url: string): Promise<string> {
+  await validateUrlForSSRF(url);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
 
@@ -63,14 +162,28 @@ export async function fetchJobDescriptionFromUrl(url: string): Promise<string> {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobFitAnalyzer/1.0)' },
+      redirect: 'manual',
     });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (location) {
+        const redirectUrl = new URL(location, url).href;
+        await validateUrlForSSRF(redirectUrl);
+        return fetchJobDescriptionFromUrl(redirectUrl);
+      }
+      throw new JobFitUrlFetchError(url, response.status);
+    }
 
     if (!response.ok) {
       throw new JobFitUrlFetchError(url, response.status);
     }
 
     const html = await response.text();
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   } catch (error) {
     if (error instanceof AppError) throw error;
     if ((error as Error).name === 'AbortError') {
@@ -236,25 +349,43 @@ const KNOWN_SECTION_DELIMITERS = [
   "what you'll do",
   'compensation',
   'how to apply',
+  'the skillset',
+  'skillset',
+  'skills',
+  'the opportunity',
 ];
+
+function findSectionHeaderIndex(text: string, header: string): number {
+  const lower = text.toLowerCase();
+  const headerLower = header.toLowerCase();
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*(?:[#*]+\\s*)?(?:\\*\\*)?${headerLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\*\\*)?\\s*[:.]?\\s*(?:\\n|$)`,
+    'im'
+  );
+  const match = lower.match(pattern);
+  if (match && match.index !== undefined) {
+    const matchStart = match.index;
+    return lower.indexOf(headerLower, matchStart);
+  }
+  return -1;
+}
 
 function extractSection(text: string, headers: string[]): string {
   const lower = text.toLowerCase();
   let result = '';
 
   for (const header of headers) {
-    const idx = lower.indexOf(header);
+    const idx = findSectionHeaderIndex(text, header);
     if (idx === -1) continue;
 
     const contentStart = idx + header.length;
     let endIdx = Math.min(contentStart + 1200, text.length);
 
-    // Stop at the next known section delimiter that isn't one of our headers
     for (const delimiter of KNOWN_SECTION_DELIMITERS) {
       if (headers.includes(delimiter)) continue;
-      const delimIdx = lower.indexOf(delimiter, contentStart);
-      if (delimIdx !== -1 && delimIdx < endIdx) {
-        endIdx = delimIdx;
+      const delimIdx = findSectionHeaderIndex(text.slice(contentStart), delimiter);
+      if (delimIdx !== -1 && contentStart + delimIdx < endIdx) {
+        endIdx = contentStart + delimIdx;
       }
     }
 
@@ -330,6 +461,9 @@ export function parseJobDescription(text: string): ParsedJD {
     'you will need',
     'minimum qualifications',
     'basic qualifications',
+    'the skillset',
+    'skillset',
+    'skills',
   ]);
 
   const niceToHaveSection = extractSection(text, [
@@ -344,7 +478,7 @@ export function parseJobDescription(text: string): ParsedJD {
   const requiredText = requiredSection || text;
   const requiredStack = extractTechTerms(requiredText);
   const niceToHaveStack = extractTechTerms(niceToHaveSection).filter(
-    (t) => !requiredStack.includes(t),
+    (t) => !requiredStack.includes(t)
   );
 
   return {
@@ -370,7 +504,7 @@ interface CatalogEntry {
 
 export function matchCatalogEntry(
   jdTerm: string,
-  catalog: CatalogEntry[],
+  catalog: CatalogEntry[]
 ): { entry: CatalogEntry; matchType: 'exact' | 'alias' | 'related' } | null {
   const normalized = normalizeSlug(jdTerm);
 
@@ -383,7 +517,7 @@ export function matchCatalogEntry(
   for (const entry of catalog) {
     if (
       entry.aliases.some(
-        (a) => normalizeSlug(a) === normalized || a.toLowerCase() === jdTerm.toLowerCase(),
+        (a) => normalizeSlug(a) === normalized || a.toLowerCase() === jdTerm.toLowerCase()
       )
     ) {
       return { entry, matchType: 'alias' };
@@ -409,7 +543,7 @@ export function computeRecommendation(
   requiredMatches: FitMatchDTO[],
   requiredGaps: FitGapDTO[],
   totalRequired: number,
-  hasSeniorityMismatch: boolean,
+  hasSeniorityMismatch: boolean
 ): FitRecommendation | null {
   if (totalRequired === 0) return null;
 
@@ -428,13 +562,15 @@ export function computeRecommendation(
 function computeSummary(
   recommendation: FitRecommendation | null,
   strongMatches: FitMatchDTO[],
+  partialMatches: FitMatchDTO[],
   gaps: FitGapDTO[],
-  totalRequired: number,
+  totalRequired: number
 ): string {
   if (!recommendation)
     return 'Unable to compute fit score — no required skills found in the job description.';
 
-  const matchCount = strongMatches.filter((m) => m.isRequired && m.type === 'tech_stack').length;
+  const requiredMatches = [...strongMatches, ...partialMatches].filter((m) => m.isRequired);
+  const matchCount = requiredMatches.length;
   const critGaps = gaps.filter((g) => g.severity === 'critical' && g.isRequired);
   const gapStr =
     critGaps.length > 0
@@ -464,23 +600,26 @@ function gapSeverity(jdTerm: string, isRequired: boolean): 'critical' | 'moderat
 
 // ── Main entry point ─────────────────────────────────────────────────────────
 
-export async function analyzeJobFit(input: AnalyzeJobFitInput): Promise<{
+export async function analyzeJobFit(
+  input: AnalyzeJobFitInput,
+  clientId: string = 'default'
+): Promise<{
   response: AnalyzeJobFitResponse;
   rateLimitHeaders: { remaining: number; reset: number };
 }> {
-  const hasText = input.jobDescriptionText !== undefined;
-  const hasUrl = input.jobDescriptionUrl !== undefined;
+  const hasText = input.jobDescriptionText !== undefined && input.jobDescriptionText !== '';
+  const hasUrl = input.jobDescriptionUrl !== undefined && input.jobDescriptionUrl !== '';
 
   if (!hasText && !hasUrl) {
     throw new JobFitInputError(
       'JD_INPUT_REQUIRED',
-      'Either jobDescriptionText or jobDescriptionUrl is required',
+      'Either jobDescriptionText or jobDescriptionUrl is required'
     );
   }
   if (hasText && hasUrl) {
     throw new JobFitInputError(
       'JD_INPUT_CONFLICT',
-      'Provide either jobDescriptionText or jobDescriptionUrl, not both',
+      'Provide either jobDescriptionText or jobDescriptionUrl, not both'
     );
   }
 
@@ -492,34 +631,50 @@ export async function analyzeJobFit(input: AnalyzeJobFitInput): Promise<{
     if (text.length < 50)
       throw new JobFitInputError(
         'JD_TEXT_TOO_SHORT',
-        'jobDescriptionText must be at least 50 characters',
+        'jobDescriptionText must be at least 50 characters'
       );
     if (text.length > 50_000)
       throw new JobFitInputError(
         'JD_TEXT_TOO_LONG',
-        'jobDescriptionText must not exceed 50,000 characters',
+        'jobDescriptionText must not exceed 50,000 characters'
       );
-    rateLimitHeaders = checkRateLimit(textBucket, TEXT_LIMIT);
+    rateLimitHeaders = checkRateLimit(textBuckets, clientId, TEXT_LIMIT);
     jdText = text;
   } else {
     const url = input.jobDescriptionUrl!;
+    if (url.length > 2048) {
+      throw new JobFitInputError(
+        'JD_URL_TOO_LONG',
+        'jobDescriptionUrl must not exceed 2048 characters'
+      );
+    }
     try {
       new URL(url);
     } catch {
       throw new JobFitInputError('JD_URL_INVALID', 'jobDescriptionUrl is not a valid URL');
     }
-    rateLimitHeaders = checkRateLimit(urlBucket, URL_LIMIT);
+    rateLimitHeaders = checkRateLimit(urlBuckets, clientId, URL_LIMIT);
     jdText = await fetchJobDescriptionFromUrl(url);
   }
 
   const parsed = parseJobDescription(jdText);
 
   const db = getDb();
-  const [techTags, jfTags, bullets] = await Promise.all([
-    db.select().from(techStackTags).orderBy(desc(techStackTags.mentionCount)),
-    db.select().from(jobFitTags).orderBy(desc(jobFitTags.mentionCount)),
-    db.select().from(quantifiedBullets),
-  ]);
+  let techTags, jfTags, bullets;
+  try {
+    [techTags, jfTags, bullets] = await Promise.all([
+      db.select().from(techStackTags).orderBy(desc(techStackTags.mentionCount)),
+      db.select().from(jobFitTags).orderBy(desc(jobFitTags.mentionCount)),
+      db.select().from(quantifiedBullets),
+    ]);
+  } catch (error) {
+    throw new AppError(
+      'DATABASE_ERROR',
+      'Failed to load catalog data',
+      { cause: String(error) },
+      500
+    );
+  }
 
   const catalogEmpty = techTags.length === 0 && jfTags.length === 0;
 
@@ -604,7 +759,12 @@ export async function analyzeJobFit(input: AnalyzeJobFitInput): Promise<{
       if (match.matchType === 'exact') strongMatches.push(fitMatch);
       else partialMatches.push(fitMatch);
     } else {
-      gaps.push({ type: 'tech_stack', jdRequirement: term, isRequired: false, severity: 'minor' });
+      gaps.push({
+        type: 'tech_stack',
+        jdRequirement: term,
+        isRequired: false,
+        severity: gapSeverity(term, false),
+      });
     }
   }
 
@@ -656,7 +816,7 @@ export async function analyzeJobFit(input: AnalyzeJobFitInput): Promise<{
     requiredTechMatches,
     requiredGaps,
     totalRequired,
-    hasSeniorityMismatch,
+    hasSeniorityMismatch
   );
 
   const confidence: Confidence =
@@ -665,7 +825,7 @@ export async function analyzeJobFit(input: AnalyzeJobFitInput): Promise<{
   const recommendedStarEntries: RecommendedStarEntryDTO[] = bullets
     .map((b) => {
       const matchedTerms = parsed.requiredStack.filter((term) =>
-        b.rawText.toLowerCase().includes(term.toLowerCase()),
+        b.rawText.toLowerCase().includes(term.toLowerCase())
       );
       const relevanceScore =
         totalRequired > 0 ? Math.min(1, matchedTerms.length / totalRequired) : 0;
@@ -684,7 +844,7 @@ export async function analyzeJobFit(input: AnalyzeJobFitInput): Promise<{
   return {
     response: {
       recommendation,
-      summary: computeSummary(recommendation, strongMatches, gaps, totalRequired),
+      summary: computeSummary(recommendation, strongMatches, partialMatches, gaps, totalRequired),
       confidence,
       parsedJd,
       strongMatches,

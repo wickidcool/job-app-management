@@ -83,12 +83,17 @@ export class ProjectService {
   }
 
   async createProject(input: CreateProjectInput): Promise<Project> {
-    const response = await this.client.post<ListProjectsResponse['projects'][0]>('/projects', input);
+    const response = await this.client.post<ListProjectsResponse['projects'][0]>(
+      '/projects',
+      input
+    );
     return transformProject(response);
   }
 
   async getProject(slug: string): Promise<Project> {
-    const response = await this.client.get<ListProjectsResponse['projects'][0]>(`/projects/${slug}`);
+    const response = await this.client.get<ListProjectsResponse['projects'][0]>(
+      `/projects/${slug}`
+    );
     return transformProject(response);
   }
 
@@ -97,15 +102,13 @@ export class ProjectService {
   }
 
   async listProjectFiles(slug: string): Promise<ProjectFile[]> {
-    const response = await this.client.get<ListProjectFilesResponse>(
-      `/projects/${slug}/files`,
-    );
+    const response = await this.client.get<ListProjectFilesResponse>(`/projects/${slug}/files`);
     return response.files.map(transformProjectFile);
   }
 
   async getProjectFile(slug: string, fileName: string): Promise<string> {
     const response = await this.client.get<{ content: string }>(
-      `/projects/${slug}/files/${fileName}`,
+      `/projects/${slug}/files/${fileName}`
     );
     return response.content;
   }

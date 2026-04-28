@@ -131,12 +131,7 @@ export function ProjectFileEditor() {
               to={`/projects/${projectId}`}
               className="mb-4 inline-flex items-center text-sm text-primary-600 hover:text-primary-700"
             >
-              <svg
-                className="mr-1 h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+              <svg className="mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"

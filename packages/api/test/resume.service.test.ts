@@ -1,11 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseResumeText,
   generateStarMarkdown,
   extractExperienceEntries,
   generateProjectMarkdown,
   toProjectSlug,
+  addCompanyToCatalog,
 } from '../src/services/resume.service.js';
+
+vi.mock('../src/db/client.js', () => ({
+  getDb: vi.fn(),
+}));
+
+import { getDb } from '../src/db/client.js';
 
 describe('parseResumeText', () => {
   it('splits text into sections by heading keywords', () => {
@@ -102,7 +109,7 @@ describe('generateStarMarkdown', () => {
 describe('extractExperienceEntries', () => {
   it('parses entries with pipe-delimited company, role, and period', () => {
     const parsed = parseResumeText(
-      `Experience\nAcme Corp | Senior Engineer | 2021-2023\n- Built APIs\n- Led migrations`,
+      `Experience\nAcme Corp | Senior Engineer | 2021-2023\n- Built APIs\n- Led migrations`
     );
     const entries = extractExperienceEntries(parsed);
     expect(entries).toHaveLength(1);
@@ -136,7 +143,7 @@ describe('extractExperienceEntries', () => {
 
   it('parses multiple entries within one section', () => {
     const parsed = parseResumeText(
-      `Experience\nAcme Corp | Dev | 2022\n- Shipped features\nBeta Inc | Lead | 2020\n- Managed team`,
+      `Experience\nAcme Corp | Dev | 2022\n- Shipped features\nBeta Inc | Lead | 2020\n- Managed team`
     );
     const entries = extractExperienceEntries(parsed);
     expect(entries).toHaveLength(2);
@@ -147,7 +154,12 @@ describe('extractExperienceEntries', () => {
 
 describe('generateProjectMarkdown', () => {
   it('renders frontmatter with company, role, period, industry, tech, and job_fit', () => {
-    const entry = { company: 'Acme Corp', role: 'Senior Engineer', period: '2021-2023', bullets: [] };
+    const entry = {
+      company: 'Acme Corp',
+      role: 'Senior Engineer',
+      period: '2021-2023',
+      bullets: [],
+    };
     const md = generateProjectMarkdown(entry);
     expect(md).toContain('company: Acme Corp');
     expect(md).toContain('role: Senior Engineer');
@@ -173,7 +185,12 @@ describe('generateProjectMarkdown', () => {
   });
 
   it('includes per-bullet STAR sections without numbered prefix or Index', () => {
-    const entry = { company: 'Acme Corp', role: 'Dev', period: '2022', bullets: ['Built APIs', 'Led migrations'] };
+    const entry = {
+      company: 'Acme Corp',
+      role: 'Dev',
+      period: '2022',
+      bullets: ['Built APIs', 'Led migrations'],
+    };
     const md = generateProjectMarkdown(entry);
     expect(md).not.toContain('## Index');
     expect(md).toContain('## ⭐ Built APIs');
@@ -209,5 +226,85 @@ describe('toProjectSlug', () => {
   it('returns empty string for all-special-character company names', () => {
     expect(toProjectSlug('...')).toBe('');
     expect(toProjectSlug('---')).toBe('');
+  });
+});
+
+describe('addCompanyToCatalog', () => {
+  let mockInsertValues: ReturnType<typeof vi.fn>;
+  let mockOnConflictDoNothing: ReturnType<typeof vi.fn>;
+  let mockSelectFrom: ReturnType<typeof vi.fn>;
+  let mockWhere: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockOnConflictDoNothing = vi.fn().mockResolvedValue(undefined);
+    mockInsertValues = vi.fn().mockReturnValue({ onConflictDoNothing: mockOnConflictDoNothing });
+    mockWhere = vi.fn().mockResolvedValue([]);
+    mockSelectFrom = vi.fn().mockReturnValue({ where: mockWhere });
+
+    const mockDb = {
+      select: vi.fn().mockReturnValue({ from: mockSelectFrom }),
+      insert: vi.fn().mockReturnValue({ values: mockInsertValues }),
+    };
+
+    vi.mocked(getDb).mockReturnValue(mockDb as unknown as ReturnType<typeof getDb>);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('inserts company into catalog when it does not exist', async () => {
+    mockWhere.mockResolvedValue([]);
+
+    await addCompanyToCatalog('Acme Corp');
+
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Acme Corp',
+        normalizedName: 'acme-corp',
+      }),
+    );
+    expect(mockOnConflictDoNothing).toHaveBeenCalled();
+  });
+
+  it('does not insert when company already exists', async () => {
+    mockWhere.mockResolvedValue([{ id: 'existing-id', normalizedName: 'acme-corp' }]);
+
+    await addCompanyToCatalog('Acme Corp');
+
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it('normalizes company name with special characters', async () => {
+    mockWhere.mockResolvedValue([]);
+
+    await addCompanyToCatalog('Foo & Bar, Inc.');
+
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Foo & Bar, Inc.',
+        normalizedName: 'foo-bar-inc',
+      }),
+    );
+  });
+
+  it('skips empty company names', async () => {
+    await addCompanyToCatalog('');
+
+    expect(mockSelectFrom).not.toHaveBeenCalled();
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it('uses "unspecified" slug for all-special-character company names', async () => {
+    mockWhere.mockResolvedValue([]);
+
+    await addCompanyToCatalog('...');
+
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: '...',
+        normalizedName: 'unspecified',
+      }),
+    );
   });
 });

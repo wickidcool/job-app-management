@@ -138,7 +138,13 @@ export function KanbanBoard({
   return (
     <div role="region" aria-label="Kanban board" className="w-full">
       {/* ARIA Live Region for announcements */}
-      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" id="kanban-announcements" />
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+        id="kanban-announcements"
+      />
 
       <DndContext
         sensors={sensors}

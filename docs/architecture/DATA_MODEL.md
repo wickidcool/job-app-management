@@ -540,6 +540,280 @@ psql -h localhost -U postgres job_app_manager < backup.sql
 gunzip -c backup.sql.gz | psql -h localhost -U postgres job_app_manager
 ```
 
+---
+
+## Catalog Tables (UC-2 Master Catalog Index)
+
+The catalog subsystem stores a normalized, queryable knowledge base of professional attributes extracted from resumes and applications via the diff review workflow.
+
+### Schema Diagram
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  company_catalog│     │  tech_stack_tags  │     │   job_fit_tags   │
+├─────────────────┤     ├──────────────────┤     ├──────────────────┤
+│ id (PK)         │     │ id (PK)          │     │ id (PK)          │
+│ name            │     │ tag_slug (UNIQUE) │     │ tag_slug (UNIQUE)│
+│ normalized_name │     │ display_name     │     │ display_name     │
+│ aliases (JSONB) │     │ category (ENUM)  │     │ category (ENUM)  │
+│ first_seen_at   │     │ aliases (JSONB)  │     │ aliases (JSONB)  │
+│ application_count│    │ mention_count    │     │ mention_count    │
+│ latest_status   │     │ needs_review     │     │ needs_review     │
+│ is_deleted      │     │ review_options   │     │ review_options   │
+│ version         │     │ version          │     │ version          │
+└─────────────────┘     └──────────────────┘     └──────────────────┘
+
+┌──────────────────────┐     ┌──────────────────┐
+│  quantified_bullets  │     │ recurring_themes  │
+├──────────────────────┤     ├──────────────────┤
+│ id (PK)              │     │ id (PK)          │
+│ source_type          │     │ theme_slug       │
+│ source_id (indexed)  │     │ display_name     │
+│ raw_text             │     │ occurrence_count │
+│ action_verb          │     │ source_ids (JSONB│
+│ metric_type (ENUM)   │     │ example_excerpts │
+│ metric_value         │     │ is_core_strength │
+│ is_approximate       │     │ is_historical    │
+│ impact_category (ENUM│     │ last_seen_at     │
+│ extracted_at         │     │ version          │
+│ version              │     └──────────────────┘
+└──────────────────────┘
+
+┌──────────────────────┐     ┌──────────────────────┐
+│  catalog_diffs       │     │ catalog_change_log   │
+├──────────────────────┤     ├──────────────────────┤
+│ id (PK)              │     │ id (PK)              │
+│ trigger_source       │     │ entity_type          │
+│ trigger_id           │     │ entity_id (indexed)  │
+│ summary              │     │ action (ENUM)        │
+│ changes (JSONB)      │     │ before_state (JSONB) │
+│ pending_review (JSONB│     │ after_state (JSONB)  │
+│ status (ENUM)        │     │ trigger_source       │
+│ user_decisions (JSONB│     │ trigger_id           │
+│ expires_at           │     │ diff_id (indexed)    │
+│ resolved_at          │     │ committed            │
+└──────────────────────┘     │ committed_at         │
+                             └──────────────────────┘
+
+┌──────────────────────┐
+│  wikilink_registry   │
+├──────────────────────┤
+│ id (PK)              │
+│ link_text            │
+│ normalized_text      │
+│ target_type          │
+│ target_id            │
+│ is_manual (boolean)  │
+│ created_at           │
+└──────────────────────┘
+```
+
+### Enum Types (Catalog)
+
+```sql
+-- Tag categories
+CREATE TYPE job_fit_category AS ENUM (
+  'role', 'industry', 'seniority', 'work_style', 'uncategorized'
+);
+
+CREATE TYPE tech_stack_category AS ENUM (
+  'language', 'frontend', 'backend', 'database',
+  'cloud', 'devops', 'ai_ml', 'uncategorized'
+);
+
+-- Metric types for quantified bullets
+CREATE TYPE metric_type AS ENUM (
+  'percentage', 'currency', 'count', 'time', 'multiplier'
+);
+
+-- Impact categories for quantified bullets
+CREATE TYPE impact_category AS ENUM (
+  'revenue', 'cost_savings', 'efficiency', 'team_leadership',
+  'user_growth', 'performance', 'other'
+);
+
+-- Change log action
+CREATE TYPE change_action AS ENUM ('create', 'update', 'delete', 'merge');
+
+-- Diff lifecycle status
+CREATE TYPE diff_status AS ENUM (
+  'pending', 'approved', 'rejected', 'partial', 'expired'
+);
+```
+
+### Catalog Tables
+
+```sql
+-- Normalized company entries
+CREATE TABLE company_catalog (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  normalized_name   TEXT NOT NULL UNIQUE,
+  aliases           JSONB NOT NULL DEFAULT '[]',
+  first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  application_count INTEGER NOT NULL DEFAULT 0,
+  latest_status     app_status,
+  latest_app_id     TEXT REFERENCES applications(id) ON DELETE SET NULL,
+  is_deleted        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  version           INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_company_catalog_normalized ON company_catalog(normalized_name);
+CREATE INDEX idx_company_catalog_deleted ON company_catalog(is_deleted);
+
+-- Tech stack tags (frameworks, languages, tools)
+CREATE TABLE tech_stack_tags (
+  id               TEXT PRIMARY KEY,
+  tag_slug         TEXT NOT NULL UNIQUE,
+  display_name     TEXT NOT NULL,
+  category         tech_stack_category NOT NULL DEFAULT 'uncategorized',
+  aliases          JSONB NOT NULL DEFAULT '[]',
+  source_ids       JSONB NOT NULL DEFAULT '[]',
+  mention_count    INTEGER NOT NULL DEFAULT 0,
+  version_mentioned TEXT,
+  is_legacy        BOOLEAN NOT NULL DEFAULT FALSE,
+  needs_review     BOOLEAN NOT NULL DEFAULT FALSE,
+  review_options   JSONB,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  version          INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_tech_stack_tags_category ON tech_stack_tags(category);
+CREATE INDEX idx_tech_stack_tags_needs_review ON tech_stack_tags(needs_review);
+
+-- Job fit tags (roles, industries, seniority signals)
+CREATE TABLE job_fit_tags (
+  id             TEXT PRIMARY KEY,
+  tag_slug       TEXT NOT NULL UNIQUE,
+  display_name   TEXT NOT NULL,
+  category       job_fit_category NOT NULL DEFAULT 'uncategorized',
+  aliases        JSONB NOT NULL DEFAULT '[]',
+  source_ids     JSONB NOT NULL DEFAULT '[]',
+  mention_count  INTEGER NOT NULL DEFAULT 0,
+  needs_review   BOOLEAN NOT NULL DEFAULT FALSE,
+  review_options JSONB,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  version        INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_job_fit_tags_category ON job_fit_tags(category);
+CREATE INDEX idx_job_fit_tags_needs_review ON job_fit_tags(needs_review);
+
+-- Extracted metric achievements from resume bullets
+CREATE TABLE quantified_bullets (
+  id                      TEXT PRIMARY KEY,
+  source_type             TEXT NOT NULL,   -- 'resume' | 'application'
+  source_id               TEXT NOT NULL,
+  raw_text                TEXT NOT NULL,
+  action_verb             TEXT,
+  metric_type             metric_type,
+  metric_value            NUMERIC,
+  metric_range            JSONB,
+  is_approximate          BOOLEAN NOT NULL DEFAULT FALSE,
+  secondary_metric_type   TEXT,
+  secondary_metric_value  NUMERIC,
+  impact_category         impact_category NOT NULL DEFAULT 'other',
+  extracted_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  version                 INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_quantified_bullets_source ON quantified_bullets(source_type, source_id);
+CREATE INDEX idx_quantified_bullets_impact ON quantified_bullets(impact_category);
+
+-- Recurring professional themes
+CREATE TABLE recurring_themes (
+  id               TEXT PRIMARY KEY,
+  theme_slug       TEXT NOT NULL UNIQUE,
+  display_name     TEXT NOT NULL,
+  aliases          JSONB NOT NULL DEFAULT '[]',
+  occurrence_count INTEGER NOT NULL DEFAULT 0,
+  source_ids       JSONB NOT NULL DEFAULT '[]',
+  example_excerpts JSONB NOT NULL DEFAULT '[]',
+  is_core_strength BOOLEAN NOT NULL DEFAULT FALSE,  -- true when occurrence_count >= 3
+  is_historical    BOOLEAN NOT NULL DEFAULT FALSE,
+  last_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  version          INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_recurring_themes_core ON recurring_themes(is_core_strength);
+
+-- Pending change diffs awaiting user review
+CREATE TABLE catalog_diffs (
+  id               TEXT PRIMARY KEY,
+  trigger_source   TEXT NOT NULL,  -- 'resume_upload' | 'application_update'
+  trigger_id       TEXT NOT NULL,
+  summary          TEXT NOT NULL,
+  changes          JSONB NOT NULL DEFAULT '[]',
+  pending_review   JSONB NOT NULL DEFAULT '[]',
+  status           diff_status NOT NULL DEFAULT 'pending',
+  user_decisions   JSONB,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at       TIMESTAMPTZ NOT NULL,   -- created_at + 7 days
+  resolved_at      TIMESTAMPTZ
+);
+
+CREATE INDEX idx_catalog_diffs_trigger ON catalog_diffs(trigger_source, trigger_id);
+CREATE INDEX idx_catalog_diffs_status ON catalog_diffs(status);
+
+-- Immutable audit trail of all catalog mutations
+CREATE TABLE catalog_change_log (
+  id             TEXT PRIMARY KEY,
+  entity_type    TEXT NOT NULL,
+  entity_id      TEXT NOT NULL,
+  action         change_action NOT NULL,
+  before_state   JSONB,
+  after_state    JSONB,
+  trigger_source TEXT NOT NULL,
+  trigger_id     TEXT NOT NULL,
+  diff_id        TEXT,
+  committed      BOOLEAN NOT NULL DEFAULT FALSE,
+  committed_at   TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_catalog_change_log_entity ON catalog_change_log(entity_type, entity_id);
+CREATE INDEX idx_catalog_change_log_diff ON catalog_change_log(diff_id);
+
+-- Maps [[wikilink]] text to resolved catalog entities
+CREATE TABLE wikilink_registry (
+  id              TEXT PRIMARY KEY,
+  link_text       TEXT NOT NULL,
+  normalized_text TEXT NOT NULL,
+  target_type     TEXT NOT NULL,  -- 'company' | 'tag' | 'theme'
+  target_id       TEXT NOT NULL,
+  is_manual       BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (normalized_text, target_type)
+);
+
+CREATE INDEX idx_wikilink_registry_normalized ON wikilink_registry(normalized_text);
+```
+
+### Wikilink Resolution
+
+The extraction service scans source text for `[[wikilink]]` patterns and resolves them against the catalog:
+
+1. Matches are found with the regex `/\[\[([^\]]+)\]\]/g`
+2. Unresolved matches become `ReviewItem` entries with `type: 'unresolved_wikilink'`
+3. When the user resolves a wikilink during diff review, the mapping is stored in `wikilink_registry`
+4. Subsequent extractions use `wikilink_registry` for automatic resolution via `normalized_text` fuzzy lookup
+
+### Core Strength Promotion
+
+`recurring_themes.is_core_strength` is automatically set to `true` when a theme's `occurrence_count` reaches 3. The extraction service rechecks this threshold on every `UPDATE` to `occurrence_count`.
+
+### Diff Expiry
+
+Diffs expire 7 days after creation (`expires_at = created_at + INTERVAL '7 days'`). Expired diffs have their `status` updated to `expired` by a scheduled cleanup job and can no longer be applied.
+
+---
+
 ## References
 
 - [Architecture Overview](./ARCHITECTURE.md)

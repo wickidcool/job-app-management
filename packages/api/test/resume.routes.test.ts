@@ -150,7 +150,7 @@ describe('Resume Routes', () => {
 
     it('returns 404 when export not found', async () => {
       vi.mocked(resumeService.getResumeExport).mockRejectedValue(
-        new NotFoundError('Resume export'),
+        new NotFoundError('Resume export')
       );
 
       const res = await app.inject({

@@ -66,9 +66,7 @@ export function ResumeExportList({
       {exports.length === 0 && (
         <div className="border-2 border-dashed border-neutral-300 rounded-lg p-12 text-center">
           <div className="text-6xl mb-4">📄</div>
-          <div className="text-lg font-medium text-neutral-700 mb-2">
-            No resume exports yet
-          </div>
+          <div className="text-lg font-medium text-neutral-700 mb-2">No resume exports yet</div>
           <div className="text-sm text-neutral-600 mb-6">
             Create tailored resumes for different job applications
           </div>
@@ -95,9 +93,7 @@ export function ResumeExportList({
                   <div className="flex items-center gap-3 mb-2">
                     <span className="text-2xl">{getFormatIcon(exportItem.format)}</span>
                     <div>
-                      <h3 className="text-lg font-semibold text-neutral-900">
-                        {exportItem.name}
-                      </h3>
+                      <h3 className="text-lg font-semibold text-neutral-900">{exportItem.name}</h3>
                       {exportItem.linkedApplicationTitle && (
                         <div className="text-sm text-neutral-600 flex items-center gap-1">
                           <span>🔗</span>
@@ -109,7 +105,8 @@ export function ResumeExportList({
 
                   <div className="flex items-center gap-4 text-xs text-neutral-500">
                     <span>
-                      Created {formatDistance(exportItem.createdAt, new Date(), { addSuffix: true })}
+                      Created{' '}
+                      {formatDistance(exportItem.createdAt, new Date(), { addSuffix: true })}
                     </span>
                     <span>•</span>
                     <span>{formatFileSize(exportItem.fileSize)}</span>

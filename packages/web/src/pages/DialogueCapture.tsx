@@ -44,10 +44,13 @@ export function DialogueCapture() {
     // Save draft to localStorage for now
     // In the future, this could be saved to .draft files via API
     const draftKey = `dialogue-wizard-draft-${variant}${existingFileId ? `-${existingFileId}` : ''}`;
-    localStorage.setItem(draftKey, JSON.stringify({
-      data: draftData,
-      timestamp: new Date().toISOString(),
-    }));
+    localStorage.setItem(
+      draftKey,
+      JSON.stringify({
+        data: draftData,
+        timestamp: new Date().toISOString(),
+      })
+    );
     console.log('Draft saved:', draftKey);
   };
 

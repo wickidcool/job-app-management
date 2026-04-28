@@ -11,10 +11,7 @@ interface TopNavigationProps {
   exportCount?: number;
 }
 
-export function TopNavigation({
-  applicationCount,
-  exportCount,
-}: TopNavigationProps) {
+export function TopNavigation({ applicationCount, exportCount }: TopNavigationProps) {
   const location = useLocation();
 
   const tabs: NavTab[] = [
@@ -31,6 +28,7 @@ export function TopNavigation({
       badge: exportCount,
     },
     { label: 'Catalog', path: '/catalog' },
+    { label: 'Job Fit Analysis', path: '/job-fit-analysis' },
     { label: 'Projects', path: '/projects' },
     { label: 'Settings', path: '/settings' },
   ];
@@ -49,9 +47,7 @@ export function TopNavigation({
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-2">
               <span className="text-xl">📋</span>
-              <span className="text-lg font-semibold text-neutral-900">
-                Job App Manager
-              </span>
+              <span className="text-lg font-semibold text-neutral-900">Job App Manager</span>
             </div>
 
             <div className="hidden md:flex md:gap-6" role="tablist">

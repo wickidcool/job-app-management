@@ -15,13 +15,17 @@ vi.mock('../src/services/project.service.js', () => ({
   createProjectFile: vi.fn(),
   deleteProjectFile: vi.fn(),
   getOrCreateProjectBySlug: vi.fn(),
-  toSlug: (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+  toSlug: (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, ''),
 }));
 
 // Keep real Zod schemas; only mock the async service functions
 vi.mock('../src/services/dialogue.service.js', async () => {
   const actual = await vi.importActual<typeof import('../src/services/dialogue.service.js')>(
-    '../src/services/dialogue.service.js',
+    '../src/services/dialogue.service.js'
   );
   return {
     ...actual,
@@ -103,7 +107,7 @@ describe('Dialogue Routes', () => {
       expect(response.json()).toEqual(captureResult);
       expect(dialogueService.captureProjectFile).toHaveBeenCalledWith(
         'acme-corp',
-        expect.objectContaining({ company: 'Acme Corp', role: 'Senior Engineer' }),
+        expect.objectContaining({ company: 'Acme Corp', role: 'Senior Engineer' })
       );
     });
 
@@ -148,7 +152,7 @@ describe('Dialogue Routes', () => {
 
     it('returns 409 when file already exists', async () => {
       vi.mocked(dialogueService.captureProjectFile).mockRejectedValue(
-        new ConflictError('File already exists'),
+        new ConflictError('File already exists')
       );
 
       const response = await app.inject({
@@ -174,7 +178,7 @@ describe('Dialogue Routes', () => {
 
       expect(dialogueService.captureProjectFile).toHaveBeenCalledWith(
         'acme-corp',
-        expect.objectContaining({ technologies: [], jobFit: [] }),
+        expect.objectContaining({ technologies: [], jobFit: [] })
       );
     });
   });
@@ -196,7 +200,7 @@ describe('Dialogue Routes', () => {
       expect(dialogueService.enrichProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'acme-corp-senior-engineer.md',
-        expect.objectContaining({ industry: 'Fintech', jobFit: ['payments'] }),
+        expect.objectContaining({ industry: 'Fintech', jobFit: ['payments'] })
       );
     });
 
@@ -226,7 +230,7 @@ describe('Dialogue Routes', () => {
 
     it('returns 404 when file not found', async () => {
       vi.mocked(dialogueService.enrichProjectFile).mockRejectedValue(
-        new NotFoundError('Project file'),
+        new NotFoundError('Project file')
       );
 
       const response = await app.inject({
@@ -257,7 +261,7 @@ describe('Dialogue Routes', () => {
       expect(dialogueService.correctProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'acme-corp-senior-engineer.md',
-        expect.objectContaining({ company: 'Acme Corp' }),
+        expect.objectContaining({ company: 'Acme Corp' })
       );
     });
 
@@ -289,7 +293,7 @@ describe('Dialogue Routes', () => {
 
     it('returns 404 when file not found', async () => {
       vi.mocked(dialogueService.correctProjectFile).mockRejectedValue(
-        new NotFoundError('Project file'),
+        new NotFoundError('Project file')
       );
 
       const response = await app.inject({

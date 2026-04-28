@@ -28,11 +28,7 @@ const typeConfig = {
   },
 } as const;
 
-export function AmbiguityResolver({
-  item,
-  onResolve,
-  onSkip,
-}: AmbiguityResolverProps) {
+export function AmbiguityResolver({ item, onResolve, onSkip }: AmbiguityResolverProps) {
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const config = typeConfig[item.type];
 
@@ -43,9 +39,7 @@ export function AmbiguityResolver({
   };
 
   return (
-    <div
-      className={`${config.bgColor} border ${config.borderColor} rounded-lg p-4 mb-3`}
-    >
+    <div className={`${config.bgColor} border ${config.borderColor} rounded-lg p-4 mb-3`}>
       <div className="flex items-start gap-2 mb-3">
         <span className="text-xl" aria-hidden="true">
           {config.icon}
@@ -61,9 +55,7 @@ export function AmbiguityResolver({
         <p className="text-sm text-neutral-700 mb-1">
           <strong>Context:</strong> {item.context}
         </p>
-        <p className="text-xs text-neutral-500">
-          Source: {item.sourceName}
-        </p>
+        <p className="text-xs text-neutral-500">Source: {item.sourceName}</p>
       </div>
 
       <fieldset>
@@ -97,9 +89,7 @@ export function AmbiguityResolver({
                   )}
                 </div>
                 {option.description && (
-                  <p className="text-sm text-neutral-600 mt-1">
-                    {option.description}
-                  </p>
+                  <p className="text-sm text-neutral-600 mt-1">{option.description}</p>
                 )}
               </div>
             </label>

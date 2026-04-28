@@ -8,8 +8,7 @@ export const projectKeys = {
   details: () => [...projectKeys.all, 'detail'] as const,
   detail: (slug: string) => [...projectKeys.details(), slug] as const,
   files: (slug: string) => [...projectKeys.detail(slug), 'files'] as const,
-  file: (slug: string, fileName: string) =>
-    [...projectKeys.files(slug), fileName] as const,
+  file: (slug: string, fileName: string) => [...projectKeys.files(slug), fileName] as const,
 };
 
 export function useProjects() {
@@ -129,13 +128,8 @@ export function useDeleteProjectFile() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      projectId,
-      fileName,
-    }: {
-      projectId: string;
-      fileName: string;
-    }) => projectService.deleteProjectFile(projectId, fileName),
+    mutationFn: ({ projectId, fileName }: { projectId: string; fileName: string }) =>
+      projectService.deleteProjectFile(projectId, fileName),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: projectKeys.files(variables.projectId),

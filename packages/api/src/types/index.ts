@@ -129,7 +129,7 @@ export class AppError extends Error {
     public readonly code: string,
     message: string,
     public readonly details?: unknown,
-    public readonly statusCode: number = 400,
+    public readonly statusCode: number = 400
   ) {
     super(message);
     this.name = 'AppError';
@@ -163,7 +163,7 @@ export class InvalidTransitionError extends AppError {
       'INVALID_STATUS_TRANSITION',
       `Cannot transition from '${from}' to '${to}'`,
       { currentStatus: from, requestedStatus: to, allowedStatuses: allowed },
-      400,
+      400
     );
     this.name = 'InvalidTransitionError';
   }
@@ -265,7 +265,7 @@ export class JobFitUrlFetchError extends AppError {
       'URL_FETCH_FAILED',
       'Could not retrieve job description from URL. The site may be blocking automated access. Please paste the job description text directly.',
       { url, httpStatus },
-      422,
+      422
     );
     this.name = 'JobFitUrlFetchError';
   }

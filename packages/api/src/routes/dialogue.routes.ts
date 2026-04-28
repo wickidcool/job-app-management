@@ -22,7 +22,7 @@ export async function dialogueRoutes(fastify: FastifyInstance) {
       }
       const result = await captureProjectFile(projectId, parsed.data);
       return reply.status(201).send(result);
-    },
+    }
   );
 
   // POST /api/projects/:projectId/files/:fileName/enrich  (UC-1a)
@@ -39,11 +39,16 @@ export async function dialogueRoutes(fastify: FastifyInstance) {
         throw new AppError('BAD_REQUEST', 'Invalid enrich data', parsed.error.flatten(), 400);
       }
       if (Object.keys(parsed.data).length === 0) {
-        throw new AppError('BAD_REQUEST', 'At least one field must be provided for enrichment', undefined, 400);
+        throw new AppError(
+          'BAD_REQUEST',
+          'At least one field must be provided for enrichment',
+          undefined,
+          400
+        );
       }
       const result = await enrichProjectFile(projectId, fileName, parsed.data);
       return reply.send(result);
-    },
+    }
   );
 
   // POST /api/projects/:projectId/files/:fileName/correct  (UC-1b)
@@ -61,6 +66,6 @@ export async function dialogueRoutes(fastify: FastifyInstance) {
       }
       const result = await correctProjectFile(projectId, fileName, parsed.data);
       return reply.send(result);
-    },
+    }
   );
 }
