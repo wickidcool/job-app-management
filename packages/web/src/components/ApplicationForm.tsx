@@ -50,6 +50,7 @@ export interface ApplicationFormProps {
   onSubmit: (data: ApplicationFormData) => Promise<void>;
   application?: Application | null;
   mode?: 'create' | 'edit';
+  defaultValues?: Partial<ApplicationFormData>;
 }
 
 export function ApplicationForm({
@@ -58,6 +59,7 @@ export function ApplicationForm({
   onSubmit,
   application,
   mode = 'create',
+  defaultValues: propDefaultValues,
 }: ApplicationFormProps) {
   const {
     register,
@@ -83,18 +85,18 @@ export function ApplicationForm({
           nextActionDue: application.nextActionDue || '',
         }
       : {
-          jobTitle: '',
-          company: '',
-          url: '',
-          location: '',
-          salaryRange: '',
-          jobDescription: '',
-          status: 'saved' as ApplicationStatus,
+          jobTitle: propDefaultValues?.jobTitle ?? '',
+          company: propDefaultValues?.company ?? '',
+          url: propDefaultValues?.url ?? '',
+          location: propDefaultValues?.location ?? '',
+          salaryRange: propDefaultValues?.salaryRange ?? '',
+          jobDescription: propDefaultValues?.jobDescription ?? '',
+          status: (propDefaultValues?.status as ApplicationStatus) ?? 'saved',
           linkCoverLetter: false,
-          contact: '',
-          compTarget: '',
-          nextAction: '',
-          nextActionDue: '',
+          contact: propDefaultValues?.contact ?? '',
+          compTarget: propDefaultValues?.compTarget ?? '',
+          nextAction: propDefaultValues?.nextAction ?? '',
+          nextActionDue: propDefaultValues?.nextActionDue ?? '',
         },
   });
 
@@ -120,22 +122,22 @@ export function ApplicationForm({
               nextActionDue: application.nextActionDue || '',
             }
           : {
-              jobTitle: '',
-              company: '',
-              url: '',
-              location: '',
-              salaryRange: '',
-              jobDescription: '',
-              status: 'saved' as ApplicationStatus,
+              jobTitle: propDefaultValues?.jobTitle ?? '',
+              company: propDefaultValues?.company ?? '',
+              url: propDefaultValues?.url ?? '',
+              location: propDefaultValues?.location ?? '',
+              salaryRange: propDefaultValues?.salaryRange ?? '',
+              jobDescription: propDefaultValues?.jobDescription ?? '',
+              status: (propDefaultValues?.status as ApplicationStatus) ?? 'saved',
               linkCoverLetter: false,
-              contact: '',
-              compTarget: '',
-              nextAction: '',
-              nextActionDue: '',
+              contact: propDefaultValues?.contact ?? '',
+              compTarget: propDefaultValues?.compTarget ?? '',
+              nextAction: propDefaultValues?.nextAction ?? '',
+              nextActionDue: propDefaultValues?.nextActionDue ?? '',
             }
       );
     }
-  }, [open, application, reset]);
+  }, [open, application, propDefaultValues, reset]);
 
   const handleFormSubmit = async (data: ApplicationFormData) => {
     try {

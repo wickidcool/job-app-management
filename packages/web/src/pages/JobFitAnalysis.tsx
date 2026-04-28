@@ -309,6 +309,21 @@ export function JobFitAnalysis() {
           <div className="flex gap-4 flex-wrap">
             <button
               onClick={() =>
+                navigate('/applications/new', {
+                  state: {
+                    jobTitle: results.parsedJd.roleTitle ?? '',
+                    location: results.parsedJd.location ?? '',
+                    salaryRange: results.parsedJd.compensation ?? '',
+                    jobDescription: jobDescriptionText || '',
+                  },
+                })
+              }
+              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            >
+              Apply to this Job
+            </button>
+            <button
+              onClick={() =>
                 navigate('/cover-letters/new', {
                   state: {
                     jobDescriptionText: jobDescriptionText,
