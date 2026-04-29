@@ -113,6 +113,14 @@ export function ApplicationDetail() {
             </div>
 
             <div className="flex gap-2">
+              {application.status === 'interview' && (
+                <button
+                  onClick={() => navigate(`/applications/${id}/prep`)}
+                  className="px-4 py-2 text-sm font-medium text-purple-700 bg-white border border-purple-300 rounded-md hover:bg-purple-50"
+                >
+                  Prepare for Interview
+                </button>
+              )}
               {application.jobDescription && (
                 <button
                   onClick={() =>

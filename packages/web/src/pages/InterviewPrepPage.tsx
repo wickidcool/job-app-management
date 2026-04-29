@@ -7,6 +7,7 @@ import { GapMitigationPanel } from '../components/GapMitigationPanel';
 import { QuickReferenceExport } from '../components/QuickReferenceExport';
 import {
   useInterviewPrepByApplication,
+  useGenerateInterviewPrep,
   useUpdateInterviewPrep,
   useLogPracticeSession,
 } from '../hooks/useInterviewPrep';
@@ -40,6 +41,7 @@ export function InterviewPrepPage() {
     error,
   } = useInterviewPrepByApplication(applicationId!);
 
+  const generateMutation = useGenerateInterviewPrep();
   const updateMutation = useUpdateInterviewPrep();
   const logPracticeMutation = useLogPracticeSession();
 
@@ -92,11 +94,34 @@ export function InterviewPrepPage() {
   if (!prepData?.interviewPrep) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 text-lg mb-4">No interview prep found</p>
+        <div className="text-center max-w-md">
+          <div className="text-5xl mb-4">🎯</div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">No Interview Prep Yet</h2>
+          <p className="text-gray-600 mb-6">
+            Generate tailored interview prep materials from your catalog and job fit analysis.
+          </p>
+          <button
+            onClick={() =>
+              generateMutation.mutate(
+                { applicationId: applicationId! },
+                { onSuccess: () => {} }
+              )
+            }
+            disabled={generateMutation.isPending}
+            className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium mb-3"
+          >
+            {generateMutation.isPending ? 'Generating...' : 'Generate Interview Prep'}
+          </button>
+          {generateMutation.isError && (
+            <p className="text-sm text-red-600 mb-3">
+              {generateMutation.error instanceof Error
+                ? generateMutation.error.message
+                : 'Generation failed. Please try again.'}
+            </p>
+          )}
           <button
             onClick={() => navigate(`/applications/${applicationId}`)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="text-sm text-gray-500 hover:text-gray-700"
           >
             Return to Application
           </button>
