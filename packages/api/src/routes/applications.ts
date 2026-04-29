@@ -31,9 +31,9 @@ const createApplicationSchema = z.object({
   coverLetterId: z.string().optional(),
   resumeVersionId: z.string().optional(),
   // UC-5 Extended Tracking Fields
-  contact: z.string().min(1).max(200).optional(),
-  compTarget: z.string().min(1).optional(),
-  nextAction: z.string().min(1).max(500).optional(),
+  contact: z.string().max(200).optional().transform(v => v === '' ? undefined : v),
+  compTarget: z.string().optional().transform(v => v === '' ? undefined : v),
+  nextAction: z.string().max(500).optional().transform(v => v === '' ? undefined : v),
   nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
@@ -46,9 +46,9 @@ const updateApplicationSchema = z.object({
   coverLetterId: z.string().nullable().optional(),
   resumeVersionId: z.string().nullable().optional(),
   // UC-5 Extended Tracking Fields
-  contact: z.string().min(1).max(200).nullable().optional(),
-  compTarget: z.string().min(1).nullable().optional(),
-  nextAction: z.string().min(1).max(500).nullable().optional(),
+  contact: z.string().max(200).nullable().optional().transform(v => v === '' ? undefined : v),
+  compTarget: z.string().nullable().optional().transform(v => v === '' ? undefined : v),
+  nextAction: z.string().max(500).nullable().optional().transform(v => v === '' ? undefined : v),
   nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   version: z.number().int().positive(),
 });
