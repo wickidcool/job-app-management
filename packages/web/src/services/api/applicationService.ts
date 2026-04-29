@@ -44,8 +44,29 @@ export class ApplicationService {
   /**
    * Get all applications
    */
-  async getAll(): Promise<Application[]> {
-    const response = await this.client.get<ListApplicationsResponse>('/applications');
+  async getAll(filters?: {
+    status?: string[];
+    company?: string;
+    search?: string;
+  }): Promise<Application[]> {
+    const params = new URLSearchParams();
+
+    if (filters?.status && filters.status.length > 0) {
+      params.append('status', filters.status.join(','));
+    }
+
+    if (filters?.company) {
+      params.append('company', filters.company);
+    }
+
+    if (filters?.search) {
+      params.append('search', filters.search);
+    }
+
+    const queryString = params.toString();
+    const url = queryString ? `/applications?${queryString}` : '/applications';
+
+    const response = await this.client.get<ListApplicationsResponse>(url);
     return response.applications.map(transformAPIApplication);
   }
 

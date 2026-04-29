@@ -1,14 +1,34 @@
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
-import { FilterPanel } from '../components/FilterPanel';
+import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
 import type { ApplicationStatus } from '../types/application';
 
 export function ApplicationsList() {
   const navigate = useNavigate();
-  const { data: applications = [], isLoading } = useApplications();
+  const [filters, setFilters] = useState<FilterOptions>({});
+
+  // Convert FilterOptions to API filter format
+  const apiFilters = useMemo(() => ({
+    status: filters.status,
+    search: filters.search,
+    // API only supports single company partial match, not multiple exact matches
+    // We'll handle multiple companies via client-side filtering
+    company: undefined,
+  }), [filters.status, filters.search]);
+
+  const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
   const updateStatusMutation = useUpdateApplicationStatus();
+
+  // Client-side filtering for multiple companies (API doesn't support this)
+  const applications = useMemo(() => {
+    if (!filters.company || filters.company.length === 0) {
+      return rawApplications;
+    }
+    return rawApplications.filter((app) => filters.company!.includes(app.company));
+  }, [rawApplications, filters.company]);
 
   const handleStatusChange = (appId: string, newStatus: ApplicationStatus) => {
     const app = applications.find((a) => a.id === appId);
@@ -29,7 +49,10 @@ export function ApplicationsList() {
     { label: 'Applications' },
   ];
 
-  const availableCompanies = Array.from(new Set(applications.map((app) => app.company))).sort();
+  // Get unique companies from all applications (not just filtered ones) for the filter options
+  const availableCompanies = Array.from(
+    new Set(rawApplications.map((app) => app.company))
+  ).sort();
   const availableStatuses: ApplicationStatus[] = [
     'saved',
     'applied',
@@ -50,8 +73,8 @@ export function ApplicationsList() {
 
       <div className="mb-6">
         <FilterPanel
-          onFilterChange={() => {}}
-          activeFilters={{}}
+          onFilterChange={setFilters}
+          activeFilters={filters}
           availableCompanies={availableCompanies}
           availableStatuses={availableStatuses}
         />
