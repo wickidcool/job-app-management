@@ -9,6 +9,7 @@ import { dialogueRoutes } from './routes/dialogue.routes.js';
 import { catalogRoutes } from './routes/catalog.routes.js';
 import { reportsRoutes } from './routes/reports.js';
 import { resumeVariantsRoutes } from './routes/resume-variants.js';
+import { interviewPrepsRoutes } from './routes/interview-preps.js';
 import { AppError } from './types/index.js';
 
 export function buildApp(opts?: { logger?: boolean }) {
@@ -35,6 +36,7 @@ export function buildApp(opts?: { logger?: boolean }) {
       api.register(catalogRoutes);
       api.register(reportsRoutes);
       api.register(resumeVariantsRoutes);
+      api.register(interviewPrepsRoutes);
     },
     { prefix: '/api' }
   );
