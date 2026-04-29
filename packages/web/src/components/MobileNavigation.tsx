@@ -13,7 +13,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
   const toggleMenu = () => setIsOpen(!isOpen);
   const closeMenu = () => setIsOpen(false);
 
-  const navItems = [
+  const primaryNavItems = [
     { icon: '📋', label: 'Dashboard', path: '/' },
     {
       icon: '💼',
@@ -22,19 +22,25 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
       badge: applicationCount,
     },
     { icon: '📊', label: 'Reports', path: '/reports' },
+    { icon: '📁', label: 'Projects', path: '/projects' },
+  ];
+
+  const resumeNavItems = [
     {
       icon: '📄',
       label: 'Resume Manager',
       path: '/resumes',
       badge: exportCount,
-      isNew: true,
     },
     { icon: '📝', label: 'Resume Variants', path: '/resume-variants' },
+  ];
+
+  const toolsNavItems = [
     { icon: '📚', label: 'Catalog', path: '/catalog' },
     { icon: '🔍', label: 'Job Fit Analysis', path: '/job-fit-analysis' },
-    { icon: '📁', label: 'Projects', path: '/projects' },
-    { icon: '⚙️', label: 'Settings', path: '/settings' },
   ];
+
+  const settingsNavItem = { icon: '⚙️', label: 'Settings', path: '/settings' };
 
   const quickActions = [
     { label: 'Upload Resume', path: '/resumes/upload' },
@@ -82,7 +88,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
 
               <nav className="flex-1 overflow-y-auto p-4">
                 <ul className="space-y-2">
-                  {navItems.map((item) => (
+                  {primaryNavItems.map((item) => (
                     <li key={item.path}>
                       <Link
                         to={item.path}
@@ -98,11 +104,6 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
                           <span className="text-xl">{item.icon}</span>
                           <span className="font-medium">{item.label}</span>
                         </div>
-                        {item.isNew && (
-                          <span className="rounded-full bg-primary-500 px-2 py-0.5 text-xs font-medium text-white">
-                            NEW
-                          </span>
-                        )}
                         {item.badge !== undefined && item.badge > 0 && (
                           <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700">
                             {item.badge}
@@ -112,6 +113,87 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
                     </li>
                   ))}
                 </ul>
+
+                <div className="mt-6 border-t border-neutral-200 pt-4">
+                  <p className="mb-2 px-4 text-xs font-semibold uppercase text-neutral-500">
+                    Resumes
+                  </p>
+                  <ul className="space-y-2">
+                    {resumeNavItems.map((item) => (
+                      <li key={item.path}>
+                        <Link
+                          to={item.path}
+                          onClick={closeMenu}
+                          className={`flex items-center justify-between rounded-lg px-4 py-3 ${
+                            location.pathname === item.path ||
+                            (item.path !== '/' && location.pathname.startsWith(item.path))
+                              ? 'bg-primary-50 text-primary-600'
+                              : 'text-neutral-700 hover:bg-neutral-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-xl">{item.icon}</span>
+                            <span className="font-medium">{item.label}</span>
+                          </div>
+                          {item.badge !== undefined && item.badge > 0 && (
+                            <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700">
+                              {item.badge}
+                            </span>
+                          )}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="mt-6 border-t border-neutral-200 pt-4">
+                  <p className="mb-2 px-4 text-xs font-semibold uppercase text-neutral-500">
+                    Tools
+                  </p>
+                  <ul className="space-y-2">
+                    {toolsNavItems.map((item) => (
+                      <li key={item.path}>
+                        <Link
+                          to={item.path}
+                          onClick={closeMenu}
+                          className={`flex items-center justify-between rounded-lg px-4 py-3 ${
+                            location.pathname === item.path ||
+                            (item.path !== '/' && location.pathname.startsWith(item.path))
+                              ? 'bg-primary-50 text-primary-600'
+                              : 'text-neutral-700 hover:bg-neutral-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-xl">{item.icon}</span>
+                            <span className="font-medium">{item.label}</span>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="mt-6 border-t border-neutral-200 pt-4">
+                  <ul className="space-y-2">
+                    <li>
+                      <Link
+                        to={settingsNavItem.path}
+                        onClick={closeMenu}
+                        className={`flex items-center justify-between rounded-lg px-4 py-3 ${
+                          location.pathname === settingsNavItem.path ||
+                          location.pathname.startsWith(settingsNavItem.path)
+                            ? 'bg-primary-50 text-primary-600'
+                            : 'text-neutral-700 hover:bg-neutral-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl">{settingsNavItem.icon}</span>
+                          <span className="font-medium">{settingsNavItem.label}</span>
+                        </div>
+                      </Link>
+                    </li>
+                  </ul>
+                </div>
 
                 <div className="mt-6 border-t border-neutral-200 pt-4">
                   <p className="mb-2 px-4 text-xs font-semibold uppercase text-neutral-500">
