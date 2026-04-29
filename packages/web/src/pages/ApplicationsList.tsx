@@ -11,6 +11,7 @@ import type { ApplicationStatus } from '../types/application';
 export function ApplicationsList() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<FilterOptions>({});
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   // Convert FilterOptions to API filter format
   const apiFilters = useMemo(() => ({
@@ -73,20 +74,39 @@ export function ApplicationsList() {
         <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 space-y-3">
+        {/* Saved filter shortcuts - always visible */}
         <SavedFilterShortcuts
           onApplyFilter={setFilters}
           currentFilters={filters}
         />
-      </div>
 
-      <div className="mb-6">
-        <FilterPanel
-          onFilterChange={setFilters}
-          activeFilters={filters}
-          availableCompanies={availableCompanies}
-          availableStatuses={availableStatuses}
-        />
+        {/* Filter toggle button */}
+        <div>
+          <button
+            onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            aria-expanded={isFilterPanelOpen}
+            aria-label={isFilterPanelOpen ? 'Hide filters' : 'Show filters'}
+          >
+            <span className="text-lg" aria-hidden="true">
+              {isFilterPanelOpen ? '▼' : '▶'}
+            </span>
+            <span>{isFilterPanelOpen ? 'Hide Filters' : 'Show Filters'}</span>
+          </button>
+        </div>
+
+        {/* Collapsible filter panel */}
+        {isFilterPanelOpen && (
+          <div className="animate-in slide-in-from-top-2 duration-200">
+            <FilterPanel
+              onFilterChange={setFilters}
+              activeFilters={filters}
+              availableCompanies={availableCompanies}
+              availableStatuses={availableStatuses}
+            />
+          </div>
+        )}
       </div>
 
       <KanbanBoard
