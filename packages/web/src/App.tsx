@@ -27,6 +27,7 @@ import { OutreachNew } from './pages/OutreachNew';
 import { ResumeVariantsList } from './pages/ResumeVariantsList';
 import { ResumeVariantDetail } from './pages/ResumeVariantDetail';
 import { ResumeVariantNew } from './pages/ResumeVariantNew';
+import { InterviewPrepPage } from './pages/InterviewPrepPage';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
@@ -56,6 +57,7 @@ function App() {
             <Route path="/applications" element={<ApplicationsList />} />
             <Route path="/applications/new" element={<ApplicationNew />} />
             <Route path="/applications/:id" element={<ApplicationDetail />} />
+            <Route path="/applications/:id/prep" element={<InterviewPrepPage />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/reports/pipeline" element={<ReportsPipeline />} />
             <Route path="/reports/needs-action" element={<ReportsNeedsAction />} />

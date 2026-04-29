@@ -850,6 +850,472 @@ See [UC-6 Resume Variant Generation API](./UC-6_RESUME_VARIANT_API.md) for full 
 
 ---
 
+## Interview Prep (UC-7)
+
+Interview prep records store generated preparation materials for upcoming interviews, including categorized STAR stories, anticipated questions, gap mitigation strategies, and quick reference exports.
+
+### Schema Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                            interview_preps                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│ PK │ id                      │ TEXT              │ ULID primary key      │
+│ FK │ application_id          │ TEXT              │ NOT NULL, references  │
+│ FK │ job_fit_analysis_id     │ TEXT              │ nullable              │
+│    │ interview_type          │ interview_type    │ behavioral/technical  │
+│    │ time_available          │ prep_time         │ 30min/1hr/2hr/full    │
+│    │ focus_areas             │ JSONB             │ theme slugs array     │
+│    │ completeness            │ INTEGER           │ 0-100 percentage      │
+│    │ story_selections        │ JSONB             │ story IDs + metadata  │
+│    │ generated_questions     │ JSONB             │ anticipated questions │
+│    │ gap_mitigations         │ JSONB             │ talking points        │
+│    │ quick_reference         │ JSONB             │ export configuration  │
+│    │ practice_log            │ JSONB             │ practice history      │
+│    │ created_at              │ TIMESTAMPTZ       │ NOT NULL              │
+│    │ updated_at              │ TIMESTAMPTZ       │ NOT NULL              │
+│    │ version                 │ INTEGER           │ optimistic locking    │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ 1:N
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         interview_prep_stories                            │
+├──────────────────────────────────────────────────────────────────────────┤
+│ PK │ id                      │ TEXT              │ ULID primary key      │
+│ FK │ interview_prep_id       │ TEXT              │ NOT NULL, references  │
+│ FK │ star_entry_id           │ TEXT              │ NOT NULL, catalog ref │
+│    │ themes                  │ JSONB             │ classified themes     │
+│    │ relevance_score         │ INTEGER           │ 0-100 from analysis   │
+│    │ one_min_version         │ TEXT              │ time-boxed summary    │
+│    │ two_min_version         │ TEXT              │ time-boxed summary    │
+│    │ five_min_version        │ TEXT              │ full story version    │
+│    │ is_favorite             │ BOOLEAN           │ user-marked favorite  │
+│    │ personal_notes          │ TEXT              │ user notes            │
+│    │ practice_count          │ INTEGER           │ times practiced       │
+│    │ last_practiced_at       │ TIMESTAMPTZ       │ last practice date    │
+│    │ confidence_level        │ confidence_level  │ not/needs/ok/great    │
+│    │ display_order           │ INTEGER           │ sort order in theme   │
+│    │ created_at              │ TIMESTAMPTZ       │ NOT NULL              │
+│    │ updated_at              │ TIMESTAMPTZ       │ NOT NULL              │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ M:N (via junction)
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                       prep_question_story_links                           │
+├──────────────────────────────────────────────────────────────────────────┤
+│ PK │ id                      │ TEXT              │ ULID primary key      │
+│ FK │ question_id             │ TEXT              │ NOT NULL              │
+│ FK │ story_id                │ TEXT              │ NOT NULL              │
+│    │ is_primary              │ BOOLEAN           │ primary answer choice │
+│    │ match_score             │ INTEGER           │ relevance to question │
+│    │ created_at              │ TIMESTAMPTZ       │ NOT NULL              │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### Enum Types (Interview Prep)
+
+```sql
+-- Interview type
+CREATE TYPE interview_type AS ENUM (
+  'behavioral',
+  'technical',
+  'mixed',
+  'case_study'
+);
+
+-- Prep time allocation
+CREATE TYPE prep_time AS ENUM (
+  '30min',
+  '1hr',
+  '2hr',
+  'full_day'
+);
+
+-- Question categories
+CREATE TYPE question_category AS ENUM (
+  'behavioral',
+  'technical',
+  'situational',
+  'role_specific',
+  'gap_probing'
+);
+
+-- Question difficulty
+CREATE TYPE question_difficulty AS ENUM (
+  'standard',
+  'challenging',
+  'tough'
+);
+
+-- Confidence level after practice
+CREATE TYPE confidence_level AS ENUM (
+  'not_practiced',
+  'needs_work',
+  'comfortable',
+  'confident'
+);
+
+-- Gap severity (mirrors job fit analysis)
+CREATE TYPE gap_severity AS ENUM (
+  'critical',
+  'moderate',
+  'minor'
+);
+
+-- Mitigation strategy types
+CREATE TYPE mitigation_strategy AS ENUM (
+  'acknowledge_pivot',
+  'growth_mindset',
+  'adjacent_experience'
+);
+```
+
+### Interview Prep Table
+
+```sql
+CREATE TABLE interview_preps (
+  id                    TEXT PRIMARY KEY,
+  application_id        TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+  job_fit_analysis_id   TEXT REFERENCES job_fit_analyses(id) ON DELETE SET NULL,
+  interview_type        interview_type NOT NULL DEFAULT 'mixed',
+  time_available        prep_time NOT NULL DEFAULT '1hr',
+  focus_areas           JSONB NOT NULL DEFAULT '[]',
+  completeness          INTEGER NOT NULL DEFAULT 0 CHECK (completeness >= 0 AND completeness <= 100),
+  story_selections      JSONB NOT NULL DEFAULT '{}',
+  generated_questions   JSONB NOT NULL DEFAULT '[]',
+  gap_mitigations       JSONB NOT NULL DEFAULT '[]',
+  quick_reference       JSONB,
+  practice_log          JSONB NOT NULL DEFAULT '[]',
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  version               INTEGER NOT NULL DEFAULT 1,
+  
+  UNIQUE(application_id)  -- One prep per application
+);
+
+CREATE INDEX idx_interview_preps_application ON interview_preps(application_id);
+CREATE INDEX idx_interview_preps_created_at ON interview_preps(created_at DESC);
+```
+
+### Interview Prep Stories (STAR Entries with Time-Boxed Versions)
+
+```sql
+CREATE TABLE interview_prep_stories (
+  id                    TEXT PRIMARY KEY,
+  interview_prep_id     TEXT NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
+  star_entry_id         TEXT NOT NULL,  -- References catalog quantified_bullets or STAR entries
+  themes                JSONB NOT NULL DEFAULT '[]',
+  relevance_score       INTEGER NOT NULL CHECK (relevance_score >= 0 AND relevance_score <= 100),
+  one_min_version       TEXT NOT NULL,
+  two_min_version       TEXT NOT NULL,
+  five_min_version      TEXT NOT NULL,
+  is_favorite           BOOLEAN NOT NULL DEFAULT FALSE,
+  personal_notes        TEXT,
+  practice_count        INTEGER NOT NULL DEFAULT 0,
+  last_practiced_at     TIMESTAMPTZ,
+  confidence_level      confidence_level NOT NULL DEFAULT 'not_practiced',
+  display_order         INTEGER NOT NULL DEFAULT 0,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_prep_stories_prep ON interview_prep_stories(interview_prep_id);
+CREATE INDEX idx_prep_stories_favorite ON interview_prep_stories(interview_prep_id, is_favorite);
+CREATE INDEX idx_prep_stories_theme ON interview_prep_stories USING GIN (themes);
+```
+
+### JSONB Field Schemas
+
+**generated_questions** — Array of anticipated interview questions:
+
+```typescript
+interface GeneratedQuestion {
+  id: string;
+  text: string;
+  category: QuestionCategory;
+  difficulty: QuestionDifficulty;
+  whyTheyAsk: string;
+  whatTheyWant: string;
+  answerFramework: string;
+  suggestedStoryIds: string[];
+  linkedStoryId?: string;
+  personalNotes?: string;
+  practiceStatus: ConfidenceLevel;
+  lastPracticedAt?: string; // ISO timestamp
+}
+```
+
+**gap_mitigations** — Array of gap talking points:
+
+```typescript
+interface GapMitigation {
+  id: string;
+  skill: string;
+  severity: GapSeverity;
+  description: string;
+  whyItMatters: string;
+  strategies: {
+    acknowledgePivot: TalkingPoint;
+    growthMindset: TalkingPoint;
+    adjacentExperience: TalkingPoint;
+  };
+  relatedStoryIds: string[];
+  selectedStrategy?: MitigationStrategy;
+  isAddressed: boolean;
+}
+
+interface TalkingPoint {
+  title: string;
+  script: string;
+  keyPhrases: string[];
+  redirectToStrength: string;
+}
+```
+
+**quick_reference** — Export configuration and cached content:
+
+```typescript
+interface QuickReference {
+  sections: SectionConfig[];
+  topStoryIds: string[];
+  keyQuestionIds: string[];
+  gapPointIds: string[];
+  companyFacts: CompanyFact[];
+  lastExportedAt?: string;
+  exportFormat?: 'pdf' | 'markdown' | 'print';
+}
+
+interface SectionConfig {
+  id: 'stories' | 'questions' | 'gaps' | 'company';
+  enabled: boolean;
+  order: number;
+  selectedItems: string[];
+}
+
+interface CompanyFact {
+  id: string;
+  fact: string;
+  source: string;
+  useFor: 'mention' | 'ask_about';
+}
+```
+
+**practice_log** — Practice session history:
+
+```typescript
+interface PracticeSession {
+  id: string;
+  startedAt: string;
+  endedAt?: string;
+  type: 'single_question' | 'full_interview' | 'timed_responses';
+  questionsAttempted: number;
+  confidenceRatings: {
+    needsWork: number;
+    comfortable: number;
+    confident: number;
+  };
+  focusAreas?: string[];
+}
+```
+
+### Relationships to Other Tables
+
+| Source Table | Target Table | Relationship | Notes |
+|--------------|--------------|--------------|-------|
+| `interview_preps` | `applications` | N:1 | One prep per application (UNIQUE constraint) |
+| `interview_preps` | `job_fit_analyses` | N:1 (optional) | Uses fit analysis for gap mitigations |
+| `interview_prep_stories` | `interview_preps` | N:1 | Stories belong to a prep |
+| `interview_prep_stories` | `quantified_bullets` | N:1 | References catalog STAR entries |
+| `prep_question_story_links` | `interview_prep_stories` | N:1 | Links questions to suggested stories |
+
+### Completeness Calculation
+
+The `completeness` field is computed based on four weighted factors:
+
+```typescript
+function calculateCompleteness(prep: InterviewPrep): number {
+  const weights = {
+    hasStories: 25,      // At least 5 stories with time-boxed versions
+    hasQuestions: 25,    // At least 5 questions with linked STAR stories
+    hasGapPrep: 25,      // All gaps have talking points prepared
+    hasQuickRef: 25      // Quick reference card generated
+  };
+  
+  let score = 0;
+  
+  // Stories: 5+ stories = full points, proportional below
+  const storyCount = prep.storySelections.length;
+  score += Math.min(storyCount / 5, 1) * weights.hasStories;
+  
+  // Questions: 5+ linked questions = full points
+  const linkedQuestions = prep.generatedQuestions.filter(q => q.linkedStoryId);
+  score += Math.min(linkedQuestions.length / 5, 1) * weights.hasQuestions;
+  
+  // Gaps: all gaps addressed = full points
+  const totalGaps = prep.gapMitigations.length;
+  const addressedGaps = prep.gapMitigations.filter(g => g.isAddressed).length;
+  score += totalGaps > 0 ? (addressedGaps / totalGaps) * weights.hasGapPrep : weights.hasGapPrep;
+  
+  // Quick ref: generated = full points
+  score += prep.quickReference?.lastExportedAt ? weights.hasQuickRef : 0;
+  
+  return Math.round(score);
+}
+```
+
+### Theme Classification
+
+STAR entries are classified into themes during prep generation using keyword matching and ML classification:
+
+| Theme | Detection Keywords | Weight in Matching |
+|-------|-------------------|-------------------|
+| `leadership` | led, managed, directed, mentored, coached, team of, supervised | High |
+| `technical` | built, implemented, architected, designed, coded, debugged, optimized | High |
+| `teamwork` | collaborated, cross-functional, partnered, worked with, alongside | Medium |
+| `problem_solving` | solved, fixed, diagnosed, resolved, overcame, addressed | Medium |
+| `communication` | presented, negotiated, documented, communicated, convinced | Medium |
+| `innovation` | created, invented, pioneered, transformed, first to, introduced | High |
+
+### Drizzle ORM Schema
+
+```typescript
+// packages/api/src/db/schema.ts (additions)
+
+import { pgEnum } from 'drizzle-orm/pg-core';
+
+export const interviewTypeEnum = pgEnum('interview_type', [
+  'behavioral', 'technical', 'mixed', 'case_study'
+]);
+
+export const prepTimeEnum = pgEnum('prep_time', [
+  '30min', '1hr', '2hr', 'full_day'
+]);
+
+export const confidenceLevelEnum = pgEnum('confidence_level', [
+  'not_practiced', 'needs_work', 'comfortable', 'confident'
+]);
+
+export const interviewPreps = pgTable('interview_preps', {
+  id: text('id').primaryKey(),
+  applicationId: text('application_id')
+    .notNull()
+    .references(() => applications.id, { onDelete: 'cascade' })
+    .unique(),
+  jobFitAnalysisId: text('job_fit_analysis_id'),
+  interviewType: interviewTypeEnum('interview_type').notNull().default('mixed'),
+  timeAvailable: prepTimeEnum('time_available').notNull().default('1hr'),
+  focusAreas: jsonb('focus_areas').notNull().default([]),
+  completeness: integer('completeness').notNull().default(0),
+  storySelections: jsonb('story_selections').notNull().default({}),
+  generatedQuestions: jsonb('generated_questions').notNull().default([]),
+  gapMitigations: jsonb('gap_mitigations').notNull().default([]),
+  quickReference: jsonb('quick_reference'),
+  practiceLog: jsonb('practice_log').notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export const interviewPrepStories = pgTable('interview_prep_stories', {
+  id: text('id').primaryKey(),
+  interviewPrepId: text('interview_prep_id')
+    .notNull()
+    .references(() => interviewPreps.id, { onDelete: 'cascade' }),
+  starEntryId: text('star_entry_id').notNull(),
+  themes: jsonb('themes').notNull().default([]),
+  relevanceScore: integer('relevance_score').notNull(),
+  oneMinVersion: text('one_min_version').notNull(),
+  twoMinVersion: text('two_min_version').notNull(),
+  fiveMinVersion: text('five_min_version').notNull(),
+  isFavorite: boolean('is_favorite').notNull().default(false),
+  personalNotes: text('personal_notes'),
+  practiceCount: integer('practice_count').notNull().default(0),
+  lastPracticedAt: timestamp('last_practiced_at', { withTimezone: true }),
+  confidenceLevel: confidenceLevelEnum('confidence_level').notNull().default('not_practiced'),
+  displayOrder: integer('display_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Type exports
+export type InterviewPrep = typeof interviewPreps.$inferSelect;
+export type NewInterviewPrep = typeof interviewPreps.$inferInsert;
+export type InterviewPrepStory = typeof interviewPrepStories.$inferSelect;
+export type NewInterviewPrepStory = typeof interviewPrepStories.$inferInsert;
+```
+
+### Migration File
+
+```sql
+-- migrations/0010_create_interview_prep_tables.sql
+
+-- Enum types
+CREATE TYPE interview_type AS ENUM ('behavioral', 'technical', 'mixed', 'case_study');
+CREATE TYPE prep_time AS ENUM ('30min', '1hr', '2hr', 'full_day');
+CREATE TYPE confidence_level AS ENUM ('not_practiced', 'needs_work', 'comfortable', 'confident');
+
+-- Main interview prep table
+CREATE TABLE interview_preps (
+  id                    TEXT PRIMARY KEY,
+  application_id        TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE UNIQUE,
+  job_fit_analysis_id   TEXT,
+  interview_type        interview_type NOT NULL DEFAULT 'mixed',
+  time_available        prep_time NOT NULL DEFAULT '1hr',
+  focus_areas           JSONB NOT NULL DEFAULT '[]',
+  completeness          INTEGER NOT NULL DEFAULT 0 CHECK (completeness >= 0 AND completeness <= 100),
+  story_selections      JSONB NOT NULL DEFAULT '{}',
+  generated_questions   JSONB NOT NULL DEFAULT '[]',
+  gap_mitigations       JSONB NOT NULL DEFAULT '[]',
+  quick_reference       JSONB,
+  practice_log          JSONB NOT NULL DEFAULT '[]',
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  version               INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_interview_preps_application ON interview_preps(application_id);
+CREATE INDEX idx_interview_preps_created_at ON interview_preps(created_at DESC);
+
+-- Prep stories with time-boxed versions
+CREATE TABLE interview_prep_stories (
+  id                    TEXT PRIMARY KEY,
+  interview_prep_id     TEXT NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
+  star_entry_id         TEXT NOT NULL,
+  themes                JSONB NOT NULL DEFAULT '[]',
+  relevance_score       INTEGER NOT NULL CHECK (relevance_score >= 0 AND relevance_score <= 100),
+  one_min_version       TEXT NOT NULL,
+  two_min_version       TEXT NOT NULL,
+  five_min_version      TEXT NOT NULL,
+  is_favorite           BOOLEAN NOT NULL DEFAULT FALSE,
+  personal_notes        TEXT,
+  practice_count        INTEGER NOT NULL DEFAULT 0,
+  last_practiced_at     TIMESTAMPTZ,
+  confidence_level      confidence_level NOT NULL DEFAULT 'not_practiced',
+  display_order         INTEGER NOT NULL DEFAULT 0,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_prep_stories_prep ON interview_prep_stories(interview_prep_id);
+CREATE INDEX idx_prep_stories_favorite ON interview_prep_stories(interview_prep_id, is_favorite);
+CREATE INDEX idx_prep_stories_theme ON interview_prep_stories USING GIN (themes);
+
+-- Trigger for updated_at
+CREATE TRIGGER interview_preps_updated_at
+  BEFORE UPDATE ON interview_preps
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER interview_prep_stories_updated_at
+  BEFORE UPDATE ON interview_prep_stories
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+```
+
+---
+
 ## References
 
 - [Architecture Overview](./ARCHITECTURE.md)
