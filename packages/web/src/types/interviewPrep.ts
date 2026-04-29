@@ -4,7 +4,7 @@ export type ConfidenceLevel = 'not_practiced' | 'needs_work' | 'comfortable' | '
 export type QuestionCategory = 'behavioral' | 'technical' | 'situational' | 'role_specific' | 'gap_probing';
 export type QuestionDifficulty = 'standard' | 'challenging' | 'tough';
 export type GapSeverity = 'critical' | 'moderate' | 'minor';
-export type MitigationStrategy = 'acknowledgePivot' | 'growthMindset' | 'adjacentExperience';
+export type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_experience';
 export type ExportFormat = 'pdf' | 'markdown' | 'print';
 
 export interface PrepStory {

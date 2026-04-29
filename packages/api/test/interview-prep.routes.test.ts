@@ -734,12 +734,12 @@ describe('Interview Prep Routes', () => {
 
   describe('GET /api/interview-preps/:id/export', () => {
     const mockExportResult = {
-      buffer: Buffer.from('%PDF-1.4 mock content'),
-      filename: 'interview-prep-acme-corp-2026-04-28.pdf',
-      contentType: 'application/pdf',
+      buffer: Buffer.from('# Interview Prep\nMock markdown content'),
+      filename: 'interview-prep-acme-corp-2026-04-28.md',
+      contentType: 'text/markdown',
     };
 
-    it('returns PDF binary when format=pdf and no Accept: application/json header', async () => {
+    it('returns markdown binary when format=pdf (fallback) and no Accept: application/json header', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
       const res = await app.inject({
@@ -748,12 +748,12 @@ describe('Interview Prep Routes', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toBe('application/pdf');
+      expect(res.headers['content-type']).toBe('text/markdown');
       expect(res.headers['content-disposition']).toContain('attachment');
-      expect(res.headers['content-disposition']).toContain('interview-prep-acme-corp-2026-04-28.pdf');
+      expect(res.headers['content-disposition']).toContain('interview-prep-acme-corp-2026-04-28.md');
     });
 
-    it('returns JSON with base64 content when Accept: application/json header is set for PDF', async () => {
+    it('returns JSON with base64 content when Accept: application/json header is set for PDF (fallback)', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
       const res = await app.inject({
@@ -766,7 +766,7 @@ describe('Interview Prep Routes', () => {
       const body = res.json();
       expect(body.exportId).toBeDefined();
       expect(body.format).toBe('pdf');
-      expect(body.filename).toContain('.pdf');
+      expect(body.filename).toContain('.md');
       expect(typeof body.base64Content).toBe('string');
     });
 

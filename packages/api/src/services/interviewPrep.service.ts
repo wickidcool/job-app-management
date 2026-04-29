@@ -948,7 +948,7 @@ export async function exportInterviewPrep(
       lines.push(`### Gap: ${gap.skill} (${gap.severity})`);
       lines.push(gap.whyItMatters);
       lines.push('');
-      const selectedStrategy = gap.selectedStrategy ?? 'acknowledgePivot';
+      const selectedStrategy = gap.selectedStrategy ?? 'acknowledge_pivot';
       const strategyKey =
         selectedStrategy === 'acknowledge_pivot'
           ? 'acknowledgePivot'
@@ -1025,8 +1025,8 @@ ${markdownToHtml(markdownContent)}
   const buffer = Buffer.from(markdownContent, 'utf8');
   return {
     buffer,
-    filename: `interview-prep-${company.toLowerCase().replace(/\s+/g, '-')}-${dateStr}.pdf`,
-    contentType: 'application/pdf',
+    filename: `interview-prep-${company.toLowerCase().replace(/\s+/g, '-')}-${dateStr}.md`,
+    contentType: 'text/markdown',
   };
 }
 

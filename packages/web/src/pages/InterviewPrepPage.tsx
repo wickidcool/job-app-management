@@ -220,7 +220,7 @@ export function InterviewPrepPage() {
         type: 'single_question',
         startedAt: now,
         endedAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-        gapResults: [{ gapId, strategyUsed: gap.selectedStrategy, confidenceRating: 'comfortable' }],
+        gapResults: [{ gapId, strategyUsed: gap.selectedStrategy, confidenceRating: 'needs_work' }],
         version: prep.version,
       },
     });

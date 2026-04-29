@@ -121,12 +121,6 @@ const exportQuerySchema = z.object({
   sections: z.string().optional(),
 });
 
-const getQuerySchema = z.object({
-  includeStories: z.coerce.boolean().optional(),
-  includeQuestions: z.coerce.boolean().optional(),
-  includeGaps: z.coerce.boolean().optional(),
-});
-
 export async function interviewPrepsRoutes(fastify: FastifyInstance) {
   // POST /api/interview-preps — Generate interview prep for an application
   fastify.post('/interview-preps', async (request, reply) => {

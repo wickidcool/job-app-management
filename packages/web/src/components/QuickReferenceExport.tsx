@@ -1,6 +1,12 @@
 import { useState } from 'react';
-import type { PrepStory, GeneratedQuestion, GapMitigation, ExportFormat, ApplicationSummary } from '../types/interviewPrep';
+import type { PrepStory, GeneratedQuestion, GapMitigation, ExportFormat, ApplicationSummary, MitigationStrategy } from '../types/interviewPrep';
 import { useDownloadQuickReference } from '../hooks/useInterviewPrep';
+
+const strategyKeyMap: Record<MitigationStrategy, 'acknowledgePivot' | 'growthMindset' | 'adjacentExperience'> = {
+  'acknowledge_pivot': 'acknowledgePivot',
+  'growth_mindset': 'growthMindset',
+  'adjacent_experience': 'adjacentExperience',
+};
 
 interface QuickReferenceExportProps {
   prepId: string;
@@ -150,7 +156,7 @@ export function QuickReferenceExport({
                       </p>
                       {gap.selectedStrategy && (
                         <p className="text-sm text-gray-700 ml-4">
-                          "{gap.strategies[gap.selectedStrategy].script}"
+                          "{gap.strategies[strategyKeyMap[gap.selectedStrategy]].script}"
                         </p>
                       )}
                     </div>

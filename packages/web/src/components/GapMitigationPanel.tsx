@@ -39,13 +39,21 @@ export function GapMitigationPanel({
     }
   };
 
+  const strategyKeyMap: Record<MitigationStrategy, 'acknowledgePivot' | 'growthMindset' | 'adjacentExperience'> = {
+    'acknowledge_pivot': 'acknowledgePivot',
+    'growth_mindset': 'growthMindset',
+    'adjacent_experience': 'adjacentExperience',
+  };
+
+  const mitigationStrategies: MitigationStrategy[] = ['acknowledge_pivot', 'growth_mindset', 'adjacent_experience'];
+
   const getStrategyInfo = (strategy: MitigationStrategy) => {
     switch (strategy) {
-      case 'acknowledgePivot':
+      case 'acknowledge_pivot':
         return { name: 'Acknowledge & Pivot', icon: '🔄' };
-      case 'growthMindset':
+      case 'growth_mindset':
         return { name: 'Growth Mindset', icon: '📈' };
-      case 'adjacentExperience':
+      case 'adjacent_experience':
         return { name: 'Adjacent Experience', icon: '🔗' };
     }
   };
@@ -144,11 +152,12 @@ export function GapMitigationPanel({
                     Response Strategies
                   </h4>
                   <div className="space-y-3">
-                    {(['acknowledgePivot', 'growthMindset', 'adjacentExperience'] as const).map(
-                      (strategyKey) => {
+                    {mitigationStrategies.map(
+                      (strategyValue) => {
+                        const strategyKey = strategyKeyMap[strategyValue];
                         const strategy = gap.strategies[strategyKey];
-                        const strategyInfo = getStrategyInfo(strategyKey);
-                        const isSelected = gap.selectedStrategy === strategyKey;
+                        const strategyInfo = getStrategyInfo(strategyValue);
+                        const isSelected = gap.selectedStrategy === strategyValue;
 
                         return (
                           <div
@@ -163,7 +172,7 @@ export function GapMitigationPanel({
                               <input
                                 type="radio"
                                 checked={isSelected}
-                                onChange={() => onSelectStrategy(gap.id, strategyKey)}
+                                onChange={() => onSelectStrategy(gap.id, strategyValue)}
                                 className="mt-1 h-4 w-4 text-blue-600"
                               />
                               <div className="flex-1">
