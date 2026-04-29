@@ -10,10 +10,43 @@ interface CommandPaletteProps {
 
 interface SearchResult {
   id: string;
-  type: 'application' | 'company';
+  type: 'application' | 'company' | 'recent' | 'suggestion';
   title: string;
   subtitle?: string;
   path: string;
+  icon?: string;
+}
+
+const RECENT_SEARCHES_KEY = 'wic-recent-searches';
+const MAX_RECENT_SEARCHES = 5;
+
+const SUGGESTED_FILTERS = [
+  { id: 'interviews', title: 'Interviews This Week', path: '/applications?status=interview,phone_screen', icon: '🤝' },
+  { id: 'needs-followup', title: 'Needs Follow-up', path: '/reports/stale', icon: '⏰' },
+  { id: 'recently-applied', title: 'Recently Applied', path: '/applications?status=applied', icon: '📤' },
+  { id: 'offers', title: 'Active Offers', path: '/applications?status=offer', icon: '🎉' },
+];
+
+// localStorage helpers
+function getRecentSearches(): string[] {
+  try {
+    const stored = localStorage.getItem(RECENT_SEARCHES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addRecentSearch(query: string) {
+  if (!query.trim()) return;
+
+  try {
+    const recent = getRecentSearches();
+    const updated = [query, ...recent.filter(q => q !== query)].slice(0, MAX_RECENT_SEARCHES);
+    localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
+  } catch {
+    // Ignore localStorage errors
+  }
 }
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
@@ -24,19 +57,51 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { data: applications = [] } = useApplications();
 
+  // Load recent searches - recalculate when palette opens
+  const recentSearches = open ? getRecentSearches() : [];
+
   const results = useCallback((): SearchResult[] => {
     if (!query.trim()) {
-      const recentApps = applications.slice(0, 5).map((app) => ({
+      // Show suggested filters and recent searches when no query
+      const suggestions: SearchResult[] = SUGGESTED_FILTERS.map((filter) => ({
+        id: filter.id,
+        type: 'suggestion',
+        title: filter.title,
+        path: filter.path,
+        icon: filter.icon,
+      }));
+
+      const recent: SearchResult[] = recentSearches.slice(0, 3).map((search, idx) => ({
+        id: `recent-${idx}`,
+        type: 'recent',
+        title: search,
+        path: `/applications?search=${encodeURIComponent(search)}`,
+        icon: '🕐',
+      }));
+
+      const recentApps = applications.slice(0, 3).map((app) => ({
         id: app.id,
         type: 'application' as const,
         title: app.jobTitle,
         subtitle: app.company,
         path: `/applications/${app.id}`,
       }));
-      return recentApps;
+
+      return [...suggestions, ...recent, ...recentApps];
     }
 
     const lowerQuery = query.toLowerCase();
+
+    // Check if query matches a suggested filter
+    const matchedSuggestions: SearchResult[] = SUGGESTED_FILTERS
+      .filter((filter) => filter.title.toLowerCase().includes(lowerQuery))
+      .map((filter) => ({
+        id: filter.id,
+        type: 'suggestion',
+        title: filter.title,
+        path: filter.path,
+        icon: filter.icon,
+      }));
 
     const appResults: SearchResult[] = applications
       .filter(
@@ -70,8 +135,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       path: `/applications?company=${encodeURIComponent(company)}`,
     }));
 
-    return [...appResults, ...companyResults];
-  }, [query, applications]);
+    return [...matchedSuggestions, ...appResults, ...companyResults];
+  }, [query, applications, recentSearches]);
 
   const searchResults = results();
 
@@ -105,8 +170,44 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   };
 
   const handleResultClick = (path: string) => {
+    // Save search query to recent searches if it was a search
+    if (query.trim()) {
+      addRecentSearch(query);
+    }
     navigate(path);
     onOpenChange(false);
+  };
+
+  const getResultIcon = (result: SearchResult) => {
+    if (result.icon) return result.icon;
+
+    switch (result.type) {
+      case 'application':
+        return '💼';
+      case 'company':
+        return '🏢';
+      case 'recent':
+        return '🕐';
+      case 'suggestion':
+        return '✨';
+      default:
+        return '📄';
+    }
+  };
+
+  const getResultBgColor = (result: SearchResult) => {
+    switch (result.type) {
+      case 'application':
+        return 'bg-blue-100';
+      case 'company':
+        return 'bg-purple-100';
+      case 'recent':
+        return 'bg-neutral-100';
+      case 'suggestion':
+        return 'bg-primary-100';
+      default:
+        return 'bg-neutral-100';
+    }
   };
 
   return (
@@ -145,51 +246,158 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
             {searchResults.length > 0 ? (
               <div className="max-h-[400px] overflow-y-auto p-2">
-                <div className="text-xs font-medium text-neutral-500 px-3 py-2">
-                  {query ? 'Results' : 'Recent Applications'}
-                </div>
-                {searchResults.map((result, index) => (
-                  <button
-                    key={result.id}
-                    onClick={() => handleResultClick(result.path)}
-                    className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
-                      index === selectedIndex
-                        ? 'bg-primary-50 text-primary-900'
-                        : 'text-neutral-900 hover:bg-neutral-100'
-                    }`}
-                  >
-                    <div
-                      className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${
-                        result.type === 'application'
-                          ? 'bg-blue-100'
-                          : 'bg-purple-100'
-                      }`}
-                    >
-                      {result.type === 'application' ? '💼' : '🏢'}
-                    </div>
-                    <div className="flex-1 overflow-hidden">
-                      <div className="truncate font-medium">{result.title}</div>
-                      {result.subtitle && (
-                        <div className="truncate text-sm text-neutral-500">
-                          {result.subtitle}
+                {!query && (
+                  <>
+                    {/* Suggested Filters Section */}
+                    {searchResults.some(r => r.type === 'suggestion') && (
+                      <div className="mb-3">
+                        <div className="text-xs font-medium text-neutral-500 px-3 py-2">
+                          Suggested Filters
                         </div>
-                      )}
+                        {searchResults
+                          .filter(r => r.type === 'suggestion')
+                          .map((result) => {
+                            const globalIndex = searchResults.indexOf(result);
+                            return (
+                              <button
+                                key={result.id}
+                                onClick={() => handleResultClick(result.path)}
+                                className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                                  globalIndex === selectedIndex
+                                    ? 'bg-primary-50 text-primary-900'
+                                    : 'text-neutral-900 hover:bg-neutral-100'
+                                }`}
+                              >
+                                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                                  {getResultIcon(result)}
+                                </div>
+                                <div className="flex-1 overflow-hidden">
+                                  <div className="truncate font-medium">{result.title}</div>
+                                  {result.subtitle && (
+                                    <div className="truncate text-sm text-neutral-500">
+                                      {result.subtitle}
+                                    </div>
+                                  )}
+                                </div>
+                                <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    )}
+
+                    {/* Recent Searches Section */}
+                    {searchResults.some(r => r.type === 'recent') && (
+                      <div className="mb-3">
+                        <div className="text-xs font-medium text-neutral-500 px-3 py-2">
+                          Recent Searches
+                        </div>
+                        {searchResults
+                          .filter(r => r.type === 'recent')
+                          .map((result) => {
+                            const globalIndex = searchResults.indexOf(result);
+                            return (
+                              <button
+                                key={result.id}
+                                onClick={() => handleResultClick(result.path)}
+                                className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                                  globalIndex === selectedIndex
+                                    ? 'bg-primary-50 text-primary-900'
+                                    : 'text-neutral-900 hover:bg-neutral-100'
+                                }`}
+                              >
+                                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                                  {getResultIcon(result)}
+                                </div>
+                                <div className="flex-1 overflow-hidden">
+                                  <div className="truncate font-medium">{result.title}</div>
+                                </div>
+                                <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    )}
+
+                    {/* Recent Applications Section */}
+                    {searchResults.some(r => r.type === 'application') && (
+                      <div>
+                        <div className="text-xs font-medium text-neutral-500 px-3 py-2">
+                          Recent Applications
+                        </div>
+                        {searchResults
+                          .filter(r => r.type === 'application')
+                          .map((result) => {
+                            const globalIndex = searchResults.indexOf(result);
+                            return (
+                              <button
+                                key={result.id}
+                                onClick={() => handleResultClick(result.path)}
+                                className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                                  globalIndex === selectedIndex
+                                    ? 'bg-primary-50 text-primary-900'
+                                    : 'text-neutral-900 hover:bg-neutral-100'
+                                }`}
+                              >
+                                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                                  {getResultIcon(result)}
+                                </div>
+                                <div className="flex-1 overflow-hidden">
+                                  <div className="truncate font-medium">{result.title}</div>
+                                  {result.subtitle && (
+                                    <div className="truncate text-sm text-neutral-500">
+                                      {result.subtitle}
+                                    </div>
+                                  )}
+                                </div>
+                                <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {query && (
+                  <>
+                    <div className="text-xs font-medium text-neutral-500 px-3 py-2">
+                      Results
                     </div>
-                    <svg
-                      className="h-4 w-4 flex-shrink-0 text-neutral-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 5l7 7-7 7"
-                      />
-                    </svg>
-                  </button>
-                ))}
+                    {searchResults.map((result, index) => (
+                      <button
+                        key={result.id}
+                        onClick={() => handleResultClick(result.path)}
+                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                          index === selectedIndex
+                            ? 'bg-primary-50 text-primary-900'
+                            : 'text-neutral-900 hover:bg-neutral-100'
+                        }`}
+                      >
+                        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                          {getResultIcon(result)}
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <div className="truncate font-medium">{result.title}</div>
+                          {result.subtitle && (
+                            <div className="truncate text-sm text-neutral-500">
+                              {result.subtitle}
+                            </div>
+                          )}
+                        </div>
+                        <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             ) : (
               <div className="p-8 text-center text-neutral-500">

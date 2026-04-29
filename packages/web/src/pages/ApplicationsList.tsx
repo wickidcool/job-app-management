@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
+import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
 import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
 import type { ApplicationStatus } from '../types/application';
@@ -70,6 +71,13 @@ export function ApplicationsList() {
 
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
+      </div>
+
+      <div className="mb-4">
+        <SavedFilterShortcuts
+          onApplyFilter={setFilters}
+          currentFilters={filters}
+        />
       </div>
 
       <div className="mb-6">

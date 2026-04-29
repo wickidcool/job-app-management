@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { DashboardStats } from '../components/DashboardStats';
 import { DashboardResumeWidget } from '../components/DashboardResumeWidget';
 import { AttentionCard } from '../components/AttentionCard';
+import { QuickWins } from '../components/QuickWins';
 import { useApplications } from '../hooks/useApplications';
 import { useDashboard } from '../hooks/useDashboard';
 import { useResumes } from '../hooks/useResumes';
@@ -42,6 +43,10 @@ export function Dashboard() {
 
       <div className="mb-6">
         <DashboardStats stats={displayStats} loading={loading} />
+      </div>
+
+      <div className="mb-6">
+        <QuickWins applications={applications} />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
