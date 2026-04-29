@@ -1,14 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-vi.mock('../src/services/interview-prep.service.js', () => ({
-  generateInterviewPrep: vi.fn(),
-  getInterviewPrep: vi.fn(),
-  getInterviewPrepByApplication: vi.fn(),
-  updateInterviewPrep: vi.fn(),
-  exportQuickReference: vi.fn(),
-  logPracticeSession: vi.fn(),
-}));
+vi.mock('../src/services/interviewPrep.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/services/interviewPrep.service.js')>();
+  return {
+    ...actual,
+    generateInterviewPrep: vi.fn(),
+    getInterviewPrep: vi.fn(),
+    getInterviewPrepByApplication: vi.fn(),
+    updateInterviewPrep: vi.fn(),
+    exportInterviewPrep: vi.fn(),
+    logPracticeSession: vi.fn(),
+    deleteInterviewPrep: vi.fn(),
+  };
+});
 
 vi.mock('../src/services/application.service.js', () => ({
   createApplication: vi.fn(),
@@ -50,8 +55,9 @@ vi.mock('../src/services/catalog.service.js', () => ({
 
 vi.mock('../src/services/job-fit.service.js', () => ({ analyzeJobFit: vi.fn() }));
 
-import * as prepService from '../src/services/interview-prep.service.js';
+import * as prepService from '../src/services/interviewPrep.service.js';
 import { NotFoundError, VersionConflictError } from '../src/types/index.js';
+import { InterviewPrepError } from '../src/services/interviewPrep.service.js';
 
 // ── Shared mock data ────────────────────────────────────────────────────────
 
@@ -247,11 +253,7 @@ describe('Interview Prep Routes', () => {
 
     it('returns 422 with CATALOG_EMPTY when user has no STAR entries (AC 10j row 10)', async () => {
       vi.mocked(prepService.generateInterviewPrep).mockRejectedValue(
-        new (class InterviewPrepError extends Error {
-          code = 'CATALOG_EMPTY';
-          statusCode = 422;
-          constructor() { super('No catalog entries found. Upload a resume to build your story bank.'); }
-        })()
+        new InterviewPrepError('CATALOG_EMPTY', 'No catalog entries found. Upload a resume to build your story bank.', undefined, 422)
       );
 
       const res = await app.inject({
@@ -738,7 +740,7 @@ describe('Interview Prep Routes', () => {
     };
 
     it('returns PDF binary when format=pdf and no Accept: application/json header', async () => {
-      vi.mocked(prepService.exportQuickReference).mockResolvedValue(mockExportResult);
+      vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
       const res = await app.inject({
         method: 'GET',
@@ -752,7 +754,7 @@ describe('Interview Prep Routes', () => {
     });
 
     it('returns JSON with base64 content when Accept: application/json header is set for PDF', async () => {
-      vi.mocked(prepService.exportQuickReference).mockResolvedValue(mockExportResult);
+      vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
       const res = await app.inject({
         method: 'GET',
@@ -774,7 +776,7 @@ describe('Interview Prep Routes', () => {
         filename: 'interview-prep-acme-corp-2026-04-28.md',
         contentType: 'text/markdown',
       };
-      vi.mocked(prepService.exportQuickReference).mockResolvedValue(mdResult);
+      vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mdResult);
 
       const res = await app.inject({
         method: 'GET',
@@ -791,7 +793,7 @@ describe('Interview Prep Routes', () => {
         filename: 'interview-prep-acme-corp-2026-04-28.html',
         contentType: 'text/html',
       };
-      vi.mocked(prepService.exportQuickReference).mockResolvedValue(printResult);
+      vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(printResult);
 
       const res = await app.inject({
         method: 'GET',
@@ -823,7 +825,7 @@ describe('Interview Prep Routes', () => {
     });
 
     it('returns 404 when prep not found', async () => {
-      vi.mocked(prepService.exportQuickReference).mockRejectedValue(
+      vi.mocked(prepService.exportInterviewPrep).mockRejectedValue(
         new NotFoundError('InterviewPrep')
       );
 
@@ -836,15 +838,17 @@ describe('Interview Prep Routes', () => {
     });
 
     it('passes sections query param to service', async () => {
-      vi.mocked(prepService.exportQuickReference).mockResolvedValue(mockExportResult);
+      vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
       await app.inject({
         method: 'GET',
         url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf&sections=stories,questions',
       });
 
-      expect(prepService.exportQuickReference).toHaveBeenCalledWith(
-        expect.objectContaining({ sections: ['stories', 'questions'] })
+      expect(prepService.exportInterviewPrep).toHaveBeenCalledWith(
+        '01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
+        'pdf',
+        ['stories', 'questions']
       );
     });
   });
