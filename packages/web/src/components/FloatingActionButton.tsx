@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export interface FloatingActionButtonProps {
   onClick: () => void;
@@ -14,7 +14,7 @@ export function FloatingActionButton({
   ariaLabel,
 }: FloatingActionButtonProps) {
   const [isScrolled, setIsScrolled] = useState(false);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const lastScrollY = useRef(0);
   const [isExtended, setIsExtended] = useState(true);
 
   useEffect(() => {
@@ -27,18 +27,18 @@ export function FloatingActionButton({
         setIsScrolled(false);
       }
 
-      if (currentScrollY < lastScrollY) {
+      if (currentScrollY < lastScrollY.current) {
         setIsExtended(true);
-      } else if (currentScrollY > lastScrollY && currentScrollY > 100) {
+      } else if (currentScrollY > lastScrollY.current && currentScrollY > 100) {
         setIsExtended(false);
       }
 
-      setLastScrollY(currentScrollY);
+      lastScrollY.current = currentScrollY;
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [lastScrollY]);
+  }, []);
 
   return (
     <button

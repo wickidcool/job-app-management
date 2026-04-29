@@ -49,17 +49,6 @@ export function SortableApplicationCard({
     },
   ];
 
-  const rightActions: SwipeAction[] = [
-    {
-      icon: '⭐',
-      label: 'Star',
-      color: 'bg-warning-500 hover:bg-warning-600',
-      action: () => {
-        console.log('Star action for', application.id);
-      },
-    },
-  ];
-
   const cardContent = (
     <ApplicationCard
       application={application}
@@ -77,7 +66,6 @@ export function SortableApplicationCard({
       <div ref={setNodeRef} style={style}>
         <SwipeableCard
           leftActions={leftActions}
-          rightActions={rightActions}
         >
           {cardContent}
         </SwipeableCard>
