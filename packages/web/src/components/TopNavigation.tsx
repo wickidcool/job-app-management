@@ -29,7 +29,6 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
       badge: applicationCount,
     },
     { label: 'Reports', path: '/reports' },
-    { label: 'Projects', path: '/projects' },
   ];
 
   const dropdowns: NavDropdown[] = [
@@ -46,6 +45,7 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
       items: [
         { label: 'Catalog', path: '/catalog' },
         { label: 'Job Fit Analysis', path: '/job-fit-analysis' },
+        { label: 'Projects', path: '/projects' },
       ],
     },
   ];
