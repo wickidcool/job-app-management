@@ -83,11 +83,12 @@ export function BottomTabBar({ applicationCount, exportCount }: BottomTabBarProp
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button
-                    className={`flex w-full flex-col items-center gap-1 px-2 py-2 text-xs ${
+                    className={`flex w-full flex-col items-center gap-1 px-2 py-3 text-xs ${
                       isActive(tab.path, tab.dropdown)
                         ? 'text-primary-600'
                         : 'text-neutral-600'
                     }`}
+                    style={{ minHeight: '56px' }}
                   >
                     <span className="relative text-xl">
                       {tab.icon}
@@ -127,11 +128,12 @@ export function BottomTabBar({ applicationCount, exportCount }: BottomTabBarProp
             ) : (
               <Link
                 to={tab.path}
-                className={`flex w-full flex-col items-center gap-1 px-2 py-2 text-xs ${
+                className={`flex w-full flex-col items-center gap-1 px-2 py-3 text-xs ${
                   isActive(tab.path)
                     ? 'text-primary-600'
                     : 'text-neutral-600'
                 }`}
+                style={{ minHeight: '56px' }}
               >
                 <span className="relative text-xl">
                   {tab.icon}

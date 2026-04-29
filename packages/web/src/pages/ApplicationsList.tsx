@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
+import { FloatingActionButton } from '../components/FloatingActionButton';
 import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
 import type { ApplicationStatus } from '../types/application';
 
@@ -85,6 +86,13 @@ export function ApplicationsList() {
         onStatusChange={handleStatusChange}
         onCardClick={(id) => navigate(`/applications/${id}`)}
         loading={isLoading}
+      />
+
+      <FloatingActionButton
+        onClick={() => navigate('/applications/new')}
+        icon="+"
+        label="New Application"
+        ariaLabel="Create new job application"
       />
     </div>
   );

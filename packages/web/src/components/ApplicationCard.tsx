@@ -121,19 +121,21 @@ export function ApplicationCard({
         </div>
       </div>
 
-      {/* Quick Actions (shown on hover) */}
+      {/* Quick Actions (shown on hover) - Touch-optimized */}
       {showQuickActions && isHovered && (
         <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 rounded-b-lg p-2 flex items-center justify-between gap-2">
           <button
             onClick={handleEdit}
-            className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+            className="px-4 py-3 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+            style={{ minHeight: '44px', minWidth: '44px' }}
             aria-label={`Edit ${application.jobTitle}`}
           >
             Edit
           </button>
           <button
             onClick={handleDelete}
-            className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+            className="px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+            style={{ minHeight: '44px', minWidth: '44px' }}
             aria-label={`Delete ${application.jobTitle}`}
           >
             Delete
