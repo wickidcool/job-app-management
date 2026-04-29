@@ -1554,3 +1554,660 @@ flowchart LR
    - Markdown: Direct download (client-side)
    - .docx: Server generates using `docx` library
    - PDF: Server generates using `puppeteer` or `pdfkit`
+
+---
+
+## 10. Interview Prep Pull (UC-7)
+
+### Overview
+
+Generate comprehensive interview preparation materials from the user's catalog of STAR entries, job fit analysis, and gap assessments. The system produces actionable prep content including anticipated questions, STAR story recommendations by theme, gap mitigation talking points, and time-boxed delivery formats for quick reference.
+
+### Content Integrity Constraints
+
+All generated interview prep content MUST adhere to these rules:
+
+| Constraint | Description |
+|------------|-------------|
+| No fabrication | Never invent experiences, metrics, or accomplishments not in the catalog |
+| Source traceability | Every recommendation must link back to a specific STAR entry or catalog item |
+| Honest gap handling | Address skill gaps with prepared talking points, not false claims |
+| Time-accurate delivery | Time-boxed responses (1-min, 2-min, 5-min) respect stated duration |
+
+---
+
+### 10a. UC-7 Base: Generate Interview Prep
+
+**User Story:**
+> As a job seeker with an upcoming interview, I want to generate tailored interview prep materials from my catalog and job fit analysis so that I can confidently discuss my relevant experience and address potential gaps.
+
+**Entry Points:**
+- Application detail page → "Prepare for Interview" button (visible when status = `interview`)
+- Job Fit Analysis results → "Prepare for Interview" button
+- Main navigation → "Interview Prep" link
+
+```mermaid
+flowchart TD
+    A[User Initiates Interview Prep] --> B{Entry Point}
+    B -->|Application Detail| C[Load Application Context]
+    B -->|Job Fit Analysis| D[Load Fit Analysis Context]
+    B -->|Main Nav| E[Show Target Selection]
+    
+    C --> F{Has Linked Fit Analysis?}
+    F -->|Yes| G[Pre-load Analysis + Gaps]
+    F -->|No| H[Prompt: Run Fit Analysis First?]
+    
+    D --> G
+    E --> I[User Selects Application or<br/>Enters Job Details]
+    I --> F
+    
+    H -->|Yes| J[Navigate to Job Fit Analysis]
+    H -->|No| K[Manual Mode: Basic Prep Only]
+    
+    G --> L[Display Prep Configuration]
+    K --> L
+    
+    L --> M[Configure Options:<br/>- Interview Type<br/>- Time Available<br/>- Focus Areas]
+    M --> N{Has STAR Entries?}
+    
+    N -->|No| O[Show Empty State:<br/>'Upload Resume First']
+    N -->|Yes| P[Click 'Generate Prep']
+    
+    O --> Q[Navigate to Resume Upload]
+    P --> R[See Flow 10b: Generation Processing]
+```
+
+**Configuration Options:**
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| Interview Type | `behavioral`, `technical`, `mixed`, `case_study` | `mixed` | Tailors question categories and STAR emphasis |
+| Time Available | `30min`, `1hr`, `2hr`, `full_day` | `1hr` | Adjusts prep depth and content volume |
+| Focus Areas | Multi-select from: Leadership, Technical Skills, Problem Solving, Teamwork, Communication, Innovation | Auto from fit analysis | Prioritizes themes in recommendations |
+| Delivery Formats | `1min`, `2min`, `5min` | All selected | Time-boxed response versions |
+
+---
+
+### 10b. Generation Processing
+
+```mermaid
+flowchart TD
+    A[Generation Submitted] --> B[Show Progress Modal]
+    B --> C[Step 1: Analyzing Job Requirements]
+    C --> D[Step 2: Matching STAR Entries]
+    D --> E[Step 3: Categorizing by Theme]
+    E --> F[Step 4: Generating Anticipated Questions]
+    F --> G[Step 5: Creating Gap Mitigation Talking Points]
+    G --> H[Step 6: Building Time-Boxed Responses]
+    
+    H --> I{Generation Complete?}
+    I -->|Success| J[Display Prep Dashboard]
+    I -->|Error| K{Error Type}
+    
+    K -->|Insufficient Data| L[Show Warning:<br/>'Need more catalog entries']
+    K -->|Network| M[Show Retry Option]
+    K -->|Timeout| N[Show Timeout + Retry]
+    
+    L --> O[Suggest: Upload More Experiences]
+    M --> P[User Retries]
+    N --> P
+    P --> A
+    
+    J --> Q[See Flow 10c: Browse Prep Materials]
+```
+
+**Processing States:**
+
+| Step | Duration | User Feedback |
+|------|----------|---------------|
+| Analyzing Job Requirements | 2-3s | "Understanding what they're looking for..." |
+| Matching STAR Entries | 3-5s | "Finding your best stories..." |
+| Categorizing by Theme | 2-3s | "Organizing by interview themes..." |
+| Generating Anticipated Questions | 4-6s | "Predicting likely questions..." |
+| Creating Gap Mitigation | 2-3s | "Preparing for tough questions..." |
+| Building Time-Boxed Responses | 3-5s | "Creating your response toolkit..." |
+
+---
+
+### 10c. Browse Interview Prep Materials
+
+```mermaid
+flowchart TD
+    A[Prep Dashboard Loaded] --> B[Display Overview Section]
+    B --> C[Show Interview Summary Card:<br/>- Company + Role<br/>- Interview Date<br/>- Fit Level<br/>- Prep Completeness]
+    
+    C --> D[Display Tab Navigation]
+    D --> E{Active Tab}
+    
+    E -->|STAR Story Bank| F[See Flow 10d: Story Bank]
+    E -->|Anticipated Questions| G[See Flow 10e: Questions List]
+    E -->|Gap Mitigation| H[See Flow 10f: Gap Panel]
+    E -->|Quick Reference| I[See Flow 10g: Export]
+    
+    F --> J{User Action}
+    G --> J
+    H --> J
+    I --> J
+    
+    J -->|Navigate Tab| D
+    J -->|Edit Selections| K[Modify Content]
+    J -->|Export| L[Quick Reference Export Flow]
+    J -->|Back to App| M[Return to Application Detail]
+    
+    K --> N[Update Prep Materials]
+    N --> D
+```
+
+**Dashboard Sections:**
+
+| Section | Purpose | Key Elements |
+|---------|---------|--------------|
+| Overview | At-a-glance prep status | Fit level badge, prep completeness %, interview countdown |
+| STAR Story Bank | Organized achievement stories | Theme tabs, relevance scores, time-boxed versions |
+| Anticipated Questions | Predicted interview questions | Categorized lists, suggested STAR responses |
+| Gap Mitigation | Talking points for weaknesses | Honest framing, growth narrative, redirect strategies |
+| Quick Reference | Exportable summary cards | PDF/Markdown export, mobile-friendly format |
+
+---
+
+### 10d. STAR Story Bank
+
+**User Story:**
+> As a job seeker, I want to browse my STAR stories organized by interview theme so that I can quickly select the best stories to tell during my interview.
+
+```mermaid
+flowchart TD
+    A[STAR Story Bank Tab Active] --> B[Display Theme Tabs]
+    B --> C{Selected Theme}
+    
+    C -->|Leadership| D[Filter: Leadership Stories]
+    C -->|Technical| E[Filter: Technical Stories]
+    C -->|Teamwork| F[Filter: Teamwork Stories]
+    C -->|Problem Solving| G[Filter: Problem-Solving Stories]
+    C -->|Communication| H[Filter: Communication Stories]
+    C -->|Innovation| I[Filter: Innovation Stories]
+    C -->|All| J[Show All Stories]
+    
+    D --> K[Display Filtered Story Cards]
+    E --> K
+    F --> K
+    G --> K
+    H --> K
+    I --> K
+    J --> K
+    
+    K --> L[Each Card Shows:<br/>- Title<br/>- Relevance Score<br/>- Theme Tags<br/>- Time Estimate]
+    
+    L --> M{User Action}
+    M -->|Expand Story| N[Show Full STAR Breakdown]
+    M -->|View Time Versions| O[Show 1/2/5 Min Versions]
+    M -->|Mark Favorite| P[Add to Quick Reference]
+    M -->|Practice| Q[Open Practice Mode]
+    
+    N --> R[Display:<br/>- Situation<br/>- Task<br/>- Action<br/>- Result<br/>+ Metrics if available]
+    
+    O --> S[Display Three Versions:<br/>- 1-min: Key point + result<br/>- 2-min: Full story, concise<br/>- 5-min: Detailed with context]
+    
+    P --> T[Update Quick Reference List]
+    Q --> U[See Flow 10h: Practice Mode]
+    
+    R --> V{User Action}
+    V -->|Copy to Clipboard| W[Copy Story Text]
+    V -->|Edit Notes| X[Add Personal Notes]
+    V -->|Return| K
+```
+
+**Theme Classification:**
+
+| Theme | Detection Criteria | Example Keywords |
+|-------|-------------------|------------------|
+| Leadership | Led team, managed, directed, mentored | "led", "managed", "team of", "mentored" |
+| Technical | Built, implemented, architected, debugged | "built", "coded", "designed system", "optimized" |
+| Teamwork | Collaborated, cross-functional, partnered | "worked with", "collaborated", "partnered" |
+| Problem Solving | Resolved, fixed, diagnosed, overcame | "solved", "fixed", "diagnosed", "overcame" |
+| Communication | Presented, negotiated, documented | "presented to", "convinced", "documented" |
+| Innovation | Created, invented, pioneered, transformed | "created new", "first to", "transformed" |
+
+**Relevance Scoring:**
+
+| Score Range | Badge | Meaning |
+|-------------|-------|---------|
+| 90-100% | Excellent | Direct match to job requirements |
+| 80-89% | Strong | Highly relevant experience |
+| 70-79% | Good | Relevant with minor gaps |
+| 60-69% | Fair | Tangentially relevant |
+| <60% | Low | May need creative positioning |
+
+---
+
+### 10e. Anticipated Questions List
+
+**User Story:**
+> As a job seeker, I want to see predicted interview questions with suggested STAR responses so that I can prepare thoughtful answers in advance.
+
+```mermaid
+flowchart TD
+    A[Questions Tab Active] --> B[Display Question Categories]
+    B --> C{Category Filter}
+    
+    C -->|Behavioral| D[Filter: Tell me about a time...]
+    C -->|Technical| E[Filter: How would you...]
+    C -->|Situational| F[Filter: What would you do if...]
+    C -->|Role-Specific| G[Filter: Job-specific questions]
+    C -->|Gap-Probing| H[Filter: Questions about gaps]
+    C -->|All| I[Show All Questions]
+    
+    D --> J[Display Question Cards]
+    E --> J
+    F --> J
+    G --> J
+    H --> J
+    I --> J
+    
+    J --> K[Each Card Shows:<br/>- Question Text<br/>- Category Badge<br/>- Difficulty Level<br/>- Suggested STAR Count]
+    
+    K --> L{User Action}
+    L -->|Expand Question| M[Show Full Question + Suggestions]
+    L -->|Link STAR| N[Associate STAR Entry]
+    L -->|Add Notes| O[Personal Answer Notes]
+    L -->|Mark Practiced| P[Update Practice Status]
+    
+    M --> Q[Display:<br/>- Why They Ask This<br/>- What They Want to Hear<br/>- Suggested STAR Stories<br/>- Answer Framework]
+    
+    Q --> R[Show Linked STAR Cards]
+    R --> S{STAR Action}
+    S -->|View Full Story| T[Expand STAR Detail]
+    S -->|Use This Story| U[Mark as Primary Answer]
+    S -->|Find Alternative| V[Search Story Bank]
+    
+    N --> W[Open STAR Picker]
+    W --> X[Select from Story Bank]
+    X --> Y[Link STAR to Question]
+    Y --> J
+    
+    O --> Z[Open Notes Editor]
+    Z --> AA[Save Personal Notes]
+    AA --> J
+```
+
+**Question Categories:**
+
+| Category | Example Questions | Count (typical) |
+|----------|-------------------|-----------------|
+| Behavioral | "Tell me about a time you led a difficult project" | 8-12 |
+| Technical | "How would you design a scalable API?" | 5-8 |
+| Situational | "What would you do if you disagreed with your manager?" | 4-6 |
+| Role-Specific | Generated from job description keywords | 3-5 |
+| Gap-Probing | "I notice you don't have X experience..." | 2-4 |
+
+**Difficulty Levels:**
+
+| Level | Indicator | Prep Time Suggested |
+|-------|-----------|---------------------|
+| Standard | Green dot | 5 min |
+| Challenging | Yellow dot | 10 min |
+| Tough | Red dot | 15+ min |
+
+---
+
+### 10f. Gap Mitigation Panel
+
+**User Story:**
+> As a job seeker, I want prepared talking points for my skill gaps so that I can address tough questions honestly while redirecting to my strengths.
+
+```mermaid
+flowchart TD
+    A[Gap Mitigation Tab Active] --> B{Has Gaps from Fit Analysis?}
+    B -->|No| C[Show Success State:<br/>'No significant gaps identified!']
+    B -->|Yes| D[Display Gap Cards]
+    
+    C --> E[Show Strength Summary Instead]
+    
+    D --> F[Sort by Severity:<br/>Critical → Moderate → Minor]
+    F --> G[Each Gap Card Shows:<br/>- Gap Description<br/>- Severity Badge<br/>- Mitigation Strategy]
+    
+    G --> H{User Action}
+    H -->|Expand Gap| I[Show Full Mitigation Details]
+    H -->|Practice Response| J[Open Practice Mode]
+    H -->|Mark Addressed| K[Update Learning Log]
+    
+    I --> L[Display:<br/>- Why This Matters<br/>- Honest Framing Script<br/>- Growth Narrative<br/>- Redirect to Strengths<br/>- Related STAR Stories]
+    
+    L --> M[Show Talking Point Options]
+    M --> N{Response Style}
+    
+    N -->|Acknowledge & Pivot| O[Show Pivot Response]
+    N -->|Growth Mindset| P[Show Learning Response]
+    N -->|Adjacent Experience| Q[Show Transfer Response]
+    
+    O --> R[Example: 'While I haven't used X directly,<br/>I've worked extensively with Y which shares...'']
+    P --> S[Example: 'I'm actively building this skill by...<br/>and have already...']
+    Q --> T[Example: 'In my role at Z, I solved similar<br/>problems using...']
+    
+    R --> U[Copy to Notes]
+    S --> U
+    T --> U
+    
+    J --> V[See Flow 10h: Practice Mode]
+    K --> W[Log Learning Activity]
+    W --> D
+```
+
+**Gap Severity Handling:**
+
+| Severity | Visual | Mitigation Approach |
+|----------|--------|---------------------|
+| Critical | Red border, top of list | Prepare detailed response, identify transferable skills |
+| Moderate | Orange border | Acknowledge honestly, show learning path |
+| Minor | Yellow border | Brief acknowledgment, quick pivot to strengths |
+
+**Talking Point Templates:**
+
+| Strategy | When to Use | Template Structure |
+|----------|-------------|-------------------|
+| Acknowledge & Pivot | Direct question about missing skill | Acknowledge → Bridge → Strength |
+| Growth Mindset | Question about experience level | Current state → Active learning → Progress made |
+| Adjacent Experience | Related but not exact match | Similar problem → Transfer skills → Outcome |
+
+---
+
+### 10g. Quick Reference Card Export
+
+**User Story:**
+> As a job seeker, I want to export a concise quick reference card so that I can review key points right before my interview.
+
+```mermaid
+flowchart TD
+    A[Quick Reference Tab Active] --> B[Display Card Preview]
+    B --> C[Show Sections:<br/>- Top 5 STAR Stories<br/>- Key Questions + Answers<br/>- Gap Talking Points<br/>- Company Facts]
+    
+    C --> D{User Action}
+    D -->|Customize Content| E[Edit Card Sections]
+    D -->|Choose Format| F[Select Export Format]
+    D -->|Preview Mobile| G[Show Mobile Preview]
+    
+    E --> H[Drag to Reorder]
+    E --> I[Toggle Sections On/Off]
+    E --> J[Add/Remove Stories]
+    H --> B
+    I --> B
+    J --> B
+    
+    F --> K{Export Format}
+    K -->|PDF| L[Generate PDF]
+    K -->|Markdown| M[Generate MD File]
+    K -->|Print-Friendly| N[Generate Print Layout]
+    
+    L --> O[Download PDF]
+    M --> P[Download .md]
+    N --> Q[Open Print Dialog]
+    
+    G --> R[Display Mobile Layout:<br/>- Swipeable cards<br/>- Large text<br/>- Key points only]
+    
+    O --> S[Success Toast:<br/>'Quick Reference Downloaded']
+    P --> S
+    Q --> S
+    
+    S --> T{Link to Application?}
+    T -->|Yes| U[Save Reference to App Record]
+    T -->|No| V[Save to Prep Library]
+    
+    U --> W[Update Application Detail]
+    V --> W
+```
+
+**Quick Reference Card Structure:**
+
+| Section | Content | Space Allocation |
+|---------|---------|------------------|
+| Header | Company, Role, Interview Date/Time | 10% |
+| Top Stories | 5 best STAR stories with 1-min versions | 35% |
+| Key Q&A | 3-5 anticipated questions with bullet answers | 25% |
+| Gap Prep | 2-3 gap talking points | 15% |
+| Company Intel | Key facts to mention/ask about | 15% |
+
+**Export Specifications:**
+
+| Format | Use Case | Details |
+|--------|----------|---------|
+| PDF | Print or tablet review | 1-2 pages, professional layout, printer-friendly |
+| Markdown | Digital notes app | Structured headers, easy to edit |
+| Print-Friendly | Last-minute printout | High contrast, large fonts, minimal ink |
+
+---
+
+### 10h. Practice Mode (Optional Flow)
+
+```mermaid
+flowchart TD
+    A[User Enters Practice Mode] --> B[Select Practice Type]
+    B --> C{Type Selection}
+    
+    C -->|Single Question| D[Random Question Draw]
+    C -->|Full Interview| E[Simulated Interview Set]
+    C -->|Timed Responses| F[Time-Boxed Practice]
+    
+    D --> G[Display Question]
+    E --> H[Queue 5-10 Questions]
+    F --> I[Set Timer: 1/2/5 min]
+    
+    G --> J[User Thinks/Responds]
+    H --> J
+    I --> J
+    
+    J --> K[Show Suggested Answer]
+    K --> L[Self-Rate: How'd I Do?]
+    L --> M{Rating}
+    
+    M -->|Needs Work| N[Mark for More Practice]
+    M -->|Good| O[Mark as Comfortable]
+    M -->|Great| P[Mark as Confident]
+    
+    N --> Q[Update Practice Log]
+    O --> Q
+    P --> Q
+    
+    Q --> R{Continue?}
+    R -->|Yes| B
+    R -->|No| S[Show Practice Summary]
+    
+    S --> T[Display:<br/>- Questions Practiced<br/>- Confidence Distribution<br/>- Areas to Focus]
+```
+
+---
+
+### 10i. Error Handling Flows
+
+**Empty Catalog State:**
+
+```mermaid
+flowchart TD
+    A[User Attempts Interview Prep] --> B{Has Catalog Data?}
+    B -->|No| C[Show Empty State]
+    C --> D[Empty State Message:<br/>'No Experience Data Yet']
+    D --> E[Display Call-to-Action:<br/>'Upload Resume to Build Your Story Bank']
+    E --> F{User Action}
+    F -->|Upload Resume| G[Navigate to Resume Upload]
+    F -->|Cancel| H[Return to Previous Page]
+```
+
+**No Fit Analysis:**
+
+```mermaid
+flowchart TD
+    A[User Starts Prep Without Fit Analysis] --> B[Show Warning Modal]
+    B --> C[Message: 'Interview prep works<br/>best with job fit analysis']
+    C --> D{User Choice}
+    
+    D -->|Run Fit Analysis| E[Navigate to Job Fit]
+    D -->|Continue Without| F[Generate Basic Prep]
+    D -->|Cancel| G[Return to App Detail]
+    
+    F --> H[Show Limited Prep:<br/>- Generic Questions<br/>- All STAR Stories<br/>- No Gap Analysis]
+    H --> I[Banner: 'Add job description<br/>for tailored prep']
+```
+
+**Insufficient STAR Entries:**
+
+```mermaid
+flowchart TD
+    A[Generation Attempted] --> B{STAR Entry Count}
+    B -->|0 entries| C[Block Generation]
+    B -->|1-2 entries| D[Show Warning]
+    B -->|3+ entries| E[Proceed Normally]
+    
+    C --> F[Empty State:<br/>'Add experiences to your catalog']
+    
+    D --> G[Warning Banner:<br/>'Limited stories available.<br/>Prep may be incomplete.']
+    G --> H{User Choice}
+    H -->|Continue Anyway| I[Generate with Available]
+    H -->|Add More| J[Navigate to Resume Upload]
+    
+    E --> K[Full Generation Flow]
+```
+
+---
+
+### 10j. Acceptance Criteria
+
+| Scenario | Given | When | Then |
+|----------|-------|------|------|
+| Generate prep from interview status | Application status = `interview` with linked fit analysis | User clicks "Prepare for Interview" | Prep generator loads with pre-filled context from application and fit analysis |
+| STAR organization by theme | Catalog has 10+ STAR entries across multiple themes | User views Story Bank tab | Stories grouped by theme (Leadership, Technical, etc.) with relevance scores |
+| Anticipated questions generation | Fit analysis identifies 3 required skills | User generates prep | At least 2 behavioral questions generated per required skill |
+| Gap mitigation talking points | Fit analysis shows 2 critical gaps | User views Gap Mitigation tab | Each gap has 3 response strategies (Acknowledge & Pivot, Growth Mindset, Adjacent) |
+| Time-boxed delivery formats | User selects a STAR story | User clicks "View Time Versions" | 1-min, 2-min, and 5-min versions displayed with estimated speaking time |
+| Quick reference card export | User has generated prep materials | User exports as PDF | Single-page PDF with Top 5 stories, Key Q&A, Gap points, Company facts |
+| Practice mode tracking | User practices 5 questions | User completes practice session | Summary shows confidence ratings and areas needing focus |
+| Entry from main nav | No application context | User clicks "Interview Prep" in nav | Prompted to select application or enter job details manually |
+| No fit analysis fallback | Application has no linked fit analysis | User initiates prep | Prompted to run fit analysis; can proceed with basic prep if declined |
+| Empty catalog blocking | User has no STAR entries in catalog | User attempts to generate prep | Blocked with clear CTA to upload resume first |
+
+---
+
+### 10k. Navigation Map (UC-7)
+
+```mermaid
+flowchart LR
+    A[Dashboard] --> B[Application Detail]
+    A --> C[Main Nav: Interview Prep]
+    
+    B --> D[Prepare for Interview]
+    C --> D
+    
+    D --> E[Prep Dashboard]
+    
+    E --> F[STAR Story Bank]
+    E --> G[Anticipated Questions]
+    E --> H[Gap Mitigation]
+    E --> I[Quick Reference Export]
+    
+    F --> J[Practice Mode]
+    G --> J
+    H --> J
+    
+    I --> K[Download/Print]
+    
+    E --> L[Back to Application]
+    L --> B
+```
+
+---
+
+### 10l. Accessibility Requirements (UC-7)
+
+**Screen Reader Support:**
+- Overview: "Interview prep for Senior Engineer at TechCorp. Interview in 3 days. Prep completeness: 75%."
+- Story Bank: "Leadership stories: 5 entries. Top story: Led React Migration, 95% relevance."
+- Questions: "Behavioral question 1 of 12: Tell me about a time you handled conflict. Difficulty: Challenging."
+- Gap Mitigation: "Critical gap: Kubernetes experience. 3 talking point strategies available."
+- Export: "Quick reference card, 2 pages. Includes 5 stories, 4 questions, 2 gap points."
+
+**Keyboard Navigation:**
+- Tab order: Overview → Tab Navigation → Content Area → Actions
+- Arrow keys: Navigate between theme tabs, question cards, story cards
+- Enter/Space: Expand cards, toggle selections, submit actions
+- Escape: Close expanded views, exit practice mode
+
+**ARIA Attributes:**
+```html
+<section role="region" aria-label="Interview Prep Dashboard">
+  <nav role="tablist" aria-label="Prep sections">
+    <button role="tab" aria-selected="true" aria-controls="story-bank">
+      STAR Story Bank
+    </button>
+  </nav>
+  <div role="tabpanel" id="story-bank" aria-labelledby="story-bank-tab">
+    <!-- Story cards -->
+  </div>
+  <div role="status" aria-live="polite" aria-atomic="true">
+    <!-- Prep completeness updates -->
+  </div>
+</section>
+```
+
+**Focus Management:**
+1. On prep load: Focus moves to Overview heading
+2. On tab change: Focus moves to first item in new tab panel
+3. On card expand: Focus moves to expanded content
+4. On practice complete: Focus moves to summary heading
+5. On export complete: Focus returns to export button with success announcement
+
+---
+
+### 10m. Performance Considerations (UC-7)
+
+| Operation | Target Time | User Feedback |
+|-----------|-------------|---------------|
+| Initial prep generation | < 15 seconds | Step-by-step progress modal |
+| Theme tab switch | < 100ms | Instant, no loading state |
+| Question expansion | < 50ms | Smooth accordion animation |
+| PDF export | < 3 seconds | Loading spinner on button |
+| Practice mode start | < 200ms | Immediate question display |
+
+**Optimization Strategies:**
+- **Pre-compute theme classification:** Run during initial generation, cache results
+- **Lazy load time-boxed versions:** Generate 1/2/5-min versions on demand
+- **Virtualize long lists:** Use virtual scrolling for 20+ questions/stories
+- **Client-side PDF generation:** Use `jspdf` for instant exports without server round-trip
+
+---
+
+### 10n. Notes for Frontend Developer (UC-7)
+
+1. **State Management:** Interview prep involves complex nested state (stories, questions, gaps, selections). Consider a dedicated context or Zustand store separate from application state.
+
+2. **Theme Classification:** Classification happens server-side during generation. Frontend receives pre-categorized data with theme tags on each STAR entry.
+
+3. **Time-Boxed Versions:** Store all three versions per story. Implement as tabs within expanded story card:
+   ```tsx
+   <Tabs defaultValue="2min">
+     <TabsList>
+       <TabsTrigger value="1min">1 min</TabsTrigger>
+       <TabsTrigger value="2min">2 min</TabsTrigger>
+       <TabsTrigger value="5min">5 min</TabsTrigger>
+     </TabsList>
+     <TabsContent value="1min">{story.oneMinVersion}</TabsContent>
+     ...
+   </Tabs>
+   ```
+
+4. **Practice Mode:** Implement as modal overlay. Store practice results in localStorage for persistence across sessions. Sync to server on session end.
+
+5. **Quick Reference Export:** Use `react-pdf` or `jspdf` for client-side PDF generation. Include:
+   - Page 1: Stories + Q&A
+   - Page 2: Gaps + Company facts
+   - Mobile: Single-column layout, larger fonts
+
+6. **Prep Completeness Calculation:**
+   ```typescript
+   const completeness = {
+     hasStories: stories.length >= 5 ? 25 : (stories.length / 5) * 25,
+     hasQuestions: questions.filter(q => q.hasLinkedSTAR).length >= 5 ? 25 : ...,
+     hasGapPrep: gaps.filter(g => g.hasTalkingPoints).length === gaps.length ? 25 : ...,
+     hasExport: hasGeneratedQuickRef ? 25 : 0
+   }
+   const total = Object.values(completeness).reduce((a, b) => a + b, 0)
+   ```
+
+7. **Interview Countdown:** Display countdown timer from application's interview date if set. Use `date-fns` for human-readable format ("in 3 days", "tomorrow", "in 5 hours").

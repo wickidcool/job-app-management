@@ -1,4 +1,5 @@
 import type { APIClient } from './apiClient';
+import { APIError } from './apiClient';
 import type {
   GenerateInterviewPrepRequest,
   GenerateInterviewPrepResponse,
@@ -35,7 +36,7 @@ export class InterviewPrepService {
     try {
       return await this.client.get<GetInterviewPrepResponse>(`/interview-preps/${id}`);
     } catch (error) {
-      if (error instanceof Error && 'status' in error && (error as any).status === 404) {
+      if (error instanceof APIError && error.status === 404) {
         return null;
       }
       throw error;
@@ -51,7 +52,7 @@ export class InterviewPrepService {
         `/applications/${applicationId}/interview-prep`
       );
     } catch (error) {
-      if (error instanceof Error && 'status' in error && (error as any).status === 404) {
+      if (error instanceof APIError && error.status === 404) {
         return null;
       }
       throw error;

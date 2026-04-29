@@ -3192,6 +3192,1546 @@ interface BulletTrace {
 
 ---
 
+## 23. InterviewPrepCard
+
+### Purpose
+
+Display interview preparation summary for an application with status indicators, countdown timer, and quick access to prep materials.
+
+### Props
+
+```tsx
+interface InterviewPrepCardProps {
+  applicationId: string
+  application: {
+    jobTitle: string
+    company: string
+    interviewDate?: Date
+    fitLevel?: 'strong' | 'moderate' | 'weak'
+  }
+  prep?: {
+    id: string
+    completeness: number // 0-100
+    storyCount: number
+    questionCount: number
+    gapCount: number
+    lastUpdated: Date
+  }
+  onGeneratePrep: () => void
+  onViewPrep: (prepId: string) => void
+  onExportQuickRef: (prepId: string) => void
+}
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| No Prep | `prep` undefined | CTA button "Prepare for Interview", muted styling |
+| Prep Available | `prep` exists | Progress ring, metrics summary, action buttons |
+| Interview Soon | `interviewDate` < 3 days | Yellow border, countdown timer prominent |
+| Interview Today | `interviewDate` = today | Red border, "TODAY" badge, pulsing indicator |
+| Prep Complete | `completeness` = 100 | Green checkmark badge, "Ready" indicator |
+
+### Anatomy
+
+```
+┌─────────────────────────────────────────────┐
+│ 🎤 Interview Prep                           │
+│ ─────────────────────────────────────────── │
+│                                             │
+│ [Company Logo]  Senior Engineer             │
+│                 TechCorp                    │
+│                                             │
+│ ┌─────────────┐                             │
+│ │   75%      │  ⏱️ In 3 days               │
+│ │  ◐◐◐◐◐○○○  │  📅 May 1, 2026 at 2pm     │
+│ │ Completeness│                             │
+│ └─────────────┘                             │
+│                                             │
+│ 📖 5 Stories  ❓ 12 Questions  ⚠️ 2 Gaps   │
+│                                             │
+│ [View Prep]  [Quick Reference]  [Practice]  │
+└─────────────────────────────────────────────┘
+```
+
+### Countdown Timer Formatting
+
+| Time Remaining | Display Format | Visual Urgency |
+|----------------|----------------|----------------|
+| > 7 days | "In X days" | Neutral (gray) |
+| 3-7 days | "In X days" | Low (blue) |
+| 1-2 days | "Tomorrow" / "In 2 days" | Medium (yellow) |
+| < 24 hours | "In X hours" | High (orange) |
+| < 2 hours | "In X minutes" | Critical (red, pulsing) |
+| Passed | "Interview completed" | Muted |
+
+### Completeness Ring
+
+```tsx
+interface CompletenessRingProps {
+  percentage: number // 0-100
+  size: 'sm' | 'md' | 'lg'
+  showLabel?: boolean
+}
+
+// Ring segments:
+// - 0-25%: Stories prepared
+// - 25-50%: Questions answered
+// - 50-75%: Gaps addressed
+// - 75-100%: Quick ref generated
+```
+
+### Behavior
+
+- **Click Card:** Opens full prep dashboard
+- **View Prep:** Direct link to prep materials
+- **Quick Reference:** Opens export modal or downloads last generated
+- **Practice:** Opens practice mode for this prep
+- **Hover:** Shows detailed breakdown tooltip
+
+### Accessibility
+
+- **ARIA Role:** `article`
+- **ARIA Label:** "Interview prep for {jobTitle} at {company}, {completeness}% complete, interview {countdown}"
+- **Countdown:** `aria-live="polite"` region updates every minute
+- **Keyboard:** Tab to card, Enter opens prep, arrow keys navigate actions
+
+---
+
+## 24. STARStoryBank
+
+### Purpose
+
+Organized collection of STAR stories categorized by interview theme, with filtering, search, and time-boxed version access.
+
+### Props
+
+```tsx
+interface STARStoryBankProps {
+  stories: STARStory[]
+  themes: Theme[]
+  activeTheme?: string
+  onThemeChange: (theme: string) => void
+  onStorySelect: (storyId: string) => void
+  onStoryExpand: (storyId: string) => void
+  onMarkFavorite: (storyId: string, favorite: boolean) => void
+  selectedStoryIds?: string[]
+  showTimeVersions?: boolean
+}
+
+interface STARStory {
+  id: string
+  title: string
+  themes: string[] // 'leadership' | 'technical' | 'teamwork' | 'problem_solving' | 'communication' | 'innovation'
+  relevanceScore: number // 0-100
+  situation: string
+  task: string
+  action: string
+  result: string
+  metrics?: string[]
+  oneMinVersion: string
+  twoMinVersion: string
+  fiveMinVersion: string
+  isFavorite: boolean
+  practiceCount: number
+  lastPracticed?: Date
+}
+
+type Theme = {
+  id: string
+  name: string
+  icon: string
+  count: number
+}
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Default | Initial load | All themes visible in tabs, first theme active |
+| Theme Filtered | Theme tab clicked | Only stories with matching theme shown |
+| Story Collapsed | Default | Compact card with title, score, themes |
+| Story Expanded | Card clicked | Full STAR breakdown visible |
+| Time Version View | "Time Versions" clicked | Three tabs: 1min, 2min, 5min |
+| Favorite | Star clicked | Filled star icon, moves to top of list |
+| Selected | Checkbox checked | Blue border, checkbox filled |
+
+### Anatomy
+
+**Theme Tab Bar:**
+```
+┌────────────────────────────────────────────────────────────┐
+│ [All (15)] [Leadership (4)] [Technical (6)] [Teamwork (3)]│
+│ [Problem Solving (5)] [Communication (2)] [Innovation (1)] │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Collapsed Story Card:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ☆  Led React Migration Project                    95%  🟢  │
+│    ─────────────────────────────────────────────────────── │
+│    [Leadership] [Technical]                                 │
+│    "Spearheaded migration of legacy jQuery app to React..." │
+│                                                             │
+│    🕐 Est. 2 min  │  📅 Last practiced: 3 days ago         │
+│    [Expand] [Time Versions] [Practice]                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Expanded Story Card:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ★  Led React Migration Project                    95%  🟢  │
+│    ─────────────────────────────────────────────────────── │
+│                                                             │
+│ SITUATION                                                   │
+│ Our e-commerce platform was built on jQuery with growing    │
+│ performance issues and developer velocity problems...       │
+│                                                             │
+│ TASK                                                        │
+│ Lead the migration to React while maintaining zero downtime │
+│ and improving team productivity...                          │
+│                                                             │
+│ ACTION                                                      │
+│ • Designed incremental migration strategy                   │
+│ • Created component library with design system              │
+│ • Mentored 4 junior developers on React patterns...         │
+│                                                             │
+│ RESULT                                                      │
+│ • 40% improvement in page load time                         │
+│ • 60% faster feature delivery                               │
+│ • Zero production incidents during 6-month migration        │
+│                                                             │
+│ [Copy] [Add Notes] [Collapse]                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Time Version Tabs:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Time-Boxed Versions                                         │
+│ ─────────────────────────────────────────────────────────── │
+│ [1 min ●] [2 min ○] [5 min ○]                              │
+│                                                             │
+│ "I led a React migration for an e-commerce platform,       │
+│ resulting in 40% faster load times and 60% faster           │
+│ feature delivery with zero production incidents."           │
+│                                                             │
+│ Word count: 32 | Speaking time: ~50 seconds                 │
+│ [Copy to Clipboard]                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Relevance Score Badge
+
+| Score | Color | Label |
+|-------|-------|-------|
+| 90-100% | Green | Excellent |
+| 80-89% | Light Green | Strong |
+| 70-79% | Yellow | Good |
+| 60-69% | Orange | Fair |
+| <60% | Gray | Low |
+
+### Behavior
+
+- **Theme Tab Click:** Filters to stories with that theme
+- **Story Card Click:** Toggles expand/collapse
+- **Star Click:** Toggles favorite, moves to top
+- **Time Versions Click:** Shows 1/2/5 min version tabs
+- **Copy Click:** Copies selected version to clipboard
+- **Practice Click:** Opens practice mode for this story
+- **Search:** Real-time filter by title/content keywords
+
+### Accessibility
+
+- **ARIA Role:** `tablist` for themes, `listbox` for stories
+- **Tab Navigation:** Tab between theme tabs, Enter to select
+- **Arrow Keys:** Navigate between story cards
+- **Screen Reader:** "{title}, {relevanceScore}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
+
+### Responsive Behavior
+
+- **Desktop:** 2-3 column grid of story cards
+- **Tablet:** 1-2 column grid
+- **Mobile:** Single column, full-width cards
+
+---
+
+## 25. QuestionsList
+
+### Purpose
+
+Display categorized list of anticipated interview questions with suggested STAR story responses and preparation tracking.
+
+### Props
+
+```tsx
+interface QuestionsListProps {
+  questions: InterviewQuestion[]
+  categories: QuestionCategory[]
+  activeCategory?: string
+  onCategoryChange: (category: string) => void
+  onQuestionExpand: (questionId: string) => void
+  onLinkSTAR: (questionId: string, storyId: string) => void
+  onMarkPracticed: (questionId: string, rating: PracticeRating) => void
+  onAddNotes: (questionId: string, notes: string) => void
+}
+
+interface InterviewQuestion {
+  id: string
+  text: string
+  category: 'behavioral' | 'technical' | 'situational' | 'role_specific' | 'gap_probing'
+  difficulty: 'standard' | 'challenging' | 'tough'
+  whyTheyAsk: string
+  whatTheyWant: string
+  answerFramework: string
+  suggestedStories: STARStory[]
+  linkedStoryId?: string
+  personalNotes?: string
+  practiceStatus?: 'not_practiced' | 'needs_work' | 'comfortable' | 'confident'
+  lastPracticed?: Date
+}
+
+type QuestionCategory = {
+  id: string
+  name: string
+  icon: string
+  count: number
+}
+
+type PracticeRating = 'needs_work' | 'good' | 'great'
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Default | Initial load | All categories in tabs, sorted by difficulty |
+| Category Filtered | Tab clicked | Only matching questions shown |
+| Collapsed | Default | Question text, category badge, difficulty dot |
+| Expanded | Question clicked | Full breakdown with suggestions |
+| Practiced | After practice rating | Checkmark badge, colored by confidence |
+| Has Notes | Notes added | Note icon indicator |
+| STAR Linked | Story associated | Linked story preview shown |
+
+### Anatomy
+
+**Category Tab Bar:**
+```
+┌────────────────────────────────────────────────────────────┐
+│ [All (24)] [Behavioral (12)] [Technical (5)] [Situational (4)]│
+│ [Role-Specific (2)] [Gap-Probing (1)]                       │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Collapsed Question Card:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🟡 "Tell me about a time you handled a difficult            │
+│    team conflict."                                          │
+│    ─────────────────────────────────────────────────────── │
+│    [Behavioral] 🔴 Tough                                    │
+│                                                             │
+│    💡 3 suggested stories  │  📝 Has notes  │  ✓ Practiced │
+│    [Expand]                                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Expanded Question Card:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ "Tell me about a time you handled a difficult               │
+│  team conflict."                                            │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ WHY THEY ASK                                                │
+│ They want to assess your interpersonal skills, emotional    │
+│ intelligence, and ability to navigate workplace tensions... │
+│                                                             │
+│ WHAT THEY WANT TO HEAR                                      │
+│ • Specific situation with clear stakes                      │
+│ • Your role in resolving (not escalating)                   │
+│ • Positive outcome or lessons learned                       │
+│                                                             │
+│ ANSWER FRAMEWORK                                            │
+│ 1. Set the scene briefly (who, what, why it mattered)       │
+│ 2. Describe your approach and actions                       │
+│ 3. Highlight the resolution and relationship outcome        │
+│ 4. Share what you learned                                   │
+│                                                             │
+│ SUGGESTED STORIES                                           │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ○ Mediated Design Dispute (92% match)           [Use]  │ │
+│ │ ○ Cross-Team Priority Conflict (87% match)      [Use]  │ │
+│ │ ● Led React Migration (85% match) ← LINKED     [Unlink]│ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ MY NOTES                                                    │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ Remember to emphasize the 1:1 conversations I had...    │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ [Practice This] [Add/Edit Notes] [Collapse]                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Difficulty Indicators
+
+| Difficulty | Dot Color | Extra Info |
+|------------|-----------|------------|
+| Standard | Green | "Common question, straightforward" |
+| Challenging | Yellow | "Requires specific example" |
+| Tough | Red | "Probing, requires preparation" |
+
+### Practice Status Badges
+
+| Status | Visual | Description |
+|--------|--------|-------------|
+| Not Practiced | No badge | Default state |
+| Needs Work | Orange dot | Self-rated after practice |
+| Comfortable | Yellow checkmark | Self-rated after practice |
+| Confident | Green checkmark | Self-rated after practice |
+
+### Behavior
+
+- **Category Tab Click:** Filters to matching questions
+- **Question Click:** Toggles expand/collapse
+- **Use Story Click:** Links STAR story to question
+- **Unlink Click:** Removes story association
+- **Practice Click:** Opens practice mode for question
+- **Notes Click:** Opens inline notes editor
+- **Sort:** By difficulty (tough first) or practice status
+
+### Accessibility
+
+- **ARIA Role:** `tablist` for categories, `listbox` for questions
+- **Screen Reader:** "{question text}, category: {category}, difficulty: {difficulty}, {practiceStatus}"
+- **Keyboard:** Arrow keys navigate questions, Enter expands
+- **Focus Management:** Focus returns to question after practice modal closes
+
+---
+
+## 26. GapMitigationPanel
+
+### Purpose
+
+Display identified skill gaps from job fit analysis with prepared talking points and response strategies for interview.
+
+### Props
+
+```tsx
+interface GapMitigationPanelProps {
+  gaps: SkillGap[]
+  onExpandGap: (gapId: string) => void
+  onSelectStrategy: (gapId: string, strategy: MitigationStrategy) => void
+  onPractice: (gapId: string) => void
+  onMarkAddressed: (gapId: string) => void
+}
+
+interface SkillGap {
+  id: string
+  skill: string
+  severity: 'critical' | 'moderate' | 'minor'
+  description: string
+  whyItMatters: string
+  strategies: {
+    acknowledgePivot: TalkingPoint
+    growthMindset: TalkingPoint
+    adjacentExperience: TalkingPoint
+  }
+  relatedStories: STARStory[]
+  isAddressed: boolean
+  selectedStrategy?: MitigationStrategy
+}
+
+interface TalkingPoint {
+  title: string
+  script: string
+  keyPhrases: string[]
+  redirectToStrength: string
+}
+
+type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_experience'
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| No Gaps | `gaps.length === 0` | Success state with strengths summary |
+| Has Gaps | `gaps.length > 0` | Gap cards sorted by severity |
+| Gap Collapsed | Default | Summary with severity badge |
+| Gap Expanded | Click | Full strategies and talking points |
+| Strategy Selected | Strategy chosen | Highlighted strategy, script visible |
+| Gap Addressed | Checkbox checked | Muted styling, checkmark badge |
+
+### Anatomy
+
+**No Gaps State:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ✅ No Significant Gaps Identified!                          │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ Your profile strongly matches the role requirements.        │
+│                                                             │
+│ KEY STRENGTHS TO HIGHLIGHT                                  │
+│ • React/TypeScript expertise (exact match)                  │
+│ • Team leadership experience                                │
+│ • E-commerce domain knowledge                               │
+│                                                             │
+│ [View All Strengths]                                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Collapsed Gap Card:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🔴 CRITICAL: Kubernetes Experience                          │
+│ ─────────────────────────────────────────────────────────── │
+│ Required for production deployment workflows                │
+│                                                             │
+│ [3 response strategies available]  [✓ Addressed]            │
+│ [Expand]                                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Expanded Gap Card:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🔴 CRITICAL: Kubernetes Experience                          │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ WHY THIS MATTERS                                            │
+│ The role requires hands-on Kubernetes management for        │
+│ microservices deployment. They may probe for specific       │
+│ cluster management experience.                              │
+│                                                             │
+│ RESPONSE STRATEGIES                                         │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ● Acknowledge & Pivot                                   │ │
+│ │   "While I haven't managed Kubernetes clusters          │ │
+│ │   directly, I've deployed containerized apps with       │ │
+│ │   Docker and worked closely with DevOps teams..."       │ │
+│ │                                                         │ │
+│ │   KEY PHRASES: "containerized applications",            │ │
+│ │   "Docker experience", "DevOps collaboration"           │ │
+│ │                                                         │ │
+│ │   REDIRECT TO: Docker & CI/CD expertise                 │ │
+│ │   [Copy Script] [Practice]                              │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ○ Growth Mindset                                        │ │
+│ │   "I'm actively building Kubernetes skills through      │ │
+│ │   the CKA certification program and home lab..."        │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ○ Adjacent Experience                                   │ │
+│ │   "In my work with AWS ECS, I solved similar            │ │
+│ │   orchestration challenges..."                          │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ RELATED STORIES                                             │
+│ • CI/CD Pipeline Overhaul (Docker expertise)                │
+│ • AWS Migration Project (cloud orchestration)               │
+│                                                             │
+│ [Mark as Addressed]                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Severity Visual Hierarchy
+
+| Severity | Border Color | Icon | Position |
+|----------|--------------|------|----------|
+| Critical | Red (#DC2626) | 🔴 | Top of list |
+| Moderate | Orange (#F59E0B) | 🟠 | Middle |
+| Minor | Yellow (#FBBF24) | 🟡 | Bottom |
+
+### Strategy Selection
+
+```tsx
+// When user selects a strategy:
+// 1. Highlight selected strategy card
+// 2. Show full script with formatting
+// 3. Display "Key Phrases" to remember
+// 4. Show "Redirect To" strength
+// 5. Enable Copy and Practice buttons
+```
+
+### Behavior
+
+- **Expand Gap:** Shows all three strategy options
+- **Select Strategy:** Highlights chosen approach, shows full script
+- **Copy Script:** Copies talking point to clipboard
+- **Practice:** Opens practice mode with gap question
+- **Mark Addressed:** Toggles completion, moves to bottom of list
+- **Sort:** Critical → Moderate → Minor, unaddressed first
+
+### Accessibility
+
+- **ARIA Role:** `list` with `listitem` for each gap
+- **Screen Reader:** "{severity} gap: {skill}. {addressed ? 'Addressed' : 'Not addressed'}. {strategyCount} strategies available."
+- **Keyboard:** Tab to gap, Enter expands, Tab through strategies
+- **Live Region:** Announces when strategy is selected or gap addressed
+
+---
+
+## 27. QuickReferenceExport
+
+### Purpose
+
+Generate and export a concise interview quick reference card in multiple formats for pre-interview review.
+
+### Props
+
+```tsx
+interface QuickReferenceExportProps {
+  prepId: string
+  application: {
+    jobTitle: string
+    company: string
+    interviewDate?: Date
+  }
+  content: {
+    topStories: STARStory[] // Max 5
+    keyQuestions: InterviewQuestion[] // Max 5
+    gapPoints: TalkingPoint[] // Max 3
+    companyFacts: CompanyFact[] // Max 5
+  }
+  onContentCustomize: (sections: SectionConfig[]) => void
+  onExport: (format: ExportFormat) => void
+  onPreviewMobile: () => void
+}
+
+interface SectionConfig {
+  id: 'stories' | 'questions' | 'gaps' | 'company'
+  enabled: boolean
+  order: number
+  selectedItems: string[] // Item IDs to include
+}
+
+type ExportFormat = 'pdf' | 'markdown' | 'print'
+
+interface CompanyFact {
+  id: string
+  fact: string
+  source: string
+  useFor: 'mention' | 'ask_about'
+}
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Initial | Component mounts | Default sections enabled, preview shown |
+| Customizing | Edit button clicked | Drag handles, toggles, checkboxes visible |
+| Generating | Export clicked | Loading spinner on button |
+| Mobile Preview | Preview button clicked | Simulated phone frame |
+| Export Complete | Download ready | Success toast, download triggered |
+
+### Anatomy
+
+**Main View:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Quick Reference Card                     [Mobile Preview]   │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ SENIOR ENGINEER INTERVIEW                               │ │
+│ │ TechCorp | May 1, 2026 at 2:00 PM                       │ │
+│ │                                                         │ │
+│ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
+│ │                                                         │ │
+│ │ TOP STORIES                                             │ │
+│ │ 1. React Migration (Leadership, 95%)                    │ │
+│ │    "Led migration of legacy app, 40% perf gain..."     │ │
+│ │ 2. CI/CD Pipeline (Technical, 92%)                      │ │
+│ │    "Built zero-downtime deployment, 60% faster..."     │ │
+│ │ [3 more...]                                             │ │
+│ │                                                         │ │
+│ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
+│ │                                                         │ │
+│ │ KEY QUESTIONS & ANSWERS                                 │ │
+│ │ Q: Tell me about handling conflict...                   │ │
+│ │ A: Use "Mediated Design Dispute" story                  │ │
+│ │ [2 more...]                                             │ │
+│ │                                                         │ │
+│ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
+│ │                                                         │ │
+│ │ GAP TALKING POINTS                                      │ │
+│ │ • Kubernetes: "Docker + DevOps collab experience..."    │ │
+│ │                                                         │ │
+│ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
+│ │                                                         │ │
+│ │ COMPANY FACTS TO MENTION                                │ │
+│ │ ★ "Recent Series B, expanding to Europe"                │ │
+│ │ ★ "Tech blog on scalability impressed me"               │ │
+│ │                                                         │ │
+│ │ QUESTIONS TO ASK                                        │ │
+│ │ ? "How does the team approach technical debt?"          │ │
+│ │ ? "What does success look like in 90 days?"             │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ [Customize Content]                                         │
+│                                                             │
+│ ┌───────────┐ ┌───────────┐ ┌───────────┐                  │
+│ │ 📄 PDF    │ │ 📝 MD     │ │ 🖨️ Print  │                  │
+│ │ Download  │ │ Download  │ │ Dialog    │                  │
+│ └───────────┘ └───────────┘ └───────────┘                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Customize Mode:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Customize Quick Reference                    [Done]         │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ SECTIONS (drag to reorder)                                  │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ☰  ✓ Top Stories                            [Edit ▾]   │ │
+│ │     ✓ React Migration                                   │ │
+│ │     ✓ CI/CD Pipeline                                    │ │
+│ │     ✓ Team Mentorship                                   │ │
+│ │     ○ API Design (unselected)                          │ │
+│ │     ○ Database Optimization (unselected)               │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ☰  ✓ Key Questions                          [Edit ▾]   │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ☰  ✓ Gap Talking Points                     [Edit ▾]   │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ☰  ○ Company Facts (disabled)               [Edit ▾]   │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Mobile Preview:**
+```
+┌────────────────────────┐
+│  ┌──────────────────┐  │
+│  │ SENIOR ENGINEER  │  │
+│  │ TechCorp         │  │
+│  │ ───────────────  │  │
+│  │                  │  │
+│  │ TOP STORIES      │  │
+│  │ ← Swipe →        │  │
+│  │ ┌──────────────┐ │  │
+│  │ │ 1. React     │ │  │
+│  │ │ Migration    │ │  │
+│  │ │ "Led..."     │ │  │
+│  │ └──────────────┘ │  │
+│  │                  │  │
+│  │ [Page 1 of 4]    │  │
+│  └──────────────────┘  │
+│        📱               │
+└────────────────────────┘
+```
+
+### Export Format Specifications
+
+| Format | Output | Features |
+|--------|--------|----------|
+| PDF | 1-2 page document | Professional layout, print-ready |
+| Markdown | `.md` file | Structured headers, copy-paste friendly |
+| Print | Browser print dialog | High contrast, minimal ink |
+
+### PDF Layout
+
+```
+┌──────────────────────────────────────────────────┐
+│                    Page 1                        │
+│ ┌──────────────────────────────────────────────┐ │
+│ │           INTERVIEW QUICK REFERENCE          │ │
+│ │                                              │ │
+│ │ Senior Engineer | TechCorp                   │ │
+│ │ May 1, 2026 at 2:00 PM                       │ │
+│ │                                              │ │
+│ │ ═══════════════════════════════════════════  │ │
+│ │                                              │ │
+│ │ YOUR TOP 5 STORIES                           │ │
+│ │ [Full content...]                            │ │
+│ │                                              │ │
+│ │ ═══════════════════════════════════════════  │ │
+│ │                                              │ │
+│ │ KEY QUESTIONS & SUGGESTED ANSWERS            │ │
+│ │ [Full content...]                            │ │
+│ └──────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────┘
+```
+
+### Behavior
+
+- **Customize Click:** Shows drag-and-drop section reordering, item selection
+- **Section Toggle:** Enables/disables section in export
+- **Item Select:** Includes/excludes specific items within section
+- **Drag Reorder:** Changes section order in export
+- **Mobile Preview:** Shows swipeable card simulation
+- **Export Click:** Generates file in selected format, triggers download
+- **Auto-Save:** Customization saved to prep record
+
+### Accessibility
+
+- **Drag Reorder:** Also accessible via arrow keys when section focused
+- **Screen Reader:** "Section: Top Stories, enabled, position 1 of 4. Press up/down to reorder."
+- **Export Buttons:** "Download PDF. Quick reference card, 2 pages."
+- **Focus Management:** Focus returns to customize button after done
+
+---
+
+## 28. InterviewPrepGenerator
+
+### Purpose
+
+Multi-step configuration form for generating interview prep materials, with smart defaults from job fit analysis and validation for required inputs.
+
+### Props
+
+```tsx
+interface InterviewPrepGeneratorProps {
+  applicationId?: string
+  application?: {
+    jobTitle: string
+    company: string
+    interviewDate?: Date
+  }
+  fitAnalysis?: {
+    id: string
+    fitLevel: 'strong' | 'moderate' | 'weak'
+    recommendedFocusAreas: string[]
+  }
+  catalogStats: {
+    starEntryCount: number
+    hasMinimumEntries: boolean
+  }
+  onGenerate: (config: PrepConfig) => void
+  onCancel: () => void
+  onRunFitAnalysis: () => void
+}
+
+interface PrepConfig {
+  interviewType: 'behavioral' | 'technical' | 'mixed' | 'case_study'
+  timeAvailable: '30min' | '1hr' | '2hr' | 'full_day'
+  focusAreas: FocusArea[]
+  deliveryFormats: ('1min' | '2min' | '5min')[]
+}
+
+type FocusArea = 'leadership' | 'technical' | 'problem_solving' | 
+                 'teamwork' | 'communication' | 'innovation'
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Initial | Modal opens | Step 1 active, form pristine |
+| With Fit Analysis | `fitAnalysis` provided | Smart defaults applied, recommendation badge |
+| Without Fit Analysis | No `fitAnalysis` | Manual mode, suggestion to run analysis |
+| Insufficient Catalog | `!hasMinimumEntries` | Blocking error, upload resume CTA |
+| Validating | Field blur | Field-level validation errors |
+| Generating | Generate clicked | Loading state, disabled form |
+
+### Anatomy
+
+**Step 1: Interview Context**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Generate Interview Prep                          [Step 1/2] │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ INTERVIEW DETAILS                                           │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ Job Title: Senior Engineer                              │ │
+│ │ Company: TechCorp                                        │ │
+│ │ Interview Date: May 1, 2026 (optional)                  │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ INTERVIEW TYPE                                              │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ○ Behavioral    ○ Technical                             │ │
+│ │ ● Mixed (Recommended)  ○ Case Study                     │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ TIME AVAILABLE FOR PREP                                     │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ○ 30 minutes (Quick review)                             │ │
+│ │ ● 1 hour (Recommended)                                  │ │
+│ │ ○ 2 hours (Thorough prep)                               │ │
+│ │ ○ Full day (Deep preparation)                           │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ 💡 Prep depth adjusts based on time available              │
+│                                                             │
+│               [Cancel]                    [Next: Focus →]   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Step 2: Focus Areas**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Generate Interview Prep                          [Step 2/2] │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ FOCUS AREAS                                                 │
+│ Select themes to emphasize (based on fit analysis)          │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ✓ Leadership             🟢 Strong match (8 stories)    │ │
+│ │ ✓ Technical Skills       🟢 Strong match (12 stories)   │ │
+│ │ ✓ Problem Solving        🟡 Good match (5 stories)      │ │
+│ │ ○ Teamwork               🟡 Fair match (3 stories)      │ │
+│ │ ○ Communication          🟡 Fair match (2 stories)      │ │
+│ │ ○ Innovation             🔴 Limited (1 story)           │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ TIME-BOXED DELIVERY FORMATS                                 │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ✓ 1 minute (Elevator pitch version)                     │ │
+│ │ ✓ 2 minutes (Standard interview response)               │ │
+│ │ ✓ 5 minutes (Detailed storytelling)                     │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ PREVIEW                                                     │
+│ • 18 STAR stories across 3 themes                           │
+│ • ~20 anticipated questions                                 │
+│ • 2 skill gaps with talking points                          │
+│ • Est. generation time: 15 seconds                          │
+│                                                             │
+│               [← Back]              [Generate Prep]         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Insufficient Catalog State**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Generate Interview Prep                                     │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ ⚠️  Not Enough Experience Data                              │
+│                                                             │
+│ You need at least 3 STAR entries in your catalog to         │
+│ generate meaningful interview prep.                          │
+│                                                             │
+│ Current catalog: 1 entry                                     │
+│ Required minimum: 3 entries                                  │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ WHAT TO DO                                               │ │
+│ │ 1. Upload your resume to extract STAR achievements      │ │
+│ │ 2. Add manual entries for projects not on resume        │ │
+│ │ 3. Return here to generate prep materials               │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│               [Cancel]           [Upload Resume]            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**No Fit Analysis Prompt**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 💡 Run Job Fit Analysis First?                              │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ Interview prep works best when we know how your background  │
+│ matches the role requirements.                               │
+│                                                             │
+│ WITH FIT ANALYSIS:                                          │
+│ • Tailored question predictions                             │
+│ • Gap-specific talking points                               │
+│ • Relevance-scored story recommendations                    │
+│                                                             │
+│ WITHOUT FIT ANALYSIS:                                       │
+│ • Generic interview questions                               │
+│ • All STAR stories (no scoring)                             │
+│ • Basic preparation only                                    │
+│                                                             │
+│    [Run Fit Analysis First]      [Continue Without]         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Validation Rules
+
+```typescript
+const validationRules = {
+  minimumSTAREntries: {
+    threshold: 3,
+    message: 'Need at least 3 STAR entries in catalog'
+  },
+  focusAreas: {
+    min: 1,
+    max: 4,
+    message: 'Select 1-4 focus areas for best results'
+  },
+  deliveryFormats: {
+    min: 1,
+    message: 'Select at least one delivery format'
+  }
+}
+```
+
+### Behavior
+
+- **Smart Defaults:** If fit analysis exists, pre-select top 3 focus areas and `mixed` interview type
+- **Real-time Preview:** Update estimated story count, question count as config changes
+- **Step Navigation:** Back button preserves selections, Next validates current step
+- **Generate:** Fires `onGenerate` with config, closes modal, shows progress
+- **Cancel:** Confirms if changes made, closes modal
+- **Upload Resume CTA:** Direct link from insufficient catalog state
+
+### Accessibility
+
+- **ARIA Role:** `dialog` with `aria-labelledby="prep-generator-title"`
+- **Step Indicator:** `aria-current="step"` on active step
+- **Radio Groups:** Proper `role="radiogroup"` with legend
+- **Checkboxes:** `aria-describedby` links help text to controls
+- **Focus Management:** First field focused on modal open, returns to trigger on close
+- **Keyboard:** Tab through fields, Space toggles checkboxes, Enter submits
+
+---
+
+## 29. InterviewPrepProgressModal
+
+### Purpose
+
+Show step-by-step progress during interview prep generation with clear feedback at each stage and graceful error handling.
+
+### Props
+
+```tsx
+interface InterviewPrepProgressModalProps {
+  isOpen: boolean
+  currentStep: GenerationStep
+  progress: number // 0-100
+  error?: GenerationError
+  onCancel: () => void
+  onRetry: () => void
+}
+
+type GenerationStep = 
+  | 'analyzing_requirements'
+  | 'matching_stories'
+  | 'categorizing_themes'
+  | 'generating_questions'
+  | 'creating_gap_points'
+  | 'building_time_versions'
+  | 'complete'
+
+interface GenerationError {
+  type: 'insufficient_data' | 'network' | 'timeout' | 'server'
+  message: string
+  retryable: boolean
+}
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Processing | Step in progress | Progress bar animates, current step highlighted |
+| Step Complete | Step finished | Checkmark appears, move to next step |
+| Error | Generation fails | Red error state, retry button if retryable |
+| Success | All steps done | Success animation, auto-close after 1s |
+
+### Anatomy
+
+**Processing State**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Generating Your Interview Prep...                           │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░  60%                                  │
+│                                                             │
+│ ✓ Step 1: Analyzing job requirements                       │
+│ ✓ Step 2: Matching STAR entries                            │
+│ ✓ Step 3: Categorizing by theme                            │
+│ ⟳ Step 4: Generating anticipated questions...              │
+│ ○ Step 5: Creating gap mitigation points                   │
+│ ○ Step 6: Building time-boxed responses                    │
+│                                                             │
+│ This usually takes 10-15 seconds...                         │
+│                                                             │
+│                           [Cancel]                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Success State**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Interview Prep Complete! ✓                                  │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│                         🎉                                  │
+│                                                             │
+│ ✓ Step 1: Analyzing job requirements                       │
+│ ✓ Step 2: Matching STAR entries                            │
+│ ✓ Step 3: Categorizing by theme                            │
+│ ✓ Step 4: Generating anticipated questions                 │
+│ ✓ Step 5: Creating gap mitigation points                   │
+│ ✓ Step 6: Building time-boxed responses                    │
+│                                                             │
+│ YOUR PREP INCLUDES:                                         │
+│ • 18 STAR stories organized by theme                        │
+│ • 24 anticipated questions with answers                     │
+│ • 2 gap talking points                                      │
+│                                                             │
+│ Redirecting to prep dashboard...                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Error State**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Generation Failed                                           │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ ⚠️  Network connection lost                                 │
+│                                                             │
+│ We couldn't complete the generation due to a network error. │
+│ Your progress has been saved and we can retry from where    │
+│ we left off.                                                │
+│                                                             │
+│ ✓ Step 1: Analyzing job requirements                       │
+│ ✓ Step 2: Matching STAR entries                            │
+│ ✗ Step 3: Categorizing by theme (FAILED)                   │
+│ ○ Step 4: Generating anticipated questions                 │
+│ ○ Step 5: Creating gap mitigation points                   │
+│ ○ Step 6: Building time-boxed responses                    │
+│                                                             │
+│               [Cancel]                     [Retry]          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Step Definitions
+
+| Step | Duration | User Message |
+|------|----------|--------------|
+| Analyzing Requirements | 2-3s | "Understanding what they're looking for..." |
+| Matching STAR Entries | 3-5s | "Finding your best stories..." |
+| Categorizing Themes | 2-3s | "Organizing by interview themes..." |
+| Generating Questions | 4-6s | "Predicting likely questions..." |
+| Creating Gap Points | 2-3s | "Preparing for tough questions..." |
+| Building Time Versions | 3-5s | "Creating your response toolkit..." |
+
+### Progress Calculation
+
+```typescript
+const STEP_WEIGHTS = {
+  analyzing_requirements: 15,
+  matching_stories: 25,
+  categorizing_themes: 15,
+  generating_questions: 20,
+  creating_gap_points: 10,
+  building_time_versions: 15,
+}
+
+function calculateProgress(completedSteps: GenerationStep[]): number {
+  return completedSteps.reduce((sum, step) => sum + STEP_WEIGHTS[step], 0)
+}
+```
+
+### Error Handling
+
+| Error Type | Retryable | User Action |
+|------------|-----------|-------------|
+| Insufficient Data | No | Close modal, show guidance to add catalog entries |
+| Network | Yes | Retry from failed step |
+| Timeout | Yes | Retry or suggest reducing focus areas |
+| Server | Yes | Retry once, then show support contact |
+
+### Behavior
+
+- **Auto-Progress:** Each step transitions automatically when complete
+- **Cancelable:** User can cancel mid-generation, partial data discarded
+- **Retry:** On retryable error, resume from failed step
+- **Auto-Close:** Success state auto-closes after 1 second, navigates to dashboard
+- **Live Updates:** Progress bar animates smoothly, no jumps
+- **ARIA Live Region:** Screen reader announces each step completion
+
+### Accessibility
+
+- **ARIA Role:** `alertdialog` with `aria-busy="true"` during processing
+- **Live Region:** `aria-live="polite"` for step updates
+- **Progress Bar:** `role="progressbar"` with `aria-valuenow`, `aria-valuemin`, `aria-valuemax`
+- **Step List:** `role="list"` with `aria-label="Generation steps"`
+- **Cancel Button:** Remains focusable during generation for keyboard users
+
+---
+
+## 30. InterviewPrepDashboard
+
+### Purpose
+
+Main container and navigation hub for interview prep materials, organizing all prep components into a cohesive tabbed interface with overview metrics.
+
+### Props
+
+```tsx
+interface InterviewPrepDashboardProps {
+  prepId: string
+  application: {
+    id: string
+    jobTitle: string
+    company: string
+    interviewDate?: Date
+    fitLevel?: 'strong' | 'moderate' | 'weak'
+  }
+  prep: {
+    completeness: number // 0-100
+    storyCount: number
+    questionCount: number
+    gapCount: number
+    lastUpdated: Date
+    createdAt: Date
+  }
+  stories: STARStory[]
+  questions: InterviewQuestion[]
+  gaps: SkillGap[]
+  onExportQuickRef: () => void
+  onPractice: () => void
+  onRegenerate: () => void
+  onBack: () => void
+}
+```
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Default | Dashboard loads | Overview visible, first tab active |
+| Tab Active | Tab clicked | Active tab highlighted, content shown |
+| Loading | Content fetching | Skeleton loaders in tab panel |
+| Prep Stale | `lastUpdated` > 30 days | Warning banner, regenerate suggestion |
+| Interview Imminent | `interviewDate` < 24 hours | Countdown prominent, quick ref CTA |
+| Interview Passed | `interviewDate` < now | Muted styling, "Interview completed" badge |
+
+### Anatomy
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│ ← Back to Application                                             │
+│ ═════════════════════════════════════════════════════════════════ │
+│                                                                   │
+│ 🎤 INTERVIEW PREP: SENIOR ENGINEER AT TECHCORP                    │
+│                                                                   │
+│ ┌─────────────────────────────────────────────────────────────┐   │
+│ │ OVERVIEW                                          🟢 Strong │   │
+│ │ ───────────────────────────────────────────────────────────  │   │
+│ │                                                             │   │
+│ │  ┌─────────┐                                                │   │
+│ │  │   75%   │  Interview in 3 days                           │   │
+│ │  │ ◐◐◐◐◐○○○│  📅 May 1, 2026 at 2:00 PM                    │   │
+│ │  └─────────┘                                                │   │
+│ │                                                             │   │
+│ │  📖 18 Stories  ❓ 24 Questions  ⚠️ 2 Gaps                │   │
+│ │                                                             │   │
+│ │  Last updated: 2 hours ago                                  │   │
+│ │  [Quick Reference] [Practice Mode] [Regenerate]             │   │
+│ └─────────────────────────────────────────────────────────────┘   │
+│                                                                   │
+│ ┌─────────────────────────────────────────────────────────────┐   │
+│ │ [Story Bank ●] [Questions] [Gap Prep] [Quick Ref]          │   │
+│ └─────────────────────────────────────────────────────────────┘   │
+│                                                                   │
+│ ┌─────────────────────────────────────────────────────────────┐   │
+│ │                                                             │   │
+│ │                  STORY BANK TAB CONTENT                     │   │
+│ │              (STARStoryBank component)                      │   │
+│ │                                                             │   │
+│ │                                                             │   │
+│ └─────────────────────────────────────────────────────────────┘   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+**Stale Prep Warning**
+```
+┌───────────────────────────────────────────────────────────────────┐
+│ ⚠️  This prep is 32 days old                                      │
+│ ───────────────────────────────────────────────────────────────── │
+│ Your catalog may have new entries since this was generated.       │
+│ Consider regenerating for the most up-to-date preparation.        │
+│                                          [Dismiss] [Regenerate]   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+**Interview Today Banner**
+```
+┌───────────────────────────────────────────────────────────────────┐
+│ 🚨 INTERVIEW TODAY in 4 hours                                     │
+│ ───────────────────────────────────────────────────────────────── │
+│ Quick actions: [View Top 5 Stories] [Export Quick Ref] [Practice]│
+└───────────────────────────────────────────────────────────────────┘
+```
+
+### Tab Navigation
+
+| Tab | Content | Badge |
+|-----|---------|-------|
+| Story Bank | STARStoryBank component | Story count (e.g., "18") |
+| Questions | QuestionsList component | Question count (e.g., "24") |
+| Gap Prep | GapMitigationPanel component | Gap count if > 0 (e.g., "2") or none if 0 |
+| Quick Ref | QuickReferenceExport component | None |
+
+### Completeness Calculation
+
+```typescript
+const completenessSegments = {
+  hasStories: stories.length >= 5 ? 25 : (stories.length / 5) * 25,
+  hasLinkedQuestions: questions.filter(q => q.linkedStoryId).length >= 5 
+    ? 25 
+    : (questions.filter(q => q.linkedStoryId).length / 5) * 25,
+  hasGapTalkingPoints: gaps.filter(g => g.selectedStrategy).length === gaps.length 
+    ? 25 
+    : (gaps.filter(g => g.selectedStrategy).length / gaps.length) * 25,
+  hasQuickRef: hasGeneratedQuickRef ? 25 : 0,
+}
+
+const totalCompleteness = Object.values(completenessSegments)
+  .reduce((sum, val) => sum + val, 0)
+```
+
+### Behavior
+
+- **Tab Persistence:** Active tab saved to localStorage, restored on return
+- **Auto-Save:** Changes to stories/questions/gaps auto-save, update `lastUpdated`
+- **Regenerate Confirm:** Warns that regeneration will replace existing prep
+- **Back Navigation:** Navigates to application detail, preserves prep
+- **Quick Actions:** Quick Reference, Practice, Regenerate always accessible
+- **Countdown Update:** Timer updates every minute when interview < 24 hours
+- **Empty Tab States:** Each tab shows appropriate empty state if no content
+
+### Accessibility
+
+- **ARIA Role:** `main` with `aria-label="Interview prep dashboard"`
+- **Tabs:** `role="tablist"` with proper `aria-selected`, `aria-controls`
+- **Overview:** `role="region"` with `aria-label="Prep overview"`
+- **Countdown:** `aria-live="polite"` updates without disrupting screen reader
+- **Keyboard:** Arrow keys navigate tabs, Tab moves into active panel
+- **Focus Management:** Focus moves to active tab panel on tab change
+
+---
+
+## 31. PracticeMode
+
+### Purpose
+
+Interactive practice interface for rehearsing interview responses with self-rating, timing, and progress tracking.
+
+### Props
+
+```tsx
+interface PracticeModeProps {
+  prepId: string
+  practiceType: 'single_question' | 'full_interview' | 'timed_response'
+  content: {
+    questions?: InterviewQuestion[]
+    stories?: STARStory[]
+  }
+  onRateResponse: (itemId: string, rating: PracticeRating) => void
+  onComplete: (summary: PracticeSummary) => void
+  onExit: () => void
+}
+
+type PracticeRating = 'needs_work' | 'good' | 'great'
+
+interface PracticeSummary {
+  questionsPracticed: number
+  storiesPracticed: number
+  averageRating: PracticeRating
+  areasToFocus: string[]
+  duration: number // milliseconds
+}
+```
+
+### Practice Types
+
+| Type | Description | Duration | Content |
+|------|-------------|----------|---------|
+| Single Question | Random question draw | 2-5 min | 1 question, suggested answer |
+| Full Interview | Simulated interview set | 20-30 min | 5-10 questions in sequence |
+| Timed Response | Time-boxed story practice | 1-5 min | 1 story with timer |
+
+### Visual States
+
+| State | Trigger | Visual Changes |
+|-------|---------|----------------|
+| Question Display | Practice starts | Question shown, timer ready |
+| Thinking/Responding | User preparing | Timer running, suggested answer hidden |
+| Answer Revealed | Show answer clicked | Suggested answer visible, rating prompt |
+| Rating | User rates self | Rating buttons active, feedback shown |
+| Next Item | Next clicked | Load next question/story, reset timer |
+| Session Complete | All items done | Summary shown, confidence distribution |
+
+### Anatomy
+
+**Single Question Mode**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Practice Mode: Single Question                   [Exit] │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ QUESTION 1 OF 1                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ "Tell me about a time you handled a difficult team     │ │
+│ │  conflict."                                             │ │
+│ │                                                         │ │
+│ │ Behavioral · Tough difficulty                           │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│                    ⏱️  2:15 elapsed                         │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ Take your time to think through your answer...          │ │
+│ │                                                         │ │
+│ │ Ready to see the suggested response?                    │ │
+│ │                                                         │ │
+│ │                [Show Suggested Answer]                  │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Answer Revealed + Rating**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Practice Mode: Single Question                   [Exit] │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ SUGGESTED ANSWER                                            │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ Use: "Mediated Design Dispute" (92% match)              │ │
+│ │                                                         │ │
+│ │ SITUATION: Two senior designers disagreed on UX         │ │
+│ │ approach for checkout redesign, blocking sprint...      │ │
+│ │                                                         │ │
+│ │ TASK: Resolve conflict and get project back on track   │ │
+│ │                                                         │ │
+│ │ ACTION:                                                 │ │
+│ │ • Held 1:1s to understand each perspective              │ │
+│ │ • Facilitated data-driven design review                 │ │
+│ │ • Proposed A/B test to validate both approaches         │ │
+│ │                                                         │ │
+│ │ RESULT: Merged best of both designs, 15% conversion     │ │
+│ │ lift, improved team collaboration                       │ │
+│ │                                                         │ │
+│ │ 🕐 Target: 2 minutes                                    │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ HOW DID YOU DO?                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │  [😟 Needs Work]  [😊 Good]  [🎯 Great]                │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│                          [Next Question]                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Timed Response Mode**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Practice Mode: Timed Response (2 min)            [Exit] │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ STORY: Led React Migration Project                          │
+│                                                             │
+│                   ⏱️  01:47 remaining                       │
+│            ▓▓▓▓▓▓▓▓▓▓▓▓░░░  (11% over target)              │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ Deliver your 2-minute version of this story aloud.      │ │
+│ │                                                         │ │
+│ │ Timer started when you clicked "Start Practice".        │ │
+│ │                                                         │ │
+│ │ TARGET VERSION:                                         │ │
+│ │ "I led a React migration for our e-commerce platform    │ │
+│ │ which had performance issues. I designed an incremental │ │
+│ │ strategy, mentored the team, and delivered 40% faster   │ │
+│ │ load times with zero incidents over 6 months."          │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│                   [Stop & Rate]                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Practice Summary**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Practice Session Complete! 🎉                                │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ SESSION STATS                                               │
+│ • 5 questions practiced                                      │
+│ • 18 minutes total                                           │
+│ • Average: ~3.6 min per question                            │
+│                                                             │
+│ CONFIDENCE DISTRIBUTION                                     │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ 🎯 Great: ████████ (3 questions)                        │ │
+│ │ 😊 Good: ████ (1 question)                              │ │
+│ │ 😟 Needs Work: ████ (1 question)                        │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ AREAS TO FOCUS                                              │
+│ • Behavioral questions (1 needs work)                        │
+│ • Gap-probing questions (1 needs work)                       │
+│                                                             │
+│ NEXT STEPS                                                  │
+│ ✓ Practice gap-probing questions more                        │
+│ ✓ Review behavioral talking points                           │
+│                                                             │
+│          [Practice Again]           [Back to Prep]          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Timer Behavior
+
+| Mode | Timer Type | Alerts |
+|------|------------|--------|
+| Single Question | Elapsed time, no limit | None |
+| Full Interview | Elapsed time, no limit | None |
+| Timed Response | Countdown, strict | Yellow at 80%, red at 100%, beep at expiry |
+
+### Rating Storage
+
+```typescript
+interface PracticeLog {
+  prepId: string
+  itemId: string
+  itemType: 'question' | 'story'
+  rating: PracticeRating
+  duration: number
+  practicedAt: Date
+}
+
+// Stored in localStorage, synced to server on session end
+```
+
+### Behavior
+
+- **Random Selection:** Single question mode picks random from full set
+- **Sequential:** Full interview mode presents in difficulty order (tough first)
+- **Timer Visibility:** Always visible but not blocking (encouragement, not enforcement)
+- **Self-Rating Required:** Must rate before advancing to next item
+- **Session Persistence:** If exited mid-session, prompt to resume or start new
+- **Summary Export:** Option to save summary as note or print
+
+### Accessibility
+
+- **ARIA Role:** `application` with `aria-label="Practice mode"`
+- **Timer:** `aria-live="off"` (not announced to avoid disruption)
+- **Rating Buttons:** `role="radiogroup"` with clear labels
+- **Progress:** Screen reader announces question count (e.g., "Question 2 of 5")
+- **Keyboard:** Space to show answer, 1/2/3 keys for rating shortcuts
+- **Focus Management:** Focus moves to rating buttons when answer revealed
+
+---
+
 ## Testing Checklist
 
 For each component:

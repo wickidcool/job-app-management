@@ -459,3 +459,183 @@ export type NewResumeVariant = typeof resumeVariants.$inferInsert;
 export type ResumeVariantStatus = (typeof resumeVariantStatusEnum.enumValues)[number];
 export type ResumeFormat = (typeof resumeFormatEnum.enumValues)[number];
 export type SectionEmphasis = (typeof sectionEmphasisEnum.enumValues)[number];
+
+// Interview Prep enums (UC-7)
+export const interviewTypeEnum = pgEnum('interview_type', [
+  'behavioral',
+  'technical',
+  'mixed',
+  'case_study',
+]);
+
+export const prepTimeEnum = pgEnum('prep_time', ['30min', '1hr', '2hr', 'full_day']);
+
+export const confidenceLevelEnum = pgEnum('confidence_level', [
+  'not_practiced',
+  'needs_work',
+  'comfortable',
+  'confident',
+]);
+
+export const questionCategoryEnum = pgEnum('question_category', [
+  'behavioral',
+  'technical',
+  'situational',
+  'role_specific',
+  'gap_probing',
+]);
+
+export const questionDifficultyEnum = pgEnum('question_difficulty', [
+  'standard',
+  'challenging',
+  'tough',
+]);
+
+export const gapSeverityEnum = pgEnum('gap_severity', ['critical', 'moderate', 'minor']);
+
+export const mitigationStrategyEnum = pgEnum('mitigation_strategy', [
+  'acknowledge_pivot',
+  'growth_mindset',
+  'adjacent_experience',
+]);
+
+// Interview Prep JSONB types
+export interface GeneratedQuestion {
+  id: string;
+  text: string;
+  category: 'behavioral' | 'technical' | 'situational' | 'role_specific' | 'gap_probing';
+  difficulty: 'standard' | 'challenging' | 'tough';
+  whyTheyAsk: string;
+  whatTheyWant: string;
+  answerFramework: string;
+  suggestedStoryIds: string[];
+  linkedStoryId?: string;
+  personalNotes?: string;
+  practiceStatus: 'not_practiced' | 'needs_work' | 'comfortable' | 'confident';
+  lastPracticedAt?: string;
+}
+
+export interface TalkingPoint {
+  title: string;
+  script: string;
+  keyPhrases: string[];
+  redirectToStrength: string;
+}
+
+export interface GapMitigation {
+  id: string;
+  skill: string;
+  severity: 'critical' | 'moderate' | 'minor';
+  description: string;
+  whyItMatters: string;
+  strategies: {
+    acknowledgePivot: TalkingPoint;
+    growthMindset: TalkingPoint;
+    adjacentExperience: TalkingPoint;
+  };
+  relatedStoryIds: string[];
+  selectedStrategy?: 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_experience';
+  isAddressed: boolean;
+}
+
+export interface SectionConfig {
+  id: 'stories' | 'questions' | 'gaps' | 'company';
+  enabled: boolean;
+  order: number;
+  selectedItems: string[];
+}
+
+export interface CompanyFact {
+  id: string;
+  fact: string;
+  source: string;
+  useFor: 'mention' | 'ask_about';
+}
+
+export interface QuickReference {
+  sections: SectionConfig[];
+  topStoryIds: string[];
+  keyQuestionIds: string[];
+  gapPointIds: string[];
+  companyFacts: CompanyFact[];
+  lastExportedAt?: string;
+  exportFormat?: 'pdf' | 'markdown' | 'print';
+}
+
+export interface PracticeSession {
+  id: string;
+  startedAt: string;
+  endedAt?: string;
+  type: 'single_question' | 'full_interview' | 'timed_responses';
+  questionsAttempted: number;
+  confidenceRatings: {
+    needsWork: number;
+    comfortable: number;
+    confident: number;
+  };
+  focusAreas?: string[];
+}
+
+// Interview Prep tables
+export const interviewPreps = pgTable('interview_preps', {
+  id: text('id').primaryKey(),
+  applicationId: text('application_id')
+    .notNull()
+    .references(() => applications.id, { onDelete: 'cascade' })
+    .unique(),
+  jobFitAnalysisId: text('job_fit_analysis_id'),
+  interviewType: interviewTypeEnum('interview_type').notNull().default('mixed'),
+  timeAvailable: prepTimeEnum('time_available').notNull().default('1hr'),
+  focusAreas: jsonb('focus_areas').$type<string[]>().notNull().default([]),
+  completeness: integer('completeness').notNull().default(0),
+  generatedQuestions: jsonb('generated_questions').$type<GeneratedQuestion[]>().notNull().default([]),
+  gapMitigations: jsonb('gap_mitigations').$type<GapMitigation[]>().notNull().default([]),
+  quickReference: jsonb('quick_reference').$type<QuickReference>(),
+  practiceLog: jsonb('practice_log').$type<PracticeSession[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export const interviewPrepStories = pgTable('interview_prep_stories', {
+  id: text('id').primaryKey(),
+  interviewPrepId: text('interview_prep_id')
+    .notNull()
+    .references(() => interviewPreps.id, { onDelete: 'cascade' }),
+  starEntryId: text('star_entry_id').notNull(),
+  themes: jsonb('themes').$type<string[]>().notNull().default([]),
+  relevanceScore: integer('relevance_score').notNull(),
+  oneMinVersion: text('one_min_version').notNull(),
+  twoMinVersion: text('two_min_version').notNull(),
+  fiveMinVersion: text('five_min_version').notNull(),
+  isFavorite: boolean('is_favorite').notNull().default(false),
+  personalNotes: text('personal_notes'),
+  practiceCount: integer('practice_count').notNull().default(0),
+  lastPracticedAt: timestamp('last_practiced_at', { withTimezone: true }),
+  confidenceLevel: confidenceLevelEnum('confidence_level').notNull().default('not_practiced'),
+  displayOrder: integer('display_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const prepQuestionStoryLinks = pgTable('prep_question_story_links', {
+  id: text('id').primaryKey(),
+  questionId: text('question_id').notNull(),
+  storyId: text('story_id')
+    .notNull()
+    .references(() => interviewPrepStories.id, { onDelete: 'cascade' }),
+  isPrimary: boolean('is_primary').notNull().default(false),
+  matchScore: integer('match_score').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Interview Prep type exports
+export type InterviewPrep = typeof interviewPreps.$inferSelect;
+export type NewInterviewPrep = typeof interviewPreps.$inferInsert;
+export type InterviewPrepStory = typeof interviewPrepStories.$inferSelect;
+export type NewInterviewPrepStory = typeof interviewPrepStories.$inferInsert;
+export type PrepQuestionStoryLink = typeof prepQuestionStoryLinks.$inferSelect;
+export type NewPrepQuestionStoryLink = typeof prepQuestionStoryLinks.$inferInsert;
+export type InterviewType = (typeof interviewTypeEnum.enumValues)[number];
+export type PrepTime = (typeof prepTimeEnum.enumValues)[number];
+export type ConfidenceLevel = (typeof confidenceLevelEnum.enumValues)[number];
