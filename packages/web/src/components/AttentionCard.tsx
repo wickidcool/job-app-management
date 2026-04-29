@@ -32,20 +32,20 @@ export function AttentionCard({ applications }: AttentionCardProps) {
     });
   }
 
-  // Check for stale applications (>14 days in same status)
+  // Check for stale applications (>7 days in same status)
   const staleApps = applications.filter((app) => {
     if (app.status === 'offer' || app.status === 'rejected' || app.status === 'withdrawn') {
       return false; // Terminal statuses don't go stale
     }
     const daysSinceUpdate = differenceInDays(new Date(), new Date(app.updatedAt));
-    return daysSinceUpdate > 14;
+    return daysSinceUpdate > 7;
   });
 
   if (staleApps.length > 0) {
     items.push({
       type: 'warning',
       icon: '🟡',
-      message: `${staleApps.length} application${staleApps.length > 1 ? 's' : ''} need follow-up (>14 days)`,
+      message: `${staleApps.length} application${staleApps.length > 1 ? 's' : ''} need follow-up (>7 days)`,
       link: '/reports/stale',
       count: staleApps.length,
     });

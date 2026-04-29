@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsPipeline } from '../hooks/useReports';
 import type { PipelineApplication, ActiveStatus } from '../services/api';
@@ -39,22 +40,24 @@ function isOverdue(nextActionDue: string | null | undefined): boolean {
   return new Date(nextActionDue) < today;
 }
 
-function isStale(updatedAt: string): boolean {
+function isStale(updatedAt: string, now: number): boolean {
   const updated = new Date(updatedAt);
-  const daysSince = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
+  const daysSince = Math.floor((now - updated.getTime()) / (1000 * 60 * 60 * 24));
   return daysSince >= 14;
 }
 
 function PipelineCard({
   app,
   onClick,
+  now,
 }: {
   app: PipelineApplication;
   onClick: () => void;
+  now: number;
 }) {
   const overdue = isOverdue(app.nextActionDue);
   const dueSoon = !overdue && isDueSoon(app.nextActionDue);
-  const stale = isStale(app.updatedAt);
+  const stale = isStale(app.updatedAt, now);
 
   return (
     <div
@@ -96,8 +99,11 @@ export function ReportsPipeline() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useReportsPipeline();
 
-  const computeStats = () => {
+  const [now] = useState(() => Date.now());
+
+  const stats = useMemo(() => {
     if (!data) return { overdue: 0, dueToday: 0, dueSoon: 0, stale: 0 };
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -117,16 +123,14 @@ export function ReportsPipeline() {
           else if (diffDays <= 7) dueSoon++;
         }
         const daysSince = Math.floor(
-          (Date.now() - new Date(app.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
+          (now - new Date(app.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
         );
         if (daysSince >= 14) stale++;
       }
     }
 
     return { overdue, dueToday, dueSoon, stale };
-  };
-
-  const stats = computeStats();
+  }, [data, now]);
 
   if (isLoading) {
     return (
@@ -202,6 +206,7 @@ export function ReportsPipeline() {
                   <PipelineCard
                     key={app.id}
                     app={app}
+                    now={now}
                     onClick={() => navigate(`/applications/${app.id}`)}
                   />
                 ))}
