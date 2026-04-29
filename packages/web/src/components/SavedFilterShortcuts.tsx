@@ -18,12 +18,6 @@ const SAVED_FILTERS_KEY = 'wic-saved-filters';
 
 const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
   {
-    id: 'needs-followup',
-    name: 'Needs Follow-up',
-    filters: {},
-    isPredefined: true,
-  },
-  {
     id: 'interviews-this-week',
     name: 'Interviews This Week',
     filters: {

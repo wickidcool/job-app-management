@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useApplications } from '../hooks/useApplications';
@@ -58,7 +58,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { data: applications = [] } = useApplications();
 
   // Load recent searches - recalculate when palette opens
-  const recentSearches = open ? getRecentSearches() : [];
+  const recentSearches = useMemo(() => (open ? getRecentSearches() : []), [open]);
 
   const results = useCallback((): SearchResult[] => {
     if (!query.trim()) {
