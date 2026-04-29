@@ -26,6 +26,10 @@ function transformAPIApplication(apiApp: APIApplication): Application {
     createdAt: new Date(apiApp.createdAt),
     updatedAt: new Date(apiApp.updatedAt),
     appliedAt: apiApp.appliedAt ? new Date(apiApp.appliedAt) : undefined,
+    contact: apiApp.contact,
+    compTarget: apiApp.compTarget,
+    nextAction: apiApp.nextAction,
+    nextActionDue: apiApp.nextActionDue,
   };
 }
 
@@ -99,6 +103,10 @@ export class ApplicationService {
       jobDescription: data.jobDescription,
       status: data.status,
       coverLetterId: data.coverLetterId,
+      contact: data.contact,
+      compTarget: data.compTarget,
+      nextAction: data.nextAction,
+      nextActionDue: data.nextActionDue,
     };
 
     const response = await this.client.post<{ application: APIApplication }>(
@@ -126,6 +134,10 @@ export class ApplicationService {
       status: data.status,
       coverLetterId: data.coverLetterId,
       version,
+      contact: data.contact,
+      compTarget: data.compTarget,
+      nextAction: data.nextAction,
+      nextActionDue: data.nextActionDue,
     };
 
     const response = await this.client.patch<{ application: APIApplication }>(
