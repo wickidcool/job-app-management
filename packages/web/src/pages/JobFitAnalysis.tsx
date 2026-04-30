@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
+import { useApplication } from '../hooks/useApplications';
 import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
 import { APIError } from '../services/api/apiClient';
 
@@ -14,6 +15,9 @@ type Stage = 'input' | 'analyzing' | 'results' | 'error';
 
 export function JobFitAnalysis() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const appId = searchParams.get('appId') || undefined;
+  const { data: application, isLoading: isLoadingApplication } = useApplication(appId);
   const [stage, setStage] = useState<Stage>('input');
   const [results, setResults] = useState<AnalyzeJobFitResponse | null>(null);
   const { mutate: analyzeJobFit, isPending, error: mutationError } = useJobFitAnalysis();
@@ -24,12 +28,20 @@ export function JobFitAnalysis() {
     watch,
     formState: { errors },
     setError,
+    setValue,
   } = useForm<JobFitFormData>({
     defaultValues: {
       jobDescriptionText: '',
       jobDescriptionUrl: '',
     },
   });
+
+  // Pre-fill job description when application data loads
+  useEffect(() => {
+    if (application?.jobDescription) {
+      setValue('jobDescriptionText', application.jobDescription);
+    }
+  }, [application, setValue]);
 
   const jobDescriptionText = watch('jobDescriptionText');
   const jobDescriptionUrl = watch('jobDescriptionUrl');
@@ -417,6 +429,19 @@ export function JobFitAnalysis() {
             >
               Try Again
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading state for application data
+  if (isLoadingApplication) {
+    return (
+      <div className="min-h-screen bg-neutral-50 py-8">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <div className="text-gray-500">Loading application data...</div>
           </div>
         </div>
       </div>
