@@ -111,7 +111,7 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const result = await generateResumeVariant(parsed.data);
+    const result = await generateResumeVariant(parsed.data, request.userId ?? undefined);
     return reply.status(201).send(result);
   });
 
@@ -121,7 +121,7 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const result = await suggestBullets(parsed.data);
+    const result = await suggestBullets(parsed.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -131,14 +131,14 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const result = await listResumeVariants(parsed.data);
+    const result = await listResumeVariants(parsed.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
   // GET /api/resume-variants/:id
   fastify.get('/resume-variants/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const result = await getResumeVariant(id);
+    const result = await getResumeVariant(id, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -149,14 +149,14 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const variant = await updateResumeVariant(id, parsed.data);
+    const variant = await updateResumeVariant(id, parsed.data, request.userId ?? undefined);
     return reply.send({ variant });
   });
 
   // DELETE /api/resume-variants/:id
   fastify.delete('/resume-variants/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    await deleteResumeVariant(id);
+    await deleteResumeVariant(id, request.userId ?? undefined);
     return reply.status(204).send();
   });
 
@@ -167,7 +167,7 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const result = await reviseResumeVariant(id, parsed.data);
+    const result = await reviseResumeVariant(id, parsed.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -180,7 +180,7 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     }
 
     const acceptJson = (request.headers['accept'] ?? '').includes('application/json');
-    const result = await exportResumeVariant(id, parsed.data);
+    const result = await exportResumeVariant(id, parsed.data, request.userId ?? undefined);
 
     if (acceptJson) {
       return reply.send({

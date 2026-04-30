@@ -109,7 +109,7 @@ function extractKeywords(jdText: string): string[] {
 
 // ── Generate ──────────────────────────────────────────────────────────────────
 
-export async function generateResumeVariant(input: GenerateResumeVariantInput): Promise<{
+export async function generateResumeVariant(input: GenerateResumeVariantInput, userId?: string): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
   matchedTechTags: string[];
@@ -353,6 +353,7 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
     .insert(resumeVariants)
     .values({
       id,
+      userId: userId ?? null,
       status: 'draft',
       title,
       targetCompany,
@@ -389,13 +390,16 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
 
 // ── Get ───────────────────────────────────────────────────────────────────────
 
-export async function getResumeVariant(id: string): Promise<{
+export async function getResumeVariant(id: string, userId?: string): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
   baseResume?: { id: string; fileName: string };
 }> {
   const db = getDb();
-  const [row] = await db.select().from(resumeVariants).where(eq(resumeVariants.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
+    : eq(resumeVariants.id, id);
+  const [row] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Resume variant');
 
   const content = row.content as ResumeContent;
@@ -433,12 +437,15 @@ export async function listResumeVariants(params: {
   format?: string;
   limit?: number;
   cursor?: string;
-}): Promise<{ variants: ResumeVariantSummaryDTO[]; nextCursor?: string }> {
+}, userId?: string): Promise<{ variants: ResumeVariantSummaryDTO[]; nextCursor?: string }> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 20, 100);
   const offset = params.cursor ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10) : 0;
 
   const conditions: ReturnType<typeof eq>[] = [];
+  if (userId) {
+    conditions.push(eq(resumeVariants.userId, userId) as any);
+  }
   if (params.status === 'draft' || params.status === 'finalized') {
     conditions.push(eq(resumeVariants.status, params.status as any));
   }
@@ -483,7 +490,7 @@ export async function listResumeVariants(params: {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
-export async function updateResumeVariant(id: string, input: UpdateResumeVariantInput): Promise<ResumeVariantDTO> {
+export async function updateResumeVariant(id: string, input: UpdateResumeVariantInput, userId?: string): Promise<ResumeVariantDTO> {
   const db = getDb();
 
   const updates: Record<string, unknown> = {
@@ -493,14 +500,21 @@ export async function updateResumeVariant(id: string, input: UpdateResumeVariant
   if (input.title !== undefined) updates.title = input.title;
   if (input.status !== undefined) updates.status = input.status;
 
+  const whereClause = userId
+    ? and(eq(resumeVariants.id, id), eq(resumeVariants.version, input.version), eq(resumeVariants.userId, userId))
+    : and(eq(resumeVariants.id, id), eq(resumeVariants.version, input.version));
+
   const [row] = await db
     .update(resumeVariants)
     .set(updates)
-    .where(and(eq(resumeVariants.id, id), eq(resumeVariants.version, input.version)))
+    .where(whereClause)
     .returning();
 
   if (!row) {
-    const [existing] = await db.select().from(resumeVariants).where(eq(resumeVariants.id, id)).limit(1);
+    const existingWhere = userId
+      ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
+      : eq(resumeVariants.id, id);
+    const [existing] = await db.select().from(resumeVariants).where(existingWhere).limit(1);
     if (!existing) throw new NotFoundError('Resume variant');
     throw new VersionConflictError();
   }
@@ -510,18 +524,22 @@ export async function updateResumeVariant(id: string, input: UpdateResumeVariant
 
 // ── Delete ────────────────────────────────────────────────────────────────────
 
-export async function deleteResumeVariant(id: string): Promise<void> {
+export async function deleteResumeVariant(id: string, userId?: string): Promise<void> {
   const db = getDb();
-  const [existing] = await db.select().from(resumeVariants).where(eq(resumeVariants.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
+    : eq(resumeVariants.id, id);
+  const [existing] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Resume variant');
-  await db.delete(resumeVariants).where(eq(resumeVariants.id, id));
+  await db.delete(resumeVariants).where(whereClause);
 }
 
 // ── Revise ────────────────────────────────────────────────────────────────────
 
 export async function reviseResumeVariant(
   id: string,
-  input: ReviseResumeVariantInput
+  input: ReviseResumeVariantInput,
+  userId?: string
 ): Promise<{
   variant: ResumeVariantDTO;
   changesApplied: string[];
@@ -529,7 +547,10 @@ export async function reviseResumeVariant(
   atsScore?: number;
 }> {
   const db = getDb();
-  const [existing] = await db.select().from(resumeVariants).where(eq(resumeVariants.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
+    : eq(resumeVariants.id, id);
+  const [existing] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Resume variant');
 
   const currentContent = existing.content as ResumeContent;
@@ -632,7 +653,7 @@ Rules:
 
 // ── Suggest Bullets ───────────────────────────────────────────────────────────
 
-export async function suggestBullets(input: SuggestBulletsInput): Promise<{
+export async function suggestBullets(input: SuggestBulletsInput, _userId?: string): Promise<{
   suggestions: BulletSuggestionDTO[];
   totalCatalogBullets: number;
 }> {
@@ -702,10 +723,14 @@ export async function suggestBullets(input: SuggestBulletsInput): Promise<{
 
 export async function exportResumeVariant(
   id: string,
-  input: ExportResumeVariantInput
+  input: ExportResumeVariantInput,
+  userId?: string
 ): Promise<{ buffer: Buffer; filename: string; contentType: string; pageCount: number }> {
   const db = getDb();
-  const [row] = await db.select().from(resumeVariants).where(eq(resumeVariants.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
+    : eq(resumeVariants.id, id);
+  const [row] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Resume variant');
 
   const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = await import('docx');

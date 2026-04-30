@@ -6,9 +6,11 @@ import {
   listResumeExports,
   getResumeExport,
   deleteResume,
+  getResumeDownloadUrl,
 } from '../services/resume.service.js';
 import { AppError } from '../types/index.js';
 import { getConfig } from '../config.js';
+import { isR2Configured } from '../services/storage.service.js';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -23,8 +25,8 @@ export async function resumesRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/resumes
-  fastify.get('/resumes', async (_request, reply) => {
-    const resumes = await listResumes();
+  fastify.get('/resumes', async (request, reply) => {
+    const resumes = await listResumes(request.userId ?? undefined);
     return reply.send({ resumes });
   });
 
@@ -46,14 +48,29 @@ export async function resumesRoutes(fastify: FastifyInstance) {
     }
 
     const buffer = await data.toBuffer();
-    const result = await uploadResume(buffer, data.filename, mimeType);
+    const result = await uploadResume(buffer, data.filename, mimeType, request.userId ?? undefined);
     return reply.status(201).send(result);
+  });
+
+  // GET /api/resumes/:id/download-url — only available when R2 is configured
+  fastify.get<{ Params: { id: string } }>('/resumes/:id/download-url', async (request, reply) => {
+    if (!isR2Configured()) {
+      throw new AppError(
+        'NOT_SUPPORTED',
+        'Download URLs are only available when R2 storage is configured',
+        undefined,
+        501
+      );
+    }
+    const { id } = request.params;
+    const result = await getResumeDownloadUrl(id, request.userId ?? undefined);
+    return reply.send(result);
   });
 
   // GET /api/resumes/:id/exports
   fastify.get<{ Params: { id: string } }>('/resumes/:id/exports', async (request, reply) => {
     const { id } = request.params;
-    const exports = await listResumeExports(id);
+    const exports = await listResumeExports(id, request.userId ?? undefined);
     return reply.send({ exports });
   });
 
@@ -62,7 +79,7 @@ export async function resumesRoutes(fastify: FastifyInstance) {
     '/resumes/:id/exports/:exportId',
     async (request, reply) => {
       const { id, exportId } = request.params;
-      const exp = await getResumeExport(id, exportId);
+      const exp = await getResumeExport(id, exportId, request.userId ?? undefined);
       return reply.send(exp);
     }
   );
@@ -70,7 +87,7 @@ export async function resumesRoutes(fastify: FastifyInstance) {
   // DELETE /api/resumes/:id
   fastify.delete<{ Params: { id: string } }>('/resumes/:id', async (request, reply) => {
     const { id } = request.params;
-    await deleteResume(id);
+    await deleteResume(id, request.userId ?? undefined);
     return reply.status(204).send();
   });
 

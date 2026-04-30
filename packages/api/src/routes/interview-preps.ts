@@ -128,14 +128,14 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const result = await generateInterviewPrep(parsed.data);
+    const result = await generateInterviewPrep(parsed.data, request.userId ?? undefined);
     return reply.status(201).send(result);
   });
 
   // GET /api/interview-preps/:id — Get interview prep by ID
   fastify.get('/interview-preps/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const result = await getInterviewPrep(id);
+    const result = await getInterviewPrep(id, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -146,7 +146,7 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const result = await updateInterviewPrep(id, parsed.data);
+    const result = await updateInterviewPrep(id, parsed.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -159,7 +159,7 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
     }
 
     const sections = parsed.data.sections ? parsed.data.sections.split(',').map((s) => s.trim()) : undefined;
-    const result = await exportInterviewPrep(id, parsed.data.format, sections);
+    const result = await exportInterviewPrep(id, parsed.data.format, sections, request.userId ?? undefined);
 
     const acceptJson = (request.headers['accept'] ?? '').includes('application/json');
     if (acceptJson) {
@@ -187,21 +187,21 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
-    const result = await logPracticeSession(id, parsed.data);
+    const result = await logPracticeSession(id, parsed.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
   // DELETE /api/interview-preps/:id — Delete interview prep
   fastify.delete('/interview-preps/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    await deleteInterviewPrep(id);
+    await deleteInterviewPrep(id, request.userId ?? undefined);
     return reply.status(204).send();
   });
 
   // GET /api/applications/:applicationId/interview-prep — Get prep for application
   fastify.get('/applications/:applicationId/interview-prep', async (request, reply) => {
     const { applicationId } = request.params as { applicationId: string };
-    const result = await getInterviewPrepByApplication(applicationId);
+    const result = await getInterviewPrepByApplication(applicationId, request.userId ?? undefined);
     return reply.send(result);
   });
 }

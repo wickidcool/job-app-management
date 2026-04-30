@@ -8,6 +8,7 @@ import {
   boolean,
   numeric,
   date,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 export const appStatusEnum = pgEnum('app_status', [
@@ -22,6 +23,7 @@ export const appStatusEnum = pgEnum('app_status', [
 
 export const applications = pgTable('applications', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   jobTitle: text('job_title').notNull(),
   company: text('company').notNull(),
   url: text('url'),
@@ -44,6 +46,7 @@ export const applications = pgTable('applications', {
 
 export const statusHistory = pgTable('status_history', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   applicationId: text('application_id')
     .notNull()
     .references(() => applications.id, { onDelete: 'cascade' }),
@@ -55,6 +58,7 @@ export const statusHistory = pgTable('status_history', {
 
 export const resumes = pgTable('resumes', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   fileName: text('file_name').notNull(),
   fileSize: integer('file_size').notNull(),
   mimeType: text('mime_type').notNull(),
@@ -65,6 +69,7 @@ export const resumes = pgTable('resumes', {
 
 export const resumeExports = pgTable('resume_exports', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   resumeId: text('resume_id')
     .notNull()
     .references(() => resumes.id, { onDelete: 'cascade' }),
@@ -76,6 +81,7 @@ export const resumeExports = pgTable('resume_exports', {
 
 export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
   description: text('description'),
@@ -148,6 +154,7 @@ export const diffStatusEnum = pgEnum('diff_status', [
 // Catalog tables
 export const companyCatalog = pgTable('company_catalog', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   name: text('name').notNull(),
   normalizedName: text('normalized_name').notNull().unique(),
   aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
@@ -163,6 +170,7 @@ export const companyCatalog = pgTable('company_catalog', {
 
 export const jobFitTags = pgTable('job_fit_tags', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   tagSlug: text('tag_slug').notNull().unique(),
   displayName: text('display_name').notNull(),
   category: jobFitCategoryEnum('category').notNull().default('uncategorized'),
@@ -178,6 +186,7 @@ export const jobFitTags = pgTable('job_fit_tags', {
 
 export const techStackTags = pgTable('tech_stack_tags', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   tagSlug: text('tag_slug').notNull().unique(),
   displayName: text('display_name').notNull(),
   category: techStackCategoryEnum('category').notNull().default('uncategorized'),
@@ -195,6 +204,7 @@ export const techStackTags = pgTable('tech_stack_tags', {
 
 export const quantifiedBullets = pgTable('quantified_bullets', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   sourceType: text('source_type').notNull(),
   sourceId: text('source_id').notNull(),
   rawText: text('raw_text').notNull(),
@@ -212,6 +222,7 @@ export const quantifiedBullets = pgTable('quantified_bullets', {
 
 export const recurringThemes = pgTable('recurring_themes', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   themeSlug: text('theme_slug').notNull().unique(),
   displayName: text('display_name').notNull(),
   aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
@@ -228,6 +239,7 @@ export const recurringThemes = pgTable('recurring_themes', {
 
 export const catalogChangeLog = pgTable('catalog_change_log', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   entityType: text('entity_type').notNull(),
   entityId: text('entity_id').notNull(),
   action: changeActionEnum('action').notNull(),
@@ -243,6 +255,7 @@ export const catalogChangeLog = pgTable('catalog_change_log', {
 
 export const catalogDiffs = pgTable('catalog_diffs', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   triggerSource: text('trigger_source').notNull(),
   triggerId: text('trigger_id').notNull(),
   summary: text('summary').notNull(),
@@ -257,6 +270,7 @@ export const catalogDiffs = pgTable('catalog_diffs', {
 
 export const wikilinkRegistry = pgTable('wikilink_registry', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   linkText: text('link_text').notNull(),
   normalizedText: text('normalized_text').notNull(),
   targetType: text('target_type').notNull(),
@@ -316,6 +330,7 @@ export interface RevisionEntry {
 
 export const coverLetters = pgTable('cover_letters', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   status: coverLetterStatusEnum('status').notNull().default('draft'),
   title: text('title').notNull(),
   targetCompany: text('target_company').notNull(),
@@ -336,6 +351,7 @@ export const coverLetters = pgTable('cover_letters', {
 
 export const outreachMessages = pgTable('outreach_messages', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   platform: outreachPlatformEnum('platform').notNull(),
   targetCompany: text('target_company').notNull(),
   targetRole: text('target_role'),
@@ -432,6 +448,7 @@ export interface VariantRevisionEntry {
 
 export const resumeVariants = pgTable('resume_variants', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   status: resumeVariantStatusEnum('status').notNull().default('draft'),
   title: text('title').notNull(),
   targetCompany: text('target_company').notNull(),
@@ -580,6 +597,7 @@ export interface PracticeSession {
 // Interview Prep tables
 export const interviewPreps = pgTable('interview_preps', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   applicationId: text('application_id')
     .notNull()
     .references(() => applications.id, { onDelete: 'cascade' })
@@ -600,6 +618,7 @@ export const interviewPreps = pgTable('interview_preps', {
 
 export const interviewPrepStories = pgTable('interview_prep_stories', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   interviewPrepId: text('interview_prep_id')
     .notNull()
     .references(() => interviewPreps.id, { onDelete: 'cascade' }),
@@ -621,6 +640,7 @@ export const interviewPrepStories = pgTable('interview_prep_stories', {
 
 export const prepQuestionStoryLinks = pgTable('prep_question_story_links', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   questionId: text('question_id').notNull(),
   storyId: text('story_id')
     .notNull()

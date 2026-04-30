@@ -86,7 +86,7 @@ export async function reportsRoutes(fastify: FastifyInstance) {
         error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
       });
     }
-    const result = await getPipelineReport(query.data);
+    const result = await getPipelineReport(query.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -98,7 +98,7 @@ export async function reportsRoutes(fastify: FastifyInstance) {
         error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
       });
     }
-    const result = await getNeedsActionReport(query.data);
+    const result = await getNeedsActionReport(query.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -110,7 +110,7 @@ export async function reportsRoutes(fastify: FastifyInstance) {
         error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
       });
     }
-    const result = await getStaleReport(query.data);
+    const result = await getStaleReport(query.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -122,7 +122,7 @@ export async function reportsRoutes(fastify: FastifyInstance) {
         error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
       });
     }
-    const result = await getClosedLoopReport(query.data);
+    const result = await getClosedLoopReport(query.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -134,7 +134,7 @@ export async function reportsRoutes(fastify: FastifyInstance) {
         error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
       });
     }
-    const result = await getByFitTierReport(query.data);
+    const result = await getByFitTierReport(query.data, request.userId ?? undefined);
     return reply.send(result);
   });
 }
