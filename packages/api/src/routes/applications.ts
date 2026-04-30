@@ -34,7 +34,7 @@ const createApplicationSchema = z.object({
   contact: z.string().max(200).optional().transform(v => v === '' ? undefined : v),
   compTarget: z.string().optional().transform(v => v === '' ? undefined : v),
   nextAction: z.string().max(500).optional().transform(v => v === '' ? undefined : v),
-  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional().transform(v => v === '' ? undefined : v),
 });
 
 const updateApplicationSchema = z.object({
@@ -49,7 +49,7 @@ const updateApplicationSchema = z.object({
   contact: z.string().max(200).nullable().optional().transform(v => v === '' ? undefined : v),
   compTarget: z.string().nullable().optional().transform(v => v === '' ? undefined : v),
   nextAction: z.string().max(500).nullable().optional().transform(v => v === '' ? undefined : v),
-  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).nullable().optional().transform(v => v === '' ? undefined : v),
   version: z.number().int().positive(),
 });
 
