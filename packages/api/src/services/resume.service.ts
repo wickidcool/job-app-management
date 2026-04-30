@@ -6,6 +6,12 @@ import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
+import {
+  isR2Configured,
+  uploadObject,
+  deleteObject,
+  buildObjectKey,
+} from './storage.service.js';
 import { enqueueChange } from './change-queue.service.js';
 import {
   parseResumeWithAI,
@@ -302,14 +308,20 @@ export async function uploadResume(
   }
 
   const config = getConfig();
-  const resumeDir = path.join(config.dataDir, 'resumes');
-  await fs.mkdir(resumeDir, { recursive: true });
-
   const resumeId = ulid();
   const ext = mimeType === 'application/pdf' ? '.pdf' : '.docx';
   const storedFileName = `${resumeId}${ext}`;
-  const filePath = path.join(resumeDir, storedFileName);
-  await fs.writeFile(filePath, fileBuffer);
+
+  let filePath: string;
+  if (isR2Configured()) {
+    filePath = buildObjectKey(userId ?? null, 'resumes', storedFileName);
+    await uploadObject(filePath, fileBuffer, mimeType);
+  } else {
+    const resumeDir = path.join(config.dataDir, 'resumes');
+    await fs.mkdir(resumeDir, { recursive: true });
+    filePath = path.join(resumeDir, storedFileName);
+    await fs.writeFile(filePath, fileBuffer);
+  }
 
   const db = getDb();
   const [resume] = await db
@@ -331,8 +343,16 @@ export async function uploadResume(
 
   const exportId = ulid();
   const exportFileName = `${exportId}_star.md`;
-  const exportPath = path.join(resumeDir, exportFileName);
-  await fs.writeFile(exportPath, starMarkdown, 'utf-8');
+
+  let exportPath: string;
+  if (isR2Configured()) {
+    exportPath = buildObjectKey(userId ?? null, 'resume-exports', exportFileName);
+    await uploadObject(exportPath, Buffer.from(starMarkdown, 'utf-8'), 'text/markdown');
+  } else {
+    const resumeDir = path.join(config.dataDir, 'resumes');
+    exportPath = path.join(resumeDir, exportFileName);
+    await fs.writeFile(exportPath, starMarkdown, 'utf-8');
+  }
 
   const sectionSummary = parsed.sections.map((s) => ({
     heading: s.heading,
@@ -469,15 +489,40 @@ export async function deleteResume(resumeId: string, userId?: string): Promise<v
   const [resume] = await db.select().from(resumes).where(whereClause).limit(1);
   if (!resume) throw new NotFoundError('Resume');
 
-  // Delete resume file
-  await fs.unlink(resume.filePath).catch(() => null);
+  const useR2 = isR2Configured();
 
-  // Delete exports (cascade will handle DB records, but we need to delete files)
-  const exports = await db.select().from(resumeExports).where(eq(resumeExports.resumeId, resumeId));
-  for (const exp of exports) {
-    await fs.unlink(exp.filePath).catch(() => null);
+  if (useR2) {
+    await deleteObject(resume.filePath).catch(() => null);
+  } else {
+    await fs.unlink(resume.filePath).catch(() => null);
   }
 
-  // Delete DB record (cascade deletes resume_exports)
+  const exports = await db.select().from(resumeExports).where(eq(resumeExports.resumeId, resumeId));
+  for (const exp of exports) {
+    if (useR2) {
+      await deleteObject(exp.filePath).catch(() => null);
+    } else {
+      await fs.unlink(exp.filePath).catch(() => null);
+    }
+  }
+
   await db.delete(resumes).where(eq(resumes.id, resumeId));
+}
+
+export async function getResumeDownloadUrl(
+  resumeId: string,
+  userId?: string
+): Promise<{ url: string; expiresAt: string }> {
+  const db = getDb();
+  const whereClause = userId
+    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
+    : eq(resumes.id, resumeId);
+  const [resume] = await db.select().from(resumes).where(whereClause).limit(1);
+  if (!resume) throw new NotFoundError('Resume');
+
+  const { getSignedUrl } = await import('./storage.service.js');
+  const expiresInSeconds = 3600;
+  const url = await getSignedUrl(resume.filePath, expiresInSeconds);
+  const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+  return { url, expiresAt };
 }

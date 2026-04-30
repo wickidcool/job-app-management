@@ -8,6 +8,10 @@ export interface Config {
   supabaseUrl: string | null;
   supabaseAnonKey: string | null;
   supabaseJwtSecret: string | null;
+  r2Endpoint: string | null;
+  r2AccessKeyId: string | null;
+  r2SecretAccessKey: string | null;
+  r2Bucket: string | null;
 }
 
 let _config: Config | null = null;
@@ -32,6 +36,10 @@ export function getConfig(): Config {
       supabaseUrl: process.env.SUPABASE_URL ?? null,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? null,
       supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
+      r2Endpoint: process.env.R2_ENDPOINT ?? null,
+      r2AccessKeyId: process.env.R2_ACCESS_KEY_ID ?? null,
+      r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? null,
+      r2Bucket: process.env.R2_BUCKET ?? null,
     };
   }
   return _config;

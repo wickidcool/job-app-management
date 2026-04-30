@@ -197,7 +197,7 @@ describe('Project Routes', () => {
       });
 
       expect(response.statusCode).toBe(204);
-      expect(resumeService.deleteResume).toHaveBeenCalledWith('01HXTEST000000000000000001');
+      expect(resumeService.deleteResume).toHaveBeenCalledWith('01HXTEST000000000000000001', undefined);
     });
 
     it('returns 404 when resume not found', async () => {
