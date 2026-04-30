@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { ulid } from 'ulid';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
@@ -294,7 +294,8 @@ function exportToDTO(e: typeof resumeExports.$inferSelect): ResumeExportDTO {
 export async function uploadResume(
   fileBuffer: Buffer,
   fileName: string,
-  mimeType: string
+  mimeType: string,
+  userId?: string
 ): Promise<UploadResumeResult> {
   if (!ALLOWED_MIME_TYPES.has(mimeType)) {
     throw new Error(`Unsupported file type: ${mimeType}. Only PDF and DOCX are accepted.`);
@@ -315,6 +316,7 @@ export async function uploadResume(
     .insert(resumes)
     .values({
       id: resumeId,
+      userId: userId ?? null,
       fileName,
       fileSize: fileBuffer.length,
       mimeType,
@@ -341,6 +343,7 @@ export async function uploadResume(
     .insert(resumeExports)
     .values({
       id: exportId,
+      userId: userId ?? null,
       resumeId,
       exportType: 'star_markdown',
       filePath: exportPath,
@@ -407,16 +410,20 @@ export async function uploadResume(
   };
 }
 
-export async function listResumes(): Promise<ResumeDTO[]> {
+export async function listResumes(userId?: string): Promise<ResumeDTO[]> {
   const db = getDb();
-  const allResumes = await db.select().from(resumes).orderBy(resumes.uploadedAt);
+  const whereClause = userId ? eq(resumes.userId, userId) : undefined;
+  const allResumes = await db.select().from(resumes).where(whereClause).orderBy(resumes.uploadedAt);
   return allResumes.map(toDTO);
 }
 
-export async function listResumeExports(resumeId: string): Promise<ResumeExportDTO[]> {
+export async function listResumeExports(resumeId: string, userId?: string): Promise<ResumeExportDTO[]> {
   const db = getDb();
 
-  const resume = await db.select().from(resumes).where(eq(resumes.id, resumeId)).limit(1);
+  const resumeWhere = userId
+    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
+    : eq(resumes.id, resumeId);
+  const resume = await db.select().from(resumes).where(resumeWhere).limit(1);
   if (resume.length === 0) {
     throw new NotFoundError('Resume');
   }
@@ -428,11 +435,15 @@ export async function listResumeExports(resumeId: string): Promise<ResumeExportD
 
 export async function getResumeExport(
   resumeId: string,
-  exportId: string
+  exportId: string,
+  userId?: string
 ): Promise<ResumeExportDTO> {
   const db = getDb();
 
-  const resume = await db.select().from(resumes).where(eq(resumes.id, resumeId)).limit(1);
+  const resumeWhere = userId
+    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
+    : eq(resumes.id, resumeId);
+  const resume = await db.select().from(resumes).where(resumeWhere).limit(1);
   if (resume.length === 0) {
     throw new NotFoundError('Resume');
   }
@@ -450,9 +461,12 @@ export async function getResumeExport(
   return exportToDTO(exp);
 }
 
-export async function deleteResume(resumeId: string): Promise<void> {
+export async function deleteResume(resumeId: string, userId?: string): Promise<void> {
   const db = getDb();
-  const [resume] = await db.select().from(resumes).where(eq(resumes.id, resumeId)).limit(1);
+  const whereClause = userId
+    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
+    : eq(resumes.id, resumeId);
+  const [resume] = await db.select().from(resumes).where(whereClause).limit(1);
   if (!resume) throw new NotFoundError('Resume');
 
   // Delete resume file

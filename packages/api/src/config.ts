@@ -5,6 +5,9 @@ export interface Config {
   dataDir: string;
   nodeEnv: string;
   anthropicApiKey: string | null;
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
+  supabaseJwtSecret: string | null;
 }
 
 let _config: Config | null = null;
@@ -22,6 +25,9 @@ export function getConfig(): Config {
       dataDir: process.env.DATA_DIR ?? './data',
       nodeEnv: process.env.NODE_ENV ?? 'development',
       anthropicApiKey: cleanKey || null,
+      supabaseUrl: process.env.SUPABASE_URL ?? null,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? null,
+      supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
     };
   }
   return _config;
