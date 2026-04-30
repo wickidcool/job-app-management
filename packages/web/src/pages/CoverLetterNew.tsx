@@ -1,6 +1,7 @@
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { CoverLetterGenerator } from '../components/CoverLetterGenerator';
 import { useStarEntries } from '../hooks/useCatalog';
+import { useApplication } from '../hooks/useApplications';
 import type { CoverLetterResult } from '../services/api/types';
 
 interface CoverLetterNewState {
@@ -17,10 +18,14 @@ export function CoverLetterNew() {
   const state = (location.state as CoverLetterNewState) || {};
 
   const fitAnalysisId = searchParams.get('fitAnalysisId') || undefined;
-  const applicationId = searchParams.get('applicationId') || state.applicationId || undefined;
-  const jobDescriptionText = state.jobDescriptionText || '';
-  const targetCompany = state.targetCompany || '';
-  const targetRole = state.targetRole || '';
+  const appId = searchParams.get('appId') || state.applicationId || undefined;
+  const { data: application, isLoading: isLoadingApplication } = useApplication(appId);
+
+  // Use application data if available, otherwise fall back to state
+  const jobDescriptionText = application?.jobDescription || state.jobDescriptionText || '';
+  const targetCompany = application?.company || state.targetCompany || '';
+  const targetRole = application?.jobTitle || state.targetRole || '';
+  const applicationId = appId;
 
   const { data: catalogEntries = [], isLoading, error } = useStarEntries();
 
@@ -42,11 +47,13 @@ export function CoverLetterNew() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isLoadingApplication) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-lg font-medium text-gray-700">Loading STAR entries...</div>
+          <div className="text-lg font-medium text-gray-700">
+            {isLoadingApplication ? 'Loading application data...' : 'Loading STAR entries...'}
+          </div>
         </div>
       </div>
     );

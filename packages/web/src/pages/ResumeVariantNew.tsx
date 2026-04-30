@@ -1,11 +1,15 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useGenerateResumeVariant } from '../hooks/useResumeVariants';
+import { useApplication } from '../hooks/useApplications';
 import type { GenerateResumeVariantRequest, ResumeFormat, SectionEmphasis } from '../services/api/types';
 
 export function ResumeVariantNew() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const appId = searchParams.get('appId') || undefined;
+  const { data: application, isLoading: isLoadingApplication } = useApplication(appId);
   const generateVariant = useGenerateResumeVariant();
 
   const [formData, setFormData] = useState({
@@ -22,6 +26,18 @@ export function ResumeVariantNew() {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Pre-fill form data when application loads
+  useEffect(() => {
+    if (application) {
+      setFormData((prev) => ({
+        ...prev,
+        targetCompany: application.company || '',
+        targetRole: application.jobTitle || '',
+        jobDescriptionText: application.jobDescription || '',
+      }));
+    }
+  }, [application]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +89,16 @@ export function ResumeVariantNew() {
     { label: 'Resume Variants', href: '/resume-variants' },
     { label: 'Generate New' },
   ];
+
+  if (isLoadingApplication) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="rounded-lg border border-gray-200 bg-white p-12 shadow-sm text-center">
+          <div className="text-gray-500">Loading application data...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
