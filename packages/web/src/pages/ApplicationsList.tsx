@@ -113,6 +113,7 @@ export function ApplicationsList() {
         applications={applications}
         onStatusChange={handleStatusChange}
         onCardClick={(id) => navigate(`/applications/${id}`)}
+        onEdit={(id) => navigate(`/applications/${id}`)}
         loading={isLoading}
       />
 
