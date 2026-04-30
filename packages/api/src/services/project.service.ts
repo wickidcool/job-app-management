@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { ulid } from 'ulid';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { projects } from '../db/schema.js';
 import { getConfig } from '../config.js';
@@ -59,7 +59,7 @@ async function getFileCount(slug: string): Promise<number> {
   }
 }
 
-export async function createProject(input: CreateProjectInput): Promise<ProjectMeta> {
+export async function createProject(input: CreateProjectInput, userId?: string): Promise<ProjectMeta> {
   const db = getDb();
   const slug = input.slug || toSlug(input.name);
 
@@ -85,6 +85,7 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectM
     .insert(projects)
     .values({
       id,
+      userId: userId ?? null,
       name: input.name,
       slug,
       description: input.description || null,
@@ -125,9 +126,12 @@ export async function getProject(projectId: string): Promise<ProjectMeta> {
   };
 }
 
-export async function getProjectBySlug(slug: string): Promise<ProjectMeta> {
+export async function getProjectBySlug(slug: string, userId?: string): Promise<ProjectMeta> {
   const db = getDb();
-  const [project] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
+  const whereClause = userId
+    ? and(eq(projects.slug, slug), eq(projects.userId, userId))
+    : eq(projects.slug, slug);
+  const [project] = await db.select().from(projects).where(whereClause).limit(1);
 
   if (project) {
     const fileCount = await getFileCount(project.slug);
@@ -180,12 +184,16 @@ function slugToName(slug: string): string {
     .join(' ');
 }
 
-export async function listProjects(): Promise<ProjectMeta[]> {
+export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
   const db = getDb();
   const dir = projectsDir();
 
   // Get projects from database
-  const dbProjects = await db.select().from(projects).orderBy(desc(projects.updatedAt));
+  const dbProjects = await db
+    .select()
+    .from(projects)
+    .where(userId ? eq(projects.userId, userId) : undefined)
+    .orderBy(desc(projects.updatedAt));
 
   const dbSlugs = new Set(dbProjects.map((p) => p.slug));
   const result: ProjectMeta[] = [];
@@ -246,9 +254,12 @@ export async function listProjects(): Promise<ProjectMeta[]> {
   return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function deleteProject(projectId: string): Promise<void> {
+export async function deleteProject(projectId: string, userId?: string): Promise<void> {
   const db = getDb();
-  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+  const whereClause = userId
+    ? and(eq(projects.id, projectId), eq(projects.userId, userId))
+    : eq(projects.id, projectId);
+  const [project] = await db.select().from(projects).where(whereClause).limit(1);
 
   if (!project) {
     throw new NotFoundError('Project');
@@ -256,10 +267,16 @@ export async function deleteProject(projectId: string): Promise<void> {
 
   const dir = safeJoin(projectsDir(), project.slug);
   await fs.rm(dir, { recursive: true, force: true }).catch(() => null);
-  await db.delete(projects).where(eq(projects.id, projectId));
+  await db.delete(projects).where(whereClause);
 }
 
-export async function listProjectFiles(slug: string): Promise<ProjectFileMeta[]> {
+export async function listProjectFiles(slug: string, userId?: string): Promise<ProjectFileMeta[]> {
+  if (userId) {
+    const db = getDb();
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    if (!project) throw new NotFoundError('Project');
+  }
   const dir = safeJoin(projectsDir(), slug);
   let files: string[];
   try {
@@ -277,9 +294,15 @@ export async function listProjectFiles(slug: string): Promise<ProjectFileMeta[]>
   return result.sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
 
-export async function getProjectFile(slug: string, fileName: string): Promise<string> {
+export async function getProjectFile(slug: string, fileName: string, userId?: string): Promise<string> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
+  }
+  if (userId) {
+    const db = getDb();
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    if (!project) throw new NotFoundError('Project');
   }
   const filePath = safeJoin(projectsDir(), slug, fileName);
   try {
@@ -292,10 +315,17 @@ export async function getProjectFile(slug: string, fileName: string): Promise<st
 export async function updateProjectFile(
   slug: string,
   fileName: string,
-  content: string
+  content: string,
+  userId?: string
 ): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
+  }
+  if (userId) {
+    const db = getDb();
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    if (!project) throw new NotFoundError('Project');
   }
   const dir = safeJoin(projectsDir(), slug);
   try {
@@ -314,10 +344,17 @@ export async function updateProjectFile(
 export async function createProjectFile(
   slug: string,
   fileName: string,
-  content: string
+  content: string,
+  userId?: string
 ): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
+  }
+  if (userId) {
+    const db = getDb();
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    if (!project) throw new NotFoundError('Project');
   }
   const dir = safeJoin(projectsDir(), slug);
   try {
@@ -342,9 +379,15 @@ export async function createProjectFile(
   await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
 
-export async function deleteProjectFile(slug: string, fileName: string): Promise<void> {
+export async function deleteProjectFile(slug: string, fileName: string, userId?: string): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
+  }
+  if (userId) {
+    const db = getDb();
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    if (!project) throw new NotFoundError('Project');
   }
   const filePath = safeJoin(projectsDir(), slug, fileName);
   try {
@@ -358,8 +401,8 @@ export async function deleteProjectFile(slug: string, fileName: string): Promise
   await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
 
-export async function generateProjectIndex(): Promise<{ path: string; projectCount: number }> {
-  const allProjects = await listProjects();
+export async function generateProjectIndex(userId?: string): Promise<{ path: string; projectCount: number }> {
+  const allProjects = await listProjects(userId);
   const dir = projectsDir();
   await fs.mkdir(dir, { recursive: true });
 
@@ -389,7 +432,7 @@ export async function generateProjectIndex(): Promise<{ path: string; projectCou
   return { path: 'projects/index.md', projectCount: allProjects.length };
 }
 
-export async function getOrCreateProjectBySlug(slug: string, name?: string): Promise<ProjectMeta> {
+export async function getOrCreateProjectBySlug(slug: string, name?: string, userId?: string): Promise<ProjectMeta> {
   const db = getDb();
   const [existing] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
 
@@ -407,5 +450,5 @@ export async function getOrCreateProjectBySlug(slug: string, name?: string): Pro
     };
   }
 
-  return createProject({ name: name || slug, slug });
+  return createProject({ name: name || slug, slug }, userId);
 }

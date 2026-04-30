@@ -372,7 +372,7 @@ Rules:
 
 // ── Generate Interview Prep ───────────────────────────────────────────────────
 
-export async function generateInterviewPrep(input: GenerateInterviewPrepInput): Promise<{
+export async function generateInterviewPrep(input: GenerateInterviewPrepInput, userId?: string): Promise<{
   interviewPrep: InterviewPrepDTO;
   storiesGenerated: number;
   questionsGenerated: number;
@@ -442,6 +442,7 @@ export async function generateInterviewPrep(input: GenerateInterviewPrepInput): 
 
   const newPrep: NewInterviewPrep = {
     id: prepId,
+    userId: userId ?? null,
     applicationId: input.applicationId,
     jobFitAnalysisId: input.jobFitAnalysisId ?? null,
     interviewType,
@@ -521,17 +522,21 @@ export async function generateInterviewPrep(input: GenerateInterviewPrepInput): 
 
 // ── Get Interview Prep ────────────────────────────────────────────────────────
 
-export async function getInterviewPrep(id: string): Promise<{
+export async function getInterviewPrep(id: string, userId?: string): Promise<{
   interviewPrep: InterviewPrepDTO;
   application: { id: string; jobTitle: string; company: string; status: string };
   fitAnalysis?: { id: string; recommendation?: string; confidence?: string; analysisTimestamp?: string } | null;
 }> {
   const db = getDb();
 
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
+
   const [prep] = await db
     .select()
     .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
+    .where(whereClause)
     .limit(1);
 
   if (!prep) {
@@ -560,38 +565,47 @@ export async function getInterviewPrep(id: string): Promise<{
 
 // ── Get Interview Prep by Application ─────────────────────────────────────────
 
-export async function getInterviewPrepByApplication(applicationId: string): Promise<{
+export async function getInterviewPrepByApplication(applicationId: string, userId?: string): Promise<{
   interviewPrep: InterviewPrepDTO;
   application: { id: string; jobTitle: string; company: string; status: string };
   fitAnalysis?: { id: string } | null;
 }> {
   const db = getDb();
 
+  const whereClause = userId
+    ? and(eq(interviewPreps.applicationId, applicationId), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.applicationId, applicationId);
+
   const [prep] = await db
     .select()
     .from(interviewPreps)
-    .where(eq(interviewPreps.applicationId, applicationId))
+    .where(whereClause)
     .limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
   }
 
-  return getInterviewPrep(prep.id);
+  return getInterviewPrep(prep.id, userId);
 }
 
 // ── Update Interview Prep ─────────────────────────────────────────────────────
 
 export async function updateInterviewPrep(
   id: string,
-  input: UpdateInterviewPrepInput
+  input: UpdateInterviewPrepInput,
+  userId?: string
 ): Promise<{ interviewPrep: InterviewPrepDTO; completenessChange: number }> {
   const db = getDb();
+
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
 
   const [prep] = await db
     .select()
     .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
+    .where(whereClause)
     .limit(1);
 
   if (!prep) {
@@ -702,7 +716,8 @@ export async function updateInterviewPrep(
 
 export async function logPracticeSession(
   id: string,
-  input: LogPracticeSessionInput
+  input: LogPracticeSessionInput,
+  userId?: string
 ): Promise<{
   session: PracticeSession;
   interviewPrep: InterviewPrepDTO;
@@ -717,10 +732,14 @@ export async function logPracticeSession(
 }> {
   const db = getDb();
 
+  const prepWhereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
+
   const [prep] = await db
     .select()
     .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
+    .where(prepWhereClause)
     .limit(1);
 
   if (!prep) {
@@ -862,14 +881,19 @@ export async function logPracticeSession(
 export async function exportInterviewPrep(
   id: string,
   format: 'pdf' | 'markdown' | 'print',
-  sections?: string[]
+  sections?: string[],
+  userId?: string
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
   const db = getDb();
+
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
 
   const [prep] = await db
     .select()
     .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
+    .where(whereClause)
     .limit(1);
 
   if (!prep) {
@@ -1043,18 +1067,22 @@ function markdownToHtml(md: string): string {
 
 // ── Delete Interview Prep ─────────────────────────────────────────────────────
 
-export async function deleteInterviewPrep(id: string): Promise<void> {
+export async function deleteInterviewPrep(id: string, userId?: string): Promise<void> {
   const db = getDb();
+
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
 
   const [prep] = await db
     .select({ id: interviewPreps.id })
     .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
+    .where(whereClause)
     .limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
   }
 
-  await db.delete(interviewPreps).where(eq(interviewPreps.id, id));
+  await db.delete(interviewPreps).where(whereClause);
 }

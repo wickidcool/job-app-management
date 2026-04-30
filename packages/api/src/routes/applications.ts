@@ -84,14 +84,14 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await listApplications(query.data);
+    const result = await listApplications(query.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
   // GET /api/applications/:id
   fastify.get<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
     const { id } = request.params;
-    const result = await getApplication(id);
+    const result = await getApplication(id, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -107,7 +107,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await createApplication(body.data);
+    const result = await createApplication(body.data, request.userId ?? undefined);
     return reply.status(201).send(result);
   });
 
@@ -124,14 +124,14 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await updateApplication(id, body.data);
+    const result = await updateApplication(id, body.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
   // DELETE /api/applications/:id
   fastify.delete<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
     const { id } = request.params;
-    await deleteApplication(id);
+    await deleteApplication(id, request.userId ?? undefined);
     return reply.status(204).send();
   });
 
@@ -148,7 +148,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await updateApplicationStatus(id, body.data);
+    const result = await updateApplicationStatus(id, body.data, request.userId ?? undefined);
     return reply.send(result);
   });
 }

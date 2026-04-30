@@ -123,7 +123,7 @@ async function fetchStarEntries(ids: string[]): Promise<{ id: string; rawText: s
 
 // ── Generate ──────────────────────────────────────────────────────────────────
 
-export async function generateCoverLetter(input: GenerateCoverLetterInput): Promise<{
+export async function generateCoverLetter(input: GenerateCoverLetterInput, userId?: string): Promise<{
   coverLetter: CoverLetterDTO;
   usedStarEntries: UsedStarEntryDTO[];
   matchedThemes: string[];
@@ -247,6 +247,7 @@ Rules:
     .insert(coverLetters)
     .values({
       id,
+      userId: userId ?? null,
       status: 'draft',
       title,
       targetCompany,
@@ -276,12 +277,15 @@ Rules:
 
 // ── Get ───────────────────────────────────────────────────────────────────────
 
-export async function getCoverLetter(id: string): Promise<{
+export async function getCoverLetter(id: string, userId?: string): Promise<{
   coverLetter: CoverLetterDTO;
   usedStarEntries: UsedStarEntryDTO[];
 }> {
   const db = getDb();
-  const [row] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
   const starEntries = await fetchStarEntries(row.selectedStarEntryIds ?? []);
@@ -302,12 +306,15 @@ export async function listCoverLetters(params: {
   search?: string;
   limit?: number;
   cursor?: string;
-}): Promise<{ coverLetters: CoverLetterSummaryDTO[]; nextCursor?: string }> {
+}, userId?: string): Promise<{ coverLetters: CoverLetterSummaryDTO[]; nextCursor?: string }> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 20, 100);
   const offset = params.cursor ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10) : 0;
 
   const conditions: ReturnType<typeof eq>[] = [];
+  if (userId) {
+    conditions.push(eq(coverLetters.userId, userId) as any);
+  }
   if (params.status === 'draft' || params.status === 'finalized') {
     conditions.push(eq(coverLetters.status, params.status as any));
   }
@@ -349,7 +356,8 @@ export async function listCoverLetters(params: {
 
 export async function updateCoverLetter(
   id: string,
-  input: UpdateCoverLetterInput
+  input: UpdateCoverLetterInput,
+  userId?: string
 ): Promise<CoverLetterDTO> {
   const db = getDb();
 
@@ -361,14 +369,21 @@ export async function updateCoverLetter(
   if (input.content !== undefined) updates.content = input.content;
   if (input.status !== undefined) updates.status = input.status;
 
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.version, input.version), eq(coverLetters.userId, userId))
+    : and(eq(coverLetters.id, id), eq(coverLetters.version, input.version));
+
   const [row] = await db
     .update(coverLetters)
     .set(updates)
-    .where(and(eq(coverLetters.id, id), eq(coverLetters.version, input.version)))
+    .where(whereClause)
     .returning();
 
   if (!row) {
-    const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+    const existingWhere = userId
+      ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+      : eq(coverLetters.id, id);
+    const [existing] = await db.select().from(coverLetters).where(existingWhere).limit(1);
     if (!existing) throw new NotFoundError('Cover letter');
     throw new VersionConflictError();
   }
@@ -378,25 +393,32 @@ export async function updateCoverLetter(
 
 // ── Delete ────────────────────────────────────────────────────────────────────
 
-export async function deleteCoverLetter(id: string): Promise<void> {
+export async function deleteCoverLetter(id: string, userId?: string): Promise<void> {
   const db = getDb();
-  const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [existing] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Cover letter');
-  await db.delete(coverLetters).where(eq(coverLetters.id, id));
+  await db.delete(coverLetters).where(whereClause);
 }
 
 // ── Revise ────────────────────────────────────────────────────────────────────
 
 export async function reviseCoverLetter(
   id: string,
-  input: ReviseCoverLetterInput
+  input: ReviseCoverLetterInput,
+  userId?: string
 ): Promise<{
   coverLetter: CoverLetterDTO;
   changesApplied: string[];
   usedStarEntries: UsedStarEntryDTO[];
 }> {
   const db = getDb();
-  const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [existing] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Cover letter');
 
   const selectedIds = input.selectedStarEntryIds ?? existing.selectedStarEntryIds ?? [];
@@ -483,7 +505,7 @@ Rules:
 
 // ── Generate Outreach ─────────────────────────────────────────────────────────
 
-export async function generateOutreach(input: GenerateOutreachInput): Promise<{
+export async function generateOutreach(input: GenerateOutreachInput, userId?: string): Promise<{
   message: OutreachMessageDTO;
 }> {
   // Validation
@@ -571,6 +593,7 @@ Requirements:
     .insert(outreachMessages)
     .values({
       id,
+      userId: userId ?? null,
       platform: platform as any,
       targetCompany: input.targetCompany,
       targetRole: input.targetRole,
@@ -592,10 +615,14 @@ Requirements:
 
 export async function exportCoverLetter(
   id: string,
-  input: ExportCoverLetterInput
+  input: ExportCoverLetterInput,
+  userId?: string
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
   const db = getDb();
-  const [row] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
   const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');

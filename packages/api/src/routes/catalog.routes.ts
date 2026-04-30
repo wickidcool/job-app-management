@@ -132,12 +132,12 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const { diffs } = await listDiffs(parsed.data);
+    const { diffs } = await listDiffs(parsed.data, request.userId ?? undefined);
     return reply.send(diffs);
   });
 
   fastify.get<{ Params: { id: string } }>('/catalog/diffs/:id', async (request, reply) => {
-    const diff = await getDiff(request.params.id);
+    const diff = await getDiff(request.params.id, request.userId ?? undefined);
     return reply.send(diff);
   });
 
@@ -147,7 +147,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId);
+    const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId, request.userId ?? undefined);
     return reply.status(201).send(diff);
   });
 
@@ -157,12 +157,12 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const result = await applyDiff(request.params.id, parsed.data);
+    const result = await applyDiff(request.params.id, parsed.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
   fastify.delete<{ Params: { id: string } }>('/catalog/diffs/:id', async (request, reply) => {
-    await discardDiff(request.params.id);
+    await discardDiff(request.params.id, request.userId ?? undefined);
     return reply.status(204).send();
   });
 
@@ -172,7 +172,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const result = await resolveDiffItem(request.params.id, parsed.data);
+    const result = await resolveDiffItem(request.params.id, parsed.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -184,7 +184,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const { companies } = await listCompanies(parsed.data);
+    const { companies } = await listCompanies(parsed.data, request.userId ?? undefined);
     return reply.send(companies);
   });
 
@@ -194,7 +194,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const result = await mergeCompanies(parsed.data.sourceCompanyIds, parsed.data.targetCompanyId);
+    const result = await mergeCompanies(parsed.data.sourceCompanyIds, parsed.data.targetCompanyId, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -224,7 +224,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
             },
           });
       }
-      const { tags } = await listJobFitTags(parsed.data);
+      const { tags } = await listJobFitTags(parsed.data, request.userId ?? undefined);
       return reply.send(tags);
     } else if (type === 'tech-stack') {
       if (
@@ -242,7 +242,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
             },
           });
       }
-      const { tags } = await listTechStackTags(parsed.data);
+      const { tags } = await listTechStackTags(parsed.data, request.userId ?? undefined);
       return reply.send(tags);
     } else {
       return reply
@@ -262,10 +262,10 @@ export async function catalogRoutes(fastify: FastifyInstance) {
           .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
       if (type === 'job-fit') {
-        return reply.send(await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId));
+        return reply.send(await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId, request.userId ?? undefined));
       } else if (type === 'tech-stack') {
         return reply.send(
-          await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId)
+          await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId, request.userId ?? undefined)
         );
       } else {
         return reply
@@ -286,7 +286,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
           return reply
             .status(400)
             .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-        const tag = await updateJobFitTag(id, parsed.data);
+        const tag = await updateJobFitTag(id, parsed.data, request.userId ?? undefined);
         return reply.send(tag);
       } else if (type === 'tech-stack') {
         const parsed = updateTechStackTagSchema.safeParse(request.body);
@@ -294,7 +294,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
           return reply
             .status(400)
             .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-        const tag = await updateTechStackTag(id, parsed.data);
+        const tag = await updateTechStackTag(id, parsed.data, request.userId ?? undefined);
         return reply.send(tag);
       } else {
         return reply
@@ -312,14 +312,14 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const { bullets } = await listBullets(parsed.data);
+    const { bullets } = await listBullets(parsed.data, request.userId ?? undefined);
     return reply.send(bullets);
   });
 
   // ── STAR Catalog Entries ───────────────────────────────────────────────────
 
   fastify.get('/star-entries', async (request, reply) => {
-    const entries = await listStarEntries();
+    const entries = await listStarEntries(request.userId ?? undefined);
     return reply.send({ entries });
   });
 
@@ -331,7 +331,7 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const { themes } = await listThemes(parsed.data);
+    const { themes } = await listThemes(parsed.data, request.userId ?? undefined);
     return reply.send(themes);
   });
 

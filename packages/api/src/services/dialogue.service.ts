@@ -190,13 +190,14 @@ function mergeProjectData(
 export async function captureProjectFile(
   slug: string,
   data: ProjectCaptureInput,
-  overrideFileName?: string
+  overrideFileName?: string,
+  userId?: string
 ): Promise<CaptureResult> {
-  await getOrCreateProjectBySlug(slug, data.company);
+  await getOrCreateProjectBySlug(slug, data.company, userId);
   const fileName = overrideFileName ?? generateFileName(data.company, data.role);
   const content = generateDialogueMarkdown(data);
   try {
-    await createProjectFile(slug, fileName, content);
+    await createProjectFile(slug, fileName, content, userId);
   } catch (err) {
     if (err instanceof ConflictError) throw err;
     throw err;
@@ -207,23 +208,25 @@ export async function captureProjectFile(
 export async function enrichProjectFile(
   slug: string,
   fileName: string,
-  additions: ProjectEnrichInput
+  additions: ProjectEnrichInput,
+  userId?: string
 ): Promise<{ content: string }> {
-  const existing = await getProjectFile(slug, fileName);
+  const existing = await getProjectFile(slug, fileName, userId);
   const parsed = parseExistingFile(existing);
   const merged = mergeProjectData(parsed, additions);
   const content = generateDialogueMarkdown(merged);
-  await updateProjectFile(slug, fileName, content);
+  await updateProjectFile(slug, fileName, content, userId);
   return { content };
 }
 
 export async function correctProjectFile(
   slug: string,
   fileName: string,
-  data: ProjectCaptureInput
+  data: ProjectCaptureInput,
+  userId?: string
 ): Promise<{ content: string }> {
-  await getProjectFile(slug, fileName); // verify file exists
+  await getProjectFile(slug, fileName, userId); // verify file exists
   const content = generateDialogueMarkdown(data);
-  await updateProjectFile(slug, fileName, content);
+  await updateProjectFile(slug, fileName, content, userId);
   return { content };
 }
