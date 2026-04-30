@@ -12,6 +12,10 @@ export interface Config {
 
 let _config: Config | null = null;
 
+export function _resetConfig(): void {
+  _config = null;
+}
+
 export function getConfig(): Config {
   if (!_config) {
     // Trim API key to remove invisible characters (Windows line endings, trailing spaces)
