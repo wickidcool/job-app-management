@@ -13,6 +13,7 @@
  * ```
  */
 
+import { supabase } from '../supabase';
 import { createAPIClient } from './apiClient';
 import { createApplicationService } from './applicationService';
 import { createDashboardService } from './dashboardService';
@@ -30,12 +31,13 @@ import { createInterviewPrepService } from './interviewPrepService';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 /**
- * Get authentication token
- * Single-user mode: no authentication required for local backend
+ * Get authentication token from Supabase session
  */
 async function getAuthToken(): Promise<string | null> {
-  // Local single-user mode - no auth required
-  return null;
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
 }
 
 // Create API client

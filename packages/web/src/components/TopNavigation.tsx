@@ -1,5 +1,6 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useAuth } from '../contexts/AuthContext';
 
 interface NavTab {
   label: string;
@@ -20,6 +21,13 @@ interface TopNavigationProps {
 
 export function TopNavigation({ applicationCount, exportCount }: TopNavigationProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
 
   const primaryTabs: NavTab[] = [
     { label: 'Dashboard', path: '/' },
@@ -167,13 +175,37 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
           </div>
 
           <div className="flex items-center gap-4">
-            <button
-              className="flex items-center gap-2 rounded-full bg-neutral-100 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-200"
-              aria-label="User menu"
-            >
-              <span className="text-base">👤</span>
-              <span className="hidden sm:inline">User</span>
-            </button>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  className="flex items-center gap-2 rounded-full bg-neutral-100 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-200"
+                  aria-label="User menu"
+                >
+                  <span className="text-base">👤</span>
+                  <span className="hidden sm:inline">{user?.email || 'User'}</span>
+                </button>
+              </DropdownMenu.Trigger>
+
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="min-w-[200px] rounded-md bg-white p-1 shadow-lg ring-1 ring-black ring-opacity-5"
+                  sideOffset={5}
+                  align="end"
+                >
+                  <div className="px-3 py-2 text-sm text-neutral-500 border-b border-neutral-100">
+                    {user?.email}
+                  </div>
+                  <DropdownMenu.Item asChild>
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full text-left rounded px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-100 outline-none cursor-pointer"
+                    >
+                      Sign Out
+                    </button>
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           </div>
         </div>
       </div>
