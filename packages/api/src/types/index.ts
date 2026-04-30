@@ -26,6 +26,7 @@ export interface ApplicationDTO {
   compTarget?: string | null;
   nextAction?: string | null;
   nextActionDue?: string | null;
+  jobDescription?: string | null;
 }
 
 export interface StatusHistoryDTO {
@@ -49,6 +50,7 @@ export interface CreateApplicationInput {
   compTarget?: string;
   nextAction?: string;
   nextActionDue?: string;
+  jobDescription?: string;
 }
 
 export interface UpdateApplicationInput {
@@ -64,6 +66,7 @@ export interface UpdateApplicationInput {
   compTarget?: string | null;
   nextAction?: string | null;
   nextActionDue?: string | null;
+  jobDescription?: string | null;
   version: number;
 }
 

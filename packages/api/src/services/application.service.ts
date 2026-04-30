@@ -37,6 +37,7 @@ function toDTO(app: Application): ApplicationDTO {
     compTarget: app.compTarget,
     nextAction: app.nextAction,
     nextActionDue: app.nextActionDue,
+    jobDescription: app.jobDescription,
   };
 }
 
@@ -75,6 +76,7 @@ export async function createApplication(
         compTarget: input.compTarget ?? null,
         nextAction: input.nextAction ?? null,
         nextActionDue: input.nextActionDue ?? null,
+        jobDescription: input.jobDescription ?? null,
         createdAt: now,
         updatedAt: now,
         version: 1,
@@ -236,6 +238,7 @@ export async function updateApplication(
   if ('compTarget' in input) updates.compTarget = input.compTarget;
   if ('nextAction' in input) updates.nextAction = input.nextAction;
   if ('nextActionDue' in input) updates.nextActionDue = input.nextActionDue;
+  if ('jobDescription' in input) updates.jobDescription = input.jobDescription;
 
   const [updated] = await db
     .update(applications)
