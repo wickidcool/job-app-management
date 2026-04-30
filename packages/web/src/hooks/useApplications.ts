@@ -16,10 +16,14 @@ export const applicationKeys = {
 /**
  * Fetch all applications
  */
-export function useApplications() {
+export function useApplications(filters?: {
+  status?: ApplicationStatus[];
+  company?: string;
+  search?: string;
+}) {
   return useQuery({
-    queryKey: applicationKeys.lists(),
-    queryFn: () => applicationService.getAll(),
+    queryKey: applicationKeys.list(filters),
+    queryFn: () => applicationService.getAll(filters),
   });
 }
 

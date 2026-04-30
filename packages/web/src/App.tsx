@@ -1,6 +1,9 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { TopNavigation } from './components/TopNavigation';
 import { MobileNavigation } from './components/MobileNavigation';
+import { BottomTabBar } from './components/BottomTabBar';
+import { CommandPalette } from './components/CommandPalette';
 import { Dashboard } from './pages/Dashboard';
 import { ApplicationsList } from './pages/ApplicationsList';
 import { ApplicationDetail } from './pages/ApplicationDetail';
@@ -32,6 +35,7 @@ import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
 function App() {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const { data: applications = [] } = useApplications();
   const { data: exports = [] } = useExports();
 
@@ -40,6 +44,18 @@ function App() {
   ).length;
 
   const exportCount = exports.length;
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <BrowserRouter>
@@ -51,7 +67,7 @@ function App() {
           <MobileNavigation applicationCount={inProgressCount} exportCount={exportCount} />
         </div>
 
-        <main>
+        <main className="pb-20 md:pb-0">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/applications" element={<ApplicationsList />} />
@@ -82,6 +98,10 @@ function App() {
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
+
+        <BottomTabBar applicationCount={inProgressCount} exportCount={exportCount} />
+
+        <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
       </div>
     </BrowserRouter>
   );

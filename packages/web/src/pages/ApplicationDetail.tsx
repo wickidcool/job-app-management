@@ -5,6 +5,8 @@ import { useApplication, useUpdateApplicationStatus, useDeleteApplication, useUp
 import { StatusBadge } from '../components/StatusBadge';
 import { StatusDropdown } from '../components/StatusDropdown';
 import { ApplicationForm } from '../components/ApplicationForm';
+import { WorkflowChecklist } from '../components/WorkflowChecklist';
+import { Breadcrumb } from '../components/Breadcrumb';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
@@ -83,14 +85,18 @@ export function ApplicationDetail() {
     );
   }
 
+  const breadcrumbTrail = [
+    { label: 'Dashboard', href: '/' },
+    { label: 'Applications', href: '/applications' },
+    { label: application.company },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-4xl mx-auto">
-          <Link to="/" className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block">
-            ← Back to Dashboard
-          </Link>
+          <Breadcrumb trail={breadcrumbTrail} />
         </div>
       </header>
 
@@ -151,6 +157,15 @@ export function ApplicationDetail() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Workflow Checklist */}
+        <div className="mb-6">
+          <WorkflowChecklist
+            applicationId={id!}
+            status={application.status}
+            hasJobDescription={!!application.jobDescription}
+          />
         </div>
 
         {/* Details Grid */}

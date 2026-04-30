@@ -711,7 +711,8 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   const changeCount = changes.filter(c => c.action === 'create').length;
   const updateCount = changes.filter(c => c.action === 'update').length;
-  const shouldAutoApply = pendingReview.length === 0 && changes.length > 0;
+  const hasNewCompany = changes.some(c => c.entity === 'company_catalog' && c.action === 'create');
+  const shouldAutoApply = pendingReview.length === 0 && changes.length > 0 && !hasNewCompany;
   const summary =
     changes.length === 0
       ? 'No changes detected'

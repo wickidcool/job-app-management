@@ -30,6 +30,11 @@ export interface APIApplication {
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
   appliedAt?: string; // ISO 8601
+  // UC-5 Extended Tracking Fields
+  contact?: string;
+  compTarget?: string;
+  nextAction?: string;
+  nextActionDue?: string;
 }
 
 /**
@@ -71,6 +76,11 @@ export interface CreateApplicationRequest {
   jobDescription?: string;
   status: ApplicationStatus;
   coverLetterId?: string;
+  // UC-5 Extended Tracking Fields
+  contact?: string;
+  compTarget?: string;
+  nextAction?: string;
+  nextActionDue?: string;
 }
 
 /**
@@ -86,6 +96,11 @@ export interface UpdateApplicationRequest {
   status?: ApplicationStatus;
   coverLetterId?: string;
   version: number; // Required for optimistic locking
+  // UC-5 Extended Tracking Fields
+  contact?: string;
+  compTarget?: string;
+  nextAction?: string;
+  nextActionDue?: string;
 }
 
 /**

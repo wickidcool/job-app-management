@@ -136,17 +136,21 @@ export function FilterPanel({
         />
       </div>
 
-      {/* Status Filter */}
+      {/* Status Filter - Touch-optimized */}
       <div>
         <div className="text-sm font-medium text-gray-700 mb-2">Status</div>
-        <div className="space-y-2">
+        <div className="space-y-1">
           {availableStatuses.map((status) => (
-            <label key={status} className="flex items-center gap-2 cursor-pointer">
+            <label
+              key={status}
+              className="flex items-center gap-3 cursor-pointer py-2 px-1 -mx-1 rounded hover:bg-gray-50"
+              style={{ minHeight: '44px' }}
+            >
               <input
                 type="checkbox"
                 checked={selectedStatuses.includes(status)}
                 onChange={() => handleStatusToggle(status)}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                 aria-label={`Filter by ${statusLabels[status].label}`}
               />
               <span className="text-sm">
@@ -157,18 +161,22 @@ export function FilterPanel({
         </div>
       </div>
 
-      {/* Company Filter */}
+      {/* Company Filter - Touch-optimized */}
       {availableCompanies.length > 0 && (
         <div>
           <div className="text-sm font-medium text-gray-700 mb-2">Company</div>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
+          <div className="space-y-1 max-h-48 overflow-y-auto">
             {availableCompanies.map((company) => (
-              <label key={company} className="flex items-center gap-2 cursor-pointer">
+              <label
+                key={company}
+                className="flex items-center gap-3 cursor-pointer py-2 px-1 -mx-1 rounded hover:bg-gray-50"
+                style={{ minHeight: '44px' }}
+              >
                 <input
                   type="checkbox"
                   checked={selectedCompanies.includes(company)}
                   onChange={() => handleCompanyToggle(company)}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                  className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                   aria-label={`Filter by company ${company}`}
                 />
                 <span className="text-sm">{company}</span>
@@ -185,7 +193,8 @@ export function FilterPanel({
             <span className="text-sm font-medium text-gray-700">Active Filters:</span>
             <button
               onClick={handleClearAll}
-              className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+              className="px-3 py-2 text-sm text-blue-600 hover:text-blue-700 font-medium rounded hover:bg-blue-50"
+              style={{ minHeight: '44px' }}
               aria-label="Clear all filters"
             >
               Clear All
@@ -193,13 +202,14 @@ export function FilterPanel({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {/* Search chip */}
+            {/* Search chip - Touch-optimized */}
             {searchInput && (
-              <div className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs">
+              <div className="inline-flex items-center gap-1 px-3 py-2 bg-blue-100 text-blue-800 rounded-md text-sm">
                 <span>Search: {searchInput}</span>
                 <button
                   onClick={() => setSearchInput('')}
-                  className="hover:text-blue-900"
+                  className="ml-1 hover:text-blue-900 p-1"
+                  style={{ minWidth: '24px', minHeight: '24px' }}
                   aria-label={`Remove search filter: ${searchInput}`}
                 >
                   ✕
@@ -207,18 +217,19 @@ export function FilterPanel({
               </div>
             )}
 
-            {/* Status chips */}
+            {/* Status chips - Touch-optimized */}
             {selectedStatuses.map((status) => (
               <div
                 key={status}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-800 rounded-md text-xs"
+                className="inline-flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-800 rounded-md text-sm"
               >
                 <span>
                   {statusLabels[status].icon} {statusLabels[status].label}
                 </span>
                 <button
                   onClick={() => handleRemoveStatusFilter(status)}
-                  className="hover:text-gray-900"
+                  className="ml-1 hover:text-gray-900 p-1"
+                  style={{ minWidth: '24px', minHeight: '24px' }}
                   aria-label={`Remove ${statusLabels[status].label} filter`}
                 >
                   ✕
@@ -226,16 +237,17 @@ export function FilterPanel({
               </div>
             ))}
 
-            {/* Company chips */}
+            {/* Company chips - Touch-optimized */}
             {selectedCompanies.map((company) => (
               <div
                 key={company}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-800 rounded-md text-xs"
+                className="inline-flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-800 rounded-md text-sm"
               >
                 <span>{company}</span>
                 <button
                   onClick={() => handleRemoveCompanyFilter(company)}
-                  className="hover:text-gray-900"
+                  className="ml-1 hover:text-gray-900 p-1"
+                  style={{ minWidth: '24px', minHeight: '24px' }}
                   aria-label={`Remove company filter: ${company}`}
                 >
                   ✕

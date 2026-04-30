@@ -36,6 +36,7 @@ export const applications = pgTable('applications', {
   compTarget: text('comp_target'),
   nextAction: text('next_action'),
   nextActionDue: date('next_action_due', { mode: 'string' }),
+  jobDescription: text('job_description'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   version: integer('version').notNull().default(1),

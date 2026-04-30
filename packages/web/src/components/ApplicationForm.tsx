@@ -3,7 +3,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as Dialog from '@radix-ui/react-dialog';
 import { z } from 'zod';
 import type { Application, ApplicationFormData, ApplicationStatus } from '../types/application';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { APIError } from '../services/api/apiClient';
 
 // Zod validation schema based on component specs
 const applicationFormSchema = z.object({
@@ -67,6 +68,7 @@ export function ApplicationForm({
     formState: { errors, isSubmitting, isDirty },
     reset,
     watch,
+    setError,
   } = useForm<ApplicationFormData>({
     resolver: zodResolver(applicationFormSchema),
     defaultValues: application
@@ -100,11 +102,14 @@ export function ApplicationForm({
         },
   });
 
+  const [formError, setFormError] = useState<string | null>(null);
+
   const linkCoverLetter = watch('linkCoverLetter');
 
   // Reset form when dialog opens/closes or application changes
   useEffect(() => {
     if (open) {
+      setFormError(null);
       reset(
         application
           ? {
@@ -140,11 +145,47 @@ export function ApplicationForm({
   }, [open, application, propDefaultValues, reset]);
 
   const handleFormSubmit = async (data: ApplicationFormData) => {
+    // Clear previous errors
+    setFormError(null);
+
     try {
       await onSubmit(data);
       onOpenChange(false);
     } catch (error) {
       console.error('Form submission error:', error);
+
+      // Handle APIError with validation details
+      if (error instanceof APIError && error.code === 'VALIDATION_ERROR') {
+        const details = error.details as { fieldErrors?: Record<string, string[]>; formErrors?: string[] } | undefined;
+
+        // Set field-level errors
+        if (details?.fieldErrors) {
+          Object.entries(details.fieldErrors).forEach(([field, messages]) => {
+            if (messages && messages.length > 0) {
+              setError(field as keyof ApplicationFormData, {
+                type: 'server',
+                message: messages[0],
+              });
+            }
+          });
+        }
+
+        // Set form-level errors
+        if (details?.formErrors && details.formErrors.length > 0) {
+          setFormError(details.formErrors.join(', '));
+        } else if (!details?.fieldErrors || Object.keys(details.fieldErrors).length === 0) {
+          // If no specific field errors, show the general message
+          setFormError(error.message || 'Validation failed. Please check your input.');
+        }
+      } else if (error instanceof APIError) {
+        // Other API errors
+        setFormError(error.message || 'An error occurred while saving the application.');
+      } else if (error instanceof Error) {
+        // Generic errors
+        setFormError(error.message || 'An unexpected error occurred.');
+      } else {
+        setFormError('An unexpected error occurred.');
+      }
     }
   };
 
@@ -183,6 +224,12 @@ export function ApplicationForm({
               ? 'Form to add a new job application'
               : 'Form to edit an existing job application'}
           </Dialog.Description>
+
+          {formError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md" role="alert">
+              <p className="text-sm text-red-800">{formError}</p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
             {/* Job Title */}
