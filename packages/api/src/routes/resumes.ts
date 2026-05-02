@@ -9,7 +9,6 @@ import {
   getResumeDownloadUrl,
 } from '../services/resume.service.js';
 import { AppError } from '../types/index.js';
-import { getConfig } from '../config.js';
 import { isR2Configured } from '../services/storage.service.js';
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -89,42 +88,5 @@ export async function resumesRoutes(fastify: FastifyInstance) {
     const { id } = request.params;
     await deleteResume(id, request.userId ?? undefined);
     return reply.status(204).send();
-  });
-
-  // GET /api/resumes/test-api-key - Test Anthropic API key with direct fetch
-  fastify.get('/resumes/test-api-key', async (_request, reply) => {
-    const config = getConfig();
-    if (!config.anthropicApiKey) {
-      return reply.status(400).send({ error: 'ANTHROPIC_API_KEY not configured' });
-    }
-
-    const key = config.anthropicApiKey;
-    console.log(
-      `[test-api-key] Testing key: ${key.substring(0, 15)}...${key.substring(key.length - 4)}`
-    );
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 10,
-        messages: [{ role: 'user', content: 'hi' }],
-      }),
-    });
-
-    const body = await response.text();
-    console.log(`[test-api-key] Response status: ${response.status}`);
-    console.log(`[test-api-key] Response body: ${body.substring(0, 200)}`);
-
-    return reply.status(response.status).send({
-      status: response.status,
-      ok: response.ok,
-      body: JSON.parse(body),
-    });
   });
 }
