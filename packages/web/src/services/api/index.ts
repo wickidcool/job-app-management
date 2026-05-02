@@ -13,7 +13,6 @@
  * ```
  */
 
-import { supabase } from '../supabase';
 import { createAPIClient } from './apiClient';
 import { createApplicationService } from './applicationService';
 import { createDashboardService } from './dashboardService';
@@ -31,13 +30,10 @@ import { createInterviewPrepService } from './interviewPrepService';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 /**
- * Get authentication token from Supabase session
+ * Get authentication token from localStorage
  */
 async function getAuthToken(): Promise<string | null> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  return session?.access_token ?? null;
+  return localStorage.getItem('auth_token');
 }
 
 // Create API client

@@ -14,9 +14,16 @@ const authPluginImpl: FastifyPluginAsync = async (fastify) => {
 
   fastify.decorateRequest('userId', null);
 
+  const publicRoutes = ['/api/auth/login', '/api/auth/register', '/api/auth/logout'];
+
   fastify.addHook('onRequest', async (request, reply) => {
     // Bypass auth when SUPABASE_JWT_SECRET is not set (local dev without Supabase)
     if (!config.supabaseJwtSecret) {
+      return;
+    }
+
+    // Skip auth for public routes
+    if (publicRoutes.includes(request.url.split('?')[0])) {
       return;
     }
 
