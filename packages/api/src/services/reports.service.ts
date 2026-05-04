@@ -93,9 +93,9 @@ export async function getPipelineReport(
     return { status, count: appsForStatus.length, applications: appsForStatus };
   });
 
-  const byStatus = Object.fromEntries(
-    groups.map((g) => [g.status, g.count])
-  ) as Partial<Record<ActiveStatus, number>>;
+  const byStatus = Object.fromEntries(groups.map((g) => [g.status, g.count])) as Partial<
+    Record<ActiveStatus, number>
+  >;
 
   return {
     groups,
@@ -194,7 +194,10 @@ export async function getNeedsActionReport(
   };
 }
 
-export async function getStaleReport(params: StaleParams = {}, userId?: string): Promise<StaleReportResponse> {
+export async function getStaleReport(
+  params: StaleParams = {},
+  userId?: string
+): Promise<StaleReportResponse> {
   const db = getDb();
   const staleDays = Math.min(Math.max(params.days ?? 14, 1), 365);
   const limit = Math.min(params.limit ?? 50, 100);
@@ -285,9 +288,7 @@ export async function getStaleReport(params: StaleParams = {}, userId?: string):
 
   const averageDaysStale =
     staleApps.length > 0
-      ? Math.round(
-          staleApps.reduce((sum, a) => sum + a.daysSinceUpdate, 0) / staleApps.length
-        )
+      ? Math.round(staleApps.reduce((sum, a) => sum + a.daysSinceUpdate, 0) / staleApps.length)
       : 0;
 
   return {
@@ -373,9 +374,7 @@ export async function getClosedLoopReport(
       const secondToLast = history[history.length - 2];
       closedAtMap.set(appId, {
         closedAt: last.changedAt.toISOString(),
-        previousStatus: secondToLast
-          ? (secondToLast.toStatus as ApplicationStatus)
-          : undefined,
+        previousStatus: secondToLast ? (secondToLast.toStatus as ApplicationStatus) : undefined,
       });
     }
   }
@@ -487,9 +486,9 @@ export async function getByFitTierReport(
     return { tier, count: appsForTier.length, applications: appsForTier };
   });
 
-  const byTier = Object.fromEntries(
-    groups.map((g) => [g.tier, g.count])
-  ) as Partial<Record<FitTier, number>>;
+  const byTier = Object.fromEntries(groups.map((g) => [g.tier, g.count])) as Partial<
+    Record<FitTier, number>
+  >;
 
   return {
     groups,

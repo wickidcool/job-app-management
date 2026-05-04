@@ -26,7 +26,22 @@ const generatedAt = '2026-04-27T00:00:00.000Z';
 
 const mockPipelineResponse = {
   groups: [
-    { status: 'saved', count: 1, applications: [{ id: '1', jobTitle: 'SWE', company: 'Acme', location: null, nextAction: null, nextActionDue: null, updatedAt: generatedAt, createdAt: generatedAt }] },
+    {
+      status: 'saved',
+      count: 1,
+      applications: [
+        {
+          id: '1',
+          jobTitle: 'SWE',
+          company: 'Acme',
+          location: null,
+          nextAction: null,
+          nextActionDue: null,
+          updatedAt: generatedAt,
+          createdAt: generatedAt,
+        },
+      ],
+    },
     { status: 'applied', count: 0, applications: [] },
     { status: 'phone_screen', count: 0, applications: [] },
     { status: 'interview', count: 0, applications: [] },
@@ -49,7 +64,14 @@ const mockStaleResponse = {
 
 const mockClosedLoopResponse = {
   applications: [],
-  summary: { total: 0, offers: 0, rejections: 0, withdrawn: 0, rejectionsByStage: [], averageTimeToClose: 0 },
+  summary: {
+    total: 0,
+    offers: 0,
+    rejections: 0,
+    withdrawn: 0,
+    rejectionsByStage: [],
+    averageTimeToClose: 0,
+  },
   generatedAt,
 };
 
@@ -58,7 +80,20 @@ const mockByFitTierResponse = {
     { tier: 'strong_fit', count: 0, applications: [] },
     { tier: 'moderate_fit', count: 0, applications: [] },
     { tier: 'weak_fit', count: 0, applications: [] },
-    { tier: 'not_analyzed', count: 1, applications: [{ id: '1', jobTitle: 'SWE', company: 'Acme', status: 'saved', fitTier: 'not_analyzed', updatedAt: generatedAt }] },
+    {
+      tier: 'not_analyzed',
+      count: 1,
+      applications: [
+        {
+          id: '1',
+          jobTitle: 'SWE',
+          company: 'Acme',
+          status: 'saved',
+          fitTier: 'not_analyzed',
+          updatedAt: generatedAt,
+        },
+      ],
+    },
   ],
   summary: { total: 1, analyzed: 0, notAnalyzed: 1, byTier: { not_analyzed: 1 } },
   generatedAt,
@@ -86,7 +121,10 @@ describe('Reports Routes', () => {
     it('passes sortBy and sortOrder to service', async () => {
       vi.mocked(reportsService.getPipelineReport).mockResolvedValue(mockPipelineResponse);
 
-      await app.inject({ method: 'GET', url: '/api/reports/pipeline?sortBy=company&sortOrder=asc' });
+      await app.inject({
+        method: 'GET',
+        url: '/api/reports/pipeline?sortBy=company&sortOrder=asc',
+      });
       expect(reportsService.getPipelineReport).toHaveBeenCalledWith(
         expect.objectContaining({ sortBy: 'company', sortOrder: 'asc' })
       );
@@ -183,7 +221,10 @@ describe('Reports Routes', () => {
     });
 
     it('returns 400 when all status values are invalid', async () => {
-      const res = await app.inject({ method: 'GET', url: '/api/reports/closed-loop?status=invalid,bad' });
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/reports/closed-loop?status=invalid,bad',
+      });
       expect(res.statusCode).toBe(400);
     });
   });

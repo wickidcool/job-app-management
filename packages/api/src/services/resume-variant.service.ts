@@ -82,7 +82,12 @@ function toSummaryDTO(row: ResumeVariantRow): ResumeVariantSummaryDTO {
 function getAiClient(): Anthropic {
   const { anthropicApiKey } = getConfig();
   if (!anthropicApiKey) {
-    throw new ResumeVariantError('AI_NOT_CONFIGURED', 'ANTHROPIC_API_KEY is not configured', undefined, 503);
+    throw new ResumeVariantError(
+      'AI_NOT_CONFIGURED',
+      'ANTHROPIC_API_KEY is not configured',
+      undefined,
+      503
+    );
   }
   return new Anthropic({ apiKey: anthropicApiKey });
 }
@@ -98,7 +103,34 @@ function scoreRelevance(text: string, keywords: string[]): number {
 
 function extractKeywords(jdText: string): string[] {
   // Simple keyword extraction: meaningful words 4+ chars, deduplicated
-  const stopWords = new Set(['with', 'that', 'this', 'from', 'your', 'have', 'will', 'they', 'team', 'work', 'able', 'been', 'more', 'also', 'into', 'over', 'such', 'well', 'both', 'than', 'then', 'when', 'some', 'each', 'very', 'must']);
+  const stopWords = new Set([
+    'with',
+    'that',
+    'this',
+    'from',
+    'your',
+    'have',
+    'will',
+    'they',
+    'team',
+    'work',
+    'able',
+    'been',
+    'more',
+    'also',
+    'into',
+    'over',
+    'such',
+    'well',
+    'both',
+    'than',
+    'then',
+    'when',
+    'some',
+    'each',
+    'very',
+    'must',
+  ]);
   const words = jdText
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -109,7 +141,10 @@ function extractKeywords(jdText: string): string[] {
 
 // ── Generate ──────────────────────────────────────────────────────────────────
 
-export async function generateResumeVariant(input: GenerateResumeVariantInput, userId?: string): Promise<{
+export async function generateResumeVariant(
+  input: GenerateResumeVariantInput,
+  userId?: string
+): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
   matchedTechTags: string[];
@@ -122,22 +157,40 @@ export async function generateResumeVariant(input: GenerateResumeVariantInput, u
   const hasAnalysis = !!input.jobFitAnalysisId;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
-    throw new ResumeVariantError('JOB_CONTEXT_REQUIRED', 'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId');
+    throw new ResumeVariantError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+    );
   }
   if (hasJdText && hasJdUrl) {
-    throw new ResumeVariantError('JOB_CONTEXT_CONFLICT', 'Provide either jobDescriptionText or jobDescriptionUrl, not both');
+    throw new ResumeVariantError(
+      'JOB_CONTEXT_CONFLICT',
+      'Provide either jobDescriptionText or jobDescriptionUrl, not both'
+    );
   }
   if (!hasAnalysis && (!input.targetCompany || !input.targetRole)) {
-    throw new ResumeVariantError('TARGET_INFO_REQUIRED', 'targetCompany and targetRole are required when jobFitAnalysisId is not provided');
+    throw new ResumeVariantError(
+      'TARGET_INFO_REQUIRED',
+      'targetCompany and targetRole are required when jobFitAnalysisId is not provided'
+    );
   }
 
   const db = getDb();
 
   // Validate base resume if provided
   if (input.baseResumeId) {
-    const [baseResume] = await db.select().from(resumes).where(eq(resumes.id, input.baseResumeId)).limit(1);
+    const [baseResume] = await db
+      .select()
+      .from(resumes)
+      .where(eq(resumes.id, input.baseResumeId))
+      .limit(1);
     if (!baseResume) {
-      throw new ResumeVariantError('BASE_RESUME_NOT_FOUND', 'Specified base resume does not exist', undefined, 404);
+      throw new ResumeVariantError(
+        'BASE_RESUME_NOT_FOUND',
+        'Specified base resume does not exist',
+        undefined,
+        404
+      );
     }
   }
 
@@ -152,7 +205,12 @@ export async function generateResumeVariant(input: GenerateResumeVariantInput, u
       const foundIds = new Set(foundBullets.map((b) => b.id));
       const invalidIds = allBulletIds.filter((id) => !foundIds.has(id));
       if (invalidIds.length > 0) {
-        throw new ResumeVariantError('BULLET_NOT_FOUND', 'One or more selected bullet IDs do not exist in your catalog', { invalidIds }, 404);
+        throw new ResumeVariantError(
+          'BULLET_NOT_FOUND',
+          'One or more selected bullet IDs do not exist in your catalog',
+          { invalidIds },
+          404
+        );
       }
     }
   }
@@ -166,17 +224,33 @@ export async function generateResumeVariant(input: GenerateResumeVariantInput, u
     const foundIds = new Set(foundTags.map((t) => t.id));
     const invalidIds = input.selectedTechTags.filter((id) => !foundIds.has(id));
     if (invalidIds.length > 0) {
-      throw new ResumeVariantError('TAG_NOT_FOUND', 'One or more tech tag IDs do not exist', { invalidIds }, 404);
+      throw new ResumeVariantError(
+        'TAG_NOT_FOUND',
+        'One or more tech tag IDs do not exist',
+        { invalidIds },
+        404
+      );
     }
   }
 
   // Validate section order
-  const validSections = new Set(['summary', 'experience', 'skills', 'projects', 'education', 'certifications']);
+  const validSections = new Set([
+    'summary',
+    'experience',
+    'skills',
+    'projects',
+    'education',
+    'certifications',
+  ]);
   if (input.sectionOrder) {
     const seen = new Set<string>();
     for (const s of input.sectionOrder) {
       if (!validSections.has(s) || seen.has(s)) {
-        throw new ResumeVariantError('INVALID_SECTION_ORDER', 'Section order contains invalid or duplicate sections', { invalid: s });
+        throw new ResumeVariantError(
+          'INVALID_SECTION_ORDER',
+          'Section order contains invalid or duplicate sections',
+          { invalid: s }
+        );
       }
       seen.add(s);
     }
@@ -195,7 +269,12 @@ export async function generateResumeVariant(input: GenerateResumeVariantInput, u
     .limit(200);
 
   if (allBullets.length === 0) {
-    throw new ResumeVariantError('CATALOG_EMPTY', 'Cannot generate without catalog data', undefined, 422);
+    throw new ResumeVariantError(
+      'CATALOG_EMPTY',
+      'Cannot generate without catalog data',
+      undefined,
+      422
+    );
   }
 
   const targetCompany = input.targetCompany ?? 'the company';
@@ -207,8 +286,8 @@ export async function generateResumeVariant(input: GenerateResumeVariantInput, u
   const jdContext = hasJdText
     ? input.jobDescriptionText!
     : hasJdUrl
-    ? `Job posting URL: ${input.jobDescriptionUrl}`
-    : `Job fit analysis ID: ${input.jobFitAnalysisId}`;
+      ? `Job posting URL: ${input.jobDescriptionUrl}`
+      : `Job fit analysis ID: ${input.jobFitAnalysisId}`;
 
   const keywords = hasJdText ? extractKeywords(input.jobDescriptionText!) : [];
 
@@ -244,8 +323,13 @@ export async function generateResumeVariant(input: GenerateResumeVariantInput, u
     balanced: 'Give equal weight to experience and skills sections.',
   }[sectionEmphasis];
 
-  const sectionOrderStr = (input.sectionOrder ?? ['summary', 'experience', 'skills', 'projects', 'education']).join(', ');
-  const hiddenStr = (input.hiddenSections ?? []).length > 0 ? `Exclude these sections: ${(input.hiddenSections ?? []).join(', ')}.` : '';
+  const sectionOrderStr = (
+    input.sectionOrder ?? ['summary', 'experience', 'skills', 'projects', 'education']
+  ).join(', ');
+  const hiddenStr =
+    (input.hiddenSections ?? []).length > 0
+      ? `Exclude these sections: ${(input.hiddenSections ?? []).join(', ')}.`
+      : '';
 
   const prompt = `You are a professional resume writer. Generate a structured resume JSON for a ${targetRole} position at ${targetCompany}.
 
@@ -293,7 +377,12 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
-    throw new ResumeVariantError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+    throw new ResumeVariantError(
+      'AI_GENERATION_FAILED',
+      'AI generation failed',
+      { cause: String(err) },
+      502
+    );
   }
 
   const rawText = aiMessage.content[0].type === 'text' ? aiMessage.content[0].text : '{}';
@@ -301,7 +390,10 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
   let content: ResumeContent;
   try {
     // Strip any possible markdown code fences
-    const cleaned = rawText.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const cleaned = rawText
+      .replace(/^```(?:json)?\s*/m, '')
+      .replace(/\s*```\s*$/m, '')
+      .trim();
     content = JSON.parse(cleaned) as ResumeContent;
   } catch {
     // Fall back to a minimal valid structure
@@ -314,12 +406,22 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
 
   const warnings: VariantGenerationWarningDTO[] = [];
   if (aiMessage.stop_reason === 'max_tokens') {
-    warnings.push({ code: 'CONTENT_TRUNCATED', message: 'Resume content may be incomplete — generation hit the output limit' });
+    warnings.push({
+      code: 'CONTENT_TRUNCATED',
+      message: 'Resume content may be incomplete — generation hit the output limit',
+    });
   }
 
   // Score ATS
   const atsScore = atsOptimized
-    ? Math.min(100, 60 + Math.round(keywords.slice(0, 20).filter((k) => JSON.stringify(content).toLowerCase().includes(k)).length * 2))
+    ? Math.min(
+        100,
+        60 +
+          Math.round(
+            keywords.slice(0, 20).filter((k) => JSON.stringify(content).toLowerCase().includes(k))
+              .length * 2
+          )
+      )
     : undefined;
 
   if (atsScore !== undefined && atsScore < 60) {
@@ -367,7 +469,13 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
       selectedBullets: selectedBulletsSaved,
       selectedTechTags: input.selectedTechTags ?? [],
       selectedThemes: input.selectedThemes ?? [],
-      sectionOrder: input.sectionOrder ?? ['summary', 'experience', 'skills', 'projects', 'education'],
+      sectionOrder: input.sectionOrder ?? [
+        'summary',
+        'experience',
+        'skills',
+        'projects',
+        'education',
+      ],
       hiddenSections: input.hiddenSections ?? [],
       content,
       atsScore: atsScore ?? null,
@@ -390,7 +498,10 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
 
 // ── Get ───────────────────────────────────────────────────────────────────────
 
-export async function getResumeVariant(id: string, userId?: string): Promise<{
+export async function getResumeVariant(
+  id: string,
+  userId?: string
+): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
   baseResume?: { id: string; fileName: string };
@@ -407,7 +518,11 @@ export async function getResumeVariant(id: string, userId?: string): Promise<{
   let usedBullets: UsedBulletDTO[] = [];
   if (usedIds.length > 0) {
     const rows = await db
-      .select({ id: quantifiedBullets.id, rawText: quantifiedBullets.rawText, impactCategory: quantifiedBullets.impactCategory })
+      .select({
+        id: quantifiedBullets.id,
+        rawText: quantifiedBullets.rawText,
+        impactCategory: quantifiedBullets.impactCategory,
+      })
       .from(quantifiedBullets)
       .where(inArray(quantifiedBullets.id, usedIds));
     usedBullets = rows.map((b) => ({
@@ -421,7 +536,11 @@ export async function getResumeVariant(id: string, userId?: string): Promise<{
 
   let baseResume: { id: string; fileName: string } | undefined;
   if (row.baseResumeId) {
-    const [br] = await db.select({ id: resumes.id, fileName: resumes.fileName }).from(resumes).where(eq(resumes.id, row.baseResumeId)).limit(1);
+    const [br] = await db
+      .select({ id: resumes.id, fileName: resumes.fileName })
+      .from(resumes)
+      .where(eq(resumes.id, row.baseResumeId))
+      .limit(1);
     if (br) baseResume = br;
   }
 
@@ -430,17 +549,22 @@ export async function getResumeVariant(id: string, userId?: string): Promise<{
 
 // ── List ──────────────────────────────────────────────────────────────────────
 
-export async function listResumeVariants(params: {
-  status?: string;
-  company?: string;
-  search?: string;
-  format?: string;
-  limit?: number;
-  cursor?: string;
-}, userId?: string): Promise<{ variants: ResumeVariantSummaryDTO[]; nextCursor?: string }> {
+export async function listResumeVariants(
+  params: {
+    status?: string;
+    company?: string;
+    search?: string;
+    format?: string;
+    limit?: number;
+    cursor?: string;
+  },
+  userId?: string
+): Promise<{ variants: ResumeVariantSummaryDTO[]; nextCursor?: string }> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 20, 100);
-  const offset = params.cursor ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10) : 0;
+  const offset = params.cursor
+    ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10)
+    : 0;
 
   const conditions: ReturnType<typeof eq>[] = [];
   if (userId) {
@@ -470,9 +594,10 @@ export async function listResumeVariants(params: {
   }
 
   const baseQuery = db.select().from(resumeVariants);
-  const filteredQuery = conditions.length > 0
-    ? baseQuery.where(conditions.length === 1 ? conditions[0] : and(...conditions))
-    : baseQuery;
+  const filteredQuery =
+    conditions.length > 0
+      ? baseQuery.where(conditions.length === 1 ? conditions[0] : and(...conditions))
+      : baseQuery;
 
   const rows = await filteredQuery
     .orderBy(desc(resumeVariants.createdAt))
@@ -490,7 +615,11 @@ export async function listResumeVariants(params: {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
-export async function updateResumeVariant(id: string, input: UpdateResumeVariantInput, userId?: string): Promise<ResumeVariantDTO> {
+export async function updateResumeVariant(
+  id: string,
+  input: UpdateResumeVariantInput,
+  userId?: string
+): Promise<ResumeVariantDTO> {
   const db = getDb();
 
   const updates: Record<string, unknown> = {
@@ -501,14 +630,14 @@ export async function updateResumeVariant(id: string, input: UpdateResumeVariant
   if (input.status !== undefined) updates.status = input.status;
 
   const whereClause = userId
-    ? and(eq(resumeVariants.id, id), eq(resumeVariants.version, input.version), eq(resumeVariants.userId, userId))
+    ? and(
+        eq(resumeVariants.id, id),
+        eq(resumeVariants.version, input.version),
+        eq(resumeVariants.userId, userId)
+      )
     : and(eq(resumeVariants.id, id), eq(resumeVariants.version, input.version));
 
-  const [row] = await db
-    .update(resumeVariants)
-    .set(updates)
-    .where(whereClause)
-    .returning();
+  const [row] = await db.update(resumeVariants).set(updates).where(whereClause).returning();
 
   if (!row) {
     const existingWhere = userId
@@ -579,13 +708,21 @@ Rules:
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
-    throw new ResumeVariantError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+    throw new ResumeVariantError(
+      'AI_GENERATION_FAILED',
+      'AI generation failed',
+      { cause: String(err) },
+      502
+    );
   }
 
   const rawText = aiMessage.content[0].type === 'text' ? aiMessage.content[0].text : '{}';
   let newContent: ResumeContent;
   try {
-    const cleaned = rawText.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const cleaned = rawText
+      .replace(/^```(?:json)?\s*/m, '')
+      .replace(/\s*```\s*$/m, '')
+      .trim();
     newContent = JSON.parse(cleaned) as ResumeContent;
   } catch {
     newContent = currentContent;
@@ -597,13 +734,25 @@ Rules:
     previousContent: currentContent,
     appliedAt: new Date().toISOString(),
   };
-  const revisionHistory = [...((existing.revisionHistory ?? []) as VariantRevisionEntry[]), revisionEntry];
+  const revisionHistory = [
+    ...((existing.revisionHistory ?? []) as VariantRevisionEntry[]),
+    revisionEntry,
+  ];
 
   const jdText = existing.jobDescriptionText ?? '';
   const keywords = jdText ? extractKeywords(jdText) : [];
-  const atsScore = keywords.length > 0
-    ? Math.min(100, 60 + Math.round(keywords.slice(0, 20).filter((k) => JSON.stringify(newContent).toLowerCase().includes(k)).length * 2))
-    : undefined;
+  const atsScore =
+    keywords.length > 0
+      ? Math.min(
+          100,
+          60 +
+            Math.round(
+              keywords
+                .slice(0, 20)
+                .filter((k) => JSON.stringify(newContent).toLowerCase().includes(k)).length * 2
+            )
+        )
+      : undefined;
 
   const updateFields: Record<string, unknown> = {
     content: newContent,
@@ -631,7 +780,11 @@ Rules:
   let usedBullets: UsedBulletDTO[] = [];
   if (usedIds.length > 0) {
     const bulletRows = await db
-      .select({ id: quantifiedBullets.id, rawText: quantifiedBullets.rawText, impactCategory: quantifiedBullets.impactCategory })
+      .select({
+        id: quantifiedBullets.id,
+        rawText: quantifiedBullets.rawText,
+        impactCategory: quantifiedBullets.impactCategory,
+      })
       .from(quantifiedBullets)
       .where(inArray(quantifiedBullets.id, usedIds));
     usedBullets = bulletRows.map((b) => ({
@@ -653,7 +806,10 @@ Rules:
 
 // ── Suggest Bullets ───────────────────────────────────────────────────────────
 
-export async function suggestBullets(input: SuggestBulletsInput, _userId?: string): Promise<{
+export async function suggestBullets(
+  input: SuggestBulletsInput,
+  _userId?: string
+): Promise<{
   suggestions: BulletSuggestionDTO[];
   totalCatalogBullets: number;
 }> {
@@ -662,7 +818,10 @@ export async function suggestBullets(input: SuggestBulletsInput, _userId?: strin
   const hasAnalysis = !!input.jobFitAnalysisId;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
-    throw new ResumeVariantError('JOB_CONTEXT_REQUIRED', 'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId');
+    throw new ResumeVariantError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+    );
   }
 
   const db = getDb();
@@ -691,7 +850,11 @@ export async function suggestBullets(input: SuggestBulletsInput, _userId?: strin
   const maxPerSection = input.maxBulletsPerSection ?? 5;
 
   const filtered = allBullets.filter((b) => {
-    if (input.impactCategories?.length && !input.impactCategories.includes(b.impactCategory as string)) return false;
+    if (
+      input.impactCategories?.length &&
+      !input.impactCategories.includes(b.impactCategory as string)
+    )
+      return false;
     return true;
   });
 
@@ -711,9 +874,10 @@ export async function suggestBullets(input: SuggestBulletsInput, _userId?: strin
     relevanceScore: Math.round(b.score * 100) / 100,
     matchedKeywords: b.matchedKeywords.slice(0, 5),
     suggestedSection: 'experience',
-    reasoning: b.matchedKeywords.length > 0
-      ? `Matches JD keywords: ${b.matchedKeywords.slice(0, 3).join(', ')}`
-      : 'Strong quantified achievement for general relevance',
+    reasoning:
+      b.matchedKeywords.length > 0
+        ? `Matches JD keywords: ${b.matchedKeywords.slice(0, 3).join(', ')}`
+        : 'Strong quantified achievement for general relevance',
   }));
 
   return { suggestions, totalCatalogBullets };
@@ -733,7 +897,8 @@ export async function exportResumeVariant(
   const [row] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Resume variant');
 
-  const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = await import('docx');
+  const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } =
+    await import('docx');
 
   const content = row.content as ResumeContent;
   const fontSize = (input.fontSize ?? 11) * 2;
@@ -741,10 +906,14 @@ export async function exportResumeVariant(
 
   // Header
   const { name, email, phone, linkedin, location } = input.headerInfo;
-  paragraphs.push(new Paragraph({ text: name, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }));
+  paragraphs.push(
+    new Paragraph({ text: name, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER })
+  );
   const contactParts = [email, phone, linkedin, location].filter(Boolean);
   if (contactParts.length > 0) {
-    paragraphs.push(new Paragraph({ text: contactParts.join(' | '), alignment: AlignmentType.CENTER }));
+    paragraphs.push(
+      new Paragraph({ text: contactParts.join(' | '), alignment: AlignmentType.CENTER })
+    );
   }
   paragraphs.push(new Paragraph({ text: '' }));
 
@@ -756,20 +925,35 @@ export async function exportResumeVariant(
 
     if (section === 'summary' && content.summary) {
       paragraphs.push(new Paragraph({ text: 'Summary', heading: HeadingLevel.HEADING_2 }));
-      paragraphs.push(new Paragraph({ children: [new TextRun({ text: content.summary, size: fontSize })] }));
+      paragraphs.push(
+        new Paragraph({ children: [new TextRun({ text: content.summary, size: fontSize })] })
+      );
       paragraphs.push(new Paragraph({ text: '' }));
     }
 
     if (section === 'experience' && content.experience?.length) {
       paragraphs.push(new Paragraph({ text: 'Experience', heading: HeadingLevel.HEADING_2 }));
       for (const exp of content.experience) {
-        paragraphs.push(new Paragraph({
-          children: [new TextRun({ text: `${exp.role} — ${exp.company}`, bold: true, size: fontSize })],
-        }));
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: `${exp.role} — ${exp.company}`, bold: true, size: fontSize }),
+            ],
+          })
+        );
         const dateStr = `${exp.startDate} – ${exp.endDate ?? 'Present'}`;
-        paragraphs.push(new Paragraph({ children: [new TextRun({ text: dateStr, size: fontSize - 2, italics: true })] }));
+        paragraphs.push(
+          new Paragraph({
+            children: [new TextRun({ text: dateStr, size: fontSize - 2, italics: true })],
+          })
+        );
         for (const bullet of exp.bullets ?? []) {
-          paragraphs.push(new Paragraph({ children: [new TextRun({ text: `• ${bullet.text}`, size: fontSize })], indent: { left: 360 } }));
+          paragraphs.push(
+            new Paragraph({
+              children: [new TextRun({ text: `• ${bullet.text}`, size: fontSize })],
+              indent: { left: 360 },
+            })
+          );
         }
         paragraphs.push(new Paragraph({ text: '' }));
       }
@@ -778,12 +962,14 @@ export async function exportResumeVariant(
     if (section === 'skills' && content.skills?.categories?.length) {
       paragraphs.push(new Paragraph({ text: 'Skills', heading: HeadingLevel.HEADING_2 }));
       for (const cat of content.skills.categories) {
-        paragraphs.push(new Paragraph({
-          children: [
-            new TextRun({ text: `${cat.name}: `, bold: true, size: fontSize }),
-            new TextRun({ text: cat.skills.join(', '), size: fontSize }),
-          ],
-        }));
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: `${cat.name}: `, bold: true, size: fontSize }),
+              new TextRun({ text: cat.skills.join(', '), size: fontSize }),
+            ],
+          })
+        );
       }
       paragraphs.push(new Paragraph({ text: '' }));
     }
@@ -791,15 +977,36 @@ export async function exportResumeVariant(
     if (section === 'projects' && content.projects?.length) {
       paragraphs.push(new Paragraph({ text: 'Projects', heading: HeadingLevel.HEADING_2 }));
       for (const proj of content.projects) {
-        paragraphs.push(new Paragraph({ children: [new TextRun({ text: proj.name, bold: true, size: fontSize })] }));
+        paragraphs.push(
+          new Paragraph({
+            children: [new TextRun({ text: proj.name, bold: true, size: fontSize })],
+          })
+        );
         if (proj.description) {
-          paragraphs.push(new Paragraph({ children: [new TextRun({ text: proj.description, size: fontSize })] }));
+          paragraphs.push(
+            new Paragraph({ children: [new TextRun({ text: proj.description, size: fontSize })] })
+          );
         }
         if (proj.techStack?.length) {
-          paragraphs.push(new Paragraph({ children: [new TextRun({ text: `Tech: ${proj.techStack.join(', ')}`, size: fontSize - 2, italics: true })] }));
+          paragraphs.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `Tech: ${proj.techStack.join(', ')}`,
+                  size: fontSize - 2,
+                  italics: true,
+                }),
+              ],
+            })
+          );
         }
         for (const bullet of proj.bullets ?? []) {
-          paragraphs.push(new Paragraph({ children: [new TextRun({ text: `• ${bullet.text}`, size: fontSize })], indent: { left: 360 } }));
+          paragraphs.push(
+            new Paragraph({
+              children: [new TextRun({ text: `• ${bullet.text}`, size: fontSize })],
+              indent: { left: 360 },
+            })
+          );
         }
         paragraphs.push(new Paragraph({ text: '' }));
       }
@@ -808,11 +1015,25 @@ export async function exportResumeVariant(
     if (section === 'education' && content.education?.length) {
       paragraphs.push(new Paragraph({ text: 'Education', heading: HeadingLevel.HEADING_2 }));
       for (const edu of content.education) {
-        paragraphs.push(new Paragraph({
-          children: [new TextRun({ text: `${edu.degree}${edu.field ? `, ${edu.field}` : ''} — ${edu.institution}`, bold: true, size: fontSize })],
-        }));
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `${edu.degree}${edu.field ? `, ${edu.field}` : ''} — ${edu.institution}`,
+                bold: true,
+                size: fontSize,
+              }),
+            ],
+          })
+        );
         if (edu.graduationDate) {
-          paragraphs.push(new Paragraph({ children: [new TextRun({ text: edu.graduationDate, size: fontSize - 2, italics: true })] }));
+          paragraphs.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: edu.graduationDate, size: fontSize - 2, italics: true }),
+              ],
+            })
+          );
         }
         paragraphs.push(new Paragraph({ text: '' }));
       }
@@ -821,7 +1042,12 @@ export async function exportResumeVariant(
     if (section === 'certifications' && content.certifications?.length) {
       paragraphs.push(new Paragraph({ text: 'Certifications', heading: HeadingLevel.HEADING_2 }));
       for (const cert of content.certifications) {
-        paragraphs.push(new Paragraph({ children: [new TextRun({ text: `• ${cert}`, size: fontSize })], indent: { left: 360 } }));
+        paragraphs.push(
+          new Paragraph({
+            children: [new TextRun({ text: `• ${cert}`, size: fontSize })],
+            indent: { left: 360 },
+          })
+        );
       }
       paragraphs.push(new Paragraph({ text: '' }));
     }
@@ -831,7 +1057,10 @@ export async function exportResumeVariant(
   const buffer = await Packer.toBuffer(doc);
 
   const dateStr = new Date().toISOString().slice(0, 10);
-  const slug = row.targetCompany.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const slug = row.targetCompany
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
   const filename = `resume-${slug}-${dateStr}.docx`;
 
   return {

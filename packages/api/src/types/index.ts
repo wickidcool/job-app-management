@@ -647,7 +647,13 @@ export interface FitTierParams {
 
 export type ResumeFormat = 'chronological' | 'functional' | 'hybrid';
 export type SectionEmphasis = 'experience_heavy' | 'skills_heavy' | 'balanced';
-export type SectionType = 'summary' | 'experience' | 'skills' | 'projects' | 'education' | 'certifications';
+export type SectionType =
+  | 'summary'
+  | 'experience'
+  | 'skills'
+  | 'projects'
+  | 'education'
+  | 'certifications';
 
 export interface SectionBulletSelectionDTO {
   sectionId: string;

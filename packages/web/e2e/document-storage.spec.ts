@@ -14,8 +14,7 @@ import { test, expect, type Page } from '@playwright/test';
 const isSupabaseConfigured = () =>
   !!(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY);
 
-const hasTestUser = () =>
-  !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
+const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -134,7 +133,12 @@ test.describe('Resume Upload - UI', () => {
   });
 
   test('unsupported file type shows error message', async ({ page }) => {
-    await mockUploadError(page, 415, 'UNSUPPORTED_FILE_TYPE', 'Only PDF and DOCX files are accepted');
+    await mockUploadError(
+      page,
+      415,
+      'UNSUPPORTED_FILE_TYPE',
+      'Only PDF and DOCX files are accepted'
+    );
 
     const fileInput = page.locator('input[type="file"]');
     if ((await fileInput.count()) > 0) {
@@ -238,7 +242,7 @@ test.describe('R2 Document Download - UI', () => {
             code: 'NOT_SUPPORTED',
             message: 'Download URLs are only available when R2 storage is configured',
           },
-        })
+        }),
       })
     );
 

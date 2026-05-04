@@ -16,7 +16,10 @@ const pipelineQuerySchema = z.object({
 
 const needsActionQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).optional(),
-  includeOverdue: z.enum(['true', 'false']).optional().transform((v) => v !== 'false'),
+  includeOverdue: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v !== 'false'),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   cursor: z.string().optional(),
 });
@@ -65,14 +68,20 @@ const closedLoopQuerySchema = z.object({
           .map((v) => v.trim())
           .every((v) => (VALID_TERMINAL_STATUSES as readonly string[]).includes(v));
       },
-      { message: 'Invalid status value(s). Must be comma-separated list of: offer, rejected, withdrawn.' }
+      {
+        message:
+          'Invalid status value(s). Must be comma-separated list of: offer, rejected, withdrawn.',
+      }
     ),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   cursor: z.string().optional(),
 });
 
 const byFitTierQuerySchema = z.object({
-  includeTerminal: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
+  includeTerminal: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
   sortBy: z.enum(['updatedAt', 'createdAt']).optional(),
   sortOrder: z.enum(['asc', 'desc']).optional(),
 });
@@ -83,7 +92,11 @@ export async function reportsRoutes(fastify: FastifyInstance) {
     const query = pipelineQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid query parameters',
+          details: query.error.flatten(),
+        },
       });
     }
     const result = await getPipelineReport(query.data, request.userId ?? undefined);
@@ -95,7 +108,11 @@ export async function reportsRoutes(fastify: FastifyInstance) {
     const query = needsActionQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid query parameters',
+          details: query.error.flatten(),
+        },
       });
     }
     const result = await getNeedsActionReport(query.data, request.userId ?? undefined);
@@ -107,7 +124,11 @@ export async function reportsRoutes(fastify: FastifyInstance) {
     const query = staleQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid query parameters',
+          details: query.error.flatten(),
+        },
       });
     }
     const result = await getStaleReport(query.data, request.userId ?? undefined);
@@ -119,7 +140,11 @@ export async function reportsRoutes(fastify: FastifyInstance) {
     const query = closedLoopQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid query parameters',
+          details: query.error.flatten(),
+        },
       });
     }
     const result = await getClosedLoopReport(query.data, request.userId ?? undefined);
@@ -131,7 +156,11 @@ export async function reportsRoutes(fastify: FastifyInstance) {
     const query = byFitTierQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters', details: query.error.flatten() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid query parameters',
+          details: query.error.flatten(),
+        },
       });
     }
     const result = await getByFitTierReport(query.data, request.userId ?? undefined);

@@ -39,7 +39,10 @@ test.describe('Authentication - UI Components', () => {
     await expect(page.getByText(/create an account/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /create account/i }).first()).toBeVisible();
 
-    await page.getByRole('button', { name: /sign in/i }).last().click();
+    await page
+      .getByRole('button', { name: /sign in/i })
+      .last()
+      .click();
     await expect(page.getByText(/sign in to manage your job applications/i)).toBeVisible();
   });
 
@@ -79,7 +82,10 @@ test.describe('Authentication - Auth Flow', () => {
 
     await page.locator('input[type="email"]').fill(testEmail);
     await page.locator('input[type="password"]').fill(testPassword);
-    await page.getByRole('button', { name: /create account/i }).first().click();
+    await page
+      .getByRole('button', { name: /create account/i })
+      .first()
+      .click();
 
     await page.waitForTimeout(2000);
   });

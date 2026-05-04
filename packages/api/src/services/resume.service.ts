@@ -6,12 +6,7 @@ import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
-import {
-  isR2Configured,
-  uploadObject,
-  deleteObject,
-  buildObjectKey,
-} from './storage.service.js';
+import { isR2Configured, uploadObject, deleteObject, buildObjectKey } from './storage.service.js';
 import { enqueueChange } from './change-queue.service.js';
 import {
   parseResumeWithAI,
@@ -23,18 +18,28 @@ import { getOrCreateProjectBySlug } from './project.service.js';
 export async function addCompanyToCatalog(companyName: string): Promise<void> {
   if (!companyName) return;
   const db = getDb();
-  const normalized = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unspecified';
-  const [existing] = await db.select().from(companyCatalog).where(eq(companyCatalog.normalizedName, normalized));
+  const normalized =
+    companyName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'unspecified';
+  const [existing] = await db
+    .select()
+    .from(companyCatalog)
+    .where(eq(companyCatalog.normalizedName, normalized));
   if (!existing) {
-    await db.insert(companyCatalog).values({
-      id: ulid(),
-      name: companyName,
-      normalizedName: normalized,
-      firstSeenAt: new Date(),
-      applicationCount: 0,
-      latestStatus: null,
-      latestAppId: null,
-    }).onConflictDoNothing();
+    await db
+      .insert(companyCatalog)
+      .values({
+        id: ulid(),
+        name: companyName,
+        normalizedName: normalized,
+        firstSeenAt: new Date(),
+        applicationCount: 0,
+        latestStatus: null,
+        latestAppId: null,
+      })
+      .onConflictDoNothing();
   }
 }
 
@@ -437,7 +442,10 @@ export async function listResumes(userId?: string): Promise<ResumeDTO[]> {
   return allResumes.map(toDTO);
 }
 
-export async function listResumeExports(resumeId: string, userId?: string): Promise<ResumeExportDTO[]> {
+export async function listResumeExports(
+  resumeId: string,
+  userId?: string
+): Promise<ResumeExportDTO[]> {
   const db = getDb();
 
   const resumeWhere = userId

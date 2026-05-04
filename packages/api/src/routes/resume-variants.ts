@@ -14,7 +14,14 @@ import {
 
 const formatValues = ['chronological', 'functional', 'hybrid'] as const;
 const emphasisValues = ['experience_heavy', 'skills_heavy', 'balanced'] as const;
-const sectionTypes = ['summary', 'experience', 'skills', 'projects', 'education', 'certifications'] as const;
+const sectionTypes = [
+  'summary',
+  'experience',
+  'skills',
+  'projects',
+  'education',
+  'certifications',
+] as const;
 
 const bulletSelectionSchema = z.object({
   sectionId: z.string().min(1),
@@ -109,7 +116,9 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
   fastify.post('/resume-variants/generate', async (request, reply) => {
     const parsed = generateSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const result = await generateResumeVariant(parsed.data, request.userId ?? undefined);
     return reply.status(201).send(result);
@@ -119,7 +128,9 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
   fastify.post('/resume-variants/suggest-bullets', async (request, reply) => {
     const parsed = suggestBulletsSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const result = await suggestBullets(parsed.data, request.userId ?? undefined);
     return reply.send(result);
@@ -129,7 +140,9 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
   fastify.get('/resume-variants', async (request, reply) => {
     const parsed = listQuerySchema.safeParse(request.query);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const result = await listResumeVariants(parsed.data, request.userId ?? undefined);
     return reply.send(result);
@@ -147,7 +160,9 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const parsed = updateSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const variant = await updateResumeVariant(id, parsed.data, request.userId ?? undefined);
     return reply.send({ variant });
@@ -165,7 +180,9 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const parsed = reviseSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const result = await reviseResumeVariant(id, parsed.data, request.userId ?? undefined);
     return reply.send(result);
@@ -176,7 +193,9 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const parsed = exportSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
 
     const acceptJson = (request.headers['accept'] ?? '').includes('application/json');
