@@ -1,4 +1,4 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 /**
  * Multi-User Data Isolation E2E Tests (WIC-201)
@@ -400,7 +400,6 @@ test.describe('Real Multi-User Data Isolation', () => {
 
   test('User B cannot update User A application status via API', async ({
     browser,
-    request: _request,
   }) => {
     const user1Email = process.env.TEST_USER_EMAIL!;
     const user1Password = process.env.TEST_USER_PASSWORD!;
@@ -474,8 +473,8 @@ test.describe('Real Multi-User Data Isolation', () => {
 
     try {
       // Capture dashboard API responses for each user
-      let user1Stats: any = null;
-      let user2Stats: any = null;
+      let user1Stats: Record<string, unknown> | null = null;
+      let user2Stats: Record<string, unknown> | null = null;
 
       page1.on('response', async (res) => {
         if (res.url().includes('/api/dashboard')) {

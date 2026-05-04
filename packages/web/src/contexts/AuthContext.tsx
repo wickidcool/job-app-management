@@ -51,11 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const storedToken = localStorage.getItem(TOKEN_KEY);
     if (storedToken) {
-      fetchCurrentUser(storedToken).finally(() => {
+      (async () => {
+        await fetchCurrentUser(storedToken);
+        if (!cancelled) setLoading(false);
+      })();
+    } else {
+      queueMicrotask(() => {
         if (!cancelled) setLoading(false);
       });
-    } else {
-      setLoading(false);
     }
     return () => {
       cancelled = true;
@@ -128,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

@@ -254,12 +254,6 @@ test.describe('R2 Document Download - UI', () => {
       await downloadBtn.click();
       await page.waitForTimeout(500);
 
-      // Either show an error message or gracefully disable the download
-      const errorMsg = page
-        .getByText(/not available/i)
-        .or(page.getByText(/r2/i))
-        .or(page.getByText(/storage/i));
-
       // Not crashing is the minimum bar — error handling is acceptable
       await expect(page.locator('body')).toBeVisible();
     }

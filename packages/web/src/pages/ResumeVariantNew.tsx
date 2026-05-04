@@ -30,12 +30,14 @@ export function ResumeVariantNew() {
   // Pre-fill form data when application loads
   useEffect(() => {
     if (application) {
-      setFormData((prev) => ({
-        ...prev,
-        targetCompany: application.company || '',
-        targetRole: application.jobTitle || '',
-        jobDescriptionText: application.jobDescription || '',
-      }));
+      queueMicrotask(() => {
+        setFormData((prev) => ({
+          ...prev,
+          targetCompany: application.company || '',
+          targetRole: application.jobTitle || '',
+          jobDescriptionText: application.jobDescription || '',
+        }));
+      });
     }
   }, [application]);
 
