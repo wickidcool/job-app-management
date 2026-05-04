@@ -39,9 +39,7 @@ export function ReportsByFitTier() {
       <div className="rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50 p-8">
         <div className="text-center">
           <div className="text-4xl mb-4">🎯</div>
-          <h2 className="text-xl font-semibold text-neutral-900 mb-2">
-            Job Fit Analysis Required
-          </h2>
+          <h2 className="text-xl font-semibold text-neutral-900 mb-2">Job Fit Analysis Required</h2>
           <p className="text-neutral-600 mb-6 max-w-2xl mx-auto">
             This report groups applications by fit tier (Strong, Moderate, Weak). To use this
             feature, you need to run job fit analysis on your applications first.
@@ -51,18 +49,8 @@ export function ReportsByFitTier() {
             className="inline-flex items-center rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
             View Applications
-            <svg
-              className="ml-2 h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5l7 7-7 7"
-              />
+            <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
         </div>

@@ -88,12 +88,7 @@ export function InterviewPrepCard({
     return (
       <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
         <div className="text-gray-400 mb-4">
-          <svg
-            className="w-16 h-16 mx-auto"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
+          <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -143,7 +138,8 @@ export function InterviewPrepCard({
             </div>
             {application.interviewDate && (
               <div className="text-xs text-gray-500 mt-1">
-                📅 {new Date(application.interviewDate).toLocaleDateString('en-US', {
+                📅{' '}
+                {new Date(application.interviewDate).toLocaleDateString('en-US', {
                   month: 'short',
                   day: 'numeric',
                   year: 'numeric',
@@ -160,14 +156,7 @@ export function InterviewPrepCard({
         <div className="flex-shrink-0">
           <div className="relative w-24 h-24">
             <svg className="w-24 h-24 transform -rotate-90">
-              <circle
-                cx="48"
-                cy="48"
-                r="40"
-                fill="none"
-                stroke="#e5e7eb"
-                strokeWidth="8"
-              />
+              <circle cx="48" cy="48" r="40" fill="none" stroke="#e5e7eb" strokeWidth="8" />
               <circle
                 cx="48"
                 cy="48"

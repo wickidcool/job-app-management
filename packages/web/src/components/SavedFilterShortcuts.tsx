@@ -68,10 +68,7 @@ function saveFilters(filters: FilterShortcut[]) {
   }
 }
 
-export function SavedFilterShortcuts({
-  onApplyFilter,
-  currentFilters,
-}: SavedFilterShortcutsProps) {
+export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFilterShortcutsProps) {
   const [customFilters, setCustomFilters] = useState<FilterShortcut[]>(() => getSavedFilters());
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [newFilterName, setNewFilterName] = useState('');
@@ -106,9 +103,7 @@ export function SavedFilterShortcuts({
   };
 
   const hasActiveFilters = Boolean(
-    currentFilters.search ||
-      currentFilters.status?.length ||
-      currentFilters.company?.length
+    currentFilters.search || currentFilters.status?.length || currentFilters.company?.length
   );
 
   return (

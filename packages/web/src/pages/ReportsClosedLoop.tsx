@@ -12,13 +12,7 @@ const STATUS_LABELS: Record<string, string> = {
   interview: 'Interview',
 };
 
-function ClosedAppCard({
-  app,
-  onClick,
-}: {
-  app: ClosedLoopApplication;
-  onClick: () => void;
-}) {
+function ClosedAppCard({ app, onClick }: { app: ClosedLoopApplication; onClick: () => void }) {
   const borderColor =
     app.status === 'offer'
       ? 'border-green-200 bg-green-50'
@@ -89,8 +83,7 @@ export function ReportsClosedLoop() {
   const offers = applications.filter((a) => a.status === 'offer');
   const rejections = applications.filter((a) => a.status === 'rejected');
   const withdrawn = applications.filter((a) => a.status === 'withdrawn');
-  const conversionRate =
-    summary.total > 0 ? Math.round((summary.offers / summary.total) * 100) : 0;
+  const conversionRate = summary.total > 0 ? Math.round((summary.offers / summary.total) * 100) : 0;
 
   if (isLoading) {
     return (
@@ -175,9 +168,7 @@ export function ReportsClosedLoop() {
           {/* Rejection by Stage Breakdown */}
           {summary.rejectionsByStage.length > 0 && (
             <div className="mb-8 rounded-lg border border-neutral-200 bg-white p-6">
-              <h2 className="mb-4 text-lg font-semibold text-neutral-900">
-                Rejections by Stage
-              </h2>
+              <h2 className="mb-4 text-lg font-semibold text-neutral-900">Rejections by Stage</h2>
               <div className="space-y-2">
                 {summary.rejectionsByStage.map(({ stage, count, percentage }) => (
                   <div key={stage} className="flex items-center gap-3">

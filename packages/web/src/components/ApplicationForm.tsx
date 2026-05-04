@@ -42,7 +42,11 @@ const applicationFormSchema = z.object({
   contact: z.string().max(200, 'Contact must be less than 200 characters').optional(),
   compTarget: z.string().optional(),
   nextAction: z.string().max(500, 'Next action must be less than 500 characters').optional(),
-  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format').optional().or(z.literal('')),
+  nextActionDue: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')
+    .optional()
+    .or(z.literal('')),
 });
 
 export interface ApplicationFormProps {
@@ -156,7 +160,9 @@ export function ApplicationForm({
 
       // Handle APIError with validation details
       if (error instanceof APIError && error.code === 'VALIDATION_ERROR') {
-        const details = error.details as { fieldErrors?: Record<string, string[]>; formErrors?: string[] } | undefined;
+        const details = error.details as
+          | { fieldErrors?: Record<string, string[]>; formErrors?: string[] }
+          | undefined;
 
         // Set field-level errors
         if (details?.fieldErrors) {
@@ -399,7 +405,10 @@ export function ApplicationForm({
 
               {/* Comp Target */}
               <div className="mb-4">
-                <label htmlFor="compTarget" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="compTarget"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Comp Target
                 </label>
                 <input
@@ -411,7 +420,9 @@ export function ApplicationForm({
                   aria-invalid={!!errors.compTarget}
                   aria-describedby={errors.compTarget ? 'compTarget-error' : undefined}
                 />
-                <p className="mt-1 text-xs text-gray-500">Your target compensation (distinct from posted range)</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Your target compensation (distinct from posted range)
+                </p>
                 {errors.compTarget && (
                   <p id="compTarget-error" className="mt-1 text-sm text-red-600" role="alert">
                     {errors.compTarget.message}
@@ -422,7 +433,10 @@ export function ApplicationForm({
               {/* Next Action and Due Date */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="nextAction" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="nextAction"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Next Action
                   </label>
                   <input
@@ -442,7 +456,10 @@ export function ApplicationForm({
                 </div>
 
                 <div>
-                  <label htmlFor="nextActionDue" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="nextActionDue"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Due Date
                   </label>
                   <input

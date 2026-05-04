@@ -111,10 +111,7 @@ export function AttentionCard({ applications }: AttentionCardProps) {
       </div>
       <div className="space-y-3">
         {items.map((item, index) => (
-          <div
-            key={index}
-            className={`rounded-lg border p-3 ${getTypeColor(item.type)}`}
-          >
+          <div key={index} className={`rounded-lg border p-3 ${getTypeColor(item.type)}`}>
             <div className="flex items-start gap-3">
               <span className="text-lg">{item.icon}</span>
               <div className="flex-1">
@@ -126,9 +123,7 @@ export function AttentionCard({ applications }: AttentionCardProps) {
                     {item.message} →
                   </Link>
                 ) : (
-                  <p className={`text-sm font-medium ${getTextColor(item.type)}`}>
-                    {item.message}
-                  </p>
+                  <p className={`text-sm font-medium ${getTextColor(item.type)}`}>{item.message}</p>
                 )}
               </div>
             </div>

@@ -64,11 +64,7 @@ export function SortableApplicationCard({
   if (isMobile) {
     return (
       <div ref={setNodeRef} style={style}>
-        <SwipeableCard
-          leftActions={leftActions}
-        >
-          {cardContent}
-        </SwipeableCard>
+        <SwipeableCard leftActions={leftActions}>{cardContent}</SwipeableCard>
       </div>
     );
   }
