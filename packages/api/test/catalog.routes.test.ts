@@ -171,7 +171,11 @@ describe('Catalog Routes', () => {
 
       expect(response.statusCode).toBe(201);
       expect(response.json()).toEqual(mockDiff);
-      expect(catalogService.generateDiff).toHaveBeenCalledWith('resume', '01HZ_RESUME_001', undefined);
+      expect(catalogService.generateDiff).toHaveBeenCalledWith(
+        'resume',
+        '01HZ_RESUME_001',
+        undefined
+      );
     });
   });
 
@@ -195,9 +199,13 @@ describe('Catalog Routes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ applied: 2, status: 'approved' });
-      expect(catalogService.applyDiff).toHaveBeenCalledWith('01HZ_DIFF_001', {
-        action: 'approve_all',
-      }, undefined);
+      expect(catalogService.applyDiff).toHaveBeenCalledWith(
+        '01HZ_DIFF_001',
+        {
+          action: 'approve_all',
+        },
+        undefined
+      );
     });
 
     it('reject_all returns rejected count and rejected status', async () => {
