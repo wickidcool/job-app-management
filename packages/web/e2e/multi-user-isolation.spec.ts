@@ -82,11 +82,34 @@ async function mockResumesList(page: Page, resumes: object[]) {
   );
 }
 
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
+
 // ---------------------------------------------------------------------------
 // UI-Level Isolation Tests (run in bypass mode, no Supabase required)
 // ---------------------------------------------------------------------------
 
 test.describe('Application Data Isolation - UI', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
+
   const USER_A_APP = {
     id: 'app-user-a-001',
     jobTitle: 'Staff Engineer',
@@ -159,6 +182,10 @@ test.describe('Application Data Isolation - UI', () => {
 });
 
 test.describe('Dashboard Stats Isolation - UI', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
+
   test('dashboard shows user-specific stats from API', async ({ page }) => {
     const USER_STATS = {
       total: 7,
@@ -206,6 +233,10 @@ test.describe('Dashboard Stats Isolation - UI', () => {
 });
 
 test.describe('Resume/Document Isolation - UI', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
+
   const USER_A_RESUME = {
     id: 'resume-user-a-001',
     fileName: 'my-resume.pdf',

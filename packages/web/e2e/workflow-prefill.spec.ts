@@ -1,5 +1,30 @@
 import { test, expect, type Page } from '@playwright/test';
 
+/**
+ * Workflow Pre-fill E2E Tests
+ *
+ * Tests use mock auth to bypass authentication without a real backend.
+ */
+
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
+
 const MOCK_APP_ID = 'mock-app-id-12345';
 
 const MOCK_APPLICATION = {
@@ -57,6 +82,10 @@ async function mockStarEntriesApi(page: Page) {
 }
 
 test.describe('JobFitAnalysis - workflow pre-fill', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
+
   test('pre-fills job description textarea when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
     await page.goto(`/job-fit-analysis?appId=${MOCK_APP_ID}`);
@@ -87,6 +116,10 @@ test.describe('JobFitAnalysis - workflow pre-fill', () => {
 });
 
 test.describe('ResumeVariantNew - workflow pre-fill', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
+
   test('pre-fills company, role, and job description when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
     await page.goto(`/resume-variants/new?appId=${MOCK_APP_ID}`);
@@ -125,6 +158,7 @@ test.describe('ResumeVariantNew - workflow pre-fill', () => {
 
 test.describe('CoverLetterNew - workflow pre-fill', () => {
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     await mockStarEntriesApi(page);
   });
 
@@ -182,6 +216,7 @@ test.describe('CoverLetterNew - workflow pre-fill', () => {
 
 test.describe('ApplicationDetail - header changes', () => {
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     await mockApplicationApi(page);
   });
 

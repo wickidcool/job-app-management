@@ -9,7 +9,28 @@ import { test, expect, type Page } from '@playwright/test';
  * 1. UI-level tests — mock API responses, run without Supabase/R2.
  * 2. Real storage tests — require TEST_USER_EMAIL/PASSWORD + R2 configured
  *    (VITE_SUPABASE_URL set and API with R2_ENDPOINT etc.).
+ *
+ * Tests use mock auth to bypass authentication without a real backend.
  */
+
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
 
 const isSupabaseConfigured = () =>
   !!(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY);
@@ -79,6 +100,7 @@ async function mockDownloadUrl(page: Page, resumeId: string, url: string) {
 
 test.describe('Resume Upload - UI', () => {
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     await mockResumesList(page, []);
     await page.goto('/resumes');
   });
@@ -180,6 +202,10 @@ test.describe('Resume Upload - UI', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('R2 Document Download - UI', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
+
   test('download URL response triggers file download', async ({ page }) => {
     const resumeId = 'resume-r2-001';
     const mockSignedUrl = 'https://r2.example.com/signed-url?token=abc123';
