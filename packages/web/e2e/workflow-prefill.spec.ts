@@ -1,5 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
 
+/**
+ * Workflow Pre-fill E2E Tests
+ *
+ * These tests verify that workflow pages (Job Fit Analysis, Resume Variants,
+ * Cover Letters) correctly pre-fill forms when an appId is provided.
+ *
+ * Tests skip when auth is enforced (SUPABASE_JWT_SECRET set) because they
+ * navigate to protected routes without authenticating first.
+ */
+
+const isAuthEnforced = () => !!process.env.SUPABASE_JWT_SECRET;
+
 const MOCK_APP_ID = 'mock-app-id-12345';
 
 const MOCK_APPLICATION = {
@@ -57,6 +69,8 @@ async function mockStarEntriesApi(page: Page) {
 }
 
 test.describe('JobFitAnalysis - workflow pre-fill', () => {
+  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+
   test('pre-fills job description textarea when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
     await page.goto(`/job-fit-analysis?appId=${MOCK_APP_ID}`);
@@ -87,6 +101,8 @@ test.describe('JobFitAnalysis - workflow pre-fill', () => {
 });
 
 test.describe('ResumeVariantNew - workflow pre-fill', () => {
+  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+
   test('pre-fills company, role, and job description when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
     await page.goto(`/resume-variants/new?appId=${MOCK_APP_ID}`);
@@ -124,6 +140,8 @@ test.describe('ResumeVariantNew - workflow pre-fill', () => {
 });
 
 test.describe('CoverLetterNew - workflow pre-fill', () => {
+  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+
   test.beforeEach(async ({ page }) => {
     await mockStarEntriesApi(page);
   });
@@ -181,6 +199,8 @@ test.describe('CoverLetterNew - workflow pre-fill', () => {
 });
 
 test.describe('ApplicationDetail - header changes', () => {
+  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+
   test.beforeEach(async ({ page }) => {
     await mockApplicationApi(page);
   });
