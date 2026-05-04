@@ -82,25 +82,6 @@ async function mockResumesList(page: Page, resumes: object[]) {
   );
 }
 
-const MOCK_USER = {
-  id: 'test-user-001',
-  email: 'test@example.com',
-};
-
-async function setupMockAuth(page: Page) {
-  await page.route('**/api/auth/me', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ user: MOCK_USER }),
-    })
-  );
-
-  await page.addInitScript(() => {
-    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
-  });
-}
-
 // ---------------------------------------------------------------------------
 // UI-Level Isolation Tests (run in bypass mode, no Supabase required)
 // ---------------------------------------------------------------------------
