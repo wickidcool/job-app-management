@@ -286,7 +286,8 @@ describe('Cover Letter Routes', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'draft' })
+        expect.objectContaining({ status: 'draft' }),
+        undefined
       );
     });
 
@@ -294,7 +295,8 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
       await app.inject({ method: 'GET', url: '/api/cover-letters?company=Acme' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ company: 'Acme' })
+        expect.objectContaining({ company: 'Acme' }),
+        undefined
       );
     });
 
@@ -302,7 +304,8 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
       await app.inject({ method: 'GET', url: '/api/cover-letters?search=typescript' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ search: 'typescript' })
+        expect.objectContaining({ search: 'typescript' }),
+        undefined
       );
     });
 
@@ -322,7 +325,8 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
       await app.inject({ method: 'GET', url: `/api/cover-letters?cursor=${cursor}` });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ cursor })
+        expect.objectContaining({ cursor }),
+        undefined
       );
     });
   });
@@ -704,7 +708,8 @@ describe('Cover Letter Routes', () => {
       expect(response.json().fileSize).toBe(fakeBuffer.length);
       expect(coverLetterService.exportCoverLetter).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-        expect.objectContaining({ includeHeader: true, fontSize: 12 })
+        expect.objectContaining({ includeHeader: true, fontSize: 12 }),
+        undefined
       );
     });
 
