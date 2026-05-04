@@ -31,11 +31,7 @@ export function _resetStorageClient(): void {
   _client = null;
 }
 
-export async function uploadObject(
-  key: string,
-  body: Buffer,
-  contentType: string
-): Promise<void> {
+export async function uploadObject(key: string, body: Buffer, contentType: string): Promise<void> {
   const config = getConfig();
   await getClient().send(
     new PutObjectCommand({
@@ -66,7 +62,11 @@ export async function getSignedUrl(key: string, expiresInSeconds = 3600): Promis
   return awsGetSignedUrl(getClient(), command, { expiresIn: expiresInSeconds });
 }
 
-export function buildObjectKey(userId: string | null, type: 'resumes' | 'resume-exports', fileName: string): string {
+export function buildObjectKey(
+  userId: string | null,
+  type: 'resumes' | 'resume-exports',
+  fileName: string
+): string {
   const prefix = userId ?? 'anon';
   return `${prefix}/${type}/${fileName}`;
 }

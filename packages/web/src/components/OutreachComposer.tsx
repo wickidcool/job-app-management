@@ -91,7 +91,9 @@ export function OutreachComposer({
     } catch (error) {
       console.error('Generation failed:', error);
       setGenerationError(
-        error instanceof Error ? error.message : 'Failed to generate outreach message. Please try again.'
+        error instanceof Error
+          ? error.message
+          : 'Failed to generate outreach message. Please try again.'
       );
     }
   };
@@ -226,12 +228,9 @@ export function OutreachComposer({
               placeholder="Your subject line..."
             />
             <div className="mt-1 flex items-center justify-between text-xs">
-              <span
-                className={
-                  subjectStatus === 'warning' ? 'text-yellow-600' : 'text-gray-500'
-                }
-              >
-                {subjectCharCount} / {platform === 'email' ? PLATFORM_LIMITS.email.subjectMaxChars : 100} characters
+              <span className={subjectStatus === 'warning' ? 'text-yellow-600' : 'text-gray-500'}>
+                {subjectCharCount} /{' '}
+                {platform === 'email' ? PLATFORM_LIMITS.email.subjectMaxChars : 100} characters
               </span>
               {subjectStatus === 'good' && <span className="text-green-600">✅ Good</span>}
               {subjectStatus === 'warning' && (
@@ -269,8 +268,7 @@ export function OutreachComposer({
                     }
                   >
                     {bodyCharCount}{' '}
-                    {limits.recommendedMax &&
-                      `/ ${limits.recommendedMax} recommended`}
+                    {limits.recommendedMax && `/ ${limits.recommendedMax} recommended`}
                     {limits.maxChars && ` (${limits.maxChars} max)`}
                   </span>
                   {bodyStatus === 'good' && (
@@ -282,9 +280,7 @@ export function OutreachComposer({
                     </span>
                   )}
                   {bodyStatus === 'error' && (
-                    <span className="text-red-600 text-xs">
-                      ❌ Exceeds maximum length
-                    </span>
+                    <span className="text-red-600 text-xs">❌ Exceeds maximum length</span>
                   )}
                 </div>
               </div>

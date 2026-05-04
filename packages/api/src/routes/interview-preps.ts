@@ -14,7 +14,11 @@ import {
 const interviewTypeValues = ['behavioral', 'technical', 'mixed', 'case_study'] as const;
 const prepTimeValues = ['30min', '1hr', '2hr', 'full_day'] as const;
 const confidenceLevelValues = ['not_practiced', 'needs_work', 'comfortable', 'confident'] as const;
-const mitigationStrategyValues = ['acknowledge_pivot', 'growth_mindset', 'adjacent_experience'] as const;
+const mitigationStrategyValues = [
+  'acknowledge_pivot',
+  'growth_mindset',
+  'adjacent_experience',
+] as const;
 
 const generateSchema = z
   .object({
@@ -126,7 +130,9 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
   fastify.post('/interview-preps', async (request, reply) => {
     const parsed = generateSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const result = await generateInterviewPrep(parsed.data, request.userId ?? undefined);
     return reply.status(201).send(result);
@@ -144,7 +150,9 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const parsed = updateSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const result = await updateInterviewPrep(id, parsed.data, request.userId ?? undefined);
     return reply.send(result);
@@ -155,11 +163,20 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const parsed = exportQuerySchema.safeParse(request.query);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
 
-    const sections = parsed.data.sections ? parsed.data.sections.split(',').map((s) => s.trim()) : undefined;
-    const result = await exportInterviewPrep(id, parsed.data.format, sections, request.userId ?? undefined);
+    const sections = parsed.data.sections
+      ? parsed.data.sections.split(',').map((s) => s.trim())
+      : undefined;
+    const result = await exportInterviewPrep(
+      id,
+      parsed.data.format,
+      sections,
+      request.userId ?? undefined
+    );
 
     const acceptJson = (request.headers['accept'] ?? '').includes('application/json');
     if (acceptJson) {
@@ -173,7 +190,8 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const disposition = parsed.data.format === 'print' ? 'inline' : `attachment; filename="${result.filename}"`;
+    const disposition =
+      parsed.data.format === 'print' ? 'inline' : `attachment; filename="${result.filename}"`;
     return reply
       .header('Content-Type', result.contentType)
       .header('Content-Disposition', disposition)
@@ -185,7 +203,9 @@ export async function interviewPrepsRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const parsed = practiceSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return reply
+        .status(400)
+        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
     }
     const result = await logPracticeSession(id, parsed.data, request.userId ?? undefined);
     return reply.send(result);

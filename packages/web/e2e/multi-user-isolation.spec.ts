@@ -114,9 +114,11 @@ test.describe('Application Data Isolation - UI', () => {
     await expect(page.getByText('Acme Corp')).toBeVisible();
 
     // Crucially: the list should contain exactly one application
-    const appCards = page.locator('[data-testid="application-card"], [class*="application"]').filter({
-      hasText: 'Engineer',
-    });
+    const appCards = page
+      .locator('[data-testid="application-card"], [class*="application"]')
+      .filter({
+        hasText: 'Engineer',
+      });
     await expect(appCards).toHaveCount(1);
   });
 
@@ -136,8 +138,7 @@ test.describe('Application Data Isolation - UI', () => {
 
     // If the page redirects to /applications on 404, that also satisfies isolation
     const redirectedToList =
-      (await page.url()).endsWith('/applications') ||
-      (await page.url()).endsWith('/');
+      (await page.url()).endsWith('/applications') || (await page.url()).endsWith('/');
 
     const hasNotFoundUI = await notFoundIndicator.isVisible().catch(() => false);
     expect(hasNotFoundUI || redirectedToList).toBe(true);
@@ -398,9 +399,7 @@ test.describe('Real Multi-User Data Isolation', () => {
     }
   });
 
-  test('User B cannot update User A application status via API', async ({
-    browser,
-  }) => {
+  test('User B cannot update User A application status via API', async ({ browser }) => {
     const user1Email = process.env.TEST_USER_EMAIL!;
     const user1Password = process.env.TEST_USER_PASSWORD!;
     const user2Email = process.env.TEST_USER2_EMAIL!;
@@ -561,13 +560,10 @@ test.describe('Real Multi-User Data Isolation', () => {
       // User 2 attempts to change User 1's application status
       if (user1AppId && user1AppVersion && user2Token) {
         const apiContext = await page2.context().request;
-        const statusResponse = await apiContext.patch(
-          `/api/applications/${user1AppId}/status`,
-          {
-            headers: { Authorization: user2Token },
-            data: { status: 'applied', version: user1AppVersion },
-          }
-        );
+        const statusResponse = await apiContext.patch(`/api/applications/${user1AppId}/status`, {
+          headers: { Authorization: user2Token },
+          data: { status: 'applied', version: user1AppVersion },
+        });
 
         // Must return 404 — User 2 has no visibility to User 1's application
         expect(statusResponse.status()).toBe(404);

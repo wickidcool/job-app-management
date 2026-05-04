@@ -299,11 +299,7 @@ export async function updateApplicationStatus(
       ? and(eq(applications.id, id), eq(applications.userId, userId))
       : eq(applications.id, id);
 
-    const [current] = await tx
-      .select()
-      .from(applications)
-      .where(lockWhere)
-      .for('update');
+    const [current] = await tx.select().from(applications).where(lockWhere).for('update');
 
     if (!current) throw new NotFoundError('Application');
 

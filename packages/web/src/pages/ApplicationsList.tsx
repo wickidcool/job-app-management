@@ -14,13 +14,16 @@ export function ApplicationsList() {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   // Convert FilterOptions to API filter format
-  const apiFilters = useMemo(() => ({
-    status: filters.status,
-    search: filters.search,
-    // API only supports single company partial match, not multiple exact matches
-    // We'll handle multiple companies via client-side filtering
-    company: undefined,
-  }), [filters.status, filters.search]);
+  const apiFilters = useMemo(
+    () => ({
+      status: filters.status,
+      search: filters.search,
+      // API only supports single company partial match, not multiple exact matches
+      // We'll handle multiple companies via client-side filtering
+      company: undefined,
+    }),
+    [filters.status, filters.search]
+  );
 
   const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
   const updateStatusMutation = useUpdateApplicationStatus();
@@ -53,9 +56,7 @@ export function ApplicationsList() {
   ];
 
   // Get unique companies from all applications (not just filtered ones) for the filter options
-  const availableCompanies = Array.from(
-    new Set(rawApplications.map((app) => app.company))
-  ).sort();
+  const availableCompanies = Array.from(new Set(rawApplications.map((app) => app.company))).sort();
   const availableStatuses: ApplicationStatus[] = [
     'saved',
     'applied',
@@ -76,10 +77,7 @@ export function ApplicationsList() {
 
       <div className="mb-4 space-y-3">
         {/* Saved filter shortcuts - always visible */}
-        <SavedFilterShortcuts
-          onApplyFilter={setFilters}
-          currentFilters={filters}
-        />
+        <SavedFilterShortcuts onApplyFilter={setFilters} currentFilters={filters} />
 
         {/* Filter toggle button */}
         <div>

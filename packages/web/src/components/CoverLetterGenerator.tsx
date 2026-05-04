@@ -103,9 +103,10 @@ export function CoverLetterGenerator({
         lengthVariant: variant.length,
         emphasis: variant.emphasis,
         jobFitAnalysisId: usingFitAnalysis ? fitAnalysisId : undefined,
-        jobDescriptionText: !usingFitAnalysis && step1Data.jobDescription.trim()
-          ? step1Data.jobDescription.trim()
-          : undefined,
+        jobDescriptionText:
+          !usingFitAnalysis && step1Data.jobDescription.trim()
+            ? step1Data.jobDescription.trim()
+            : undefined,
       });
 
       setGeneratedCoverLetterId(coverLetter.id);
@@ -114,7 +115,9 @@ export function CoverLetterGenerator({
     } catch (error) {
       console.error('Generation failed:', error);
       setGenerationError(
-        error instanceof Error ? error.message : 'Failed to generate cover letter. Please try again.'
+        error instanceof Error
+          ? error.message
+          : 'Failed to generate cover letter. Please try again.'
       );
     }
   };
@@ -278,7 +281,9 @@ export function CoverLetterGenerator({
                       placeholder="Paste the full job description here..."
                     />
                     {errorsStep1.jobDescription && (
-                      <p className="mt-1 text-sm text-red-600">{errorsStep1.jobDescription.message}</p>
+                      <p className="mt-1 text-sm text-red-600">
+                        {errorsStep1.jobDescription.message}
+                      </p>
                     )}
                     <p className="mt-1 text-xs text-gray-500">
                       The job description is used to tailor your cover letter to the specific role.
@@ -518,7 +523,9 @@ export function CoverLetterGenerator({
               {generateMutation.isPending ? (
                 <div className="bg-white border rounded-lg p-12 text-center">
                   <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mb-4"></div>
-                  <p className="text-lg font-medium text-gray-900">Generating your cover letter...</p>
+                  <p className="text-lg font-medium text-gray-900">
+                    Generating your cover letter...
+                  </p>
                   <p className="text-sm text-gray-600 mt-2">This usually takes 10-15 seconds</p>
                 </div>
               ) : generationError ? (
@@ -543,7 +550,10 @@ export function CoverLetterGenerator({
                 </div>
               ) : (
                 <>
-                  <div className="bg-white border rounded-lg overflow-hidden" style={{ height: '600px' }}>
+                  <div
+                    className="bg-white border rounded-lg overflow-hidden"
+                    style={{ height: '600px' }}
+                  >
                     <div className="grid grid-cols-2 h-full">
                       {/* Editor */}
                       <div className="border-r flex flex-col">
@@ -561,7 +571,12 @@ export function CoverLetterGenerator({
                         <div className="px-4 py-3 bg-gray-50 border-t text-sm space-y-1">
                           <div className="flex items-center gap-2 text-green-600">
                             <span>✅</span>
-                            <span>{editableContent.trim() === '' ? 0 : editableContent.trim().split(/\s+/).length} words</span>
+                            <span>
+                              {editableContent.trim() === ''
+                                ? 0
+                                : editableContent.trim().split(/\s+/).length}{' '}
+                              words
+                            </span>
                           </div>
                           <div className="flex items-center gap-2 text-green-600">
                             <span>✅</span>

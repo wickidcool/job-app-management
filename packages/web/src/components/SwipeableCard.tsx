@@ -99,11 +99,7 @@ export function SwipeableCard({
   };
 
   return (
-    <div
-      ref={containerRef}
-      className="relative overflow-hidden"
-      style={{ touchAction: 'pan-y' }}
-    >
+    <div ref={containerRef} className="relative overflow-hidden" style={{ touchAction: 'pan-y' }}>
       {/* Left actions (revealed when swiping left) */}
       {leftActions.length > 0 && (
         <div className="absolute right-0 top-0 bottom-0 flex items-stretch">

@@ -38,7 +38,9 @@ export async function getDashboardStats(userId?: string): Promise<{
   const [weekRow] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(applications)
-    .where(and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneWeekAgo), userFilter));
+    .where(
+      and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneWeekAgo), userFilter)
+    );
 
   // Applied this month
   const oneMonthAgo = new Date();
@@ -47,7 +49,9 @@ export async function getDashboardStats(userId?: string): Promise<{
   const [monthRow] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(applications)
-    .where(and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneMonthAgo), userFilter));
+    .where(
+      and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneMonthAgo), userFilter)
+    );
 
   // Response rate: applications that progressed beyond 'applied'
   const responded = byStatus.phone_screen + byStatus.interview + byStatus.offer + byStatus.rejected;

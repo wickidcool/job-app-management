@@ -33,9 +33,7 @@ export function OutreachNew() {
         </div>
 
         <div className="mb-6 bg-white border rounded-lg p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-3">
-            Select Platform
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-3">Select Platform</label>
           <div className="flex gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input

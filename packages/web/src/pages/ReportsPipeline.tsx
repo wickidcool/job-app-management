@@ -66,9 +66,7 @@ function PipelineCard({
     >
       <h4 className="text-sm font-semibold text-neutral-900 truncate">{app.jobTitle}</h4>
       <p className="mt-0.5 text-xs text-neutral-600 truncate">{app.company}</p>
-      {app.location && (
-        <p className="mt-0.5 text-xs text-neutral-500 truncate">{app.location}</p>
-      )}
+      {app.location && <p className="mt-0.5 text-xs text-neutral-500 truncate">{app.location}</p>}
       <div className="mt-2 flex flex-wrap gap-1">
         {overdue && (
           <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
@@ -194,9 +192,14 @@ export function ReportsPipeline() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {data.groups.map((group) => (
-            <div key={group.status} className={`rounded-lg border-2 p-4 ${STATUS_COLORS[group.status]}`}>
+            <div
+              key={group.status}
+              className={`rounded-lg border-2 p-4 ${STATUS_COLORS[group.status]}`}
+            >
               <div className="mb-3 flex items-center justify-between">
-                <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${STATUS_HEADER_COLORS[group.status]}`}>
+                <span
+                  className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${STATUS_HEADER_COLORS[group.status]}`}
+                >
                   {STATUS_LABELS[group.status]}
                 </span>
                 <span className="text-sm font-medium text-neutral-600">{group.count}</span>

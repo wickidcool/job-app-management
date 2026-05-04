@@ -635,8 +635,14 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
   });
 
   const pendingReviewCount = (diff.pendingReview as ReviewItem[]).length;
-  const finalStatus = appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
-  return { applied: appliedCount, rejected: rejectedCount, pendingReview: pendingReviewCount, status: finalStatus };
+  const finalStatus =
+    appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
+  return {
+    applied: appliedCount,
+    rejected: rejectedCount,
+    pendingReview: pendingReviewCount,
+    status: finalStatus,
+  };
 }
 
 async function applyChange(tx: any, change: DiffChange): Promise<void> {
@@ -775,7 +781,11 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
   }
 }
 
-export async function generateDiff(sourceType: 'resume' | 'application', sourceId: string, userId?: string) {
+export async function generateDiff(
+  sourceType: 'resume' | 'application',
+  sourceId: string,
+  userId?: string
+) {
   const db = getDb();
   await processCatalogChange({
     id: ulid(),

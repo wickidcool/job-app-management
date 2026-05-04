@@ -74,7 +74,10 @@ function App() {
                     <TopNavigation applicationCount={inProgressCount} exportCount={exportCount} />
                   </div>
                   <div className="md:hidden">
-                    <MobileNavigation applicationCount={inProgressCount} exportCount={exportCount} />
+                    <MobileNavigation
+                      applicationCount={inProgressCount}
+                      exportCount={exportCount}
+                    />
                   </div>
 
                   <main className="pb-20 md:pb-0">
@@ -104,7 +107,10 @@ function App() {
                       <Route path="/projects" element={<ProjectsList />} />
                       <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
                       <Route path="/projects/:projectId" element={<ProjectDetail />} />
-                      <Route path="/projects/:projectId/files/:fileName" element={<ProjectFileEditor />} />
+                      <Route
+                        path="/projects/:projectId/files/:fileName"
+                        element={<ProjectFileEditor />}
+                      />
                       <Route path="/settings" element={<Settings />} />
                     </Routes>
                   </main>

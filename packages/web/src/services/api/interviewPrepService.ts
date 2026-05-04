@@ -103,11 +103,7 @@ export class InterviewPrepService {
   /**
    * Download quick reference card as file
    */
-  async downloadQuickReference(
-    id: string,
-    format: ExportFormat,
-    sections?: string
-  ): Promise<Blob> {
+  async downloadQuickReference(id: string, format: ExportFormat, sections?: string): Promise<Blob> {
     const params = new URLSearchParams({ format });
     if (sections) {
       params.append('sections', sections);

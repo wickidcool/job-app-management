@@ -59,7 +59,10 @@ async function getFileCount(slug: string): Promise<number> {
   }
 }
 
-export async function createProject(input: CreateProjectInput, userId?: string): Promise<ProjectMeta> {
+export async function createProject(
+  input: CreateProjectInput,
+  userId?: string
+): Promise<ProjectMeta> {
   const db = getDb();
   const slug = input.slug || toSlug(input.name);
 
@@ -273,8 +276,11 @@ export async function deleteProject(projectId: string, userId?: string): Promise
 export async function listProjectFiles(slug: string, userId?: string): Promise<ProjectFileMeta[]> {
   if (userId) {
     const db = getDb();
-    const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId)))
+      .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
   const dir = safeJoin(projectsDir(), slug);
@@ -294,14 +300,21 @@ export async function listProjectFiles(slug: string, userId?: string): Promise<P
   return result.sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
 
-export async function getProjectFile(slug: string, fileName: string, userId?: string): Promise<string> {
+export async function getProjectFile(
+  slug: string,
+  fileName: string,
+  userId?: string
+): Promise<string> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
   }
   if (userId) {
     const db = getDb();
-    const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId)))
+      .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
   const filePath = safeJoin(projectsDir(), slug, fileName);
@@ -323,8 +336,11 @@ export async function updateProjectFile(
   }
   if (userId) {
     const db = getDb();
-    const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId)))
+      .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
   const dir = safeJoin(projectsDir(), slug);
@@ -352,8 +368,11 @@ export async function createProjectFile(
   }
   if (userId) {
     const db = getDb();
-    const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId)))
+      .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
   const dir = safeJoin(projectsDir(), slug);
@@ -379,14 +398,21 @@ export async function createProjectFile(
   await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
 
-export async function deleteProjectFile(slug: string, fileName: string, userId?: string): Promise<void> {
+export async function deleteProjectFile(
+  slug: string,
+  fileName: string,
+  userId?: string
+): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
   }
   if (userId) {
     const db = getDb();
-    const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.slug, slug), eq(projects.userId, userId))).limit(1);
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.slug, slug), eq(projects.userId, userId)))
+      .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
   const filePath = safeJoin(projectsDir(), slug, fileName);
@@ -401,7 +427,9 @@ export async function deleteProjectFile(slug: string, fileName: string, userId?:
   await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
 
-export async function generateProjectIndex(userId?: string): Promise<{ path: string; projectCount: number }> {
+export async function generateProjectIndex(
+  userId?: string
+): Promise<{ path: string; projectCount: number }> {
   const allProjects = await listProjects(userId);
   const dir = projectsDir();
   await fs.mkdir(dir, { recursive: true });
@@ -432,7 +460,11 @@ export async function generateProjectIndex(userId?: string): Promise<{ path: str
   return { path: 'projects/index.md', projectCount: allProjects.length };
 }
 
-export async function getOrCreateProjectBySlug(slug: string, name?: string, userId?: string): Promise<ProjectMeta> {
+export async function getOrCreateProjectBySlug(
+  slug: string,
+  name?: string,
+  userId?: string
+): Promise<ProjectMeta> {
   const db = getDb();
   const [existing] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
 

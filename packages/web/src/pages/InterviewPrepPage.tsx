@@ -102,10 +102,7 @@ export function InterviewPrepPage() {
           </p>
           <button
             onClick={() =>
-              generateMutation.mutate(
-                { applicationId: applicationId! },
-                { onSuccess: () => {} }
-              )
+              generateMutation.mutate({ applicationId: applicationId! }, { onSuccess: () => {} })
             }
             disabled={generateMutation.isPending}
             className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium mb-3"
@@ -180,10 +177,7 @@ export function InterviewPrepPage() {
   };
 
   // Handler: Select mitigation strategy for gap
-  const handleSelectGapStrategy = async (
-    gapId: string,
-    strategy: MitigationStrategy
-  ) => {
+  const handleSelectGapStrategy = async (gapId: string, strategy: MitigationStrategy) => {
     await updateMutation.mutateAsync({
       id: prep.id,
       data: {

@@ -59,7 +59,10 @@ export class ResumeVariantService {
     await this.client.delete(`/resume-variants/${id}`);
   }
 
-  async revise(id: string, request: ReviseResumeVariantRequest): Promise<ReviseResumeVariantResponse> {
+  async revise(
+    id: string,
+    request: ReviseResumeVariantRequest
+  ): Promise<ReviseResumeVariantResponse> {
     const response = await this.client.post<ReviseResumeVariantResponse>(
       `/resume-variants/${id}/revise`,
       request
@@ -75,11 +78,14 @@ export class ResumeVariantService {
     return response;
   }
 
-  async export(id: string, request: ExportResumeVariantRequest): Promise<ExportResumeVariantResponse> {
+  async export(
+    id: string,
+    request: ExportResumeVariantRequest
+  ): Promise<ExportResumeVariantResponse> {
     const response = await this.client.post<ExportResumeVariantResponse>(
       `/resume-variants/${id}/export`,
       request,
-      { 'Accept': 'application/json' }
+      { Accept: 'application/json' }
     );
     return response;
   }

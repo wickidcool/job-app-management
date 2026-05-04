@@ -15,11 +15,8 @@ export const interviewPrepKeys = {
   lists: () => [...interviewPrepKeys.all, 'list'] as const,
   details: () => [...interviewPrepKeys.all, 'detail'] as const,
   detail: (id: string) => [...interviewPrepKeys.details(), id] as const,
-  byApplication: (applicationId: string) => [
-    ...interviewPrepKeys.all,
-    'application',
-    applicationId,
-  ] as const,
+  byApplication: (applicationId: string) =>
+    [...interviewPrepKeys.all, 'application', applicationId] as const,
 };
 
 /**
@@ -54,10 +51,7 @@ export function useGenerateInterviewPrep() {
     mutationFn: (data: GenerateInterviewPrepRequest) => interviewPrepService.generate(data),
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: interviewPrepKeys.lists() });
-      queryClient.setQueryData(
-        interviewPrepKeys.detail(response.interviewPrep.id),
-        response
-      );
+      queryClient.setQueryData(interviewPrepKeys.detail(response.interviewPrep.id), response);
       queryClient.setQueryData(
         interviewPrepKeys.byApplication(response.interviewPrep.applicationId),
         response

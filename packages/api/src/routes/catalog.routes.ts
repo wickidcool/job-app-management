@@ -147,7 +147,11 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId, request.userId ?? undefined);
+    const diff = await generateDiff(
+      parsed.data.sourceType,
+      parsed.data.sourceId,
+      request.userId ?? undefined
+    );
     return reply.status(201).send(diff);
   });
 
@@ -172,7 +176,11 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const result = await resolveDiffItem(request.params.id, parsed.data, request.userId ?? undefined);
+    const result = await resolveDiffItem(
+      request.params.id,
+      parsed.data,
+      request.userId ?? undefined
+    );
     return reply.send(result);
   });
 
@@ -194,7 +202,11 @@ export async function catalogRoutes(fastify: FastifyInstance) {
       return reply
         .status(400)
         .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
-    const result = await mergeCompanies(parsed.data.sourceCompanyIds, parsed.data.targetCompanyId, request.userId ?? undefined);
+    const result = await mergeCompanies(
+      parsed.data.sourceCompanyIds,
+      parsed.data.targetCompanyId,
+      request.userId ?? undefined
+    );
     return reply.send(result);
   });
 
@@ -215,14 +227,12 @@ export async function catalogRoutes(fastify: FastifyInstance) {
           parsed.data.category as (typeof jobFitCategoryValues)[number]
         )
       ) {
-        return reply
-          .status(400)
-          .send({
-            error: {
-              code: 'BAD_REQUEST',
-              message: `Invalid job-fit category. Valid values: ${jobFitCategoryValues.join(', ')}`,
-            },
-          });
+        return reply.status(400).send({
+          error: {
+            code: 'BAD_REQUEST',
+            message: `Invalid job-fit category. Valid values: ${jobFitCategoryValues.join(', ')}`,
+          },
+        });
       }
       const { tags } = await listJobFitTags(parsed.data, request.userId ?? undefined);
       return reply.send(tags);
@@ -233,14 +243,12 @@ export async function catalogRoutes(fastify: FastifyInstance) {
           parsed.data.category as (typeof techStackCategoryValues)[number]
         )
       ) {
-        return reply
-          .status(400)
-          .send({
-            error: {
-              code: 'BAD_REQUEST',
-              message: `Invalid tech-stack category. Valid values: ${techStackCategoryValues.join(', ')}`,
-            },
-          });
+        return reply.status(400).send({
+          error: {
+            code: 'BAD_REQUEST',
+            message: `Invalid tech-stack category. Valid values: ${techStackCategoryValues.join(', ')}`,
+          },
+        });
       }
       const { tags } = await listTechStackTags(parsed.data, request.userId ?? undefined);
       return reply.send(tags);
@@ -262,10 +270,20 @@ export async function catalogRoutes(fastify: FastifyInstance) {
           .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
 
       if (type === 'job-fit') {
-        return reply.send(await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId, request.userId ?? undefined));
+        return reply.send(
+          await mergeJobFitTags(
+            parsed.data.sourceTagIds,
+            parsed.data.targetTagId,
+            request.userId ?? undefined
+          )
+        );
       } else if (type === 'tech-stack') {
         return reply.send(
-          await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId, request.userId ?? undefined)
+          await mergeTechStackTags(
+            parsed.data.sourceTagIds,
+            parsed.data.targetTagId,
+            request.userId ?? undefined
+          )
         );
       } else {
         return reply

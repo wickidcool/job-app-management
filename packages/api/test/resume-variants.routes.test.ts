@@ -118,7 +118,8 @@ describe('Resume Variants Routes', () => {
         url: '/api/resume-variants/generate',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobDescriptionText: 'Build great software with a strong engineering team to ship products fast.',
+          jobDescriptionText:
+            'Build great software with a strong engineering team to ship products fast.',
         }),
       });
 
@@ -130,7 +131,10 @@ describe('Resume Variants Routes', () => {
 
     it('returns 400 when no job context is provided', async () => {
       vi.mocked(variantService.generateResumeVariant).mockRejectedValue(
-        new ResumeVariantError('JOB_CONTEXT_REQUIRED', 'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId')
+        new ResumeVariantError(
+          'JOB_CONTEXT_REQUIRED',
+          'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+        )
       );
 
       const res = await app.inject({
@@ -146,7 +150,12 @@ describe('Resume Variants Routes', () => {
 
     it('returns 422 when catalog is empty', async () => {
       vi.mocked(variantService.generateResumeVariant).mockRejectedValue(
-        new ResumeVariantError('CATALOG_EMPTY', 'Cannot generate without catalog data', undefined, 422)
+        new ResumeVariantError(
+          'CATALOG_EMPTY',
+          'Cannot generate without catalog data',
+          undefined,
+          422
+        )
       );
 
       const res = await app.inject({
@@ -154,7 +163,8 @@ describe('Resume Variants Routes', () => {
         url: '/api/resume-variants/generate',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobDescriptionText: 'Build great software with a strong engineering team to ship products fast.',
+          jobDescriptionText:
+            'Build great software with a strong engineering team to ship products fast.',
         }),
       });
 
@@ -340,7 +350,8 @@ describe('Resume Variants Routes', () => {
         url: '/api/resume-variants/suggest-bullets',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobDescriptionText: 'Build high performance distributed systems with strong engineering and optimization skills.',
+          jobDescriptionText:
+            'Build high performance distributed systems with strong engineering and optimization skills.',
         }),
       });
 
@@ -369,7 +380,7 @@ describe('Resume Variants Routes', () => {
         url: '/api/resume-variants/01HZ_VAR_001/export',
         headers: {
           'content-type': 'application/json',
-          'accept': 'application/json',
+          accept: 'application/json',
         },
         body: JSON.stringify({
           format: 'docx',
@@ -399,7 +410,7 @@ describe('Resume Variants Routes', () => {
         url: '/api/resume-variants/01HZ_VAR_001/export',
         headers: {
           'content-type': 'application/json',
-          'accept': 'application/json',
+          accept: 'application/json',
         },
         body: JSON.stringify({
           format: 'pdf',

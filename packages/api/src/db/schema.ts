@@ -318,7 +318,11 @@ export const tonePreferenceEnum = pgEnum('tone_preference', [
   'technical',
 ]);
 export const lengthVariantEnum = pgEnum('length_variant', ['concise', 'standard', 'detailed']);
-export const emphasisPreferenceEnum = pgEnum('emphasis_preference', ['technical', 'leadership', 'balanced']);
+export const emphasisPreferenceEnum = pgEnum('emphasis_preference', [
+  'technical',
+  'leadership',
+  'balanced',
+]);
 export const outreachPlatformEnum = pgEnum('outreach_platform', ['linkedin', 'email']);
 
 export interface RevisionEntry {
@@ -380,7 +384,11 @@ export type OutreachPlatform = (typeof outreachPlatformEnum.enumValues)[number];
 // Resume Variant enums (UC-6)
 export const resumeVariantStatusEnum = pgEnum('resume_variant_status', ['draft', 'finalized']);
 export const resumeFormatEnum = pgEnum('resume_format', ['chronological', 'functional', 'hybrid']);
-export const sectionEmphasisEnum = pgEnum('section_emphasis', ['experience_heavy', 'skills_heavy', 'balanced']);
+export const sectionEmphasisEnum = pgEnum('section_emphasis', [
+  'experience_heavy',
+  'skills_heavy',
+  'balanced',
+]);
 
 export interface SectionBulletSelection {
   sectionId: string;
@@ -459,10 +467,16 @@ export const resumeVariants = pgTable('resume_variants', {
   jobFitAnalysisId: text('job_fit_analysis_id'),
   jobDescriptionText: text('job_description_text'),
   jobDescriptionUrl: text('job_description_url'),
-  selectedBullets: jsonb('selected_bullets').$type<SectionBulletSelection[]>().notNull().default([]),
+  selectedBullets: jsonb('selected_bullets')
+    .$type<SectionBulletSelection[]>()
+    .notNull()
+    .default([]),
   selectedTechTags: jsonb('selected_tech_tags').$type<string[]>().notNull().default([]),
   selectedThemes: jsonb('selected_themes').$type<string[]>().notNull().default([]),
-  sectionOrder: jsonb('section_order').$type<string[]>().notNull().default(['summary', 'experience', 'skills', 'projects', 'education']),
+  sectionOrder: jsonb('section_order')
+    .$type<string[]>()
+    .notNull()
+    .default(['summary', 'experience', 'skills', 'projects', 'education']),
   hiddenSections: jsonb('hidden_sections').$type<string[]>().notNull().default([]),
   content: jsonb('content').$type<ResumeContent>().notNull(),
   atsScore: integer('ats_score'),
@@ -607,7 +621,10 @@ export const interviewPreps = pgTable('interview_preps', {
   timeAvailable: prepTimeEnum('time_available').notNull().default('1hr'),
   focusAreas: jsonb('focus_areas').$type<string[]>().notNull().default([]),
   completeness: integer('completeness').notNull().default(0),
-  generatedQuestions: jsonb('generated_questions').$type<GeneratedQuestion[]>().notNull().default([]),
+  generatedQuestions: jsonb('generated_questions')
+    .$type<GeneratedQuestion[]>()
+    .notNull()
+    .default([]),
   gapMitigations: jsonb('gap_mitigations').$type<GapMitigation[]>().notNull().default([]),
   quickReference: jsonb('quick_reference').$type<QuickReference>(),
   practiceLog: jsonb('practice_log').$type<PracticeSession[]>().notNull().default([]),

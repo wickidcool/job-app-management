@@ -1,11 +1,21 @@
 import { useState } from 'react';
-import type { PrepStory, GeneratedQuestion, GapMitigation, ExportFormat, ApplicationSummary, MitigationStrategy } from '../types/interviewPrep';
+import type {
+  PrepStory,
+  GeneratedQuestion,
+  GapMitigation,
+  ExportFormat,
+  ApplicationSummary,
+  MitigationStrategy,
+} from '../types/interviewPrep';
 import { useDownloadQuickReference } from '../hooks/useInterviewPrep';
 
-const strategyKeyMap: Record<MitigationStrategy, 'acknowledgePivot' | 'growthMindset' | 'adjacentExperience'> = {
-  'acknowledge_pivot': 'acknowledgePivot',
-  'growth_mindset': 'growthMindset',
-  'adjacent_experience': 'adjacentExperience',
+const strategyKeyMap: Record<
+  MitigationStrategy,
+  'acknowledgePivot' | 'growthMindset' | 'adjacentExperience'
+> = {
+  acknowledge_pivot: 'acknowledgePivot',
+  growth_mindset: 'growthMindset',
+  adjacent_experience: 'adjacentExperience',
 };
 
 interface QuickReferenceExportProps {
@@ -61,7 +71,12 @@ export function QuickReferenceExport({
             aria-label="Close"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -71,9 +86,7 @@ export function QuickReferenceExport({
           <div className="border rounded-lg p-6 bg-gray-50">
             {/* Header Section */}
             <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                INTERVIEW QUICK REFERENCE
-              </h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">INTERVIEW QUICK REFERENCE</h1>
               <p className="text-lg font-semibold text-gray-800">
                 {application.jobTitle} | {application.company}
               </p>
@@ -133,7 +146,9 @@ export function QuickReferenceExport({
                       {question.linkedStoryId && (
                         <p className="text-sm text-gray-700">
                           <span className="font-medium">A:</span> Use{' '}
-                          {topStories.find((s) => s.id === question.linkedStoryId)?.starEntryId.substring(0, 40) || 'linked story'}
+                          {topStories
+                            .find((s) => s.id === question.linkedStoryId)
+                            ?.starEntryId.substring(0, 40) || 'linked story'}
                         </p>
                       )}
                     </div>
@@ -151,9 +166,7 @@ export function QuickReferenceExport({
                 <div className="space-y-2">
                   {gapPoints.map((gap) => (
                     <div key={gap.id} className="bg-white p-3 rounded border">
-                      <p className="font-semibold text-gray-900 mb-1">
-                        • {gap.skill}:{' '}
-                      </p>
+                      <p className="font-semibold text-gray-900 mb-1">• {gap.skill}: </p>
                       {gap.selectedStrategy && (
                         <p className="text-sm text-gray-700 ml-4">
                           "{gap.strategies[strategyKeyMap[gap.selectedStrategy]].script}"
@@ -227,8 +240,20 @@ export function QuickReferenceExport({
                 {downloadMutation.isPending ? (
                   <>
                     <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        fill="none"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
                     </svg>
                     <span>Exporting...</span>
                   </>
