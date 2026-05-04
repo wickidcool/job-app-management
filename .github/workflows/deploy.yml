@@ -84,6 +84,7 @@ jobs:
     needs: [lint-and-test, e2e-tests]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    environment: dev
     permissions:
       pull-requests: write
     steps:
