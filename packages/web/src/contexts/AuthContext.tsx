@@ -20,10 +20,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -52,12 +48,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const storedToken = localStorage.getItem(TOKEN_KEY);
     if (storedToken) {
-      fetchCurrentUser(storedToken).finally(() => setLoading(false));
+      fetchCurrentUser(storedToken).finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     } else {
       setLoading(false);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [fetchCurrentUser]);
 
   const login = async (email: string, password: string) => {
