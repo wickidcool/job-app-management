@@ -16,7 +16,8 @@ import { test, expect, type Page } from '@playwright/test';
 // Helpers
 // ---------------------------------------------------------------------------
 
-const isAuthEnforced = () => !!process.env.SUPABASE_JWT_SECRET;
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
+const hasTestCredentials = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 const hasTwoTestUsers = () =>
   !!(
@@ -87,7 +88,7 @@ async function mockResumesList(page: Page, resumes: object[]) {
 // ---------------------------------------------------------------------------
 
 test.describe('Application Data Isolation - UI', () => {
-  test.skip(isAuthEnforced, 'UI isolation tests require bypass mode (no SUPABASE_JWT_SECRET)');
+  test.skip(isAuthEnabled, 'UI isolation tests require auth bypass mode (no VITE_SUPABASE_URL)');
 
   const USER_A_APP = {
     id: 'app-user-a-001',
@@ -161,7 +162,7 @@ test.describe('Application Data Isolation - UI', () => {
 });
 
 test.describe('Dashboard Stats Isolation - UI', () => {
-  test.skip(isAuthEnforced, 'UI isolation tests require bypass mode (no SUPABASE_JWT_SECRET)');
+  test.skip(isAuthEnabled, 'UI isolation tests require auth bypass mode (no VITE_SUPABASE_URL)');
 
   test('dashboard shows user-specific stats from API', async ({ page }) => {
     const USER_STATS = {
@@ -210,7 +211,7 @@ test.describe('Dashboard Stats Isolation - UI', () => {
 });
 
 test.describe('Resume/Document Isolation - UI', () => {
-  test.skip(isAuthEnforced, 'UI isolation tests require bypass mode (no SUPABASE_JWT_SECRET)');
+  test.skip(isAuthEnabled, 'UI isolation tests require auth bypass mode (no VITE_SUPABASE_URL)');
 
   const USER_A_RESUME = {
     id: 'resume-user-a-001',
@@ -243,7 +244,7 @@ test.describe('Resume/Document Isolation - UI', () => {
   test('API request for resumes includes Authorization header when authenticated', async ({
     page,
   }) => {
-    if (!isAuthEnforced()) {
+    if (!hasTestCredentials()) {
       test.skip();
       return;
     }
@@ -273,7 +274,10 @@ test.describe('Resume/Document Isolation - UI', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('API Auth Token Propagation', () => {
-  test.skip(!isAuthEnforced(), 'Requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
+  test.skip(
+    !isAuthEnabled() || !hasTestCredentials(),
+    'Requires VITE_SUPABASE_URL and TEST_USER credentials'
+  );
 
   test('all API requests include Bearer token after login', async ({ page }) => {
     const email = process.env.TEST_USER_EMAIL!;
@@ -338,8 +342,8 @@ test.describe('API Auth Token Propagation', () => {
 
 test.describe('Real Multi-User Data Isolation', () => {
   test.skip(
-    !isAuthEnforced() || !hasTwoTestUsers(),
-    'Requires VITE_SUPABASE_URL, TEST_USER_EMAIL/PASSWORD, and TEST_USER2_EMAIL/PASSWORD'
+    !isAuthEnabled() || !hasTwoTestUsers(),
+    'Requires VITE_SUPABASE_URL and two sets of TEST_USER credentials'
   );
 
   test('User A application is not visible to User B', async ({ browser }) => {

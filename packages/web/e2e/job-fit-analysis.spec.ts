@@ -1,5 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 
+/**
+ * Job Fit Analysis E2E Tests
+ *
+ * Tests skip when auth is enabled (VITE_SUPABASE_URL set) because they
+ * navigate to protected routes without authenticating first.
+ */
+
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
+
 const JD_TEXT_VALID = `Senior Full Stack Engineer
 
 We are looking for a Senior Full Stack Engineer to join our growing team.
@@ -132,6 +141,8 @@ async function mockJobFitApi(page: Page, responseBody: object, status = 200) {
 }
 
 test.describe('Job Fit Analysis page', () => {
+  test.skip(isAuthEnabled, 'Job fit tests require auth bypass mode (no VITE_SUPABASE_URL)');
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/job-fit-analysis');
   });

@@ -7,12 +7,19 @@ import { test, expect } from '@playwright/test';
  * 1. Field-level validation errors from the server are displayed on the relevant inputs
  * 2. Form-level validation errors are displayed in a banner
  * 3. Errors clear when the user re-submits
+ *
+ * Tests skip when auth is enabled (VITE_SUPABASE_URL set) because they
+ * navigate to protected routes without authenticating first.
  */
 
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
+
 test.describe('ApplicationForm - Server Validation Errors', () => {
+  test.skip(isAuthEnabled, 'Form error tests require auth bypass mode (no VITE_SUPABASE_URL)');
+
   test.beforeEach(async ({ page }) => {
     // Navigate to the applications page
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Wait for the page to load
     await page.waitForSelector('body');

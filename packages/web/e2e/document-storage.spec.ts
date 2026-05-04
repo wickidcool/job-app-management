@@ -11,9 +11,7 @@ import { test, expect, type Page } from '@playwright/test';
  *    (VITE_SUPABASE_URL set and API with R2_ENDPOINT etc.).
  */
 
-const isSupabaseConfigured = () =>
-  !!(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY);
-
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
 const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 async function loginAs(page: Page, email: string, password: string) {
@@ -78,6 +76,8 @@ async function mockDownloadUrl(page: Page, resumeId: string, url: string) {
 // ---------------------------------------------------------------------------
 
 test.describe('Resume Upload - UI', () => {
+  test.skip(isAuthEnabled, 'Upload UI tests require auth bypass mode (no VITE_SUPABASE_URL)');
+
   test.beforeEach(async ({ page }) => {
     await mockResumesList(page, []);
     await page.goto('/resumes');
@@ -180,6 +180,8 @@ test.describe('Resume Upload - UI', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('R2 Document Download - UI', () => {
+  test.skip(isAuthEnabled, 'Download UI tests require auth bypass mode (no VITE_SUPABASE_URL)');
+
   test('download URL response triggers file download', async ({ page }) => {
     const resumeId = 'resume-r2-001';
     const mockSignedUrl = 'https://r2.example.com/signed-url?token=abc123';
@@ -270,8 +272,8 @@ test.describe('R2 Document Download - UI', () => {
 
 test.describe('Real Document Storage (requires Supabase + test user)', () => {
   test.skip(
-    !isSupabaseConfigured() || !hasTestUser(),
-    'Requires VITE_SUPABASE_URL, TEST_USER_EMAIL and TEST_USER_PASSWORD'
+    !isAuthEnabled() || !hasTestUser(),
+    'Requires VITE_SUPABASE_URL and TEST_USER credentials'
   );
 
   test('authenticated user can upload and see their resume', async ({ page }) => {

@@ -6,11 +6,11 @@ import { test, expect, type Page } from '@playwright/test';
  * These tests verify that workflow pages (Job Fit Analysis, Resume Variants,
  * Cover Letters) correctly pre-fill forms when an appId is provided.
  *
- * Tests skip when auth is enforced (SUPABASE_JWT_SECRET set) because they
+ * Tests skip when auth is enabled (VITE_SUPABASE_URL set) because they
  * navigate to protected routes without authenticating first.
  */
 
-const isAuthEnforced = () => !!process.env.SUPABASE_JWT_SECRET;
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
 
 const MOCK_APP_ID = 'mock-app-id-12345';
 
@@ -69,7 +69,7 @@ async function mockStarEntriesApi(page: Page) {
 }
 
 test.describe('JobFitAnalysis - workflow pre-fill', () => {
-  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
 
   test('pre-fills job description textarea when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
@@ -101,7 +101,7 @@ test.describe('JobFitAnalysis - workflow pre-fill', () => {
 });
 
 test.describe('ResumeVariantNew - workflow pre-fill', () => {
-  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
 
   test('pre-fills company, role, and job description when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
@@ -140,7 +140,7 @@ test.describe('ResumeVariantNew - workflow pre-fill', () => {
 });
 
 test.describe('CoverLetterNew - workflow pre-fill', () => {
-  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
 
   test.beforeEach(async ({ page }) => {
     await mockStarEntriesApi(page);
@@ -199,7 +199,7 @@ test.describe('CoverLetterNew - workflow pre-fill', () => {
 });
 
 test.describe('ApplicationDetail - header changes', () => {
-  test.skip(isAuthEnforced, 'Workflow tests require bypass mode (no SUPABASE_JWT_SECRET)');
+  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
 
   test.beforeEach(async ({ page }) => {
     await mockApplicationApi(page);
