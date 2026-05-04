@@ -178,7 +178,11 @@ describe('Catalog Routes', () => {
 
       expect(response.statusCode).toBe(201);
       expect(response.json()).toEqual(mockDiff);
-      expect(catalogService.generateDiff).toHaveBeenCalledWith('resume', '01HZ_RESUME_001', undefined);
+      expect(catalogService.generateDiff).toHaveBeenCalledWith(
+        'resume',
+        '01HZ_RESUME_001',
+        undefined
+      );
     });
   });
 
