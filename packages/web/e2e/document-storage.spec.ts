@@ -6,13 +6,31 @@ import { test, expect, type Page } from '@playwright/test';
  * Verifies resume upload and R2 document storage integration.
  *
  * Tiers:
- * 1. UI-level tests — mock API responses, run without Supabase/R2.
- * 2. Real storage tests — require TEST_USER_EMAIL/PASSWORD + R2 configured
- *    (VITE_SUPABASE_URL set and API with R2_ENDPOINT etc.).
+ * 1. UI-level tests — mock API responses and auth, run without real backend.
+ * 2. Real storage tests — require TEST_USER_EMAIL/PASSWORD + backend running.
  */
 
 const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
 const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
+
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
 
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -76,9 +94,8 @@ async function mockDownloadUrl(page: Page, resumeId: string, url: string) {
 // ---------------------------------------------------------------------------
 
 test.describe('Resume Upload - UI', () => {
-  test.skip(isAuthEnabled, 'Upload UI tests require auth bypass mode (no VITE_SUPABASE_URL)');
-
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     await mockResumesList(page, []);
     await page.goto('/resumes');
   });
@@ -180,7 +197,9 @@ test.describe('Resume Upload - UI', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('R2 Document Download - UI', () => {
-  test.skip(isAuthEnabled, 'Download UI tests require auth bypass mode (no VITE_SUPABASE_URL)');
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
 
   test('download URL response triggers file download', async ({ page }) => {
     const resumeId = 'resume-r2-001';

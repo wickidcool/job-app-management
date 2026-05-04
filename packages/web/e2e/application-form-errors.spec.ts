@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 /**
  * E2E tests for ApplicationForm server validation error handling (WIC-186)
@@ -8,16 +8,31 @@ import { test, expect } from '@playwright/test';
  * 2. Form-level validation errors are displayed in a banner
  * 3. Errors clear when the user re-submits
  *
- * Tests skip when auth is enabled (VITE_SUPABASE_URL set) because they
- * navigate to protected routes without authenticating first.
+ * Tests use mock auth to bypass authentication without a real backend.
  */
 
-const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
 
 test.describe('ApplicationForm - Server Validation Errors', () => {
-  test.skip(isAuthEnabled, 'Form error tests require auth bypass mode (no VITE_SUPABASE_URL)');
-
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     // Navigate to the applications page
     await page.goto('/');
 

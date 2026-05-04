@@ -3,11 +3,27 @@ import { test, expect, type Page } from '@playwright/test';
 /**
  * Job Fit Analysis E2E Tests
  *
- * Tests skip when auth is enabled (VITE_SUPABASE_URL set) because they
- * navigate to protected routes without authenticating first.
+ * Tests use mock auth to bypass authentication without a real backend.
  */
 
-const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
 
 const JD_TEXT_VALID = `Senior Full Stack Engineer
 
@@ -141,9 +157,8 @@ async function mockJobFitApi(page: Page, responseBody: object, status = 200) {
 }
 
 test.describe('Job Fit Analysis page', () => {
-  test.skip(isAuthEnabled, 'Job fit tests require auth bypass mode (no VITE_SUPABASE_URL)');
-
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     await page.goto('/job-fit-analysis');
   });
 

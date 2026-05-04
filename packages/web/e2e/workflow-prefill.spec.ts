@@ -6,11 +6,27 @@ import { test, expect, type Page } from '@playwright/test';
  * These tests verify that workflow pages (Job Fit Analysis, Resume Variants,
  * Cover Letters) correctly pre-fill forms when an appId is provided.
  *
- * Tests skip when auth is enabled (VITE_SUPABASE_URL set) because they
- * navigate to protected routes without authenticating first.
+ * Tests use mock auth to bypass authentication without a real backend.
  */
 
-const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
 
 const MOCK_APP_ID = 'mock-app-id-12345';
 
@@ -69,7 +85,9 @@ async function mockStarEntriesApi(page: Page) {
 }
 
 test.describe('JobFitAnalysis - workflow pre-fill', () => {
-  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
 
   test('pre-fills job description textarea when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
@@ -101,7 +119,9 @@ test.describe('JobFitAnalysis - workflow pre-fill', () => {
 });
 
 test.describe('ResumeVariantNew - workflow pre-fill', () => {
-  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
 
   test('pre-fills company, role, and job description when appId is provided', async ({ page }) => {
     await mockApplicationApi(page);
@@ -140,9 +160,8 @@ test.describe('ResumeVariantNew - workflow pre-fill', () => {
 });
 
 test.describe('CoverLetterNew - workflow pre-fill', () => {
-  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
-
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     await mockStarEntriesApi(page);
   });
 
@@ -199,9 +218,8 @@ test.describe('CoverLetterNew - workflow pre-fill', () => {
 });
 
 test.describe('ApplicationDetail - header changes', () => {
-  test.skip(isAuthEnabled, 'Workflow tests require auth bypass mode (no VITE_SUPABASE_URL)');
-
   test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
     await mockApplicationApi(page);
   });
 

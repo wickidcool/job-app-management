@@ -19,6 +19,25 @@ import { test, expect, type Page } from '@playwright/test';
 const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
 const hasTestCredentials = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
+
 const hasTwoTestUsers = () =>
   !!(
     process.env.TEST_USER_EMAIL &&
@@ -83,12 +102,13 @@ async function mockResumesList(page: Page, resumes: object[]) {
 }
 
 // ---------------------------------------------------------------------------
-// UI-Level Isolation Tests (run in bypass mode, no Supabase required)
-// These tests skip when auth is enforced since they don't login first.
+// UI-Level Isolation Tests (mock auth, run without real backend)
 // ---------------------------------------------------------------------------
 
 test.describe('Application Data Isolation - UI', () => {
-  test.skip(isAuthEnabled, 'UI isolation tests require auth bypass mode (no VITE_SUPABASE_URL)');
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
 
   const USER_A_APP = {
     id: 'app-user-a-001',
@@ -162,7 +182,9 @@ test.describe('Application Data Isolation - UI', () => {
 });
 
 test.describe('Dashboard Stats Isolation - UI', () => {
-  test.skip(isAuthEnabled, 'UI isolation tests require auth bypass mode (no VITE_SUPABASE_URL)');
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
 
   test('dashboard shows user-specific stats from API', async ({ page }) => {
     const USER_STATS = {
@@ -211,7 +233,9 @@ test.describe('Dashboard Stats Isolation - UI', () => {
 });
 
 test.describe('Resume/Document Isolation - UI', () => {
-  test.skip(isAuthEnabled, 'UI isolation tests require auth bypass mode (no VITE_SUPABASE_URL)');
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+  });
 
   const USER_A_RESUME = {
     id: 'resume-user-a-001',
