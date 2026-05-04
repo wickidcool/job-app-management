@@ -63,6 +63,13 @@ async function setupBasicMocks(page: Page) {
 }
 
 test.describe('ApplicationForm - Server Validation Errors', () => {
+  // These tests require a real backend with server-side validation
+  // Skip when running without backend (no TEST_USER_EMAIL configured)
+  test.skip(
+    !process.env.TEST_USER_EMAIL,
+    'Server validation tests require a running backend with TEST_USER_EMAIL configured'
+  );
+
   test.beforeEach(async ({ page }) => {
     await setupBasicMocks(page);
     // Navigate to the applications page
