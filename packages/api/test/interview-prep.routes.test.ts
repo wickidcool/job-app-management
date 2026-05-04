@@ -882,7 +882,8 @@ describe('Interview Prep Routes', () => {
       expect(prepService.exportInterviewPrep).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
         'pdf',
-        ['stories', 'questions']
+        ['stories', 'questions'],
+        undefined
       );
     });
   });

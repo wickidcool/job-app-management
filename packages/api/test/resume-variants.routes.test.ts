@@ -202,7 +202,8 @@ describe('Resume Variants Routes', () => {
       });
 
       expect(variantService.listResumeVariants).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'draft', company: 'Acme', limit: 10 })
+        expect.objectContaining({ status: 'draft', company: 'Acme', limit: 10 }),
+        undefined
       );
     });
   });
@@ -272,7 +273,7 @@ describe('Resume Variants Routes', () => {
       const res = await app.inject({ method: 'DELETE', url: '/api/resume-variants/01HZ_VAR_001' });
 
       expect(res.statusCode).toBe(204);
-      expect(variantService.deleteResumeVariant).toHaveBeenCalledWith('01HZ_VAR_001');
+      expect(variantService.deleteResumeVariant).toHaveBeenCalledWith('01HZ_VAR_001', undefined);
     });
 
     it('returns 404 when variant not found', async () => {

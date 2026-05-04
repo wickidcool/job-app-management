@@ -126,7 +126,8 @@ describe('Reports Routes', () => {
         url: '/api/reports/pipeline?sortBy=company&sortOrder=asc',
       });
       expect(reportsService.getPipelineReport).toHaveBeenCalledWith(
-        expect.objectContaining({ sortBy: 'company', sortOrder: 'asc' })
+        expect.objectContaining({ sortBy: 'company', sortOrder: 'asc' }),
+        undefined
       );
     });
 
@@ -151,7 +152,8 @@ describe('Reports Routes', () => {
 
       await app.inject({ method: 'GET', url: '/api/reports/needs-action?days=14' });
       expect(reportsService.getNeedsActionReport).toHaveBeenCalledWith(
-        expect.objectContaining({ days: 14 })
+        expect.objectContaining({ days: 14 }),
+        undefined
       );
     });
 
@@ -176,7 +178,8 @@ describe('Reports Routes', () => {
 
       await app.inject({ method: 'GET', url: '/api/reports/stale?days=7&status=applied' });
       expect(reportsService.getStaleReport).toHaveBeenCalledWith(
-        expect.objectContaining({ days: 7, status: 'applied' })
+        expect.objectContaining({ days: 7, status: 'applied' }),
+        undefined
       );
     });
 
@@ -206,7 +209,8 @@ describe('Reports Routes', () => {
 
       await app.inject({ method: 'GET', url: '/api/reports/closed-loop?period=30d' });
       expect(reportsService.getClosedLoopReport).toHaveBeenCalledWith(
-        expect.objectContaining({ period: '30d' })
+        expect.objectContaining({ period: '30d' }),
+        undefined
       );
     });
 
@@ -245,7 +249,8 @@ describe('Reports Routes', () => {
 
       await app.inject({ method: 'GET', url: '/api/reports/by-fit-tier?includeTerminal=true' });
       expect(reportsService.getByFitTierReport).toHaveBeenCalledWith(
-        expect.objectContaining({ includeTerminal: true })
+        expect.objectContaining({ includeTerminal: true }),
+        undefined
       );
     });
   });

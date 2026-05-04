@@ -92,7 +92,7 @@ describe('Project Routes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ files: [mockFileMeta] });
-      expect(projectService.listProjectFiles).toHaveBeenCalledWith('acme-corp');
+      expect(projectService.listProjectFiles).toHaveBeenCalledWith('acme-corp', undefined);
     });
 
     it('returns 404 when project not found', async () => {
@@ -121,7 +121,8 @@ describe('Project Routes', () => {
       expect(response.json()).toEqual({ content });
       expect(projectService.getProjectFile).toHaveBeenCalledWith(
         'acme-corp',
-        'resume-01HXTEST000000000000000001.md'
+        'resume-01HXTEST000000000000000001.md',
+        undefined
       );
     });
 
@@ -152,7 +153,8 @@ describe('Project Routes', () => {
       expect(projectService.updateProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
-        '# Updated content'
+        '# Updated content',
+        undefined
       );
     });
 
