@@ -30,9 +30,41 @@ async function setupMockAuth(page: Page) {
   });
 }
 
+async function setupBasicMocks(page: Page) {
+  await setupMockAuth(page);
+
+  await page.route('**/api/dashboard*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: 0,
+        byStatus: {
+          saved: 0,
+          applied: 0,
+          phone_screen: 0,
+          interview: 0,
+          offer: 0,
+          rejected: 0,
+          withdrawn: 0,
+        },
+        recentActivity: [],
+      }),
+    })
+  );
+
+  await page.route('**/api/applications*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ applications: [], nextPage: null }),
+    })
+  );
+}
+
 test.describe('ApplicationForm - Server Validation Errors', () => {
   test.beforeEach(async ({ page }) => {
-    await setupMockAuth(page);
+    await setupBasicMocks(page);
     // Navigate to the applications page
     await page.goto('/');
 
