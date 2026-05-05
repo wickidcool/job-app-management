@@ -8,7 +8,7 @@ import {
   getResumeDownloadUrl,
 } from '../services/resume.service.js';
 import { AppError } from '../types/index.js';
-import { isR2Configured } from '../services/storage.service.js';
+import { isStorageAvailable } from '../services/storage.service.js';
 import type { AppEnv } from '../types/env.js';
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -51,7 +51,7 @@ export const resumesRoutes = new Hono<AppEnv>()
     return c.json(result, 201);
   })
   .get('/resumes/:id/download-url', async (c) => {
-    if (!isR2Configured()) {
+    if (!isStorageAvailable()) {
       throw new AppError(
         'NOT_SUPPORTED',
         'Download URLs are only available when R2 storage is configured',

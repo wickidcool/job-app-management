@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 import { eq, sql } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
+import { isStorageAvailable, getObject } from './storage.service.js';
 import {
   resumes,
   applications,
@@ -495,9 +496,16 @@ async function getTextContent(
   if (sourceType === 'resume') {
     const [resume] = await db.select().from(resumes).where(eq(resumes.id, sourceId));
     if (!resume) return '';
-    const { promises: fs } = await import('node:fs');
     try {
-      const content = await fs.readFile(resume.filePath);
+      let content: Buffer | null = null;
+      if (isStorageAvailable()) {
+        content = await getObject(resume.filePath);
+      } else {
+        const { promises: fs } = await import('node:fs');
+        const raw = await fs.readFile(resume.filePath).catch(() => null);
+        content = raw ? Buffer.from(raw) : null;
+      }
+      if (!content) return '';
       const { extractText } = await import('./resume.service.js');
       return await extractText(content, resume.mimeType);
     } catch {
