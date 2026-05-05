@@ -7,9 +7,12 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	// Static frontend assets — served by the Worker for any path without a matching API route
+	// Static frontend assets — served by the Worker for any path without a matching API route.
+	// not_found_handling: "single-page-application" serves index.html when no static file matches
+	// and the Worker returns 404, enabling React Router client-side navigation on direct URL access.
 	"assets": {
-		"directory": "./packages/web/dist"
+		"directory": "./packages/web/dist",
+		"not_found_handling": "single-page-application"
 	},
 	// Hyperdrive: connection pooling proxy to Supabase PostgreSQL
 	"hyperdrive": [
