@@ -111,7 +111,7 @@ describe('Reports Routes', () => {
     it('returns pipeline grouped by status', async () => {
       vi.mocked(reportsService.getPipelineReport).mockResolvedValue(mockPipelineResponse);
 
-      const res = await app.request('/api/reports/pipeline', { method: 'GET' })
+      const res = await app.request('/api/reports/pipeline', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.groups).toHaveLength(4);
@@ -121,7 +121,7 @@ describe('Reports Routes', () => {
     it('passes sortBy and sortOrder to service', async () => {
       vi.mocked(reportsService.getPipelineReport).mockResolvedValue(mockPipelineResponse);
 
-      await app.request('/api/reports/pipeline?sortBy=company&sortOrder=asc', { method: 'GET' })
+      await app.request('/api/reports/pipeline?sortBy=company&sortOrder=asc', { method: 'GET' });
       expect(reportsService.getPipelineReport).toHaveBeenCalledWith(
         expect.objectContaining({ sortBy: 'company', sortOrder: 'asc' }),
         undefined
@@ -129,7 +129,7 @@ describe('Reports Routes', () => {
     });
 
     it('returns 400 for invalid sortBy', async () => {
-      const res = await app.request('/api/reports/pipeline?sortBy=invalid', { method: 'GET' })
+      const res = await app.request('/api/reports/pipeline?sortBy=invalid', { method: 'GET' });
       expect(res.status).toBe(400);
     });
   });
@@ -138,7 +138,7 @@ describe('Reports Routes', () => {
     it('returns needs-action report', async () => {
       vi.mocked(reportsService.getNeedsActionReport).mockResolvedValue(mockNeedsActionResponse);
 
-      const res = await app.request('/api/reports/needs-action', { method: 'GET' })
+      const res = await app.request('/api/reports/needs-action', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.summary.total).toBe(0);
@@ -147,7 +147,7 @@ describe('Reports Routes', () => {
     it('passes days param to service', async () => {
       vi.mocked(reportsService.getNeedsActionReport).mockResolvedValue(mockNeedsActionResponse);
 
-      await app.request('/api/reports/needs-action?days=14', { method: 'GET' })
+      await app.request('/api/reports/needs-action?days=14', { method: 'GET' });
       expect(reportsService.getNeedsActionReport).toHaveBeenCalledWith(
         expect.objectContaining({ days: 14 }),
         undefined
@@ -155,7 +155,7 @@ describe('Reports Routes', () => {
     });
 
     it('returns 400 for days out of range', async () => {
-      const res = await app.request('/api/reports/needs-action?days=999', { method: 'GET' })
+      const res = await app.request('/api/reports/needs-action?days=999', { method: 'GET' });
       expect(res.status).toBe(400);
     });
   });
@@ -164,7 +164,7 @@ describe('Reports Routes', () => {
     it('returns stale report', async () => {
       vi.mocked(reportsService.getStaleReport).mockResolvedValue(mockStaleResponse);
 
-      const res = await app.request('/api/reports/stale', { method: 'GET' })
+      const res = await app.request('/api/reports/stale', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.summary.total).toBe(0);
@@ -173,7 +173,7 @@ describe('Reports Routes', () => {
     it('passes days and status params', async () => {
       vi.mocked(reportsService.getStaleReport).mockResolvedValue(mockStaleResponse);
 
-      await app.request('/api/reports/stale?days=7&status=applied', { method: 'GET' })
+      await app.request('/api/reports/stale?days=7&status=applied', { method: 'GET' });
       expect(reportsService.getStaleReport).toHaveBeenCalledWith(
         expect.objectContaining({ days: 7, status: 'applied' }),
         undefined
@@ -181,12 +181,12 @@ describe('Reports Routes', () => {
     });
 
     it('returns 400 for invalid status value', async () => {
-      const res = await app.request('/api/reports/stale?status=invalid', { method: 'GET' })
+      const res = await app.request('/api/reports/stale?status=invalid', { method: 'GET' });
       expect(res.status).toBe(400);
     });
 
     it('returns 400 when all status values are invalid', async () => {
-      const res = await app.request('/api/reports/stale?status=bad,junk', { method: 'GET' })
+      const res = await app.request('/api/reports/stale?status=bad,junk', { method: 'GET' });
       expect(res.status).toBe(400);
     });
   });
@@ -195,7 +195,7 @@ describe('Reports Routes', () => {
     it('returns closed-loop report', async () => {
       vi.mocked(reportsService.getClosedLoopReport).mockResolvedValue(mockClosedLoopResponse);
 
-      const res = await app.request('/api/reports/closed-loop', { method: 'GET' })
+      const res = await app.request('/api/reports/closed-loop', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.summary.total).toBe(0);
@@ -204,7 +204,7 @@ describe('Reports Routes', () => {
     it('passes period param to service', async () => {
       vi.mocked(reportsService.getClosedLoopReport).mockResolvedValue(mockClosedLoopResponse);
 
-      await app.request('/api/reports/closed-loop?period=30d', { method: 'GET' })
+      await app.request('/api/reports/closed-loop?period=30d', { method: 'GET' });
       expect(reportsService.getClosedLoopReport).toHaveBeenCalledWith(
         expect.objectContaining({ period: '30d' }),
         undefined
@@ -212,17 +212,19 @@ describe('Reports Routes', () => {
     });
 
     it('returns 400 for invalid period', async () => {
-      const res = await app.request('/api/reports/closed-loop?period=1y', { method: 'GET' })
+      const res = await app.request('/api/reports/closed-loop?period=1y', { method: 'GET' });
       expect(res.status).toBe(400);
     });
 
     it('returns 400 for invalid status value', async () => {
-      const res = await app.request('/api/reports/closed-loop?status=saved', { method: 'GET' })
+      const res = await app.request('/api/reports/closed-loop?status=saved', { method: 'GET' });
       expect(res.status).toBe(400);
     });
 
     it('returns 400 when all status values are invalid', async () => {
-      const res = await app.request('/api/reports/closed-loop?status=invalid,bad', { method: 'GET' })
+      const res = await app.request('/api/reports/closed-loop?status=invalid,bad', {
+        method: 'GET',
+      });
       expect(res.status).toBe(400);
     });
   });
@@ -231,7 +233,7 @@ describe('Reports Routes', () => {
     it('returns by-fit-tier report with all apps in not_analyzed', async () => {
       vi.mocked(reportsService.getByFitTierReport).mockResolvedValue(mockByFitTierResponse);
 
-      const res = await app.request('/api/reports/by-fit-tier', { method: 'GET' })
+      const res = await app.request('/api/reports/by-fit-tier', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.summary.notAnalyzed).toBe(1);
@@ -241,7 +243,7 @@ describe('Reports Routes', () => {
     it('passes includeTerminal param to service', async () => {
       vi.mocked(reportsService.getByFitTierReport).mockResolvedValue(mockByFitTierResponse);
 
-      await app.request('/api/reports/by-fit-tier?includeTerminal=true', { method: 'GET' })
+      await app.request('/api/reports/by-fit-tier?includeTerminal=true', { method: 'GET' });
       expect(reportsService.getByFitTierReport).toHaveBeenCalledWith(
         expect.objectContaining({ includeTerminal: true }),
         undefined

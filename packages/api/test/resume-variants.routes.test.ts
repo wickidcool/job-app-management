@@ -120,7 +120,7 @@ describe('Resume Variants Routes', () => {
             'Build great software with a strong engineering team to ship products fast.',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(201);
       const body = await res.json();
@@ -140,7 +140,7 @@ describe('Resume Variants Routes', () => {
         method: 'POST',
         body: JSON.stringify({}),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('JOB_CONTEXT_REQUIRED');
@@ -163,7 +163,7 @@ describe('Resume Variants Routes', () => {
             'Build great software with a strong engineering team to ship products fast.',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(422);
       expect((await res.json()).error.code).toBe('CATALOG_EMPTY');
@@ -179,7 +179,7 @@ describe('Resume Variants Routes', () => {
         nextCursor: undefined,
       });
 
-      const res = await app.request('/api/resume-variants', { method: 'GET' })
+      const res = await app.request('/api/resume-variants', { method: 'GET' });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -193,7 +193,9 @@ describe('Resume Variants Routes', () => {
         nextCursor: undefined,
       });
 
-      await app.request('/api/resume-variants?status=draft&company=Acme&limit=10', { method: 'GET' })
+      await app.request('/api/resume-variants?status=draft&company=Acme&limit=10', {
+        method: 'GET',
+      });
 
       expect(variantService.listResumeVariants).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'draft', company: 'Acme', limit: 10 }),
@@ -208,7 +210,7 @@ describe('Resume Variants Routes', () => {
     it('returns 200 with variant on success', async () => {
       vi.mocked(variantService.getResumeVariant).mockResolvedValue(mockVariant);
 
-      const res = await app.request('/api/resume-variants/01HZ_VAR_001', { method: 'GET' })
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001', { method: 'GET' });
 
       expect(res.status).toBe(200);
       expect((await res.json()).id).toBe('01HZ_VAR_001');
@@ -219,7 +221,7 @@ describe('Resume Variants Routes', () => {
         new NotFoundError('ResumeVariant')
       );
 
-      const res = await app.request('/api/resume-variants/nonexistent', { method: 'GET' })
+      const res = await app.request('/api/resume-variants/nonexistent', { method: 'GET' });
 
       expect(res.status).toBe(404);
     });
@@ -236,7 +238,7 @@ describe('Resume Variants Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ title: 'Updated Title', version: 1 }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       expect((await res.json()).variant.title).toBe('Updated Title');
@@ -249,7 +251,7 @@ describe('Resume Variants Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ title: 'Stale Update', version: 99 }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(409);
       expect((await res.json()).error.code).toBe('VERSION_CONFLICT');
@@ -262,7 +264,7 @@ describe('Resume Variants Routes', () => {
     it('returns 204 on success', async () => {
       vi.mocked(variantService.deleteResumeVariant).mockResolvedValue(undefined);
 
-      const res = await app.request('/api/resume-variants/01HZ_VAR_001', { method: 'DELETE' })
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001', { method: 'DELETE' });
 
       expect(res.status).toBe(204);
       expect(variantService.deleteResumeVariant).toHaveBeenCalledWith('01HZ_VAR_001', undefined);
@@ -273,7 +275,7 @@ describe('Resume Variants Routes', () => {
         new NotFoundError('ResumeVariant')
       );
 
-      const res = await app.request('/api/resume-variants/nonexistent', { method: 'DELETE' })
+      const res = await app.request('/api/resume-variants/nonexistent', { method: 'DELETE' });
 
       expect(res.status).toBe(404);
     });
@@ -293,7 +295,7 @@ describe('Resume Variants Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       expect((await res.json()).version).toBe(2);
@@ -309,7 +311,7 @@ describe('Resume Variants Routes', () => {
           version: 99,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(409);
     });
@@ -343,7 +345,7 @@ describe('Resume Variants Routes', () => {
             'Build high performance distributed systems with strong engineering and optimization skills.',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -376,11 +378,14 @@ describe('Resume Variants Routes', () => {
           },
           template: 'modern',
         }),
-        headers: { 'Content-Type': 'application/json', ...{
-          'content-type': 'application/json',
-          accept: 'application/json',
-        } },
-      })
+        headers: {
+          'Content-Type': 'application/json',
+          ...{
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+        },
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -404,11 +409,14 @@ describe('Resume Variants Routes', () => {
           },
           template: 'minimal',
         }),
-        headers: { 'Content-Type': 'application/json', ...{
-          'content-type': 'application/json',
-          accept: 'application/json',
-        } },
-      })
+        headers: {
+          'Content-Type': 'application/json',
+          ...{
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+        },
+      });
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -426,10 +434,13 @@ describe('Resume Variants Routes', () => {
             email: 'john@example.com',
           },
         }),
-        headers: { 'Content-Type': 'application/json', ...{
-          'content-type': 'application/json',
-        } },
-      })
+        headers: {
+          'Content-Type': 'application/json',
+          ...{
+            'content-type': 'application/json',
+          },
+        },
+      });
 
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe(mockExportResult.contentType);
@@ -447,7 +458,7 @@ describe('Resume Variants Routes', () => {
           },
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -463,7 +474,7 @@ describe('Resume Variants Routes', () => {
           },
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -476,7 +487,7 @@ describe('Resume Variants Routes', () => {
           format: 'docx',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -496,7 +507,7 @@ describe('Resume Variants Routes', () => {
           },
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(404);
     });

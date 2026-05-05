@@ -44,7 +44,11 @@ export function _resetStorageClient(): void {
   _client = null;
 }
 
-export async function uploadObject(key: string, body: Buffer | string, contentType: string): Promise<void> {
+export async function uploadObject(
+  key: string,
+  body: Buffer | string,
+  contentType: string
+): Promise<void> {
   const r2 = getR2Binding();
   if (r2) {
     const value =

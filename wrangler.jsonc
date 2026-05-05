@@ -9,10 +9,7 @@
 	],
 	// Static frontend assets — served by the Worker for any path without a matching API route
 	"assets": {
-		"directory": "./packages/web/dist",
-		"include": [
-			"**/*"
-		]
+		"directory": "./packages/web/dist"
 	},
 	// Hyperdrive: connection pooling proxy to Supabase PostgreSQL
 	"hyperdrive": [

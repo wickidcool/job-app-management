@@ -49,7 +49,7 @@ describe('Application Routes', () => {
         totalCount: 1,
       });
 
-      const res = await app.request('/api/applications', { method: 'GET' })
+      const res = await app.request('/api/applications', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.applications).toHaveLength(1);
@@ -62,7 +62,9 @@ describe('Application Routes', () => {
         totalCount: 0,
       });
 
-      await app.request('/api/applications?status=applied&sortBy=company&limit=10', { method: 'GET' })
+      await app.request('/api/applications?status=applied&sortBy=company&limit=10', {
+        method: 'GET',
+      });
 
       expect(appService.listApplications).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'applied', sortBy: 'company', limit: 10 }),
@@ -71,7 +73,7 @@ describe('Application Routes', () => {
     });
 
     it('returns 400 for invalid sort field', async () => {
-      const res = await app.request('/api/applications?sortBy=invalid', { method: 'GET' })
+      const res = await app.request('/api/applications?sortBy=invalid', { method: 'GET' });
       expect(res.status).toBe(400);
     });
   });
@@ -90,7 +92,9 @@ describe('Application Routes', () => {
         ],
       });
 
-      const res = await app.request('/api/applications/01HXTEST000000000000000001', { method: 'GET' })
+      const res = await app.request('/api/applications/01HXTEST000000000000000001', {
+        method: 'GET',
+      });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.application.id).toBe('01HXTEST000000000000000001');
@@ -100,7 +104,7 @@ describe('Application Routes', () => {
     it('returns 404 when not found', async () => {
       vi.mocked(appService.getApplication).mockRejectedValue(new NotFoundError('Application'));
 
-      const res = await app.request('/api/applications/nonexistent', { method: 'GET' })
+      const res = await app.request('/api/applications/nonexistent', { method: 'GET' });
       expect(res.status).toBe(404);
       expect((await res.json()).error.code).toBe('NOT_FOUND');
     });
@@ -116,7 +120,7 @@ describe('Application Routes', () => {
         method: 'POST',
         body: JSON.stringify({ jobTitle: 'Senior Software Engineer', company: 'Acme Corp' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(201);
       expect((await res.json()).application.id).toBe(mockApplication.id);
     });
@@ -126,7 +130,7 @@ describe('Application Routes', () => {
         method: 'POST',
         body: JSON.stringify({ company: 'Acme Corp' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(400);
     });
 
@@ -135,7 +139,7 @@ describe('Application Routes', () => {
         method: 'POST',
         body: JSON.stringify({ jobTitle: '', company: 'Acme Corp' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(400);
     });
   });
@@ -149,7 +153,7 @@ describe('Application Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ jobTitle: 'Staff Engineer', version: 1 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(200);
       expect((await res.json()).application.jobTitle).toBe('Staff Engineer');
     });
@@ -159,7 +163,7 @@ describe('Application Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ jobTitle: 'Staff Engineer' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(400);
     });
   });
@@ -168,14 +172,16 @@ describe('Application Routes', () => {
     it('returns 204 on success', async () => {
       vi.mocked(appService.deleteApplication).mockResolvedValue(undefined);
 
-      const res = await app.request('/api/applications/01HXTEST000000000000000001', { method: 'DELETE' })
+      const res = await app.request('/api/applications/01HXTEST000000000000000001', {
+        method: 'DELETE',
+      });
       expect(res.status).toBe(204);
     });
 
     it('returns 404 when not found', async () => {
       vi.mocked(appService.deleteApplication).mockRejectedValue(new NotFoundError('Application'));
 
-      const res = await app.request('/api/applications/nonexistent', { method: 'DELETE' })
+      const res = await app.request('/api/applications/nonexistent', { method: 'DELETE' });
       expect(res.status).toBe(404);
     });
   });
@@ -205,7 +211,7 @@ describe('Application Routes', () => {
         method: 'POST',
         body: JSON.stringify({ status: 'applied', version: 1 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.application.status).toBe('applied');
@@ -221,7 +227,7 @@ describe('Application Routes', () => {
         method: 'POST',
         body: JSON.stringify({ status: 'offer', version: 1 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('INVALID_STATUS_TRANSITION');
     });
@@ -231,7 +237,7 @@ describe('Application Routes', () => {
         method: 'POST',
         body: JSON.stringify({ status: 'applied' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
       expect(res.status).toBe(400);
     });
   });

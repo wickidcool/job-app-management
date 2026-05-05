@@ -422,7 +422,11 @@ export async function uploadResume(
           const project = await getOrCreateProjectBySlug(slug, aiProject.company);
           await addCompanyToCatalog(aiProject.company);
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
-          const safeBase = fileName.split(/[/\\]/).pop()!.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+          const safeBase = fileName
+            .split(/[/\\]/)
+            .pop()!
+            .replace(/\.[^.]+$/, '')
+            .replace(/[^a-zA-Z0-9._-]/g, '_');
           await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
         }
       }
@@ -439,7 +443,11 @@ export async function uploadResume(
       const project = await getOrCreateProjectBySlug(slug, entry.company);
       await addCompanyToCatalog(entry.company);
       const projectMarkdown = generateProjectMarkdown(entry);
-      const safeBase = fileName.split(/[/\\]/).pop()!.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeBase = fileName
+        .split(/[/\\]/)
+        .pop()!
+        .replace(/\.[^.]+$/, '')
+        .replace(/[^a-zA-Z0-9._-]/g, '_');
       await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
     }
   }

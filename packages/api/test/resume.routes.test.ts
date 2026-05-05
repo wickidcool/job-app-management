@@ -62,7 +62,7 @@ describe('Resume Routes', () => {
       const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
       form.append('file', blob, 'resume.pdf');
 
-      const res = await app.request('/api/resumes/upload', { method: 'POST', body: form })
+      const res = await app.request('/api/resumes/upload', { method: 'POST', body: form });
 
       expect(res.status).toBe(201);
       const body = await res.json();
@@ -74,13 +74,13 @@ describe('Resume Routes', () => {
       const form = new FormData();
       const blob = new Blob(['hello'], { type: 'text/plain' });
       form.append('file', blob, 'resume.txt');
-      const res = await app.request('/api/resumes/upload', { method: 'POST', body: form })
+      const res = await app.request('/api/resumes/upload', { method: 'POST', body: form });
 
       expect(res.status).toBe(415);
     });
 
     it('returns 400 when no file provided', async () => {
-      const res = await app.request('/api/resumes/upload', { method: 'POST' })
+      const res = await app.request('/api/resumes/upload', { method: 'POST' });
 
       expect(res.status).toBe(400);
     });
@@ -90,7 +90,7 @@ describe('Resume Routes', () => {
     it('returns list of exports for a resume', async () => {
       vi.mocked(resumeService.listResumeExports).mockResolvedValue([mockExport]);
 
-      const res = await app.request(`/api/resumes/${mockResume.id}/exports`, { method: 'GET' })
+      const res = await app.request(`/api/resumes/${mockResume.id}/exports`, { method: 'GET' });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -101,7 +101,7 @@ describe('Resume Routes', () => {
     it('returns 404 when resume not found', async () => {
       vi.mocked(resumeService.listResumeExports).mockRejectedValue(new NotFoundError('Resume'));
 
-      const res = await app.request('/api/resumes/nonexistent/exports', { method: 'GET' })
+      const res = await app.request('/api/resumes/nonexistent/exports', { method: 'GET' });
 
       expect(res.status).toBe(404);
     });
@@ -111,7 +111,9 @@ describe('Resume Routes', () => {
     it('returns a single export', async () => {
       vi.mocked(resumeService.getResumeExport).mockResolvedValue(mockExport);
 
-      const res = await app.request(`/api/resumes/${mockResume.id}/exports/${mockExport.id}`, { method: 'GET' })
+      const res = await app.request(`/api/resumes/${mockResume.id}/exports/${mockExport.id}`, {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -124,7 +126,9 @@ describe('Resume Routes', () => {
         new NotFoundError('Resume export')
       );
 
-      const res = await app.request(`/api/resumes/${mockResume.id}/exports/nonexistent`, { method: 'GET' })
+      const res = await app.request(`/api/resumes/${mockResume.id}/exports/nonexistent`, {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(404);
     });

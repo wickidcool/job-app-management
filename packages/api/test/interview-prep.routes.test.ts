@@ -193,7 +193,7 @@ describe('Interview Prep Routes', () => {
           focusAreas: ['leadership', 'technical', 'problem_solving'],
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(201);
       const body = await res.json();
@@ -231,7 +231,7 @@ describe('Interview Prep Routes', () => {
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(201);
       const body = await res.json();
@@ -257,7 +257,7 @@ describe('Interview Prep Routes', () => {
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(201);
       expect((await res.json()).warnings[0].code).toBe('LIMITED_STAR_ENTRIES');
@@ -279,7 +279,7 @@ describe('Interview Prep Routes', () => {
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(422);
       expect((await res.json()).error.code).toBe('CATALOG_EMPTY');
@@ -292,7 +292,7 @@ describe('Interview Prep Routes', () => {
           interviewType: 'behavioral',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -306,7 +306,7 @@ describe('Interview Prep Routes', () => {
           interviewType: 'dance_off',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
     });
@@ -319,7 +319,7 @@ describe('Interview Prep Routes', () => {
           timeAvailable: '45min',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
     });
@@ -335,7 +335,7 @@ describe('Interview Prep Routes', () => {
           applicationId: 'nonexistent-app-id',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(404);
     });
@@ -357,7 +357,7 @@ describe('Interview Prep Routes', () => {
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       // Should return 200 (existing) or 201 (newly created) — either is acceptable
       expect([200, 201]).toContain(res.status);
@@ -380,8 +380,11 @@ describe('Interview Prep Routes', () => {
             applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
             interviewType: type,
           }),
-          headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-        })
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        });
 
         expect(res.status).toBe(201);
       }
@@ -399,7 +402,9 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -421,7 +426,9 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       const { stories } = (await res.json()).interviewPrep;
@@ -441,7 +448,9 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       const { stories } = (await res.json()).interviewPrep;
@@ -472,7 +481,9 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       const { gapMitigations } = (await res.json()).interviewPrep;
@@ -502,7 +513,9 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       const { questions } = (await res.json()).interviewPrep;
@@ -517,7 +530,9 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: undefined,
       });
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -530,7 +545,7 @@ describe('Interview Prep Routes', () => {
     it('returns 404 when prep not found', async () => {
       vi.mocked(prepService.getInterviewPrep).mockRejectedValue(new NotFoundError('InterviewPrep'));
 
-      const res = await app.request('/api/interview-preps/nonexistent', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/nonexistent', { method: 'GET' });
 
       expect(res.status).toBe(404);
     });
@@ -547,7 +562,9 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.request('/api/applications/01HXK5R3J7Q8N2M4P6W9Y1Z3A5/interview-prep', { method: 'GET' })
+      const res = await app.request('/api/applications/01HXK5R3J7Q8N2M4P6W9Y1Z3A5/interview-prep', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(200);
       expect((await res.json()).interviewPrep.applicationId).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3A5');
@@ -558,7 +575,9 @@ describe('Interview Prep Routes', () => {
         new NotFoundError('InterviewPrep')
       );
 
-      const res = await app.request('/api/applications/app-with-no-prep/interview-prep', { method: 'GET' })
+      const res = await app.request('/api/applications/app-with-no-prep/interview-prep', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(404);
     });
@@ -581,7 +600,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       expect((await res.json()).interviewPrep.stories[0].isFavorite).toBe(true);
@@ -612,7 +631,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       expect((await res.json()).interviewPrep.questions[0].linkedStoryId).toBe(
@@ -645,7 +664,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -667,7 +686,7 @@ describe('Interview Prep Routes', () => {
           version: 2,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -684,7 +703,7 @@ describe('Interview Prep Routes', () => {
           version: 99,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(409);
       expect((await res.json()).error.code).toBe('VERSION_CONFLICT');
@@ -697,7 +716,7 @@ describe('Interview Prep Routes', () => {
           focusAreas: ['leadership'],
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
     });
@@ -711,7 +730,7 @@ describe('Interview Prep Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ version: 1 }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(404);
     });
@@ -730,7 +749,10 @@ describe('Interview Prep Routes', () => {
     it('returns markdown binary when format=pdf (fallback) and no Accept: application/json header', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf', { method: 'GET' })
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf',
+        { method: 'GET' }
+      );
 
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe('text/markdown');
@@ -743,7 +765,10 @@ describe('Interview Prep Routes', () => {
     it('returns JSON with base64 content when Accept: application/json header is set for PDF (fallback)', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf', { method: 'GET', headers: { accept: 'application/json' } })
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf',
+        { method: 'GET', headers: { accept: 'application/json' } }
+      );
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -761,7 +786,10 @@ describe('Interview Prep Routes', () => {
       };
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mdResult);
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=markdown', { method: 'GET' })
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=markdown',
+        { method: 'GET' }
+      );
 
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('text/markdown');
@@ -775,21 +803,29 @@ describe('Interview Prep Routes', () => {
       };
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(printResult);
 
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=print', { method: 'GET' })
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=print',
+        { method: 'GET' }
+      );
 
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('text/html');
     });
 
     it('returns 400 when format is missing', async () => {
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns 400 when format is invalid', async () => {
-      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=docx', { method: 'GET' })
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=docx',
+        { method: 'GET' }
+      );
 
       expect(res.status).toBe(400);
       expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -800,7 +836,9 @@ describe('Interview Prep Routes', () => {
         new NotFoundError('InterviewPrep')
       );
 
-      const res = await app.request('/api/interview-preps/nonexistent/export?format=pdf', { method: 'GET' })
+      const res = await app.request('/api/interview-preps/nonexistent/export?format=pdf', {
+        method: 'GET',
+      });
 
       expect(res.status).toBe(404);
     });
@@ -808,7 +846,10 @@ describe('Interview Prep Routes', () => {
     it('passes sections query param to service', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
-      await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf&sections=stories,questions', { method: 'GET' })
+      await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf&sections=stories,questions',
+        { method: 'GET' }
+      );
 
       expect(prepService.exportInterviewPrep).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
@@ -874,7 +915,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -913,7 +954,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       expect((await res.json()).session.type).toBe('single_question');
@@ -944,7 +985,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       expect((await res.json()).summary.improvementAreas).toHaveLength(2);
@@ -958,7 +999,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
     });
@@ -971,7 +1012,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
     });
@@ -984,7 +1025,7 @@ describe('Interview Prep Routes', () => {
           startedAt: '2026-04-28T14:00:00.000Z',
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(400);
     });
@@ -1000,7 +1041,7 @@ describe('Interview Prep Routes', () => {
           version: 99,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(409);
       expect((await res.json()).error.code).toBe('VERSION_CONFLICT');
@@ -1019,7 +1060,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(404);
     });
@@ -1056,7 +1097,7 @@ describe('Interview Prep Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json();

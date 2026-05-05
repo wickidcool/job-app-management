@@ -28,10 +28,7 @@ export const projectsRoutes = new Hono<AppEnv>()
     if (!name || typeof name !== 'string') {
       throw new AppError('BAD_REQUEST', 'name is required', undefined, 400);
     }
-    const project = await createProject(
-      { name, slug, description },
-      c.get('userId') ?? undefined
-    );
+    const project = await createProject({ name, slug, description }, c.get('userId') ?? undefined);
     return c.json(project, 201);
   })
   .get('/projects/:projectId', async (c) => {

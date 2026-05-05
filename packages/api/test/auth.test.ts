@@ -59,14 +59,17 @@ describe('Auth Middleware', () => {
     it('allows requests without Authorization header', async () => {
       delete process.env.SUPABASE_JWT_SECRET;
       const app = buildApp();
-      const res = await app.request('/api/applications', { method: 'GET' })
+      const res = await app.request('/api/applications', { method: 'GET' });
       expect(res.status).toBe(200);
     });
 
     it('allows requests with any Authorization header', async () => {
       delete process.env.SUPABASE_JWT_SECRET;
       const app = buildApp();
-      const res = await app.request('/api/applications', { method: 'GET', headers: { authorization: 'Bearer garbage-token' } })
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: 'Bearer garbage-token' },
+      });
       expect(res.status).toBe(200);
     });
   });
@@ -75,7 +78,7 @@ describe('Auth Middleware', () => {
     it('returns 401 when Authorization header is missing', async () => {
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
       const app = buildApp();
-      const res = await app.request('/api/applications', { method: 'GET' })
+      const res = await app.request('/api/applications', { method: 'GET' });
       expect(res.status).toBe(401);
       expect((await res.json()).error.code).toBe('UNAUTHORIZED');
     });
@@ -83,14 +86,20 @@ describe('Auth Middleware', () => {
     it('returns 401 when Authorization header is not a Bearer token', async () => {
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
       const app = buildApp();
-      const res = await app.request('/api/applications', { method: 'GET', headers: { authorization: 'Basic somebase64' } })
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: 'Basic somebase64' },
+      });
       expect(res.status).toBe(401);
     });
 
     it('returns 401 for an invalid JWT', async () => {
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
       const app = buildApp();
-      const res = await app.request('/api/applications', { method: 'GET', headers: { authorization: 'Bearer not.a.valid.jwt' } })
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: 'Bearer not.a.valid.jwt' },
+      });
       expect(res.status).toBe(401);
     });
 
@@ -98,7 +107,10 @@ describe('Auth Middleware', () => {
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
       const app = buildApp();
       const wrongToken = await signToken('wrong-secret-key-32-chars-minimum!!', 'user-123');
-      const res = await app.request('/api/applications', { method: 'GET', headers: { authorization: `Bearer ${wrongToken}` } })
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${wrongToken}` },
+      });
       expect(res.status).toBe(401);
     });
 
@@ -106,7 +118,10 @@ describe('Auth Middleware', () => {
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
       const app = buildApp();
       const expiredToken = await signToken(TEST_JWT_SECRET, 'user-123', '-1s');
-      const res = await app.request('/api/applications', { method: 'GET', headers: { authorization: `Bearer ${expiredToken}` } })
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${expiredToken}` },
+      });
       expect(res.status).toBe(401);
     });
 
@@ -114,14 +129,17 @@ describe('Auth Middleware', () => {
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
       const app = buildApp();
       const token = await signToken(TEST_JWT_SECRET, 'user-abc-123');
-      const res = await app.request('/api/applications', { method: 'GET', headers: { authorization: `Bearer ${token}` } })
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      });
       expect(res.status).toBe(200);
     });
 
     it('does not protect the /health endpoint', async () => {
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
       const app = buildApp();
-      const res = await app.request('/health', { method: 'GET' })
+      const res = await app.request('/health', { method: 'GET' });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ status: 'ok' });
     });

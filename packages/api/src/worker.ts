@@ -7,6 +7,8 @@ const app = buildApp();
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return runWithEnv(env, () => Promise.resolve(app.fetch(request, env as Record<string, unknown>, ctx)));
+    return runWithEnv(env, () =>
+      Promise.resolve(app.fetch(request, env as Record<string, unknown>, ctx))
+    );
   },
 };

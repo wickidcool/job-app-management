@@ -125,7 +125,7 @@ describe('Cover Letter Routes', () => {
           targetRole: 'Senior Software Engineer',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(201);
       const body = await response.json();
@@ -147,7 +147,7 @@ describe('Cover Letter Routes', () => {
           targetRole: 'Engineer',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -163,7 +163,7 @@ describe('Cover Letter Routes', () => {
           targetRole: 'Engineer',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -182,7 +182,7 @@ describe('Cover Letter Routes', () => {
           targetRole: 'Engineer',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -200,7 +200,7 @@ describe('Cover Letter Routes', () => {
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -225,7 +225,7 @@ describe('Cover Letter Routes', () => {
           lengthVariant: 'concise',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(201);
       const body = await response.json();
@@ -249,7 +249,7 @@ describe('Cover Letter Routes', () => {
           targetRole: 'Engineer',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -274,14 +274,14 @@ describe('Cover Letter Routes', () => {
         ],
       });
 
-      const response = await app.request('/api/cover-letters', { method: 'GET' })
+      const response = await app.request('/api/cover-letters', { method: 'GET' });
       expect(response.status).toBe(200);
       expect((await response.json()).coverLetters).toHaveLength(1);
     });
 
     it('passes status filter', async () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      const response = await app.request('/api/cover-letters?status=draft', { method: 'GET' })
+      const response = await app.request('/api/cover-letters?status=draft', { method: 'GET' });
       expect(response.status).toBe(200);
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'draft' }),
@@ -291,7 +291,7 @@ describe('Cover Letter Routes', () => {
 
     it('passes company filter', async () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      await app.request('/api/cover-letters?company=Acme', { method: 'GET' })
+      await app.request('/api/cover-letters?company=Acme', { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ company: 'Acme' }),
         undefined
@@ -300,7 +300,7 @@ describe('Cover Letter Routes', () => {
 
     it('passes search filter', async () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      await app.request('/api/cover-letters?search=typescript', { method: 'GET' })
+      await app.request('/api/cover-letters?search=typescript', { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ search: 'typescript' }),
         undefined
@@ -313,7 +313,7 @@ describe('Cover Letter Routes', () => {
         coverLetters: [],
         nextCursor: cursor,
       });
-      const response = await app.request('/api/cover-letters?limit=20', { method: 'GET' })
+      const response = await app.request('/api/cover-letters?limit=20', { method: 'GET' });
       expect(response.status).toBe(200);
       expect((await response.json()).nextCursor).toBe(cursor);
     });
@@ -321,7 +321,7 @@ describe('Cover Letter Routes', () => {
     it('passes cursor to service', async () => {
       const cursor = Buffer.from('20').toString('base64url');
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      await app.request(`/api/cover-letters?cursor=${cursor}`, { method: 'GET' })
+      await app.request(`/api/cover-letters?cursor=${cursor}`, { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ cursor }),
         undefined
@@ -336,7 +336,9 @@ describe('Cover Letter Routes', () => {
         usedStarEntries: mockUsedStarEntries,
       });
 
-      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', { method: 'GET' })
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', {
+        method: 'GET',
+      });
 
       expect(response.status).toBe(200);
       expect((await response.json()).coverLetter.id).toBe(mockCoverLetter.id);
@@ -347,7 +349,7 @@ describe('Cover Letter Routes', () => {
         new NotFoundError('Cover letter')
       );
 
-      const response = await app.request('/api/cover-letters/nonexistent', { method: 'GET' })
+      const response = await app.request('/api/cover-letters/nonexistent', { method: 'GET' });
 
       expect(response.status).toBe(404);
     });
@@ -362,7 +364,7 @@ describe('Cover Letter Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ title: 'New Title', version: 1 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(200);
       expect((await response.json()).coverLetter.title).toBe('New Title');
@@ -377,7 +379,7 @@ describe('Cover Letter Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ version: 99 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(409);
     });
@@ -391,7 +393,7 @@ describe('Cover Letter Routes', () => {
         method: 'PATCH',
         body: JSON.stringify({ version: 1 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(404);
     });
@@ -401,7 +403,9 @@ describe('Cover Letter Routes', () => {
     it('returns 204 on success', async () => {
       vi.mocked(coverLetterService.deleteCoverLetter).mockResolvedValue(undefined);
 
-      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', { method: 'DELETE' })
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', {
+        method: 'DELETE',
+      });
 
       expect(response.status).toBe(204);
     });
@@ -411,7 +415,7 @@ describe('Cover Letter Routes', () => {
         new NotFoundError('Cover letter')
       );
 
-      const response = await app.request('/api/cover-letters/nonexistent', { method: 'DELETE' })
+      const response = await app.request('/api/cover-letters/nonexistent', { method: 'DELETE' });
 
       expect(response.status).toBe(404);
     });
@@ -442,7 +446,7 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         body: JSON.stringify({ instructions: 'Make the opening more enthusiastic', version: 1 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -455,7 +459,7 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         body: JSON.stringify({ instructions: 'short', version: 1 }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -465,9 +469,12 @@ describe('Cover Letter Routes', () => {
 
       const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise', {
         method: 'POST',
-        body: JSON.stringify({ instructions: 'Make the opening more enthusiastic and compelling', version: 99 }),
+        body: JSON.stringify({
+          instructions: 'Make the opening more enthusiastic and compelling',
+          version: 99,
+        }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(409);
     });
@@ -479,9 +486,12 @@ describe('Cover Letter Routes', () => {
 
       const response = await app.request('/api/cover-letters/nonexistent/revise', {
         method: 'POST',
-        body: JSON.stringify({ instructions: 'Make the opening more enthusiastic and compelling', version: 1 }),
+        body: JSON.stringify({
+          instructions: 'Make the opening more enthusiastic and compelling',
+          version: 1,
+        }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(404);
     });
@@ -516,7 +526,7 @@ describe('Cover Letter Routes', () => {
           version: 1,
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(200);
       expect((await response.json()).coverLetter.tone).toBe('conversational');
@@ -545,7 +555,7 @@ describe('Cover Letter Routes', () => {
           coverLetterId: '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(201);
       expect((await response.json()).message.platform).toBe('linkedin');
@@ -575,7 +585,7 @@ describe('Cover Letter Routes', () => {
           coverLetterId: '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(201);
       const body = await response.json();
@@ -596,7 +606,7 @@ describe('Cover Letter Routes', () => {
           selectedStarEntryIds: ['id1', 'id2', 'id3', 'id4'],
         }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -610,7 +620,7 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         body: JSON.stringify({ platform: 'linkedin', targetCompany: 'Acme Corp' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -629,7 +639,7 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         body: JSON.stringify({ format: 'docx' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -649,7 +659,7 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         body: JSON.stringify({ format: 'docx' }),
         headers: { 'Content-Type': 'application/json', ...{ accept: 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -666,7 +676,7 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         body: JSON.stringify({ format: 'docx' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(404);
     });
@@ -688,7 +698,7 @@ describe('Cover Letter Routes', () => {
           fontSize: 12,
         }),
         headers: { 'Content-Type': 'application/json', ...{ accept: 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(200);
       expect((await response.json()).fileSize).toBe(fakeBuffer.length);
@@ -704,7 +714,7 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         body: JSON.stringify({ format: 'txt' }),
         headers: { 'Content-Type': 'application/json' },
-      })
+      });
 
       expect(response.status).toBe(400);
     });

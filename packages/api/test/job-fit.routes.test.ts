@@ -107,7 +107,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
           'Senior Software Engineer\n\nRequirements:\n- TypeScript\n- React\n- PostgreSQL\n- AWS cloud experience required\n',
       }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -127,7 +127,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       method: 'POST',
       body: JSON.stringify({ jobDescriptionUrl: 'https://boards.greenhouse.io/acme/jobs/12345' }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(200);
     expect((await res.json()).recommendation).toBe('strong_fit');
@@ -138,7 +138,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       method: 'POST',
       body: JSON.stringify({}),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -153,7 +153,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
         jobDescriptionUrl: 'https://example.com/job',
       }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -164,7 +164,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       method: 'POST',
       body: JSON.stringify({ jobDescriptionText: 'short' }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -175,7 +175,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       method: 'POST',
       body: JSON.stringify({ jobDescriptionUrl: 'not-a-url' }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('BAD_REQUEST');
@@ -191,7 +191,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
           'Senior Software Engineer role requiring TypeScript, React, and PostgreSQL experience.',
       }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe('RATE_LIMIT_EXCEEDED');
@@ -234,7 +234,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
           'Senior Software Engineer role requiring TypeScript and React experience.',
       }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -254,7 +254,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
         jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.',
       }),
       headers: { 'Content-Type': 'application/json' },
-    })
+    });
 
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
       { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },

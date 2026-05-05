@@ -100,7 +100,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify(validCaptureBody),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(201);
       expect(await response.json()).toEqual(captureResult);
@@ -119,7 +119,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify(noCompany),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(400);
       expect(dialogueService.captureProjectFile).not.toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify({ ...validCaptureBody, accomplishments: [] }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(400);
       expect(dialogueService.captureProjectFile).not.toHaveBeenCalled();
@@ -143,7 +143,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify({ ...validCaptureBody, accomplishments: [badAccomplishment] }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(400);
     });
@@ -157,7 +157,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify(validCaptureBody),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(409);
     });
@@ -170,7 +170,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify(minimal),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(dialogueService.captureProjectFile).toHaveBeenCalledWith(
         'acme-corp',
@@ -186,11 +186,17 @@ describe('Dialogue Routes', () => {
       const enrichResult = { content: '---\ncompany: Acme Corp\n---\n# Updated\n' };
       vi.mocked(dialogueService.enrichProjectFile).mockResolvedValue(enrichResult);
 
-      const response = await app.request('/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich', {
-        method: 'POST',
-        body: JSON.stringify({ industry: 'Fintech', jobFit: ['payments'] }),
-        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich',
+        {
+          method: 'POST',
+          body: JSON.stringify({ industry: 'Fintech', jobFit: ['payments'] }),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual(enrichResult);
@@ -207,18 +213,24 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify({ industry: 'Tech' }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(400);
       expect(dialogueService.enrichProjectFile).not.toHaveBeenCalled();
     });
 
     it('returns 400 when body is empty object', async () => {
-      const response = await app.request('/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich', {
-        method: 'POST',
-        body: JSON.stringify({}),
-        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich',
+        {
+          method: 'POST',
+          body: JSON.stringify({}),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
       expect(response.status).toBe(400);
       expect(dialogueService.enrichProjectFile).not.toHaveBeenCalled();
@@ -233,7 +245,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify({ industry: 'Tech' }),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(404);
     });
@@ -244,11 +256,17 @@ describe('Dialogue Routes', () => {
       const correctResult = { content: '---\ncompany: Acme Corp\n---\n# Corrected\n' };
       vi.mocked(dialogueService.correctProjectFile).mockResolvedValue(correctResult);
 
-      const response = await app.request('/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct', {
-        method: 'POST',
-        body: JSON.stringify(validCaptureBody),
-        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct',
+        {
+          method: 'POST',
+          body: JSON.stringify(validCaptureBody),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual(correctResult);
@@ -265,7 +283,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify(validCaptureBody),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(400);
       expect(dialogueService.correctProjectFile).not.toHaveBeenCalled();
@@ -274,11 +292,17 @@ describe('Dialogue Routes', () => {
     it('returns 400 when role is missing', async () => {
       const { role: _r, ...noRole } = validCaptureBody;
 
-      const response = await app.request('/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct', {
-        method: 'POST',
-        body: JSON.stringify(noRole),
-        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct',
+        {
+          method: 'POST',
+          body: JSON.stringify(noRole),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
       expect(response.status).toBe(400);
       expect(dialogueService.correctProjectFile).not.toHaveBeenCalled();
@@ -293,7 +317,7 @@ describe('Dialogue Routes', () => {
         method: 'POST',
         body: JSON.stringify(validCaptureBody),
         headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
-      })
+      });
 
       expect(response.status).toBe(404);
     });
