@@ -110,7 +110,7 @@ jobs:
 
       - name: Ensure preview R2 bucket exists
         # Idempotent — exits 0 even if the bucket already exists.
-        run: npx wrangler r2 bucket create jobapp-documents-dev || true
+        run: npx wrangler r2 bucket create jobtrail-documents-dev || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -182,7 +182,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
       - name: Ensure production R2 bucket exists
-        run: npx wrangler r2 bucket create jobapp-documents || true
+        run: npx wrangler r2 bucket create jobtrail-documents || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

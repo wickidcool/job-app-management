@@ -24,7 +24,7 @@
 		}
 	],
 	// R2: object storage for resume files and cover letters
-	// Setup: wrangler r2 bucket create jobapp-documents
+	// Setup: wrangler r2 bucket create jobtrail-documents
 	"r2_buckets": [
 		{
 			"binding": "R2_BUCKET",

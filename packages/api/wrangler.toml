@@ -27,7 +27,7 @@ id = "HYPERDRIVE_CONFIG_ID_PLACEHOLDER"
 # R2 bucket for document storage (resumes, cover letters)
 [[r2_buckets]]
 binding = "R2_BUCKET"
-bucket_name = "jobapp-documents"
+bucket_name = "jobtrail-documents"
 
 # Development environment
 [env.dev]
@@ -38,7 +38,7 @@ NODE_ENV = "development"
 
 [[env.dev.r2_buckets]]
 binding = "R2_BUCKET"
-bucket_name = "jobapp-documents-dev"
+bucket_name = "jobtrail-documents-dev"
 
 # Staging environment
 [env.staging]
@@ -49,7 +49,7 @@ NODE_ENV = "staging"
 
 [[env.staging.r2_buckets]]
 binding = "R2_BUCKET"
-bucket_name = "jobapp-documents-staging"
+bucket_name = "jobtrail-documents-staging"
 
 # Secrets (set via wrangler secret put):
 # - SUPABASE_JWT_SECRET
