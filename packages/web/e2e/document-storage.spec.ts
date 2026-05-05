@@ -6,12 +6,12 @@ import { test, expect, type Page } from '@playwright/test';
  * Verifies resume upload and R2 document storage integration.
  *
  * Tiers:
- * 1. UI-level tests — mock API responses and auth, run without real backend.
- * 2. Real storage tests — require TEST_USER_EMAIL/PASSWORD + backend running.
+ * 1. UI-level tests — mock API responses, run without Supabase/R2.
+ * 2. Real storage tests — require TEST_USER_EMAIL/PASSWORD + R2 configured
+ *    (VITE_SUPABASE_URL set and API with R2_ENDPOINT etc.).
+ *
+ * Tests use mock auth to bypass authentication without a real backend.
  */
-
-const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
-const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 const MOCK_USER = {
   id: 'test-user-001',
@@ -31,6 +31,8 @@ async function setupMockAuth(page: Page) {
     localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
   });
 }
+
+const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');

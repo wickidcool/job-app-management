@@ -99,7 +99,14 @@ describe('Catalog Routes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual([mockDiff]);
-      expect(catalogService.listDiffs).toHaveBeenCalledWith({}, undefined);
+      expect(catalogService.listDiffs).toHaveBeenCalledWith(
+        {
+          status: undefined,
+          limit: undefined,
+          cursor: undefined,
+        },
+        undefined
+      );
     });
 
     it('filters by status query param', async () => {
@@ -201,9 +208,7 @@ describe('Catalog Routes', () => {
       expect(response.json()).toMatchObject({ applied: 2, status: 'approved' });
       expect(catalogService.applyDiff).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
-        {
-          action: 'approve_all',
-        },
+        { action: 'approve_all' },
         undefined
       );
     });

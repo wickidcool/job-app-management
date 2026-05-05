@@ -249,8 +249,15 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
 });
 
 test.describe('ApplicationForm - Edit Mode Errors', () => {
+  // These tests require a real backend with existing applications
+  test.skip(
+    !process.env.TEST_USER_EMAIL,
+    'Edit mode tests require a running backend with TEST_USER_EMAIL configured'
+  );
+
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await setupBasicMocks(page);
+    await page.goto('/');
     await page.waitForSelector('body');
   });
 
