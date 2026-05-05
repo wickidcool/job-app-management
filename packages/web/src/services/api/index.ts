@@ -23,18 +23,17 @@ import { createReportsService } from './reportsService';
 import { createJobFitService } from './jobFitService';
 import { createCoverLetterService } from './coverLetters';
 import { createResumeVariantService } from './resumeVariantService';
+import { createInterviewPrepService } from './interviewPrepService';
 
 // API Configuration
 // Local backend runs on port 3000
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 /**
- * Get authentication token
- * Single-user mode: no authentication required for local backend
+ * Get authentication token from localStorage
  */
 async function getAuthToken(): Promise<string | null> {
-  // Local single-user mode - no auth required
-  return null;
+  return localStorage.getItem('auth_token');
 }
 
 // Create API client
@@ -53,6 +52,7 @@ export const reportsService = createReportsService(apiClient);
 export const jobFitService = createJobFitService(apiClient);
 export const coverLetterService = createCoverLetterService(apiClient);
 export const resumeVariantService = createResumeVariantService(apiClient);
+export const interviewPrepService = createInterviewPrepService(apiClient);
 
 // Re-export types for convenience
 export type { ApplicationService } from './applicationService';
@@ -84,4 +84,5 @@ export type {
 export type { JobFitService } from './jobFitService';
 export type { CoverLetterService, CoverLetter } from './coverLetters';
 export type { ResumeVariantService } from './resumeVariantService';
+export type { InterviewPrepService } from './interviewPrepService';
 export type * from './types';

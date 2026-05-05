@@ -3,7 +3,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as Dialog from '@radix-ui/react-dialog';
 import { z } from 'zod';
 import type { Application, ApplicationFormData, ApplicationStatus } from '../types/application';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { APIError } from '../services/api/apiClient';
 
 // Zod validation schema based on component specs
 const applicationFormSchema = z.object({
@@ -41,7 +42,11 @@ const applicationFormSchema = z.object({
   contact: z.string().max(200, 'Contact must be less than 200 characters').optional(),
   compTarget: z.string().optional(),
   nextAction: z.string().max(500, 'Next action must be less than 500 characters').optional(),
-  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format').optional().or(z.literal('')),
+  nextActionDue: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')
+    .optional()
+    .or(z.literal('')),
 });
 
 export interface ApplicationFormProps {
@@ -67,6 +72,7 @@ export function ApplicationForm({
     formState: { errors, isSubmitting, isDirty },
     reset,
     watch,
+    setError,
   } = useForm<ApplicationFormData>({
     resolver: zodResolver(applicationFormSchema),
     defaultValues: application
@@ -100,11 +106,14 @@ export function ApplicationForm({
         },
   });
 
+  const [formError, setFormError] = useState<string | null>(null);
+
   const linkCoverLetter = watch('linkCoverLetter');
 
   // Reset form when dialog opens/closes or application changes
   useEffect(() => {
     if (open) {
+      setFormError(null);
       reset(
         application
           ? {
@@ -140,11 +149,49 @@ export function ApplicationForm({
   }, [open, application, propDefaultValues, reset]);
 
   const handleFormSubmit = async (data: ApplicationFormData) => {
+    // Clear previous errors
+    setFormError(null);
+
     try {
       await onSubmit(data);
       onOpenChange(false);
     } catch (error) {
       console.error('Form submission error:', error);
+
+      // Handle APIError with validation details
+      if (error instanceof APIError && error.code === 'VALIDATION_ERROR') {
+        const details = error.details as
+          | { fieldErrors?: Record<string, string[]>; formErrors?: string[] }
+          | undefined;
+
+        // Set field-level errors
+        if (details?.fieldErrors) {
+          Object.entries(details.fieldErrors).forEach(([field, messages]) => {
+            if (messages && messages.length > 0) {
+              setError(field as keyof ApplicationFormData, {
+                type: 'server',
+                message: messages[0],
+              });
+            }
+          });
+        }
+
+        // Set form-level errors
+        if (details?.formErrors && details.formErrors.length > 0) {
+          setFormError(details.formErrors.join(', '));
+        } else if (!details?.fieldErrors || Object.keys(details.fieldErrors).length === 0) {
+          // If no specific field errors, show the general message
+          setFormError(error.message || 'Validation failed. Please check your input.');
+        }
+      } else if (error instanceof APIError) {
+        // Other API errors
+        setFormError(error.message || 'An error occurred while saving the application.');
+      } else if (error instanceof Error) {
+        // Generic errors
+        setFormError(error.message || 'An unexpected error occurred.');
+      } else {
+        setFormError('An unexpected error occurred.');
+      }
     }
   };
 
@@ -183,6 +230,12 @@ export function ApplicationForm({
               ? 'Form to add a new job application'
               : 'Form to edit an existing job application'}
           </Dialog.Description>
+
+          {formError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md" role="alert">
+              <p className="text-sm text-red-800">{formError}</p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
             {/* Job Title */}
@@ -352,7 +405,10 @@ export function ApplicationForm({
 
               {/* Comp Target */}
               <div className="mb-4">
-                <label htmlFor="compTarget" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="compTarget"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Comp Target
                 </label>
                 <input
@@ -364,7 +420,9 @@ export function ApplicationForm({
                   aria-invalid={!!errors.compTarget}
                   aria-describedby={errors.compTarget ? 'compTarget-error' : undefined}
                 />
-                <p className="mt-1 text-xs text-gray-500">Your target compensation (distinct from posted range)</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Your target compensation (distinct from posted range)
+                </p>
                 {errors.compTarget && (
                   <p id="compTarget-error" className="mt-1 text-sm text-red-600" role="alert">
                     {errors.compTarget.message}
@@ -375,7 +433,10 @@ export function ApplicationForm({
               {/* Next Action and Due Date */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="nextAction" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="nextAction"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Next Action
                   </label>
                   <input
@@ -395,7 +456,10 @@ export function ApplicationForm({
                 </div>
 
                 <div>
-                  <label htmlFor="nextActionDue" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="nextActionDue"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Due Date
                   </label>
                   <input

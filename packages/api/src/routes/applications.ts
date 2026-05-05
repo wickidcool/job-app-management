@@ -24,32 +24,79 @@ const applicationStatusEnum = z.enum([
 const createApplicationSchema = z.object({
   jobTitle: z.string().min(1).max(200),
   company: z.string().min(1).max(200),
-  url: z.string().url().optional(),
+  url: z.string().url().or(z.literal('')).optional(),
   location: z.string().min(1).max(100).optional(),
   salaryRange: z.string().min(1).max(50).optional(),
   status: applicationStatusEnum.optional(),
   coverLetterId: z.string().optional(),
   resumeVersionId: z.string().optional(),
   // UC-5 Extended Tracking Fields
-  contact: z.string().min(1).max(200).optional(),
-  compTarget: z.string().min(1).optional(),
-  nextAction: z.string().min(1).max(500).optional(),
-  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  contact: z
+    .string()
+    .max(200)
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  compTarget: z
+    .string()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  nextAction: z
+    .string()
+    .max(500)
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  nextActionDue: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .or(z.literal(''))
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  jobDescription: z
+    .string()
+    .max(50000)
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
 });
 
 const updateApplicationSchema = z.object({
   jobTitle: z.string().min(1).max(200).optional(),
   company: z.string().min(1).max(200).optional(),
-  url: z.string().url().nullable().optional(),
+  url: z.string().url().or(z.literal('')).nullable().optional(),
   location: z.string().min(1).max(100).nullable().optional(),
   salaryRange: z.string().min(1).max(50).nullable().optional(),
   coverLetterId: z.string().nullable().optional(),
   resumeVersionId: z.string().nullable().optional(),
   // UC-5 Extended Tracking Fields
-  contact: z.string().min(1).max(200).nullable().optional(),
-  compTarget: z.string().min(1).nullable().optional(),
-  nextAction: z.string().min(1).max(500).nullable().optional(),
-  nextActionDue: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  contact: z
+    .string()
+    .max(200)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  compTarget: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  nextAction: z
+    .string()
+    .max(500)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  nextActionDue: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .or(z.literal(''))
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  jobDescription: z
+    .string()
+    .max(50000)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
   version: z.number().int().positive(),
 });
 
@@ -82,14 +129,14 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await listApplications(query.data);
+    const result = await listApplications(query.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
   // GET /api/applications/:id
   fastify.get<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
     const { id } = request.params;
-    const result = await getApplication(id);
+    const result = await getApplication(id, request.userId ?? undefined);
     return reply.send(result);
   });
 
@@ -105,7 +152,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await createApplication(body.data);
+    const result = await createApplication(body.data, request.userId ?? undefined);
     return reply.status(201).send(result);
   });
 
@@ -122,14 +169,14 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await updateApplication(id, body.data);
+    const result = await updateApplication(id, body.data, request.userId ?? undefined);
     return reply.send(result);
   });
 
   // DELETE /api/applications/:id
   fastify.delete<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
     const { id } = request.params;
-    await deleteApplication(id);
+    await deleteApplication(id, request.userId ?? undefined);
     return reply.status(204).send();
   });
 
@@ -146,7 +193,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const result = await updateApplicationStatus(id, body.data);
+    const result = await updateApplicationStatus(id, body.data, request.userId ?? undefined);
     return reply.send(result);
   });
 }

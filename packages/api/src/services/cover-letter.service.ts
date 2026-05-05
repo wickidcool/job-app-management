@@ -85,7 +85,12 @@ function toOutreachDTO(om: OutreachMessage): OutreachMessageDTO {
 function getAiClient(): Anthropic {
   const { anthropicApiKey } = getConfig();
   if (!anthropicApiKey) {
-    throw new CoverLetterError('AI_NOT_CONFIGURED', 'ANTHROPIC_API_KEY is not configured', undefined, 503);
+    throw new CoverLetterError(
+      'AI_NOT_CONFIGURED',
+      'ANTHROPIC_API_KEY is not configured',
+      undefined,
+      503
+    );
   }
   return new Anthropic({ apiKey: anthropicApiKey });
 }
@@ -123,7 +128,10 @@ async function fetchStarEntries(ids: string[]): Promise<{ id: string; rawText: s
 
 // ── Generate ──────────────────────────────────────────────────────────────────
 
-export async function generateCoverLetter(input: GenerateCoverLetterInput): Promise<{
+export async function generateCoverLetter(
+  input: GenerateCoverLetterInput,
+  userId?: string
+): Promise<{
   coverLetter: CoverLetterDTO;
   usedStarEntries: UsedStarEntryDTO[];
   matchedThemes: string[];
@@ -135,10 +143,16 @@ export async function generateCoverLetter(input: GenerateCoverLetterInput): Prom
   const hasAnalysis = !!input.jobFitAnalysisId;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
-    throw new CoverLetterError('JOB_CONTEXT_REQUIRED', 'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId');
+    throw new CoverLetterError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+    );
   }
   if (hasJdText && hasJdUrl) {
-    throw new CoverLetterError('JOB_CONTEXT_CONFLICT', 'Provide either jobDescriptionText or jobDescriptionUrl, not both');
+    throw new CoverLetterError(
+      'JOB_CONTEXT_CONFLICT',
+      'Provide either jobDescriptionText or jobDescriptionUrl, not both'
+    );
   }
   if (!input.selectedStarEntryIds || input.selectedStarEntryIds.length === 0) {
     throw new CoverLetterError('STAR_ENTRIES_REQUIRED', 'At least one STAR entry ID is required');
@@ -147,7 +161,10 @@ export async function generateCoverLetter(input: GenerateCoverLetterInput): Prom
     throw new CoverLetterError('STAR_ENTRIES_LIMIT', 'Maximum 10 STAR entries allowed');
   }
   if (!hasAnalysis && (!input.targetCompany || !input.targetRole)) {
-    throw new CoverLetterError('TARGET_INFO_REQUIRED', 'targetCompany and targetRole are required when jobFitAnalysisId is not provided');
+    throw new CoverLetterError(
+      'TARGET_INFO_REQUIRED',
+      'targetCompany and targetRole are required when jobFitAnalysisId is not provided'
+    );
   }
 
   const starEntries = await fetchStarEntries(input.selectedStarEntryIds);
@@ -156,11 +173,21 @@ export async function generateCoverLetter(input: GenerateCoverLetterInput): Prom
   const foundIds = new Set(starEntries.map((e) => e.id));
   const invalidIds = input.selectedStarEntryIds.filter((id) => !foundIds.has(id));
   if (invalidIds.length > 0) {
-    throw new CoverLetterError('STAR_ENTRY_NOT_FOUND', 'One or more selected STAR entry IDs do not exist', { invalidIds }, 404);
+    throw new CoverLetterError(
+      'STAR_ENTRY_NOT_FOUND',
+      'One or more selected STAR entry IDs do not exist',
+      { invalidIds },
+      404
+    );
   }
 
   if (starEntries.length === 0) {
-    throw new CoverLetterError('CATALOG_EMPTY', 'No catalog data available for generation', undefined, 422);
+    throw new CoverLetterError(
+      'CATALOG_EMPTY',
+      'No catalog data available for generation',
+      undefined,
+      422
+    );
   }
 
   const targetCompany = input.targetCompany ?? 'the company';
@@ -178,7 +205,12 @@ export async function generateCoverLetter(input: GenerateCoverLetterInput): Prom
       const fetchedText = await fetchJobDescriptionFromUrl(input.jobDescriptionUrl!);
       jdContext = `Job Description:\n${fetchedText}`;
     } catch (err) {
-      throw new CoverLetterError('JOB_URL_FETCH_FAILED', `Failed to fetch job description from URL: ${String(err)}`, undefined, 502);
+      throw new CoverLetterError(
+        'JOB_URL_FETCH_FAILED',
+        `Failed to fetch job description from URL: ${String(err)}`,
+        undefined,
+        502
+      );
     }
   } else {
     jdContext = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
@@ -218,17 +250,28 @@ Rules:
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
-    throw new CoverLetterError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+    throw new CoverLetterError(
+      'AI_GENERATION_FAILED',
+      'AI generation failed',
+      { cause: String(err) },
+      502
+    );
   }
 
   const content = message.content[0].type === 'text' ? message.content[0].text : '';
 
   const warnings: GenerationWarningDTO[] = [];
   if (message.stop_reason === 'max_tokens') {
-    warnings.push({ code: 'CONTENT_TRUNCATED', message: 'Cover letter may be incomplete — generation hit the output limit' });
+    warnings.push({
+      code: 'CONTENT_TRUNCATED',
+      message: 'Cover letter may be incomplete — generation hit the output limit',
+    });
   }
   if (starEntries.length < 3) {
-    warnings.push({ code: 'LIMITED_STAR_ENTRIES', message: 'Fewer STAR entries selected than recommended (3+)' });
+    warnings.push({
+      code: 'LIMITED_STAR_ENTRIES',
+      message: 'Fewer STAR entries selected than recommended (3+)',
+    });
   }
 
   const usedStarEntries: UsedStarEntryDTO[] = starEntries.map((e, i) => ({
@@ -247,6 +290,7 @@ Rules:
     .insert(coverLetters)
     .values({
       id,
+      userId: userId ?? null,
       status: 'draft',
       title,
       targetCompany,
@@ -276,12 +320,18 @@ Rules:
 
 // ── Get ───────────────────────────────────────────────────────────────────────
 
-export async function getCoverLetter(id: string): Promise<{
+export async function getCoverLetter(
+  id: string,
+  userId?: string
+): Promise<{
   coverLetter: CoverLetterDTO;
   usedStarEntries: UsedStarEntryDTO[];
 }> {
   const db = getDb();
-  const [row] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
   const starEntries = await fetchStarEntries(row.selectedStarEntryIds ?? []);
@@ -296,18 +346,26 @@ export async function getCoverLetter(id: string): Promise<{
 
 // ── List ──────────────────────────────────────────────────────────────────────
 
-export async function listCoverLetters(params: {
-  status?: string;
-  company?: string;
-  search?: string;
-  limit?: number;
-  cursor?: string;
-}): Promise<{ coverLetters: CoverLetterSummaryDTO[]; nextCursor?: string }> {
+export async function listCoverLetters(
+  params: {
+    status?: string;
+    company?: string;
+    search?: string;
+    limit?: number;
+    cursor?: string;
+  },
+  userId?: string
+): Promise<{ coverLetters: CoverLetterSummaryDTO[]; nextCursor?: string }> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 20, 100);
-  const offset = params.cursor ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10) : 0;
+  const offset = params.cursor
+    ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10)
+    : 0;
 
   const conditions: ReturnType<typeof eq>[] = [];
+  if (userId) {
+    conditions.push(eq(coverLetters.userId, userId) as any);
+  }
   if (params.status === 'draft' || params.status === 'finalized') {
     conditions.push(eq(coverLetters.status, params.status as any));
   }
@@ -327,9 +385,10 @@ export async function listCoverLetters(params: {
   }
 
   const baseQuery = db.select().from(coverLetters);
-  const filteredQuery = conditions.length > 0
-    ? baseQuery.where(conditions.length === 1 ? conditions[0] : and(...conditions))
-    : baseQuery;
+  const filteredQuery =
+    conditions.length > 0
+      ? baseQuery.where(conditions.length === 1 ? conditions[0] : and(...conditions))
+      : baseQuery;
 
   const rows = await filteredQuery
     .orderBy(desc(coverLetters.createdAt))
@@ -349,7 +408,8 @@ export async function listCoverLetters(params: {
 
 export async function updateCoverLetter(
   id: string,
-  input: UpdateCoverLetterInput
+  input: UpdateCoverLetterInput,
+  userId?: string
 ): Promise<CoverLetterDTO> {
   const db = getDb();
 
@@ -361,14 +421,21 @@ export async function updateCoverLetter(
   if (input.content !== undefined) updates.content = input.content;
   if (input.status !== undefined) updates.status = input.status;
 
-  const [row] = await db
-    .update(coverLetters)
-    .set(updates)
-    .where(and(eq(coverLetters.id, id), eq(coverLetters.version, input.version)))
-    .returning();
+  const whereClause = userId
+    ? and(
+        eq(coverLetters.id, id),
+        eq(coverLetters.version, input.version),
+        eq(coverLetters.userId, userId)
+      )
+    : and(eq(coverLetters.id, id), eq(coverLetters.version, input.version));
+
+  const [row] = await db.update(coverLetters).set(updates).where(whereClause).returning();
 
   if (!row) {
-    const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+    const existingWhere = userId
+      ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+      : eq(coverLetters.id, id);
+    const [existing] = await db.select().from(coverLetters).where(existingWhere).limit(1);
     if (!existing) throw new NotFoundError('Cover letter');
     throw new VersionConflictError();
   }
@@ -378,25 +445,32 @@ export async function updateCoverLetter(
 
 // ── Delete ────────────────────────────────────────────────────────────────────
 
-export async function deleteCoverLetter(id: string): Promise<void> {
+export async function deleteCoverLetter(id: string, userId?: string): Promise<void> {
   const db = getDb();
-  const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [existing] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Cover letter');
-  await db.delete(coverLetters).where(eq(coverLetters.id, id));
+  await db.delete(coverLetters).where(whereClause);
 }
 
 // ── Revise ────────────────────────────────────────────────────────────────────
 
 export async function reviseCoverLetter(
   id: string,
-  input: ReviseCoverLetterInput
+  input: ReviseCoverLetterInput,
+  userId?: string
 ): Promise<{
   coverLetter: CoverLetterDTO;
   changesApplied: string[];
   usedStarEntries: UsedStarEntryDTO[];
 }> {
   const db = getDb();
-  const [existing] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [existing] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Cover letter');
 
   const selectedIds = input.selectedStarEntryIds ?? existing.selectedStarEntryIds ?? [];
@@ -437,7 +511,12 @@ Rules:
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
-    throw new CoverLetterError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+    throw new CoverLetterError(
+      'AI_GENERATION_FAILED',
+      'AI generation failed',
+      { cause: String(err) },
+      502
+    );
   }
 
   const newContent = message.content[0].type === 'text' ? message.content[0].text : '';
@@ -483,12 +562,22 @@ Rules:
 
 // ── Generate Outreach ─────────────────────────────────────────────────────────
 
-export async function generateOutreach(input: GenerateOutreachInput): Promise<{
+export async function generateOutreach(
+  input: GenerateOutreachInput,
+  userId?: string
+): Promise<{
   message: OutreachMessageDTO;
 }> {
   // Validation
-  if (!input.coverLetterId && !input.jobFitAnalysisId && (!input.selectedStarEntryIds || input.selectedStarEntryIds.length === 0)) {
-    throw new CoverLetterError('JOB_CONTEXT_REQUIRED', 'Provide coverLetterId, jobFitAnalysisId, or selectedStarEntryIds');
+  if (
+    !input.coverLetterId &&
+    !input.jobFitAnalysisId &&
+    (!input.selectedStarEntryIds || input.selectedStarEntryIds.length === 0)
+  ) {
+    throw new CoverLetterError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide coverLetterId, jobFitAnalysisId, or selectedStarEntryIds'
+    );
   }
   if (input.selectedStarEntryIds && input.selectedStarEntryIds.length > 3) {
     throw new CoverLetterError('STAR_ENTRIES_LIMIT', 'Maximum 3 STAR entries for outreach');
@@ -498,16 +587,27 @@ export async function generateOutreach(input: GenerateOutreachInput): Promise<{
   }
 
   const platform = input.platform;
-  const maxLength = platform === 'linkedin'
-    ? Math.min(input.maxLength ?? 300, 500)
-    : Math.min(input.maxLength ?? 500, 1000);
+  const maxLength =
+    platform === 'linkedin'
+      ? Math.min(input.maxLength ?? 300, 500)
+      : Math.min(input.maxLength ?? 500, 1000);
 
   let contextText = '';
 
   if (input.coverLetterId) {
     const db = getDb();
-    const [cl] = await db.select().from(coverLetters).where(eq(coverLetters.id, input.coverLetterId)).limit(1);
-    if (!cl) throw new CoverLetterError('COVER_LETTER_NOT_FOUND', 'Cover letter not found', undefined, 404);
+    const [cl] = await db
+      .select()
+      .from(coverLetters)
+      .where(eq(coverLetters.id, input.coverLetterId))
+      .limit(1);
+    if (!cl)
+      throw new CoverLetterError(
+        'COVER_LETTER_NOT_FOUND',
+        'Cover letter not found',
+        undefined,
+        404
+      );
     contextText = `Based on this cover letter excerpt:\n${cl.content.slice(0, 500)}`;
   } else if (input.selectedStarEntryIds?.length) {
     const entries = await fetchStarEntries(input.selectedStarEntryIds);
@@ -549,7 +649,12 @@ Requirements:
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
-    throw new CoverLetterError('AI_GENERATION_FAILED', 'AI generation failed', { cause: String(err) }, 502);
+    throw new CoverLetterError(
+      'AI_GENERATION_FAILED',
+      'AI generation failed',
+      { cause: String(err) },
+      502
+    );
   }
 
   const rawText = message.content[0].type === 'text' ? message.content[0].text : '';
@@ -571,6 +676,7 @@ Requirements:
     .insert(outreachMessages)
     .values({
       id,
+      userId: userId ?? null,
       platform: platform as any,
       targetCompany: input.targetCompany,
       targetRole: input.targetRole,
@@ -592,10 +698,14 @@ Requirements:
 
 export async function exportCoverLetter(
   id: string,
-  input: ExportCoverLetterInput
+  input: ExportCoverLetterInput,
+  userId?: string
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
   const db = getDb();
-  const [row] = await db.select().from(coverLetters).where(eq(coverLetters.id, id)).limit(1);
+  const whereClause = userId
+    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
+    : eq(coverLetters.id, id);
+  const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
   const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');
@@ -633,7 +743,10 @@ export async function exportCoverLetter(
 
   const buffer = await Packer.toBuffer(doc);
   const dateStr = new Date().toISOString().slice(0, 10);
-  const slug = row.targetCompany.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const slug = row.targetCompany
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
   const filename = `cover-letter-${slug}-${dateStr}.docx`;
 
   return {

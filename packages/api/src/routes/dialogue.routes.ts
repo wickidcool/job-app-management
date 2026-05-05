@@ -20,7 +20,12 @@ export async function dialogueRoutes(fastify: FastifyInstance) {
       if (!parsed.success) {
         throw new AppError('BAD_REQUEST', 'Invalid capture data', parsed.error.flatten(), 400);
       }
-      const result = await captureProjectFile(projectId, parsed.data);
+      const result = await captureProjectFile(
+        projectId,
+        parsed.data,
+        undefined,
+        request.userId ?? undefined
+      );
       return reply.status(201).send(result);
     }
   );
@@ -46,7 +51,12 @@ export async function dialogueRoutes(fastify: FastifyInstance) {
           400
         );
       }
-      const result = await enrichProjectFile(projectId, fileName, parsed.data);
+      const result = await enrichProjectFile(
+        projectId,
+        fileName,
+        parsed.data,
+        request.userId ?? undefined
+      );
       return reply.send(result);
     }
   );
@@ -64,7 +74,12 @@ export async function dialogueRoutes(fastify: FastifyInstance) {
       if (!parsed.success) {
         throw new AppError('BAD_REQUEST', 'Invalid correction data', parsed.error.flatten(), 400);
       }
-      const result = await correctProjectFile(projectId, fileName, parsed.data);
+      const result = await correctProjectFile(
+        projectId,
+        fileName,
+        parsed.data,
+        request.userId ?? undefined
+      );
       return reply.send(result);
     }
   );

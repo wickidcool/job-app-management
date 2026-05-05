@@ -1,11 +1,19 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useGenerateResumeVariant } from '../hooks/useResumeVariants';
-import type { GenerateResumeVariantRequest, ResumeFormat, SectionEmphasis } from '../services/api/types';
+import { useApplication } from '../hooks/useApplications';
+import type {
+  GenerateResumeVariantRequest,
+  ResumeFormat,
+  SectionEmphasis,
+} from '../services/api/types';
 
 export function ResumeVariantNew() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const appId = searchParams.get('appId') || undefined;
+  const { data: application, isLoading: isLoadingApplication } = useApplication(appId);
   const generateVariant = useGenerateResumeVariant();
 
   const [formData, setFormData] = useState({
@@ -22,6 +30,20 @@ export function ResumeVariantNew() {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Pre-fill form data when application loads
+  useEffect(() => {
+    if (application) {
+      queueMicrotask(() => {
+        setFormData((prev) => ({
+          ...prev,
+          targetCompany: application.company || '',
+          targetRole: application.jobTitle || '',
+          jobDescriptionText: application.jobDescription || '',
+        }));
+      });
+    }
+  }, [application]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +96,16 @@ export function ResumeVariantNew() {
     { label: 'Generate New' },
   ];
 
+  if (isLoadingApplication) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="rounded-lg border border-gray-200 bg-white p-12 shadow-sm text-center">
+          <div className="text-gray-500">Loading application data...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
       <Breadcrumb trail={breadcrumbTrail} />
@@ -125,7 +157,10 @@ export function ResumeVariantNew() {
             </div>
 
             <div>
-              <label htmlFor="jobDescriptionText" className="block text-sm font-medium text-gray-700">
+              <label
+                htmlFor="jobDescriptionText"
+                className="block text-sm font-medium text-gray-700"
+              >
                 Job Description Text
               </label>
               <textarea
@@ -148,7 +183,10 @@ export function ResumeVariantNew() {
             </div>
 
             <div>
-              <label htmlFor="jobDescriptionUrl" className="block text-sm font-medium text-gray-700">
+              <label
+                htmlFor="jobDescriptionUrl"
+                className="block text-sm font-medium text-gray-700"
+              >
                 Job Description URL
               </label>
               <input
@@ -177,7 +215,9 @@ export function ResumeVariantNew() {
               <select
                 id="format"
                 value={formData.format}
-                onChange={(e) => setFormData({ ...formData, format: e.target.value as ResumeFormat })}
+                onChange={(e) =>
+                  setFormData({ ...formData, format: e.target.value as ResumeFormat })
+                }
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="chronological">Chronological</option>
@@ -205,7 +245,10 @@ export function ResumeVariantNew() {
             </div>
 
             <div>
-              <label htmlFor="maxBulletsPerRole" className="block text-sm font-medium text-gray-700">
+              <label
+                htmlFor="maxBulletsPerRole"
+                className="block text-sm font-medium text-gray-700"
+              >
                 Max Bullets per Role
               </label>
               <input
@@ -245,7 +288,10 @@ export function ResumeVariantNew() {
           </div>
 
           <div className="mt-4">
-            <label htmlFor="summaryInstructions" className="block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="summaryInstructions"
+              className="block text-sm font-medium text-gray-700"
+            >
               Summary Instructions (Optional)
             </label>
             <textarea

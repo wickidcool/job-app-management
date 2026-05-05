@@ -1,6 +1,12 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { AuthProvider } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { Login } from './pages/Login';
 import { TopNavigation } from './components/TopNavigation';
 import { MobileNavigation } from './components/MobileNavigation';
+import { BottomTabBar } from './components/BottomTabBar';
+import { CommandPalette } from './components/CommandPalette';
 import { Dashboard } from './pages/Dashboard';
 import { ApplicationsList } from './pages/ApplicationsList';
 import { ApplicationDetail } from './pages/ApplicationDetail';
@@ -27,10 +33,12 @@ import { OutreachNew } from './pages/OutreachNew';
 import { ResumeVariantsList } from './pages/ResumeVariantsList';
 import { ResumeVariantDetail } from './pages/ResumeVariantDetail';
 import { ResumeVariantNew } from './pages/ResumeVariantNew';
+import { InterviewPrepPage } from './pages/InterviewPrepPage';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
 function App() {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const { data: applications = [] } = useApplications();
   const { data: exports = [] } = useExports();
 
@@ -40,47 +48,82 @@ function App() {
 
   const exportCount = exports.length;
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-neutral-50">
-        <div className="hidden md:block">
-          <TopNavigation applicationCount={inProgressCount} exportCount={exportCount} />
-        </div>
-        <div className="md:hidden">
-          <MobileNavigation applicationCount={inProgressCount} exportCount={exportCount} />
-        </div>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <div className="min-h-screen bg-neutral-50">
+                  <div className="hidden md:block">
+                    <TopNavigation applicationCount={inProgressCount} exportCount={exportCount} />
+                  </div>
+                  <div className="md:hidden">
+                    <MobileNavigation
+                      applicationCount={inProgressCount}
+                      exportCount={exportCount}
+                    />
+                  </div>
 
-        <main>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/applications" element={<ApplicationsList />} />
-            <Route path="/applications/new" element={<ApplicationNew />} />
-            <Route path="/applications/:id" element={<ApplicationDetail />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/reports/pipeline" element={<ReportsPipeline />} />
-            <Route path="/reports/needs-action" element={<ReportsNeedsAction />} />
-            <Route path="/reports/stale" element={<ReportsStale />} />
-            <Route path="/reports/closed-loop" element={<ReportsClosedLoop />} />
-            <Route path="/reports/by-fit-tier" element={<ReportsByFitTier />} />
-            <Route path="/resumes" element={<ResumeManager />} />
-            <Route path="/resumes/upload" element={<ResumeUpload />} />
-            <Route path="/resumes/exports" element={<ResumeExports />} />
-            <Route path="/catalog" element={<CatalogPage />} />
-            <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
-            <Route path="/cover-letters/new" element={<CoverLetterNew />} />
-            <Route path="/cover-letters/:id" element={<CoverLetterDetail />} />
-            <Route path="/outreach/new" element={<OutreachNew />} />
-            <Route path="/resume-variants" element={<ResumeVariantsList />} />
-            <Route path="/resume-variants/new" element={<ResumeVariantNew />} />
-            <Route path="/resume-variants/:id" element={<ResumeVariantDetail />} />
-            <Route path="/projects" element={<ProjectsList />} />
-            <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
-            <Route path="/projects/:projectId" element={<ProjectDetail />} />
-            <Route path="/projects/:projectId/files/:fileName" element={<ProjectFileEditor />} />
-            <Route path="/settings" element={<Settings />} />
-          </Routes>
-        </main>
-      </div>
+                  <main className="pb-20 md:pb-0">
+                    <Routes>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/applications" element={<ApplicationsList />} />
+                      <Route path="/applications/new" element={<ApplicationNew />} />
+                      <Route path="/applications/:id" element={<ApplicationDetail />} />
+                      <Route path="/applications/:id/prep" element={<InterviewPrepPage />} />
+                      <Route path="/reports" element={<Reports />} />
+                      <Route path="/reports/pipeline" element={<ReportsPipeline />} />
+                      <Route path="/reports/needs-action" element={<ReportsNeedsAction />} />
+                      <Route path="/reports/stale" element={<ReportsStale />} />
+                      <Route path="/reports/closed-loop" element={<ReportsClosedLoop />} />
+                      <Route path="/reports/by-fit-tier" element={<ReportsByFitTier />} />
+                      <Route path="/resumes" element={<ResumeManager />} />
+                      <Route path="/resumes/upload" element={<ResumeUpload />} />
+                      <Route path="/resumes/exports" element={<ResumeExports />} />
+                      <Route path="/catalog" element={<CatalogPage />} />
+                      <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
+                      <Route path="/cover-letters/new" element={<CoverLetterNew />} />
+                      <Route path="/cover-letters/:id" element={<CoverLetterDetail />} />
+                      <Route path="/outreach/new" element={<OutreachNew />} />
+                      <Route path="/resume-variants" element={<ResumeVariantsList />} />
+                      <Route path="/resume-variants/new" element={<ResumeVariantNew />} />
+                      <Route path="/resume-variants/:id" element={<ResumeVariantDetail />} />
+                      <Route path="/projects" element={<ProjectsList />} />
+                      <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
+                      <Route path="/projects/:projectId" element={<ProjectDetail />} />
+                      <Route
+                        path="/projects/:projectId/files/:fileName"
+                        element={<ProjectFileEditor />}
+                      />
+                      <Route path="/settings" element={<Settings />} />
+                    </Routes>
+                  </main>
+
+                  <BottomTabBar applicationCount={inProgressCount} exportCount={exportCount} />
+
+                  <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+                </div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

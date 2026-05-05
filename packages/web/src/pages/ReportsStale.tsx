@@ -39,9 +39,7 @@ export function ReportsStale() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-neutral-900">Stale Applications</h1>
-          <p className="mt-2 text-neutral-600">
-            Applications that haven't been updated recently
-          </p>
+          <p className="mt-2 text-neutral-600">Applications that haven't been updated recently</p>
         </div>
         <div>
           <label htmlFor="staleThreshold" className="mr-2 text-sm font-medium text-neutral-700">

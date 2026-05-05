@@ -60,11 +60,14 @@ export function ApplicationCard({
 
   const relativeTime = formatDistanceToNow(application.createdAt, { addSuffix: true });
 
+  const showActionsBar = showQuickActions && isHovered;
+
   const cardClasses = `
     relative rounded-lg border p-4 transition-all cursor-pointer
     ${isDragging ? 'opacity-50 rotate-2 shadow-lg' : 'shadow-sm'}
     ${isHovered ? 'border-blue-300 shadow-md' : 'border-gray-200'}
     ${variant === 'list' ? 'flex items-center gap-4' : 'flex flex-col gap-2'}
+    ${showActionsBar ? 'pb-16' : ''}
     hover:border-blue-300 hover:shadow-md
     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
   `;
@@ -121,19 +124,23 @@ export function ApplicationCard({
         </div>
       </div>
 
-      {/* Quick Actions (shown on hover) */}
-      {showQuickActions && isHovered && (
+      {/* Quick Actions (shown on hover) - Touch-optimized */}
+      {showActionsBar && (
         <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 rounded-b-lg p-2 flex items-center justify-between gap-2">
           <button
             onClick={handleEdit}
-            className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+            onPointerDown={(e) => e.stopPropagation()}
+            className="px-4 py-3 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+            style={{ minHeight: '44px', minWidth: '44px' }}
             aria-label={`Edit ${application.jobTitle}`}
           >
             Edit
           </button>
           <button
             onClick={handleDelete}
-            className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+            onPointerDown={(e) => e.stopPropagation()}
+            className="px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+            style={{ minHeight: '44px', minWidth: '44px' }}
             aria-label={`Delete ${application.jobTitle}`}
           >
             Delete

@@ -33,3 +33,9 @@ cdk.out
 *.sln
 *.sw?
 data/
+
+# Test artifacts
+test-results/
+
+# TypeScript build info
+*.tsbuildinfo

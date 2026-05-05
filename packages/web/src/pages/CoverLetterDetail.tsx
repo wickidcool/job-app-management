@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CoverLetterPreview } from '../components/CoverLetterPreview';
-import { useCoverLetter, useDeleteCoverLetter, useExportCoverLetter } from '../hooks/useCoverLetters';
+import {
+  useCoverLetter,
+  useDeleteCoverLetter,
+  useExportCoverLetter,
+} from '../hooks/useCoverLetters';
 import type { CoverLetterVariant } from '../services/api/types';
 
 export function CoverLetterDetail() {
@@ -28,7 +32,7 @@ export function CoverLetterDetail() {
         request: { format },
       });
       // Create download link from base64 content
-      const blob = new Blob([Uint8Array.from(atob(result.base64Content), c => c.charCodeAt(0))], {
+      const blob = new Blob([Uint8Array.from(atob(result.base64Content), (c) => c.charCodeAt(0))], {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
       const url = URL.createObjectURL(blob);
@@ -77,7 +81,8 @@ export function CoverLetterDetail() {
     );
   }
 
-  const wordCount = coverLetter.content.trim() === '' ? 0 : coverLetter.content.trim().split(/\s+/).length;
+  const wordCount =
+    coverLetter.content.trim() === '' ? 0 : coverLetter.content.trim().split(/\s+/).length;
   const variant: CoverLetterVariant = {
     tone: coverLetter.tone,
     length: coverLetter.lengthVariant,
@@ -149,7 +154,10 @@ export function CoverLetterDetail() {
           </div>
         )}
 
-        <div className="bg-white border rounded-lg shadow-sm overflow-hidden" style={{ height: '800px' }}>
+        <div
+          className="bg-white border rounded-lg shadow-sm overflow-hidden"
+          style={{ height: '800px' }}
+        >
           <CoverLetterPreview
             content={coverLetter.content}
             variant={variant}

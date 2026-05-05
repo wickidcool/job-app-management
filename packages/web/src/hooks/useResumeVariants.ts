@@ -117,7 +117,11 @@ export function useSuggestBullets(request: SuggestBulletsRequest) {
   return useQuery({
     queryKey: resumeVariantKeys.suggestion(request),
     queryFn: () => resumeVariantService.suggestBullets(request),
-    enabled: !!(request.jobDescriptionText || request.jobDescriptionUrl || request.jobFitAnalysisId),
+    enabled: !!(
+      request.jobDescriptionText ||
+      request.jobDescriptionUrl ||
+      request.jobFitAnalysisId
+    ),
   });
 }
 

@@ -1,10 +1,17 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useState } from 'react';
-import { useApplication, useUpdateApplicationStatus, useDeleteApplication, useUpdateApplication } from '../hooks/useApplications';
+import {
+  useApplication,
+  useUpdateApplicationStatus,
+  useDeleteApplication,
+  useUpdateApplication,
+} from '../hooks/useApplications';
 import { StatusBadge } from '../components/StatusBadge';
 import { StatusDropdown } from '../components/StatusDropdown';
 import { ApplicationForm } from '../components/ApplicationForm';
+import { WorkflowChecklist } from '../components/WorkflowChecklist';
+import { Breadcrumb } from '../components/Breadcrumb';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
@@ -83,14 +90,18 @@ export function ApplicationDetail() {
     );
   }
 
+  const breadcrumbTrail = [
+    { label: 'Dashboard', href: '/' },
+    { label: 'Applications', href: '/applications' },
+    { label: application.company },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-4xl mx-auto">
-          <Link to="/" className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block">
-            ← Back to Dashboard
-          </Link>
+          <Breadcrumb trail={breadcrumbTrail} />
         </div>
       </header>
 
@@ -113,20 +124,12 @@ export function ApplicationDetail() {
             </div>
 
             <div className="flex gap-2">
-              {application.jobDescription && (
+              {application.status === 'interview' && (
                 <button
-                  onClick={() =>
-                    navigate('/cover-letters/new', {
-                      state: {
-                        jobDescriptionText: application.jobDescription,
-                        targetCompany: application.company,
-                        targetRole: application.jobTitle,
-                      },
-                    })
-                  }
-                  className="px-4 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-300 rounded-md hover:bg-blue-50"
+                  onClick={() => navigate(`/applications/${id}/prep`)}
+                  className="px-4 py-2 text-sm font-medium text-purple-700 bg-white border border-purple-300 rounded-md hover:bg-purple-50"
                 >
-                  Generate Cover Letter
+                  Prepare for Interview
                 </button>
               )}
               <button
@@ -143,6 +146,15 @@ export function ApplicationDetail() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Workflow Checklist */}
+        <div className="mb-6">
+          <WorkflowChecklist
+            applicationId={id!}
+            status={application.status}
+            hasJobDescription={!!application.jobDescription}
+          />
         </div>
 
         {/* Details Grid */}
@@ -210,7 +222,10 @@ export function ApplicationDetail() {
         </div>
 
         {/* Extended Tracking (UC-5 fields) */}
-        {(application.contact || application.compTarget || application.nextAction || application.nextActionDue) && (
+        {(application.contact ||
+          application.compTarget ||
+          application.nextAction ||
+          application.nextActionDue) && (
           <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Tracking</h2>
             <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">

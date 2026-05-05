@@ -119,7 +119,8 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         url: '/api/cover-letters/generate',
         payload: {
-          jobDescriptionText: 'We are looking for a Senior Software Engineer with TypeScript expertise and 5+ years of experience building distributed systems at scale.',
+          jobDescriptionText:
+            'We are looking for a Senior Software Engineer with TypeScript expertise and 5+ years of experience building distributed systems at scale.',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
           targetCompany: 'Acme Corp',
           targetRole: 'Senior Software Engineer',
@@ -156,7 +157,8 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         url: '/api/cover-letters/generate',
         payload: {
-          jobDescriptionText: 'We are looking for a senior engineer with 5+ years of TypeScript experience and background in distributed systems architecture.',
+          jobDescriptionText:
+            'We are looking for a senior engineer with 5+ years of TypeScript experience and background in distributed systems architecture.',
           selectedStarEntryIds: [],
           targetCompany: 'Acme Corp',
           targetRole: 'Engineer',
@@ -171,8 +173,12 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         url: '/api/cover-letters/generate',
         payload: {
-          jobDescriptionText: 'We are looking for a senior engineer with 5+ years experience in TypeScript and distributed systems.',
-          selectedStarEntryIds: Array.from({ length: 11 }, (_, i) => `01HXK5R3J7Q8N2M4P6W9Y1Z${String(i).padStart(3, '0')}`),
+          jobDescriptionText:
+            'We are looking for a senior engineer with 5+ years experience in TypeScript and distributed systems.',
+          selectedStarEntryIds: Array.from(
+            { length: 11 },
+            (_, i) => `01HXK5R3J7Q8N2M4P6W9Y1Z${String(i).padStart(3, '0')}`
+          ),
           targetCompany: 'Acme Corp',
           targetRole: 'Engineer',
         },
@@ -190,7 +196,8 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         url: '/api/cover-letters/generate',
         payload: {
-          jobDescriptionText: 'We are looking for a senior engineer with 5+ years experience in TypeScript.',
+          jobDescriptionText:
+            'We are looking for a senior engineer with 5+ years experience in TypeScript.',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
         },
       });
@@ -210,7 +217,8 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         url: '/api/cover-letters/generate',
         payload: {
-          jobDescriptionText: 'We are looking for a senior engineer with 5+ years TypeScript experience.',
+          jobDescriptionText:
+            'We are looking for a senior engineer with 5+ years TypeScript experience.',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
           targetCompany: 'Acme Corp',
           targetRole: 'Engineer',
@@ -233,7 +241,8 @@ describe('Cover Letter Routes', () => {
         method: 'POST',
         url: '/api/cover-letters/generate',
         payload: {
-          jobDescriptionText: 'We are looking for a senior engineer with 5+ years of TypeScript expertise and distributed systems knowledge.',
+          jobDescriptionText:
+            'We are looking for a senior engineer with 5+ years of TypeScript expertise and distributed systems knowledge.',
           jobDescriptionUrl: 'https://example.com/jobs/1',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
           targetCompany: 'Acme Corp',
@@ -277,7 +286,8 @@ describe('Cover Letter Routes', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'draft' })
+        expect.objectContaining({ status: 'draft' }),
+        undefined
       );
     });
 
@@ -285,7 +295,8 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
       await app.inject({ method: 'GET', url: '/api/cover-letters?company=Acme' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ company: 'Acme' })
+        expect.objectContaining({ company: 'Acme' }),
+        undefined
       );
     });
 
@@ -293,7 +304,8 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
       await app.inject({ method: 'GET', url: '/api/cover-letters?search=typescript' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ search: 'typescript' })
+        expect.objectContaining({ search: 'typescript' }),
+        undefined
       );
     });
 
@@ -313,7 +325,8 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
       await app.inject({ method: 'GET', url: `/api/cover-letters?cursor=${cursor}` });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
-        expect.objectContaining({ cursor })
+        expect.objectContaining({ cursor }),
+        undefined
       );
     });
   });
@@ -461,9 +474,7 @@ describe('Cover Letter Routes', () => {
     });
 
     it('returns 409 on version conflict during revise', async () => {
-      vi.mocked(coverLetterService.reviseCoverLetter).mockRejectedValue(
-        new VersionConflictError()
-      );
+      vi.mocked(coverLetterService.reviseCoverLetter).mockRejectedValue(new VersionConflictError());
 
       const response = await app.inject({
         method: 'POST',
@@ -495,7 +506,12 @@ describe('Cover Letter Routes', () => {
         content: 'Hey! I am thrilled to apply...',
         version: 2,
         revisionHistory: [
-          { id: 'rev1', instructions: 'Use conversational tone', previousContent: mockCoverLetter.content, createdAt: '2026-04-26T15:00:00.000Z' },
+          {
+            id: 'rev1',
+            instructions: 'Use conversational tone',
+            previousContent: mockCoverLetter.content,
+            createdAt: '2026-04-26T15:00:00.000Z',
+          },
         ],
       };
       vi.mocked(coverLetterService.reviseCoverLetter).mockResolvedValue({
@@ -559,7 +575,9 @@ describe('Cover Letter Routes', () => {
         characterCount: 200,
         createdAt: '2026-04-26T15:00:00.000Z',
       };
-      vi.mocked(coverLetterService.generateOutreach).mockResolvedValue({ message: mockEmailOutreach });
+      vi.mocked(coverLetterService.generateOutreach).mockResolvedValue({
+        message: mockEmailOutreach,
+      });
 
       const response = await app.inject({
         method: 'POST',
@@ -616,8 +634,7 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.exportCoverLetter).mockResolvedValue({
         buffer: fakeBuffer,
         filename: 'cover-letter-acme-corp-2026-04-26.docx',
-        contentType:
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
 
       const response = await app.inject({
@@ -637,8 +654,7 @@ describe('Cover Letter Routes', () => {
       vi.mocked(coverLetterService.exportCoverLetter).mockResolvedValue({
         buffer: fakeBuffer,
         filename: 'cover-letter-acme-corp-2026-04-26.docx',
-        contentType:
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
 
       const response = await app.inject({
@@ -692,7 +708,8 @@ describe('Cover Letter Routes', () => {
       expect(response.json().fileSize).toBe(fakeBuffer.length);
       expect(coverLetterService.exportCoverLetter).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-        expect.objectContaining({ includeHeader: true, fontSize: 12 })
+        expect.objectContaining({ includeHeader: true, fontSize: 12 }),
+        undefined
       );
     });
 

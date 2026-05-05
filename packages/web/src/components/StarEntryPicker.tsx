@@ -106,11 +106,11 @@ export function StarEntryPicker({
           <span>⚠️ Maximum {maxSelection} entries allowed</span>
         )}
         {isValid && !isOptimal && (
-          <span>Currently selected: {selectedCount}. 3-5 entries recommended for best results.</span>
+          <span>
+            Currently selected: {selectedCount}. 3-5 entries recommended for best results.
+          </span>
         )}
-        {isOptimal && (
-          <span>✓ {selectedCount} entries selected. Great selection!</span>
-        )}
+        {isOptimal && <span>✓ {selectedCount} entries selected. Great selection!</span>}
       </div>
 
       {/* Recommended Entries */}
@@ -138,7 +138,9 @@ export function StarEntryPicker({
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
           <span>📋</span>
-          {showRecommended && recommendedEntries.length > 0 ? 'All Catalog Entries' : 'Catalog Entries'}
+          {showRecommended && recommendedEntries.length > 0
+            ? 'All Catalog Entries'
+            : 'Catalog Entries'}
         </h3>
         <div className="space-y-2">
           {filterEntries(otherEntries).map((entry) => (
@@ -191,17 +193,12 @@ function StarEntryCard({ entry, isSelected, onToggle, showRelevance }: StarEntry
             )}
           </div>
 
-          {entry.timeframe && (
-            <p className="text-xs text-gray-500 mb-2">{entry.timeframe}</p>
-          )}
+          {entry.timeframe && <p className="text-xs text-gray-500 mb-2">{entry.timeframe}</p>}
 
           {entry.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">
               {entry.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded"
-                >
+                <span key={tag} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
                   {tag}
                 </span>
               ))}

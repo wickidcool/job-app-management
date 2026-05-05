@@ -8,6 +8,7 @@ import {
   boolean,
   numeric,
   date,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 export const appStatusEnum = pgEnum('app_status', [
@@ -22,6 +23,7 @@ export const appStatusEnum = pgEnum('app_status', [
 
 export const applications = pgTable('applications', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   jobTitle: text('job_title').notNull(),
   company: text('company').notNull(),
   url: text('url'),
@@ -36,6 +38,7 @@ export const applications = pgTable('applications', {
   compTarget: text('comp_target'),
   nextAction: text('next_action'),
   nextActionDue: date('next_action_due', { mode: 'string' }),
+  jobDescription: text('job_description'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   version: integer('version').notNull().default(1),
@@ -43,6 +46,7 @@ export const applications = pgTable('applications', {
 
 export const statusHistory = pgTable('status_history', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   applicationId: text('application_id')
     .notNull()
     .references(() => applications.id, { onDelete: 'cascade' }),
@@ -54,6 +58,7 @@ export const statusHistory = pgTable('status_history', {
 
 export const resumes = pgTable('resumes', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   fileName: text('file_name').notNull(),
   fileSize: integer('file_size').notNull(),
   mimeType: text('mime_type').notNull(),
@@ -64,6 +69,7 @@ export const resumes = pgTable('resumes', {
 
 export const resumeExports = pgTable('resume_exports', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   resumeId: text('resume_id')
     .notNull()
     .references(() => resumes.id, { onDelete: 'cascade' }),
@@ -75,6 +81,7 @@ export const resumeExports = pgTable('resume_exports', {
 
 export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
   description: text('description'),
@@ -147,6 +154,7 @@ export const diffStatusEnum = pgEnum('diff_status', [
 // Catalog tables
 export const companyCatalog = pgTable('company_catalog', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   name: text('name').notNull(),
   normalizedName: text('normalized_name').notNull().unique(),
   aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
@@ -162,6 +170,7 @@ export const companyCatalog = pgTable('company_catalog', {
 
 export const jobFitTags = pgTable('job_fit_tags', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   tagSlug: text('tag_slug').notNull().unique(),
   displayName: text('display_name').notNull(),
   category: jobFitCategoryEnum('category').notNull().default('uncategorized'),
@@ -177,6 +186,7 @@ export const jobFitTags = pgTable('job_fit_tags', {
 
 export const techStackTags = pgTable('tech_stack_tags', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   tagSlug: text('tag_slug').notNull().unique(),
   displayName: text('display_name').notNull(),
   category: techStackCategoryEnum('category').notNull().default('uncategorized'),
@@ -194,6 +204,7 @@ export const techStackTags = pgTable('tech_stack_tags', {
 
 export const quantifiedBullets = pgTable('quantified_bullets', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   sourceType: text('source_type').notNull(),
   sourceId: text('source_id').notNull(),
   rawText: text('raw_text').notNull(),
@@ -211,6 +222,7 @@ export const quantifiedBullets = pgTable('quantified_bullets', {
 
 export const recurringThemes = pgTable('recurring_themes', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   themeSlug: text('theme_slug').notNull().unique(),
   displayName: text('display_name').notNull(),
   aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
@@ -227,6 +239,7 @@ export const recurringThemes = pgTable('recurring_themes', {
 
 export const catalogChangeLog = pgTable('catalog_change_log', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   entityType: text('entity_type').notNull(),
   entityId: text('entity_id').notNull(),
   action: changeActionEnum('action').notNull(),
@@ -242,6 +255,7 @@ export const catalogChangeLog = pgTable('catalog_change_log', {
 
 export const catalogDiffs = pgTable('catalog_diffs', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   triggerSource: text('trigger_source').notNull(),
   triggerId: text('trigger_id').notNull(),
   summary: text('summary').notNull(),
@@ -256,6 +270,7 @@ export const catalogDiffs = pgTable('catalog_diffs', {
 
 export const wikilinkRegistry = pgTable('wikilink_registry', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   linkText: text('link_text').notNull(),
   normalizedText: text('normalized_text').notNull(),
   targetType: text('target_type').notNull(),
@@ -303,7 +318,11 @@ export const tonePreferenceEnum = pgEnum('tone_preference', [
   'technical',
 ]);
 export const lengthVariantEnum = pgEnum('length_variant', ['concise', 'standard', 'detailed']);
-export const emphasisPreferenceEnum = pgEnum('emphasis_preference', ['technical', 'leadership', 'balanced']);
+export const emphasisPreferenceEnum = pgEnum('emphasis_preference', [
+  'technical',
+  'leadership',
+  'balanced',
+]);
 export const outreachPlatformEnum = pgEnum('outreach_platform', ['linkedin', 'email']);
 
 export interface RevisionEntry {
@@ -315,6 +334,7 @@ export interface RevisionEntry {
 
 export const coverLetters = pgTable('cover_letters', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   status: coverLetterStatusEnum('status').notNull().default('draft'),
   title: text('title').notNull(),
   targetCompany: text('target_company').notNull(),
@@ -335,6 +355,7 @@ export const coverLetters = pgTable('cover_letters', {
 
 export const outreachMessages = pgTable('outreach_messages', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   platform: outreachPlatformEnum('platform').notNull(),
   targetCompany: text('target_company').notNull(),
   targetRole: text('target_role'),
@@ -363,7 +384,11 @@ export type OutreachPlatform = (typeof outreachPlatformEnum.enumValues)[number];
 // Resume Variant enums (UC-6)
 export const resumeVariantStatusEnum = pgEnum('resume_variant_status', ['draft', 'finalized']);
 export const resumeFormatEnum = pgEnum('resume_format', ['chronological', 'functional', 'hybrid']);
-export const sectionEmphasisEnum = pgEnum('section_emphasis', ['experience_heavy', 'skills_heavy', 'balanced']);
+export const sectionEmphasisEnum = pgEnum('section_emphasis', [
+  'experience_heavy',
+  'skills_heavy',
+  'balanced',
+]);
 
 export interface SectionBulletSelection {
   sectionId: string;
@@ -431,6 +456,7 @@ export interface VariantRevisionEntry {
 
 export const resumeVariants = pgTable('resume_variants', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id'),
   status: resumeVariantStatusEnum('status').notNull().default('draft'),
   title: text('title').notNull(),
   targetCompany: text('target_company').notNull(),
@@ -441,10 +467,16 @@ export const resumeVariants = pgTable('resume_variants', {
   jobFitAnalysisId: text('job_fit_analysis_id'),
   jobDescriptionText: text('job_description_text'),
   jobDescriptionUrl: text('job_description_url'),
-  selectedBullets: jsonb('selected_bullets').$type<SectionBulletSelection[]>().notNull().default([]),
+  selectedBullets: jsonb('selected_bullets')
+    .$type<SectionBulletSelection[]>()
+    .notNull()
+    .default([]),
   selectedTechTags: jsonb('selected_tech_tags').$type<string[]>().notNull().default([]),
   selectedThemes: jsonb('selected_themes').$type<string[]>().notNull().default([]),
-  sectionOrder: jsonb('section_order').$type<string[]>().notNull().default(['summary', 'experience', 'skills', 'projects', 'education']),
+  sectionOrder: jsonb('section_order')
+    .$type<string[]>()
+    .notNull()
+    .default(['summary', 'experience', 'skills', 'projects', 'education']),
   hiddenSections: jsonb('hidden_sections').$type<string[]>().notNull().default([]),
   content: jsonb('content').$type<ResumeContent>().notNull(),
   atsScore: integer('ats_score'),
@@ -459,3 +491,189 @@ export type NewResumeVariant = typeof resumeVariants.$inferInsert;
 export type ResumeVariantStatus = (typeof resumeVariantStatusEnum.enumValues)[number];
 export type ResumeFormat = (typeof resumeFormatEnum.enumValues)[number];
 export type SectionEmphasis = (typeof sectionEmphasisEnum.enumValues)[number];
+
+// Interview Prep enums (UC-7)
+export const interviewTypeEnum = pgEnum('interview_type', [
+  'behavioral',
+  'technical',
+  'mixed',
+  'case_study',
+]);
+
+export const prepTimeEnum = pgEnum('prep_time', ['30min', '1hr', '2hr', 'full_day']);
+
+export const confidenceLevelEnum = pgEnum('confidence_level', [
+  'not_practiced',
+  'needs_work',
+  'comfortable',
+  'confident',
+]);
+
+export const questionCategoryEnum = pgEnum('question_category', [
+  'behavioral',
+  'technical',
+  'situational',
+  'role_specific',
+  'gap_probing',
+]);
+
+export const questionDifficultyEnum = pgEnum('question_difficulty', [
+  'standard',
+  'challenging',
+  'tough',
+]);
+
+export const gapSeverityEnum = pgEnum('gap_severity', ['critical', 'moderate', 'minor']);
+
+export const mitigationStrategyEnum = pgEnum('mitigation_strategy', [
+  'acknowledge_pivot',
+  'growth_mindset',
+  'adjacent_experience',
+]);
+
+// Interview Prep JSONB types
+export interface GeneratedQuestion {
+  id: string;
+  text: string;
+  category: 'behavioral' | 'technical' | 'situational' | 'role_specific' | 'gap_probing';
+  difficulty: 'standard' | 'challenging' | 'tough';
+  whyTheyAsk: string;
+  whatTheyWant: string;
+  answerFramework: string;
+  suggestedStoryIds: string[];
+  linkedStoryId?: string;
+  personalNotes?: string;
+  practiceStatus: 'not_practiced' | 'needs_work' | 'comfortable' | 'confident';
+  lastPracticedAt?: string;
+}
+
+export interface TalkingPoint {
+  title: string;
+  script: string;
+  keyPhrases: string[];
+  redirectToStrength: string;
+}
+
+export interface GapMitigation {
+  id: string;
+  skill: string;
+  severity: 'critical' | 'moderate' | 'minor';
+  description: string;
+  whyItMatters: string;
+  strategies: {
+    acknowledgePivot: TalkingPoint;
+    growthMindset: TalkingPoint;
+    adjacentExperience: TalkingPoint;
+  };
+  relatedStoryIds: string[];
+  selectedStrategy?: 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_experience';
+  isAddressed: boolean;
+}
+
+export interface SectionConfig {
+  id: 'stories' | 'questions' | 'gaps' | 'company';
+  enabled: boolean;
+  order: number;
+  selectedItems: string[];
+}
+
+export interface CompanyFact {
+  id: string;
+  fact: string;
+  source: string;
+  useFor: 'mention' | 'ask_about';
+}
+
+export interface QuickReference {
+  sections: SectionConfig[];
+  topStoryIds: string[];
+  keyQuestionIds: string[];
+  gapPointIds: string[];
+  companyFacts: CompanyFact[];
+  lastExportedAt?: string;
+  exportFormat?: 'pdf' | 'markdown' | 'print';
+}
+
+export interface PracticeSession {
+  id: string;
+  startedAt: string;
+  endedAt?: string;
+  type: 'single_question' | 'full_interview' | 'timed_responses';
+  questionsAttempted: number;
+  confidenceRatings: {
+    needsWork: number;
+    comfortable: number;
+    confident: number;
+  };
+  focusAreas?: string[];
+}
+
+// Interview Prep tables
+export const interviewPreps = pgTable('interview_preps', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id'),
+  applicationId: text('application_id')
+    .notNull()
+    .references(() => applications.id, { onDelete: 'cascade' })
+    .unique(),
+  jobFitAnalysisId: text('job_fit_analysis_id'),
+  interviewType: interviewTypeEnum('interview_type').notNull().default('mixed'),
+  timeAvailable: prepTimeEnum('time_available').notNull().default('1hr'),
+  focusAreas: jsonb('focus_areas').$type<string[]>().notNull().default([]),
+  completeness: integer('completeness').notNull().default(0),
+  generatedQuestions: jsonb('generated_questions')
+    .$type<GeneratedQuestion[]>()
+    .notNull()
+    .default([]),
+  gapMitigations: jsonb('gap_mitigations').$type<GapMitigation[]>().notNull().default([]),
+  quickReference: jsonb('quick_reference').$type<QuickReference>(),
+  practiceLog: jsonb('practice_log').$type<PracticeSession[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export const interviewPrepStories = pgTable('interview_prep_stories', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id'),
+  interviewPrepId: text('interview_prep_id')
+    .notNull()
+    .references(() => interviewPreps.id, { onDelete: 'cascade' }),
+  starEntryId: text('star_entry_id').notNull(),
+  themes: jsonb('themes').$type<string[]>().notNull().default([]),
+  relevanceScore: integer('relevance_score').notNull(),
+  oneMinVersion: text('one_min_version').notNull(),
+  twoMinVersion: text('two_min_version').notNull(),
+  fiveMinVersion: text('five_min_version').notNull(),
+  isFavorite: boolean('is_favorite').notNull().default(false),
+  personalNotes: text('personal_notes'),
+  practiceCount: integer('practice_count').notNull().default(0),
+  lastPracticedAt: timestamp('last_practiced_at', { withTimezone: true }),
+  confidenceLevel: confidenceLevelEnum('confidence_level').notNull().default('not_practiced'),
+  displayOrder: integer('display_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const prepQuestionStoryLinks = pgTable('prep_question_story_links', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id'),
+  questionId: text('question_id').notNull(),
+  storyId: text('story_id')
+    .notNull()
+    .references(() => interviewPrepStories.id, { onDelete: 'cascade' }),
+  isPrimary: boolean('is_primary').notNull().default(false),
+  matchScore: integer('match_score').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Interview Prep type exports
+export type InterviewPrep = typeof interviewPreps.$inferSelect;
+export type NewInterviewPrep = typeof interviewPreps.$inferInsert;
+export type InterviewPrepStory = typeof interviewPrepStories.$inferSelect;
+export type NewInterviewPrepStory = typeof interviewPrepStories.$inferInsert;
+export type PrepQuestionStoryLink = typeof prepQuestionStoryLinks.$inferSelect;
+export type NewPrepQuestionStoryLink = typeof prepQuestionStoryLinks.$inferInsert;
+export type InterviewType = (typeof interviewTypeEnum.enumValues)[number];
+export type PrepTime = (typeof prepTimeEnum.enumValues)[number];
+export type ConfidenceLevel = (typeof confidenceLevelEnum.enumValues)[number];

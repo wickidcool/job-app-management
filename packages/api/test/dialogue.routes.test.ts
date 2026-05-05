@@ -107,7 +107,9 @@ describe('Dialogue Routes', () => {
       expect(response.json()).toEqual(captureResult);
       expect(dialogueService.captureProjectFile).toHaveBeenCalledWith(
         'acme-corp',
-        expect.objectContaining({ company: 'Acme Corp', role: 'Senior Engineer' })
+        expect.objectContaining({ company: 'Acme Corp', role: 'Senior Engineer' }),
+        undefined,
+        undefined
       );
     });
 
@@ -178,7 +180,9 @@ describe('Dialogue Routes', () => {
 
       expect(dialogueService.captureProjectFile).toHaveBeenCalledWith(
         'acme-corp',
-        expect.objectContaining({ technologies: [], jobFit: [] })
+        expect.objectContaining({ technologies: [], jobFit: [] }),
+        undefined,
+        undefined
       );
     });
   });
@@ -200,7 +204,8 @@ describe('Dialogue Routes', () => {
       expect(dialogueService.enrichProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'acme-corp-senior-engineer.md',
-        expect.objectContaining({ industry: 'Fintech', jobFit: ['payments'] })
+        expect.objectContaining({ industry: 'Fintech', jobFit: ['payments'] }),
+        undefined
       );
     });
 
@@ -261,7 +266,8 @@ describe('Dialogue Routes', () => {
       expect(dialogueService.correctProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'acme-corp-senior-engineer.md',
-        expect.objectContaining({ company: 'Acme Corp' })
+        expect.objectContaining({ company: 'Acme Corp' }),
+        undefined
       );
     });
 

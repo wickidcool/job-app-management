@@ -26,6 +26,10 @@ function transformAPIApplication(apiApp: APIApplication): Application {
     createdAt: new Date(apiApp.createdAt),
     updatedAt: new Date(apiApp.updatedAt),
     appliedAt: apiApp.appliedAt ? new Date(apiApp.appliedAt) : undefined,
+    contact: apiApp.contact,
+    compTarget: apiApp.compTarget,
+    nextAction: apiApp.nextAction,
+    nextActionDue: apiApp.nextActionDue,
   };
 }
 
@@ -44,8 +48,29 @@ export class ApplicationService {
   /**
    * Get all applications
    */
-  async getAll(): Promise<Application[]> {
-    const response = await this.client.get<ListApplicationsResponse>('/applications');
+  async getAll(filters?: {
+    status?: string[];
+    company?: string;
+    search?: string;
+  }): Promise<Application[]> {
+    const params = new URLSearchParams();
+
+    if (filters?.status && filters.status.length > 0) {
+      params.append('status', filters.status.join(','));
+    }
+
+    if (filters?.company) {
+      params.append('company', filters.company);
+    }
+
+    if (filters?.search) {
+      params.append('search', filters.search);
+    }
+
+    const queryString = params.toString();
+    const url = queryString ? `/applications?${queryString}` : '/applications';
+
+    const response = await this.client.get<ListApplicationsResponse>(url);
     return response.applications.map(transformAPIApplication);
   }
 
@@ -78,6 +103,10 @@ export class ApplicationService {
       jobDescription: data.jobDescription,
       status: data.status,
       coverLetterId: data.coverLetterId,
+      contact: data.contact,
+      compTarget: data.compTarget,
+      nextAction: data.nextAction,
+      nextActionDue: data.nextActionDue,
     };
 
     const response = await this.client.post<{ application: APIApplication }>(
@@ -105,6 +134,10 @@ export class ApplicationService {
       status: data.status,
       coverLetterId: data.coverLetterId,
       version,
+      contact: data.contact,
+      compTarget: data.compTarget,
+      nextAction: data.nextAction,
+      nextActionDue: data.nextActionDue,
     };
 
     const response = await this.client.patch<{ application: APIApplication }>(
@@ -123,7 +156,7 @@ export class ApplicationService {
     version: number,
     note?: string
   ): Promise<Application> {
-    const response = await this.client.patch<{ application: APIApplication }>(
+    const response = await this.client.post<{ application: APIApplication }>(
       `/applications/${id}/status`,
       { status, version, note }
     );

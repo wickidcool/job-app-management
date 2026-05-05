@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsPipeline } from '../hooks/useReports';
 import type { PipelineApplication, ActiveStatus } from '../services/api';
@@ -39,22 +40,24 @@ function isOverdue(nextActionDue: string | null | undefined): boolean {
   return new Date(nextActionDue) < today;
 }
 
-function isStale(updatedAt: string): boolean {
+function isStale(updatedAt: string, now: number): boolean {
   const updated = new Date(updatedAt);
-  const daysSince = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
+  const daysSince = Math.floor((now - updated.getTime()) / (1000 * 60 * 60 * 24));
   return daysSince >= 14;
 }
 
 function PipelineCard({
   app,
   onClick,
+  now,
 }: {
   app: PipelineApplication;
   onClick: () => void;
+  now: number;
 }) {
   const overdue = isOverdue(app.nextActionDue);
   const dueSoon = !overdue && isDueSoon(app.nextActionDue);
-  const stale = isStale(app.updatedAt);
+  const stale = isStale(app.updatedAt, now);
 
   return (
     <div
@@ -63,9 +66,7 @@ function PipelineCard({
     >
       <h4 className="text-sm font-semibold text-neutral-900 truncate">{app.jobTitle}</h4>
       <p className="mt-0.5 text-xs text-neutral-600 truncate">{app.company}</p>
-      {app.location && (
-        <p className="mt-0.5 text-xs text-neutral-500 truncate">{app.location}</p>
-      )}
+      {app.location && <p className="mt-0.5 text-xs text-neutral-500 truncate">{app.location}</p>}
       <div className="mt-2 flex flex-wrap gap-1">
         {overdue && (
           <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
@@ -96,8 +97,11 @@ export function ReportsPipeline() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useReportsPipeline();
 
-  const computeStats = () => {
+  const [now] = useState(() => Date.now());
+
+  const stats = useMemo(() => {
     if (!data) return { overdue: 0, dueToday: 0, dueSoon: 0, stale: 0 };
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -117,16 +121,14 @@ export function ReportsPipeline() {
           else if (diffDays <= 7) dueSoon++;
         }
         const daysSince = Math.floor(
-          (Date.now() - new Date(app.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
+          (now - new Date(app.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
         );
         if (daysSince >= 14) stale++;
       }
     }
 
     return { overdue, dueToday, dueSoon, stale };
-  };
-
-  const stats = computeStats();
+  }, [data, now]);
 
   if (isLoading) {
     return (
@@ -190,9 +192,14 @@ export function ReportsPipeline() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {data.groups.map((group) => (
-            <div key={group.status} className={`rounded-lg border-2 p-4 ${STATUS_COLORS[group.status]}`}>
+            <div
+              key={group.status}
+              className={`rounded-lg border-2 p-4 ${STATUS_COLORS[group.status]}`}
+            >
               <div className="mb-3 flex items-center justify-between">
-                <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${STATUS_HEADER_COLORS[group.status]}`}>
+                <span
+                  className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${STATUS_HEADER_COLORS[group.status]}`}
+                >
                   {STATUS_LABELS[group.status]}
                 </span>
                 <span className="text-sm font-medium text-neutral-600">{group.count}</span>
@@ -202,6 +209,7 @@ export function ReportsPipeline() {
                   <PipelineCard
                     key={app.id}
                     app={app}
+                    now={now}
                     onClick={() => navigate(`/applications/${app.id}`)}
                   />
                 ))}

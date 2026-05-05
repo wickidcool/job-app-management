@@ -2074,6 +2074,810 @@ The cover letter generation system enforces these constraints:
 
 ---
 
+---
+
+### Interview Prep (UC-7)
+
+Generate comprehensive interview preparation materials from the user's catalog of STAR entries, job fit analysis, and gap assessments.
+
+#### Data Model
+
+```typescript
+interface InterviewPrep {
+  id: string;                         // ULID
+  applicationId: string;              // Linked application (UNIQUE - one prep per app)
+  jobFitAnalysisId?: string;          // Optional fit analysis reference
+  interviewType: InterviewType;
+  timeAvailable: PrepTime;
+  focusAreas: string[];               // Theme slugs to prioritize
+  completeness: number;               // 0-100 prep progress
+  stories: PrepStory[];               // Categorized STAR stories with time-boxed versions
+  questions: GeneratedQuestion[];     // Anticipated interview questions
+  gapMitigations: GapMitigation[];    // Talking points for skill gaps
+  quickReference?: QuickReference;    // Export configuration
+  practiceLog: PracticeSession[];     // Practice history
+  createdAt: string;                  // ISO 8601
+  updatedAt: string;                  // ISO 8601
+  version: number;
+}
+
+type InterviewType = 'behavioral' | 'technical' | 'mixed' | 'case_study';
+type PrepTime = '30min' | '1hr' | '2hr' | 'full_day';
+type ConfidenceLevel = 'not_practiced' | 'needs_work' | 'comfortable' | 'confident';
+type QuestionCategory = 'behavioral' | 'technical' | 'situational' | 'role_specific' | 'gap_probing';
+type QuestionDifficulty = 'standard' | 'challenging' | 'tough';
+type GapSeverity = 'critical' | 'moderate' | 'minor';
+type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_experience';
+
+interface PrepStory {
+  id: string;
+  starEntryId: string;                // Reference to catalog quantified_bullets
+  themes: string[];                   // Classified themes (leadership, technical, etc.)
+  relevanceScore: number;             // 0-100 match to job requirements
+  oneMinVersion: string;              // Time-boxed summary
+  twoMinVersion: string;              // Time-boxed summary
+  fiveMinVersion: string;             // Full story version
+  isFavorite: boolean;                // User-marked for quick reference
+  personalNotes?: string;             // User notes
+  practiceCount: number;              // Times practiced
+  lastPracticedAt?: string;           // ISO 8601
+  confidenceLevel: ConfidenceLevel;
+  displayOrder: number;               // Sort order within theme
+}
+
+interface GeneratedQuestion {
+  id: string;
+  text: string;
+  category: QuestionCategory;
+  difficulty: QuestionDifficulty;
+  whyTheyAsk: string;                 // Context for the question
+  whatTheyWant: string;               // What interviewers look for
+  answerFramework: string;            // Suggested answer structure
+  suggestedStoryIds: string[];        // PrepStory IDs that fit this question
+  linkedStoryId?: string;             // User's chosen primary answer
+  personalNotes?: string;             // User notes
+  practiceStatus: ConfidenceLevel;
+  lastPracticedAt?: string;           // ISO 8601
+}
+
+interface GapMitigation {
+  id: string;
+  skill: string;                      // Gap skill from fit analysis
+  severity: GapSeverity;
+  description: string;                // Why this gap matters
+  whyItMatters: string;               // Interview context
+  strategies: {
+    acknowledgePivot: TalkingPoint;
+    growthMindset: TalkingPoint;
+    adjacentExperience: TalkingPoint;
+  };
+  relatedStoryIds: string[];          // Stories that can support this gap
+  selectedStrategy?: MitigationStrategy;
+  isAddressed: boolean;               // User has prepared this gap
+}
+
+interface TalkingPoint {
+  title: string;
+  script: string;                     // Suggested response
+  keyPhrases: string[];               // Important phrases to use
+  redirectToStrength: string;         // How to pivot to strengths
+}
+
+interface QuickReference {
+  sections: SectionConfig[];
+  topStoryIds: string[];              // Featured stories
+  keyQuestionIds: string[];           // Featured questions
+  gapPointIds: string[];              // Featured gap talking points
+  companyFacts: CompanyFact[];        // Facts to mention/ask about
+  lastExportedAt?: string;            // ISO 8601
+  exportFormat?: 'pdf' | 'markdown' | 'print';
+}
+
+interface SectionConfig {
+  id: 'stories' | 'questions' | 'gaps' | 'company';
+  enabled: boolean;
+  order: number;
+  selectedItems: string[];
+}
+
+interface CompanyFact {
+  id: string;
+  fact: string;
+  source: string;
+  useFor: 'mention' | 'ask_about';
+}
+
+interface PracticeSession {
+  id: string;
+  startedAt: string;                  // ISO 8601
+  endedAt?: string;                   // ISO 8601
+  type: 'single_question' | 'full_interview' | 'timed_responses';
+  questionsAttempted: number;
+  confidenceRatings: {
+    needsWork: number;
+    comfortable: number;
+    confident: number;
+  };
+  focusAreas?: string[];
+}
+```
+
+---
+
+#### Generate Interview Prep
+
+```
+POST /interview-preps
+```
+
+Generates interview prep materials for an application, using job fit analysis and catalog STAR entries.
+
+**Request Body**:
+
+```typescript
+interface GenerateInterviewPrepRequest {
+  applicationId: string;              // Required, must exist
+  jobFitAnalysisId?: string;          // Optional, enhances gap analysis
+  interviewType?: InterviewType;      // Default: 'mixed'
+  timeAvailable?: PrepTime;           // Default: '1hr'
+  focusAreas?: string[];              // Theme slugs to prioritize
+}
+```
+
+**Validation Rules**:
+
+- `applicationId` must reference an existing application
+- If `jobFitAnalysisId` is provided, it must exist and ideally be linked to the same application
+- Only one interview prep per application (returns existing if already exists)
+
+**Response**: `201 Created`
+
+```typescript
+interface GenerateInterviewPrepResponse {
+  interviewPrep: InterviewPrep;
+  
+  // Generation metadata
+  storiesGenerated: number;
+  questionsGenerated: number;
+  gapsIdentified: number;
+  catalogEntriesUsed: number;
+  warnings: GenerationWarning[];
+}
+
+interface GenerationWarning {
+  code: string;
+  message: string;
+}
+```
+
+**Warning Codes**:
+
+| Code | Description |
+|------|-------------|
+| `LIMITED_STAR_ENTRIES` | Fewer than 5 STAR entries in catalog |
+| `NO_FIT_ANALYSIS` | Generated without job fit analysis (gaps may be incomplete) |
+| `STALE_FIT_ANALYSIS` | Fit analysis is older than 30 days |
+| `MISSING_THEMES` | Some focus areas have no matching stories |
+
+**Example Request**:
+
+```bash
+curl -X POST "http://localhost:3000/api/interview-preps" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
+    "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
+    "interviewType": "behavioral",
+    "timeAvailable": "1hr",
+    "focusAreas": ["leadership", "technical", "problem_solving"]
+  }'
+```
+
+**Example Response**:
+
+```json
+{
+  "interviewPrep": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3P1",
+    "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
+    "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
+    "interviewType": "behavioral",
+    "timeAvailable": "1hr",
+    "focusAreas": ["leadership", "technical", "problem_solving"],
+    "completeness": 25,
+    "stories": [
+      {
+        "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3S1",
+        "starEntryId": "01HXK5R3J7Q8N2M4P6W9Y1Z3C7",
+        "themes": ["technical", "problem_solving"],
+        "relevanceScore": 92,
+        "oneMinVersion": "Led API optimization that reduced response times by 40% through query caching.",
+        "twoMinVersion": "At Acme Corp, I identified performance bottlenecks in our API layer affecting user experience. I implemented query optimization and a Redis caching strategy, reducing response times by 40% and improving user satisfaction scores by 15%.",
+        "fiveMinVersion": "When I joined Acme Corp, our API response times were averaging 800ms...[full story]",
+        "isFavorite": false,
+        "practiceCount": 0,
+        "confidenceLevel": "not_practiced",
+        "displayOrder": 1
+      }
+    ],
+    "questions": [
+      {
+        "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3Q1",
+        "text": "Tell me about a time you led a challenging technical project.",
+        "category": "behavioral",
+        "difficulty": "standard",
+        "whyTheyAsk": "They want to understand your leadership style and technical problem-solving approach.",
+        "whatTheyWant": "Concrete examples of leading through ambiguity, making technical decisions, and delivering results.",
+        "answerFramework": "Use STAR format: describe the project scope, your leadership role, key decisions made, and measurable outcomes.",
+        "suggestedStoryIds": ["01HXK5R3J7Q8N2M4P6W9Y1Z3S1", "01HXK5R3J7Q8N2M4P6W9Y1Z3S2"],
+        "practiceStatus": "not_practiced"
+      }
+    ],
+    "gapMitigations": [
+      {
+        "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3G1",
+        "skill": "AWS",
+        "severity": "critical",
+        "description": "No direct AWS experience mentioned in catalog",
+        "whyItMatters": "This role requires AWS for production infrastructure",
+        "strategies": {
+          "acknowledgePivot": {
+            "title": "Acknowledge & Pivot",
+            "script": "While I haven't worked directly with AWS, I have extensive experience with Azure which shares similar concepts around compute, storage, and networking.",
+            "keyPhrases": ["transferable skills", "cloud fundamentals", "quick learner"],
+            "redirectToStrength": "My Azure experience includes deploying containerized applications at scale..."
+          },
+          "growthMindset": {
+            "title": "Growth Mindset",
+            "script": "I'm actively building AWS skills through hands-on projects and have already earned the Cloud Practitioner certification.",
+            "keyPhrases": ["actively learning", "certification progress", "hands-on practice"],
+            "redirectToStrength": "I've found my cloud fundamentals transfer well..."
+          },
+          "adjacentExperience": {
+            "title": "Adjacent Experience",
+            "script": "In my current role, I've architected similar distributed systems using Azure, which shares core cloud patterns with AWS.",
+            "keyPhrases": ["distributed systems", "cloud architecture", "infrastructure as code"],
+            "redirectToStrength": "For example, I designed a multi-region deployment that..."
+          }
+        },
+        "relatedStoryIds": ["01HXK5R3J7Q8N2M4P6W9Y1Z3S3"],
+        "isAddressed": false
+      }
+    ],
+    "quickReference": null,
+    "practiceLog": [],
+    "createdAt": "2026-04-28T12:00:00.000Z",
+    "updatedAt": "2026-04-28T12:00:00.000Z",
+    "version": 1
+  },
+  "storiesGenerated": 8,
+  "questionsGenerated": 12,
+  "gapsIdentified": 2,
+  "catalogEntriesUsed": 15,
+  "warnings": []
+}
+```
+
+---
+
+#### Get Interview Prep
+
+```
+GET /interview-preps/{id}
+```
+
+Returns a single interview prep with all stories, questions, gaps, and practice history.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Interview prep ID (ULID) |
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `includeStories` | boolean | No | Include full story details (default: true) |
+| `includeQuestions` | boolean | No | Include questions (default: true) |
+| `includeGaps` | boolean | No | Include gap mitigations (default: true) |
+
+**Response**: `200 OK`
+
+```typescript
+interface GetInterviewPrepResponse {
+  interviewPrep: InterviewPrep;
+  application: ApplicationSummary;    // Linked application details
+  fitAnalysis?: FitAnalysisSummary;   // Linked fit analysis if present
+}
+
+interface ApplicationSummary {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+}
+
+interface FitAnalysisSummary {
+  id: string;
+  recommendation: string;
+  confidence: string;
+  analysisTimestamp: string;
+}
+```
+
+**Example Response**:
+
+```json
+{
+  "interviewPrep": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3P1",
+    "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
+    "interviewType": "behavioral",
+    "timeAvailable": "1hr",
+    "focusAreas": ["leadership", "technical"],
+    "completeness": 65,
+    "stories": [...],
+    "questions": [...],
+    "gapMitigations": [...],
+    "quickReference": {...},
+    "practiceLog": [...],
+    "createdAt": "2026-04-28T12:00:00.000Z",
+    "updatedAt": "2026-04-28T14:30:00.000Z",
+    "version": 3
+  },
+  "application": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
+    "jobTitle": "Senior Software Engineer",
+    "company": "Acme Corp",
+    "status": "interview"
+  },
+  "fitAnalysis": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
+    "recommendation": "moderate_fit",
+    "confidence": "high",
+    "analysisTimestamp": "2026-04-25T10:30:00.000Z"
+  }
+}
+```
+
+---
+
+#### Update Interview Prep
+
+```
+PATCH /interview-preps/{id}
+```
+
+Updates interview prep selections, favorites, notes, and practice tracking.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Interview prep ID (ULID) |
+
+**Request Body**:
+
+```typescript
+interface UpdateInterviewPrepRequest {
+  // Story updates
+  storyUpdates?: StoryUpdate[];
+  
+  // Question updates
+  questionUpdates?: QuestionUpdate[];
+  
+  // Gap mitigation updates
+  gapUpdates?: GapUpdate[];
+  
+  // Quick reference configuration
+  quickReference?: QuickReferenceUpdate;
+  
+  // Settings
+  focusAreas?: string[];
+  interviewType?: InterviewType;
+  timeAvailable?: PrepTime;
+  
+  version: number;                    // Required for optimistic locking
+}
+
+interface StoryUpdate {
+  storyId: string;
+  isFavorite?: boolean;
+  personalNotes?: string;
+  confidenceLevel?: ConfidenceLevel;
+  displayOrder?: number;
+}
+
+interface QuestionUpdate {
+  questionId: string;
+  linkedStoryId?: string | null;      // null to unlink
+  personalNotes?: string;
+  practiceStatus?: ConfidenceLevel;
+}
+
+interface GapUpdate {
+  gapId: string;
+  selectedStrategy?: MitigationStrategy;
+  isAddressed?: boolean;
+}
+
+interface QuickReferenceUpdate {
+  sections?: SectionConfig[];
+  topStoryIds?: string[];
+  keyQuestionIds?: string[];
+  gapPointIds?: string[];
+  companyFacts?: CompanyFact[];
+}
+```
+
+**Response**: `200 OK`
+
+```typescript
+interface UpdateInterviewPrepResponse {
+  interviewPrep: InterviewPrep;
+  completenessChange: number;         // Delta in completeness score
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X PATCH "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "storyUpdates": [
+      {
+        "storyId": "01HXK5R3J7Q8N2M4P6W9Y1Z3S1",
+        "isFavorite": true,
+        "confidenceLevel": "comfortable"
+      }
+    ],
+    "questionUpdates": [
+      {
+        "questionId": "01HXK5R3J7Q8N2M4P6W9Y1Z3Q1",
+        "linkedStoryId": "01HXK5R3J7Q8N2M4P6W9Y1Z3S1",
+        "practiceStatus": "comfortable"
+      }
+    ],
+    "gapUpdates": [
+      {
+        "gapId": "01HXK5R3J7Q8N2M4P6W9Y1Z3G1",
+        "selectedStrategy": "acknowledge_pivot",
+        "isAddressed": true
+      }
+    ],
+    "version": 1
+  }'
+```
+
+**Error**: `409 Conflict` if version doesn't match
+
+---
+
+#### Export Quick Reference Card
+
+```
+GET /interview-preps/{id}/export
+```
+
+Exports the quick reference card in the specified format.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Interview prep ID (ULID) |
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `format` | string | Yes | Export format: `pdf`, `markdown`, `print` |
+| `sections` | string | No | Comma-separated section IDs to include (default: all) |
+
+**Response**: `200 OK`
+
+For `format=pdf`:
+
+```
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="interview-prep-acme-corp-2026-04-28.pdf"
+
+[binary PDF content]
+```
+
+For `format=markdown`:
+
+```
+Content-Type: text/markdown
+Content-Disposition: attachment; filename="interview-prep-acme-corp-2026-04-28.md"
+
+[markdown content]
+```
+
+For `format=print`:
+
+```
+Content-Type: text/html
+Content-Disposition: inline
+
+[print-optimized HTML]
+```
+
+**Alternative JSON Response** (if `Accept: application/json` header):
+
+```typescript
+interface ExportQuickReferenceResponse {
+  exportId: string;
+  format: 'pdf' | 'markdown' | 'print';
+  filename: string;
+  fileSize: number;                   // Bytes
+  base64Content: string;              // Base64-encoded content
+  createdAt: string;                  // ISO 8601
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X GET "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+  -o interview-prep.pdf
+```
+
+---
+
+#### Log Practice Session
+
+```
+POST /interview-preps/{id}/practice
+```
+
+Logs a practice session and updates confidence levels for practiced items.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Interview prep ID (ULID) |
+
+**Request Body**:
+
+```typescript
+interface LogPracticeSessionRequest {
+  type: 'single_question' | 'full_interview' | 'timed_responses';
+  startedAt: string;                  // ISO 8601
+  endedAt?: string;                   // ISO 8601, optional for ongoing
+  focusAreas?: string[];              // Theme focus for this session
+  
+  // Item-level practice results
+  questionResults?: QuestionPracticeResult[];
+  storyResults?: StoryPracticeResult[];
+  gapResults?: GapPracticeResult[];
+  
+  version: number;                    // Required for optimistic locking
+}
+
+interface QuestionPracticeResult {
+  questionId: string;
+  confidenceRating: ConfidenceLevel;
+  usedStoryId?: string;               // Which story was used to answer
+  notes?: string;
+}
+
+interface StoryPracticeResult {
+  storyId: string;
+  confidenceRating: ConfidenceLevel;
+  timeUsed?: number;                  // Seconds to deliver
+  notes?: string;
+}
+
+interface GapPracticeResult {
+  gapId: string;
+  strategyUsed: MitigationStrategy;
+  confidenceRating: ConfidenceLevel;
+  notes?: string;
+}
+```
+
+**Response**: `200 OK`
+
+```typescript
+interface LogPracticeSessionResponse {
+  session: PracticeSession;
+  interviewPrep: InterviewPrep;       // Updated with new practice counts
+  completenessChange: number;         // Delta in completeness score
+  
+  // Summary
+  summary: {
+    questionsAttempted: number;
+    storiesPracticed: number;
+    gapsAddressed: number;
+    averageConfidence: ConfidenceLevel;
+    improvementAreas: string[];       // Themes needing more practice
+  };
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "full_interview",
+    "startedAt": "2026-04-28T14:00:00.000Z",
+    "endedAt": "2026-04-28T14:30:00.000Z",
+    "focusAreas": ["leadership", "technical"],
+    "questionResults": [
+      {
+        "questionId": "01HXK5R3J7Q8N2M4P6W9Y1Z3Q1",
+        "confidenceRating": "comfortable",
+        "usedStoryId": "01HXK5R3J7Q8N2M4P6W9Y1Z3S1"
+      },
+      {
+        "questionId": "01HXK5R3J7Q8N2M4P6W9Y1Z3Q2",
+        "confidenceRating": "needs_work",
+        "notes": "Need to practice the technical details more"
+      }
+    ],
+    "storyResults": [
+      {
+        "storyId": "01HXK5R3J7Q8N2M4P6W9Y1Z3S1",
+        "confidenceRating": "confident",
+        "timeUsed": 95
+      }
+    ],
+    "gapResults": [
+      {
+        "gapId": "01HXK5R3J7Q8N2M4P6W9Y1Z3G1",
+        "strategyUsed": "acknowledge_pivot",
+        "confidenceRating": "comfortable"
+      }
+    ],
+    "version": 3
+  }'
+```
+
+**Example Response**:
+
+```json
+{
+  "session": {
+    "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3X1",
+    "startedAt": "2026-04-28T14:00:00.000Z",
+    "endedAt": "2026-04-28T14:30:00.000Z",
+    "type": "full_interview",
+    "questionsAttempted": 2,
+    "confidenceRatings": {
+      "needsWork": 1,
+      "comfortable": 1,
+      "confident": 0
+    },
+    "focusAreas": ["leadership", "technical"]
+  },
+  "interviewPrep": {...},
+  "completenessChange": 15,
+  "summary": {
+    "questionsAttempted": 2,
+    "storiesPracticed": 1,
+    "gapsAddressed": 1,
+    "averageConfidence": "comfortable",
+    "improvementAreas": ["technical"]
+  }
+}
+```
+
+---
+
+#### Get Interview Prep by Application
+
+```
+GET /applications/{applicationId}/interview-prep
+```
+
+Convenience endpoint to get the interview prep for an application.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `applicationId` | string | Application ID (ULID) |
+
+**Response**: `200 OK` — Returns same shape as `GET /interview-preps/{id}`
+
+**Response**: `404 Not Found` — If application has no interview prep
+
+---
+
+#### Delete Interview Prep
+
+```
+DELETE /interview-preps/{id}
+```
+
+Permanently deletes an interview prep and all associated stories, questions, and practice history.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Interview prep ID (ULID) |
+
+**Response**: `204 No Content`
+
+---
+
+#### Interview Prep Error Codes
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `INTERVIEW_PREP_NOT_FOUND` | 404 | Interview prep ID does not exist |
+| `APPLICATION_NOT_FOUND` | 404 | Referenced application does not exist |
+| `APPLICATION_ALREADY_HAS_PREP` | 409 | Application already has interview prep (use GET to retrieve) |
+| `CATALOG_EMPTY` | 422 | Cannot generate prep without STAR entries in catalog |
+| `FIT_ANALYSIS_NOT_FOUND` | 404 | Referenced job fit analysis does not exist |
+| `INVALID_STORY_ID` | 400 | Story ID not found in this prep |
+| `INVALID_QUESTION_ID` | 400 | Question ID not found in this prep |
+| `INVALID_GAP_ID` | 400 | Gap ID not found in this prep |
+| `INTERVIEW_PREP_VERSION_CONFLICT` | 409 | Version mismatch during update |
+| `EXPORT_FORMAT_INVALID` | 400 | Unsupported export format |
+| `PRACTICE_SESSION_OVERLAP` | 400 | Practice session times overlap with existing session |
+
+**Error Response Example**:
+
+```json
+{
+  "error": {
+    "code": "APPLICATION_ALREADY_HAS_PREP",
+    "message": "This application already has interview prep materials. Retrieve with GET /interview-preps/{id}",
+    "details": {
+      "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
+      "existingPrepId": "01HXK5R3J7Q8N2M4P6W9Y1Z3P1"
+    }
+  }
+}
+```
+
+---
+
+#### Completeness Calculation
+
+The `completeness` field (0-100) is computed based on four weighted factors:
+
+| Factor | Weight | Full Points When |
+|--------|--------|------------------|
+| Stories prepared | 25% | 5+ stories with time-boxed versions |
+| Questions linked | 25% | 5+ questions with linked STAR stories |
+| Gaps addressed | 25% | All identified gaps have talking points selected |
+| Quick reference | 25% | Quick reference card has been exported |
+
+```typescript
+function calculateCompleteness(prep: InterviewPrep): number {
+  let score = 0;
+  
+  // Stories: 5+ = full points, proportional below
+  const storyCount = prep.stories.filter(s => s.fiveMinVersion).length;
+  score += Math.min(storyCount / 5, 1) * 25;
+  
+  // Questions: 5+ linked = full points
+  const linkedQuestions = prep.questions.filter(q => q.linkedStoryId).length;
+  score += Math.min(linkedQuestions / 5, 1) * 25;
+  
+  // Gaps: all addressed = full points
+  const totalGaps = prep.gapMitigations.length;
+  const addressedGaps = prep.gapMitigations.filter(g => g.isAddressed).length;
+  score += totalGaps > 0 ? (addressedGaps / totalGaps) * 25 : 25;
+  
+  // Quick ref: exported = full points
+  score += prep.quickReference?.lastExportedAt ? 25 : 0;
+  
+  return Math.round(score);
+}
+```
+
+---
+
 ## References
 
 - [Architecture Overview](./ARCHITECTURE.md)
