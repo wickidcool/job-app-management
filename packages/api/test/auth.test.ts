@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SignJWT } from 'jose';
+import { SignJWT, generateKeyPair, exportJWK, createLocalJWKSet, createRemoteJWKSet } from 'jose';
 import { buildApp } from '../src/app.js';
 import { _resetConfig } from '../src/config.js';
+import { _resetJwksCache } from '../src/middleware/auth.js';
+
+vi.mock('jose', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('jose')>();
+  return { ...actual, createRemoteJWKSet: vi.fn(actual.createRemoteJWKSet) };
+});
 
 // Mock all services so no DB is needed
 vi.mock('../src/services/application.service.js', () => ({
@@ -39,12 +45,14 @@ describe('Auth Middleware', () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     _resetConfig();
+    _resetJwksCache();
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     process.env = originalEnv;
     _resetConfig();
+    _resetJwksCache();
   });
 
   describe('when SUPABASE_JWT_SECRET is not set', () => {
@@ -116,6 +124,53 @@ describe('Auth Middleware', () => {
       const res = await app.request('/health', { method: 'GET' })
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ status: 'ok' });
+    });
+  });
+
+  describe('ES256 / JWKS path', () => {
+    it('authenticates a valid ES256 token via JWKS', async () => {
+      const { privateKey, publicKey } = await generateKeyPair('ES256');
+      const pubJwk = await exportJWK(publicKey);
+      const issuer = 'https://test.supabase.co/auth/v1';
+
+      vi.mocked(createRemoteJWKSet).mockReturnValueOnce(
+        createLocalJWKSet({ keys: [{ ...pubJwk, alg: 'ES256', use: 'sig' }] })
+      );
+
+      const token = await new SignJWT({ sub: 'user-es256' })
+        .setProtectedHeader({ alg: 'ES256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .setIssuer(issuer)
+        .setAudience('authenticated')
+        .sign(privateKey);
+
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+      const app = buildApp();
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects an ES256 token missing the iss claim', async () => {
+      const { privateKey } = await generateKeyPair('ES256');
+
+      const token = await new SignJWT({ sub: 'user-es256' })
+        .setProtectedHeader({ alg: 'ES256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .setAudience('authenticated')
+        .sign(privateKey);
+
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+      const app = buildApp();
+      const res = await app.request('/api/applications', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(401);
     });
   });
 });

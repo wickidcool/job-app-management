@@ -15,6 +15,10 @@ function getRemoteJwks(issuer: string) {
   return jwksCache.get(issuer)!;
 }
 
+export function _resetJwksCache() {
+  jwksCache.clear();
+}
+
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const supabaseUrl = (c.env?.SUPABASE_URL as string | undefined) ?? getConfig().supabaseUrl;
   const jwtSecret =
