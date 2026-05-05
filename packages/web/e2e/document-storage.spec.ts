@@ -32,6 +32,7 @@ async function setupMockAuth(page: Page) {
   });
 }
 
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
 const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 async function loginAs(page: Page, email: string, password: string) {
