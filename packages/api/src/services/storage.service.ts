@@ -121,6 +121,11 @@ export async function listObjectKeys(prefix: string): Promise<string[]> {
 }
 
 export async function getSignedUrl(key: string, expiresInSeconds = 3600): Promise<string> {
+  // Pre-signed URLs require S3-compatible credentials — the R2 Workers binding has no
+  // native signed-URL API. Throw here so callers can surface a 501 cleanly.
+  if (!isR2Configured()) {
+    throw new Error('S3-compatible credentials are required to generate pre-signed URLs');
+  }
   const config = getConfig();
   const command = new GetObjectCommand({ Bucket: config.r2Bucket!, Key: key });
   return awsGetSignedUrl(getClient(), command, { expiresIn: expiresInSeconds });
