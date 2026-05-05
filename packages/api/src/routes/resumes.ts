@@ -1,5 +1,4 @@
-import type { FastifyInstance } from 'fastify';
-import multipart from '@fastify/multipart';
+import { Hono } from 'hono';
 import {
   uploadResume,
   listResumes,
@@ -10,6 +9,7 @@ import {
 } from '../services/resume.service.js';
 import { AppError } from '../types/index.js';
 import { isR2Configured } from '../services/storage.service.js';
+import type { AppEnv } from '../types/env.js';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -18,25 +18,20 @@ const ALLOWED_MIME_TYPES = new Set([
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
-export async function resumesRoutes(fastify: FastifyInstance) {
-  fastify.register(multipart, {
-    limits: { fileSize: MAX_FILE_SIZE, files: 1 },
-  });
+export const resumesRoutes = new Hono<AppEnv>()
+  .get('/resumes', async (c) => {
+    const resumes = await listResumes(c.get('userId') ?? undefined);
+    return c.json({ resumes });
+  })
+  .post('/resumes/upload', async (c) => {
+    const body = await c.req.parseBody();
+    const file = body['file'];
 
-  // GET /api/resumes
-  fastify.get('/resumes', async (request, reply) => {
-    const resumes = await listResumes(request.userId ?? undefined);
-    return reply.send({ resumes });
-  });
-
-  // POST /api/resumes/upload
-  fastify.post('/resumes/upload', async (request, reply) => {
-    const data = await request.file();
-    if (!data) {
+    if (!file || typeof file === 'string') {
       throw new AppError('BAD_REQUEST', 'No file provided', undefined, 400);
     }
 
-    const mimeType = data.mimetype;
+    const mimeType = file.type;
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
       throw new AppError(
         'UNSUPPORTED_FILE_TYPE',
@@ -46,13 +41,16 @@ export async function resumesRoutes(fastify: FastifyInstance) {
       );
     }
 
-    const buffer = await data.toBuffer();
-    const result = await uploadResume(buffer, data.filename, mimeType, request.userId ?? undefined);
-    return reply.status(201).send(result);
-  });
+    const arrayBuffer = await file.arrayBuffer();
+    if (arrayBuffer.byteLength > MAX_FILE_SIZE) {
+      throw new AppError('FILE_TOO_LARGE', 'File exceeds 10 MB limit', undefined, 413);
+    }
 
-  // GET /api/resumes/:id/download-url — only available when R2 is configured
-  fastify.get<{ Params: { id: string } }>('/resumes/:id/download-url', async (request, reply) => {
+    const buffer = Buffer.from(arrayBuffer);
+    const result = await uploadResume(buffer, file.name, mimeType, c.get('userId') ?? undefined);
+    return c.json(result, 201);
+  })
+  .get('/resumes/:id/download-url', async (c) => {
     if (!isR2Configured()) {
       throw new AppError(
         'NOT_SUPPORTED',
@@ -61,32 +59,22 @@ export async function resumesRoutes(fastify: FastifyInstance) {
         501
       );
     }
-    const { id } = request.params;
-    const result = await getResumeDownloadUrl(id, request.userId ?? undefined);
-    return reply.send(result);
+    const result = await getResumeDownloadUrl(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/resumes/:id/exports', async (c) => {
+    const exports = await listResumeExports(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.json({ exports });
+  })
+  .get('/resumes/:id/exports/:exportId', async (c) => {
+    const exp = await getResumeExport(
+      c.req.param('id'),
+      c.req.param('exportId'),
+      c.get('userId') ?? undefined
+    );
+    return c.json(exp);
+  })
+  .delete('/resumes/:id', async (c) => {
+    await deleteResume(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.body(null, 204);
   });
-
-  // GET /api/resumes/:id/exports
-  fastify.get<{ Params: { id: string } }>('/resumes/:id/exports', async (request, reply) => {
-    const { id } = request.params;
-    const exports = await listResumeExports(id, request.userId ?? undefined);
-    return reply.send({ exports });
-  });
-
-  // GET /api/resumes/:id/exports/:exportId
-  fastify.get<{ Params: { id: string; exportId: string } }>(
-    '/resumes/:id/exports/:exportId',
-    async (request, reply) => {
-      const { id, exportId } = request.params;
-      const exp = await getResumeExport(id, exportId, request.userId ?? undefined);
-      return reply.send(exp);
-    }
-  );
-
-  // DELETE /api/resumes/:id
-  fastify.delete<{ Params: { id: string } }>('/resumes/:id', async (request, reply) => {
-    const { id } = request.params;
-    await deleteResume(id, request.userId ?? undefined);
-    return reply.status(204).send();
-  });
-}

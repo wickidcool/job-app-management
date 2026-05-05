@@ -1,11 +1,20 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { getConfig } from '../config.js';
+import { getRequestEnv } from './context.js';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _sql: ReturnType<typeof postgres> | null = null;
 
 export function getDb() {
+  const env = getRequestEnv();
+  if (env?.HYPERDRIVE) {
+    // Workers path: per-request connection via Hyperdrive (Workers are stateless)
+    const sql = postgres(env.HYPERDRIVE.connectionString, { prepare: false });
+    return drizzle(sql);
+  }
+
+  // Node.js path: singleton
   if (!_db) {
     const config = getConfig();
     // Supabase connection strings use sslmode=require; postgres-js needs ssl:true.

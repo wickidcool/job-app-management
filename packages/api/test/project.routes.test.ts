@@ -57,7 +57,7 @@ describe('Project Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -65,19 +65,19 @@ describe('Project Routes', () => {
     it('returns 200 with list of projects', async () => {
       vi.mocked(projectService.listProjects).mockResolvedValue([mockProject]);
 
-      const response = await app.inject({ method: 'GET', url: '/api/projects' });
+      const response = await app.request('/api/projects', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ projects: [mockProject] });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ projects: [mockProject] });
     });
 
     it('returns empty array when no projects exist', async () => {
       vi.mocked(projectService.listProjects).mockResolvedValue([]);
 
-      const response = await app.inject({ method: 'GET', url: '/api/projects' });
+      const response = await app.request('/api/projects', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ projects: [] });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ projects: [] });
     });
   });
 
@@ -85,25 +85,19 @@ describe('Project Routes', () => {
     it('returns 200 with file list', async () => {
       vi.mocked(projectService.listProjectFiles).mockResolvedValue([mockFileMeta]);
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/projects/acme-corp/files',
-      });
+      const response = await app.request('/api/projects/acme-corp/files', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ files: [mockFileMeta] });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ files: [mockFileMeta] });
       expect(projectService.listProjectFiles).toHaveBeenCalledWith('acme-corp', undefined);
     });
 
     it('returns 404 when project not found', async () => {
       vi.mocked(projectService.listProjectFiles).mockRejectedValue(new NotFoundError('Project'));
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/projects/nonexistent/files',
-      });
+      const response = await app.request('/api/projects/nonexistent/files', { method: 'GET' })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -112,13 +106,10 @@ describe('Project Routes', () => {
       const content = '# Resume\n\nSome content';
       vi.mocked(projectService.getProjectFile).mockResolvedValue(content);
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/projects/acme-corp/files/resume-01HXTEST000000000000000001.md',
-      });
+      const response = await app.request('/api/projects/acme-corp/files/resume-01HXTEST000000000000000001.md', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ content });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ content });
       expect(projectService.getProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
@@ -129,12 +120,9 @@ describe('Project Routes', () => {
     it('returns 404 when file not found', async () => {
       vi.mocked(projectService.getProjectFile).mockRejectedValue(new NotFoundError('Project file'));
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/projects/acme-corp/files/missing.md',
-      });
+      const response = await app.request('/api/projects/acme-corp/files/missing.md', { method: 'GET' })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -142,14 +130,13 @@ describe('Project Routes', () => {
     it('returns 204 on successful update', async () => {
       vi.mocked(projectService.updateProjectFile).mockResolvedValue(undefined);
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/files/resume-01HXTEST000000000000000001.md', {
         method: 'PUT',
-        url: '/api/projects/acme-corp/files/resume-01HXTEST000000000000000001.md',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content: '# Updated content' }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(204);
+      expect(response.status).toBe(204);
       expect(projectService.updateProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
@@ -161,14 +148,13 @@ describe('Project Routes', () => {
     it('returns 404 when project not found', async () => {
       vi.mocked(projectService.updateProjectFile).mockRejectedValue(new NotFoundError('Project'));
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/nonexistent/files/resume.md', {
         method: 'PUT',
-        url: '/api/projects/nonexistent/files/resume.md',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content: 'hello' }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -179,13 +165,10 @@ describe('Project Routes', () => {
         projectCount: 3,
       });
 
-      const response = await app.inject({
-        method: 'POST',
-        url: '/api/projects/generate-index',
-      });
+      const response = await app.request('/api/projects/generate-index', { method: 'POST' })
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json()).toEqual({ path: '/data/projects/index.md', projectCount: 3 });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual({ path: '/data/projects/index.md', projectCount: 3 });
     });
   });
 
@@ -193,12 +176,9 @@ describe('Project Routes', () => {
     it('returns 204 on successful delete', async () => {
       vi.mocked(resumeService.deleteResume).mockResolvedValue(undefined);
 
-      const response = await app.inject({
-        method: 'DELETE',
-        url: '/api/resumes/01HXTEST000000000000000001',
-      });
+      const response = await app.request('/api/resumes/01HXTEST000000000000000001', { method: 'DELETE' })
 
-      expect(response.statusCode).toBe(204);
+      expect(response.status).toBe(204);
       expect(resumeService.deleteResume).toHaveBeenCalledWith(
         '01HXTEST000000000000000001',
         undefined
@@ -208,12 +188,9 @@ describe('Project Routes', () => {
     it('returns 404 when resume not found', async () => {
       vi.mocked(resumeService.deleteResume).mockRejectedValue(new NotFoundError('Resume'));
 
-      const response = await app.inject({
-        method: 'DELETE',
-        url: '/api/resumes/nonexistent',
-      });
+      const response = await app.request('/api/resumes/nonexistent', { method: 'DELETE' })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 });

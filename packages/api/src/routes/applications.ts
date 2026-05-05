@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import {
   createApplication,
@@ -8,8 +8,7 @@ import {
   deleteApplication,
   updateApplicationStatus,
 } from '../services/application.service.js';
-import { ALL_STATUSES } from '../services/status.service.js';
-import { AppError } from '../types/index.js';
+import type { AppEnv } from '../types/env.js';
 
 const applicationStatusEnum = z.enum([
   'saved',
@@ -30,7 +29,6 @@ const createApplicationSchema = z.object({
   status: applicationStatusEnum.optional(),
   coverLetterId: z.string().optional(),
   resumeVersionId: z.string().optional(),
-  // UC-5 Extended Tracking Fields
   contact: z
     .string()
     .max(200)
@@ -66,7 +64,6 @@ const updateApplicationSchema = z.object({
   salaryRange: z.string().min(1).max(50).nullable().optional(),
   coverLetterId: z.string().nullable().optional(),
   resumeVersionId: z.string().nullable().optional(),
-  // UC-5 Extended Tracking Fields
   contact: z
     .string()
     .max(200)
@@ -116,84 +113,88 @@ const listQuerySchema = z.object({
   page: z.string().optional(),
 });
 
-export async function applicationsRoutes(fastify: FastifyInstance) {
-  // GET /api/applications
-  fastify.get('/applications', async (request, reply) => {
-    const query = listQuerySchema.safeParse(request.query);
+export const applicationsRoutes = new Hono<AppEnv>()
+  .get('/applications', async (c) => {
+    const query = listQuerySchema.safeParse(c.req.query());
     if (!query.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters',
-          details: query.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid query parameters',
+            details: query.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await listApplications(query.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/applications/:id
-  fastify.get<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
-    const { id } = request.params;
-    const result = await getApplication(id, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // POST /api/applications
-  fastify.post('/applications', async (request, reply) => {
-    const body = createApplicationSchema.safeParse(request.body);
+    const result = await listApplications(query.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/applications/:id', async (c) => {
+    const result = await getApplication(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .post('/applications', async (c) => {
+    const body = createApplicationSchema.safeParse(await c.req.json());
     if (!body.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid request body',
-          details: body.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid request body',
+            details: body.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await createApplication(body.data, request.userId ?? undefined);
-    return reply.status(201).send(result);
-  });
-
-  // PATCH /api/applications/:id
-  fastify.patch<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
-    const { id } = request.params;
-    const body = updateApplicationSchema.safeParse(request.body);
+    const result = await createApplication(body.data, c.get('userId') ?? undefined);
+    return c.json(result, 201);
+  })
+  .patch('/applications/:id', async (c) => {
+    const body = updateApplicationSchema.safeParse(await c.req.json());
     if (!body.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid request body',
-          details: body.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid request body',
+            details: body.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await updateApplication(id, body.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // DELETE /api/applications/:id
-  fastify.delete<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
-    const { id } = request.params;
-    await deleteApplication(id, request.userId ?? undefined);
-    return reply.status(204).send();
-  });
-
-  // POST /api/applications/:id/status
-  fastify.post<{ Params: { id: string } }>('/applications/:id/status', async (request, reply) => {
-    const { id } = request.params;
-    const body = updateStatusSchema.safeParse(request.body);
+    const result = await updateApplication(
+      c.req.param('id'),
+      body.data,
+      c.get('userId') ?? undefined
+    );
+    return c.json(result);
+  })
+  .delete('/applications/:id', async (c) => {
+    await deleteApplication(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.body(null, 204);
+  })
+  .post('/applications/:id/status', async (c) => {
+    const body = updateStatusSchema.safeParse(await c.req.json());
     if (!body.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid request body',
-          details: body.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid request body',
+            details: body.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await updateApplicationStatus(id, body.data, request.userId ?? undefined);
-    return reply.send(result);
+    const result = await updateApplicationStatus(
+      c.req.param('id'),
+      body.data,
+      c.get('userId') ?? undefined
+    );
+    return c.json(result);
   });
-}

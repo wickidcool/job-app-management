@@ -102,7 +102,7 @@ describe('Cover Letter Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -115,20 +115,20 @@ describe('Cover Letter Routes', () => {
         warnings: [],
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/generate', {
         method: 'POST',
-        url: '/api/cover-letters/generate',
-        payload: {
+        body: JSON.stringify({
           jobDescriptionText:
             'We are looking for a Senior Software Engineer with TypeScript expertise and 5+ years of experience building distributed systems at scale.',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
           targetCompany: 'Acme Corp',
           targetRole: 'Senior Software Engineer',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(201);
-      const body = response.json();
+      expect(response.status).toBe(201);
+      const body = await response.json();
       expect(body.coverLetter.id).toBe(mockCoverLetter.id);
       expect(body.usedStarEntries).toHaveLength(1);
       expect(body.matchedThemes).toContain('performance-optimization');
@@ -139,40 +139,39 @@ describe('Cover Letter Routes', () => {
         new CoverLetterError('JOB_CONTEXT_REQUIRED', 'Provide job context')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/generate', {
         method: 'POST',
-        url: '/api/cover-letters/generate',
-        payload: {
+        body: JSON.stringify({
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
           targetCompany: 'Acme Corp',
           targetRole: 'Engineer',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
 
     it('returns 400 if selectedStarEntryIds is empty', async () => {
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/generate', {
         method: 'POST',
-        url: '/api/cover-letters/generate',
-        payload: {
+        body: JSON.stringify({
           jobDescriptionText:
             'We are looking for a senior engineer with 5+ years of TypeScript experience and background in distributed systems architecture.',
           selectedStarEntryIds: [],
           targetCompany: 'Acme Corp',
           targetRole: 'Engineer',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
 
     it('returns 400 if more than 10 STAR entries provided', async () => {
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/generate', {
         method: 'POST',
-        url: '/api/cover-letters/generate',
-        payload: {
+        body: JSON.stringify({
           jobDescriptionText:
             'We are looking for a senior engineer with 5+ years experience in TypeScript and distributed systems.',
           selectedStarEntryIds: Array.from(
@@ -181,10 +180,11 @@ describe('Cover Letter Routes', () => {
           ),
           targetCompany: 'Acme Corp',
           targetRole: 'Engineer',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
 
     it('returns 400 if targetCompany missing when no jobFitAnalysisId', async () => {
@@ -192,17 +192,17 @@ describe('Cover Letter Routes', () => {
         new CoverLetterError('TARGET_INFO_REQUIRED', 'targetCompany and targetRole required')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/generate', {
         method: 'POST',
-        url: '/api/cover-letters/generate',
-        payload: {
+        body: JSON.stringify({
           jobDescriptionText:
             'We are looking for a senior engineer with 5+ years experience in TypeScript.',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
 
     it('returns 201 with optional tone and lengthVariant', async () => {
@@ -213,10 +213,9 @@ describe('Cover Letter Routes', () => {
         warnings: [],
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/generate', {
         method: 'POST',
-        url: '/api/cover-letters/generate',
-        payload: {
+        body: JSON.stringify({
           jobDescriptionText:
             'We are looking for a senior engineer with 5+ years TypeScript experience.',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
@@ -224,12 +223,14 @@ describe('Cover Letter Routes', () => {
           targetRole: 'Engineer',
           tone: 'enthusiastic',
           lengthVariant: 'concise',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json().coverLetter.tone).toBe('enthusiastic');
-      expect(response.json().coverLetter.lengthVariant).toBe('concise');
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.coverLetter.tone).toBe('enthusiastic');
+      expect(body.coverLetter.lengthVariant).toBe('concise');
     });
 
     it('returns 400 if both jobDescriptionText and jobDescriptionUrl provided', async () => {
@@ -237,20 +238,20 @@ describe('Cover Letter Routes', () => {
         new CoverLetterError('JOB_CONTEXT_CONFLICT', 'Conflict')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/generate', {
         method: 'POST',
-        url: '/api/cover-letters/generate',
-        payload: {
+        body: JSON.stringify({
           jobDescriptionText:
             'We are looking for a senior engineer with 5+ years of TypeScript expertise and distributed systems knowledge.',
           jobDescriptionUrl: 'https://example.com/jobs/1',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
           targetCompany: 'Acme Corp',
           targetRole: 'Engineer',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
   });
 
@@ -273,18 +274,15 @@ describe('Cover Letter Routes', () => {
         ],
       });
 
-      const response = await app.inject({ method: 'GET', url: '/api/cover-letters' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json().coverLetters).toHaveLength(1);
+      const response = await app.request('/api/cover-letters', { method: 'GET' })
+      expect(response.status).toBe(200);
+      expect((await response.json()).coverLetters).toHaveLength(1);
     });
 
     it('passes status filter', async () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/cover-letters?status=draft',
-      });
-      expect(response.statusCode).toBe(200);
+      const response = await app.request('/api/cover-letters?status=draft', { method: 'GET' })
+      expect(response.status).toBe(200);
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'draft' }),
         undefined
@@ -293,7 +291,7 @@ describe('Cover Letter Routes', () => {
 
     it('passes company filter', async () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      await app.inject({ method: 'GET', url: '/api/cover-letters?company=Acme' });
+      await app.request('/api/cover-letters?company=Acme', { method: 'GET' })
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ company: 'Acme' }),
         undefined
@@ -302,7 +300,7 @@ describe('Cover Letter Routes', () => {
 
     it('passes search filter', async () => {
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      await app.inject({ method: 'GET', url: '/api/cover-letters?search=typescript' });
+      await app.request('/api/cover-letters?search=typescript', { method: 'GET' })
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ search: 'typescript' }),
         undefined
@@ -315,15 +313,15 @@ describe('Cover Letter Routes', () => {
         coverLetters: [],
         nextCursor: cursor,
       });
-      const response = await app.inject({ method: 'GET', url: '/api/cover-letters?limit=20' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json().nextCursor).toBe(cursor);
+      const response = await app.request('/api/cover-letters?limit=20', { method: 'GET' })
+      expect(response.status).toBe(200);
+      expect((await response.json()).nextCursor).toBe(cursor);
     });
 
     it('passes cursor to service', async () => {
       const cursor = Buffer.from('20').toString('base64url');
       vi.mocked(coverLetterService.listCoverLetters).mockResolvedValue({ coverLetters: [] });
-      await app.inject({ method: 'GET', url: `/api/cover-letters?cursor=${cursor}` });
+      await app.request(`/api/cover-letters?cursor=${cursor}`, { method: 'GET' })
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ cursor }),
         undefined
@@ -338,13 +336,10 @@ describe('Cover Letter Routes', () => {
         usedStarEntries: mockUsedStarEntries,
       });
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-      });
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().coverLetter.id).toBe(mockCoverLetter.id);
+      expect(response.status).toBe(200);
+      expect((await response.json()).coverLetter.id).toBe(mockCoverLetter.id);
     });
 
     it('returns 404 when not found', async () => {
@@ -352,12 +347,9 @@ describe('Cover Letter Routes', () => {
         new NotFoundError('Cover letter')
       );
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/cover-letters/nonexistent',
-      });
+      const response = await app.request('/api/cover-letters/nonexistent', { method: 'GET' })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -366,14 +358,14 @@ describe('Cover Letter Routes', () => {
       const updated = { ...mockCoverLetter, title: 'New Title', version: 2 };
       vi.mocked(coverLetterService.updateCoverLetter).mockResolvedValue(updated);
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', {
         method: 'PATCH',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-        payload: { title: 'New Title', version: 1 },
-      });
+        body: JSON.stringify({ title: 'New Title', version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().coverLetter.title).toBe('New Title');
+      expect(response.status).toBe(200);
+      expect((await response.json()).coverLetter.title).toBe('New Title');
     });
 
     it('returns 409 on version conflict', async () => {
@@ -381,13 +373,13 @@ describe('Cover Letter Routes', () => {
         new CoverLetterError('COVER_LETTER_VERSION_CONFLICT', 'Version mismatch', undefined, 409)
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', {
         method: 'PATCH',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-        payload: { version: 99 },
-      });
+        body: JSON.stringify({ version: 99 }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(409);
+      expect(response.status).toBe(409);
     });
 
     it('returns 404 when cover letter not found', async () => {
@@ -395,13 +387,13 @@ describe('Cover Letter Routes', () => {
         new NotFoundError('Cover letter')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/nonexistent', {
         method: 'PATCH',
-        url: '/api/cover-letters/nonexistent',
-        payload: { version: 1 },
-      });
+        body: JSON.stringify({ version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -409,12 +401,9 @@ describe('Cover Letter Routes', () => {
     it('returns 204 on success', async () => {
       vi.mocked(coverLetterService.deleteCoverLetter).mockResolvedValue(undefined);
 
-      const response = await app.inject({
-        method: 'DELETE',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-      });
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1', { method: 'DELETE' })
 
-      expect(response.statusCode).toBe(204);
+      expect(response.status).toBe(204);
     });
 
     it('returns 404 when not found', async () => {
@@ -422,12 +411,9 @@ describe('Cover Letter Routes', () => {
         new NotFoundError('Cover letter')
       );
 
-      const response = await app.inject({
-        method: 'DELETE',
-        url: '/api/cover-letters/nonexistent',
-      });
+      const response = await app.request('/api/cover-letters/nonexistent', { method: 'DELETE' })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -452,37 +438,38 @@ describe('Cover Letter Routes', () => {
         usedStarEntries: mockUsedStarEntries,
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise',
-        payload: { instructions: 'Make the opening more enthusiastic', version: 1 },
-      });
+        body: JSON.stringify({ instructions: 'Make the opening more enthusiastic', version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().coverLetter.version).toBe(2);
-      expect(response.json().changesApplied).toHaveLength(1);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.coverLetter.version).toBe(2);
+      expect(body.changesApplied).toHaveLength(1);
     });
 
     it('returns 400 if instructions too short', async () => {
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise',
-        payload: { instructions: 'short', version: 1 },
-      });
+        body: JSON.stringify({ instructions: 'short', version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
 
     it('returns 409 on version conflict during revise', async () => {
       vi.mocked(coverLetterService.reviseCoverLetter).mockRejectedValue(new VersionConflictError());
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise',
-        payload: { instructions: 'Make the opening more enthusiastic and compelling', version: 99 },
-      });
+        body: JSON.stringify({ instructions: 'Make the opening more enthusiastic and compelling', version: 99 }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(409);
+      expect(response.status).toBe(409);
     });
 
     it('returns 404 when cover letter not found during revise', async () => {
@@ -490,13 +477,13 @@ describe('Cover Letter Routes', () => {
         new NotFoundError('Cover letter')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/nonexistent/revise', {
         method: 'POST',
-        url: '/api/cover-letters/nonexistent/revise',
-        payload: { instructions: 'Make the opening more enthusiastic and compelling', version: 1 },
-      });
+        body: JSON.stringify({ instructions: 'Make the opening more enthusiastic and compelling', version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
 
     it('returns 200 with optional tone and star entry overrides', async () => {
@@ -520,19 +507,19 @@ describe('Cover Letter Routes', () => {
         usedStarEntries: mockUsedStarEntries,
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise',
-        payload: {
+        body: JSON.stringify({
           instructions: 'Rewrite using a friendly conversational tone throughout',
           selectedStarEntryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3C7'],
           tone: 'conversational',
           version: 1,
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().coverLetter.tone).toBe('conversational');
+      expect(response.status).toBe(200);
+      expect((await response.json()).coverLetter.tone).toBe('conversational');
     });
   });
 
@@ -550,18 +537,18 @@ describe('Cover Letter Routes', () => {
       };
       vi.mocked(coverLetterService.generateOutreach).mockResolvedValue({ message: mockOutreach });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/outreach', {
         method: 'POST',
-        url: '/api/cover-letters/outreach',
-        payload: {
+        body: JSON.stringify({
           platform: 'linkedin',
           targetCompany: 'Acme Corp',
           coverLetterId: '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json().message.platform).toBe('linkedin');
+      expect(response.status).toBe(201);
+      expect((await response.json()).message.platform).toBe('linkedin');
     });
 
     it('returns 201 with email outreach including subject', async () => {
@@ -579,20 +566,21 @@ describe('Cover Letter Routes', () => {
         message: mockEmailOutreach,
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/outreach', {
         method: 'POST',
-        url: '/api/cover-letters/outreach',
-        payload: {
+        body: JSON.stringify({
           platform: 'email',
           targetCompany: 'Acme Corp',
           targetRole: 'Senior Software Engineer',
           coverLetterId: '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json().message.platform).toBe('email');
-      expect(response.json().message.subject).toBeTruthy();
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.message.platform).toBe('email');
+      expect(body.message.subject).toBeTruthy();
     });
 
     it('returns 400 if more than 3 STAR entries for outreach', async () => {
@@ -600,17 +588,17 @@ describe('Cover Letter Routes', () => {
         new CoverLetterError('STAR_ENTRIES_LIMIT', 'Maximum 3 STAR entries for outreach')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/outreach', {
         method: 'POST',
-        url: '/api/cover-letters/outreach',
-        payload: {
+        body: JSON.stringify({
           platform: 'linkedin',
           targetCompany: 'Acme Corp',
           selectedStarEntryIds: ['id1', 'id2', 'id3', 'id4'],
-        },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
 
     it('returns 400 if no content source provided', async () => {
@@ -618,13 +606,13 @@ describe('Cover Letter Routes', () => {
         new CoverLetterError('JOB_CONTEXT_REQUIRED', 'Provide content source')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/outreach', {
         method: 'POST',
-        url: '/api/cover-letters/outreach',
-        payload: { platform: 'linkedin', targetCompany: 'Acme Corp' },
-      });
+        body: JSON.stringify({ platform: 'linkedin', targetCompany: 'Acme Corp' }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
   });
 
@@ -637,14 +625,14 @@ describe('Cover Letter Routes', () => {
         contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export',
-        payload: { format: 'docx' },
-      });
+        body: JSON.stringify({ format: 'docx' }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(200);
-      const body = response.json();
+      expect(response.status).toBe(200);
+      const body = await response.json();
       expect(body.filename).toContain('.docx');
       expect(body.base64Content).toBe(fakeBuffer.toString('base64'));
     });
@@ -657,15 +645,14 @@ describe('Cover Letter Routes', () => {
         contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export',
-        payload: { format: 'docx' },
-        headers: { accept: 'application/json' },
-      });
+        body: JSON.stringify({ format: 'docx' }),
+        headers: { 'Content-Type': 'application/json', ...{ accept: 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(200);
-      const body = response.json();
+      expect(response.status).toBe(200);
+      const body = await response.json();
       expect(body.filename).toContain('.docx');
       expect(body.base64Content).toBe(fakeBuffer.toString('base64'));
     });
@@ -675,13 +662,13 @@ describe('Cover Letter Routes', () => {
         new NotFoundError('Cover letter')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/nonexistent/export', {
         method: 'POST',
-        url: '/api/cover-letters/nonexistent/export',
-        payload: { format: 'docx' },
-      });
+        body: JSON.stringify({ format: 'docx' }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
 
     it('returns JSON with includeHeader info when Accept: application/json', async () => {
@@ -692,20 +679,19 @@ describe('Cover Letter Routes', () => {
         contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export',
-        payload: {
+        body: JSON.stringify({
           format: 'docx',
           includeHeader: true,
           headerInfo: { name: 'Jane Doe', email: 'jane@example.com', phone: '555-1234' },
           fontSize: 12,
-        },
-        headers: { accept: 'application/json' },
-      });
+        }),
+        headers: { 'Content-Type': 'application/json', ...{ accept: 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().fileSize).toBe(fakeBuffer.length);
+      expect(response.status).toBe(200);
+      expect((await response.json()).fileSize).toBe(fakeBuffer.length);
       expect(coverLetterService.exportCoverLetter).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
         expect.objectContaining({ includeHeader: true, fontSize: 12 }),
@@ -714,13 +700,13 @@ describe('Cover Letter Routes', () => {
     });
 
     it('returns 400 for invalid format', async () => {
-      const response = await app.inject({
+      const response = await app.request('/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export', {
         method: 'POST',
-        url: '/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export',
-        payload: { format: 'txt' },
-      });
+        body: JSON.stringify({ format: 'txt' }),
+        headers: { 'Content-Type': 'application/json' },
+      })
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
   });
 });

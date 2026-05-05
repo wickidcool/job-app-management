@@ -82,7 +82,7 @@ describe('Catalog Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -95,10 +95,10 @@ describe('Catalog Routes', () => {
         nextCursor: undefined,
       });
 
-      const response = await app.inject({ method: 'GET', url: '/api/catalog/diffs' });
+      const response = await app.request('/api/catalog/diffs', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual([mockDiff]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([mockDiff]);
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
         {
           status: undefined,
@@ -112,12 +112,9 @@ describe('Catalog Routes', () => {
     it('filters by status query param', async () => {
       vi.mocked(catalogService.listDiffs).mockResolvedValue({ diffs: [], nextCursor: undefined });
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/catalog/diffs?status=approved',
-      });
+      const response = await app.request('/api/catalog/diffs?status=approved', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
+      expect(response.status).toBe(200);
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'approved' }),
         undefined
@@ -127,10 +124,10 @@ describe('Catalog Routes', () => {
     it('returns empty array when no diffs exist', async () => {
       vi.mocked(catalogService.listDiffs).mockResolvedValue({ diffs: [], nextCursor: undefined });
 
-      const response = await app.inject({ method: 'GET', url: '/api/catalog/diffs' });
+      const response = await app.request('/api/catalog/diffs', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual([]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([]);
     });
   });
 
@@ -140,13 +137,10 @@ describe('Catalog Routes', () => {
     it('returns 200 with diff object directly (no envelope)', async () => {
       vi.mocked(catalogService.getDiff).mockResolvedValue(mockDiff);
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/catalog/diffs/01HZ_DIFF_001',
-      });
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      const body = response.json();
+      expect(response.status).toBe(200);
+      const body = await response.json();
       expect(body.id).toBe('01HZ_DIFF_001');
       expect(body.diff).toBeUndefined();
     });
@@ -154,12 +148,9 @@ describe('Catalog Routes', () => {
     it('returns 404 when diff not found', async () => {
       vi.mocked(catalogService.getDiff).mockRejectedValue(new NotFoundError('CatalogDiff'));
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/catalog/diffs/nonexistent',
-      });
+      const response = await app.request('/api/catalog/diffs/nonexistent', { method: 'GET' })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -169,15 +160,14 @@ describe('Catalog Routes', () => {
     it('returns 201 with generated diff', async () => {
       vi.mocked(catalogService.generateDiff).mockResolvedValue(mockDiff);
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/generate-diff', {
         method: 'POST',
-        url: '/api/catalog/generate-diff',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sourceType: 'resume', sourceId: '01HZ_RESUME_001' }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json()).toEqual(mockDiff);
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual(mockDiff);
       expect(catalogService.generateDiff).toHaveBeenCalledWith(
         'resume',
         '01HZ_RESUME_001',
@@ -197,15 +187,14 @@ describe('Catalog Routes', () => {
         status: 'approved',
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/apply', {
         method: 'POST',
-        url: '/api/catalog/diffs/01HZ_DIFF_001/apply',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'approve_all' }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ applied: 2, status: 'approved' });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ applied: 2, status: 'approved' });
       expect(catalogService.applyDiff).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { action: 'approve_all' },
@@ -221,15 +210,14 @@ describe('Catalog Routes', () => {
         status: 'rejected',
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/apply', {
         method: 'POST',
-        url: '/api/catalog/diffs/01HZ_DIFF_001/apply',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'reject_all' }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ applied: 0, status: 'rejected' });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ applied: 0, status: 'rejected' });
     });
 
     it('partial returns partial status when some approved, some rejected', async () => {
@@ -240,10 +228,8 @@ describe('Catalog Routes', () => {
         status: 'partial',
       });
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/apply', {
         method: 'POST',
-        url: '/api/catalog/diffs/01HZ_DIFF_001/apply',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           action: 'partial',
           decisions: [
@@ -251,23 +237,23 @@ describe('Catalog Routes', () => {
             { changeIndex: 1, approved: false },
           ],
         }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ applied: 1, rejected: 1, status: 'partial' });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ applied: 1, rejected: 1, status: 'partial' });
     });
 
     it('returns 404 when diff not found', async () => {
       vi.mocked(catalogService.applyDiff).mockRejectedValue(new NotFoundError('CatalogDiff'));
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/diffs/nonexistent/apply', {
         method: 'POST',
-        url: '/api/catalog/diffs/nonexistent/apply',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'approve_all' }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -277,24 +263,18 @@ describe('Catalog Routes', () => {
     it('returns 204 on successful discard', async () => {
       vi.mocked(catalogService.discardDiff).mockResolvedValue(undefined);
 
-      const response = await app.inject({
-        method: 'DELETE',
-        url: '/api/catalog/diffs/01HZ_DIFF_001',
-      });
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001', { method: 'DELETE' })
 
-      expect(response.statusCode).toBe(204);
+      expect(response.status).toBe(204);
       expect(catalogService.discardDiff).toHaveBeenCalledWith('01HZ_DIFF_001', undefined);
     });
 
     it('returns 404 when diff not found', async () => {
       vi.mocked(catalogService.discardDiff).mockRejectedValue(new NotFoundError('CatalogDiff'));
 
-      const response = await app.inject({
-        method: 'DELETE',
-        url: '/api/catalog/diffs/nonexistent',
-      });
+      const response = await app.request('/api/catalog/diffs/nonexistent', { method: 'DELETE' })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -318,10 +298,10 @@ describe('Catalog Routes', () => {
         nextCursor: undefined,
       });
 
-      const response = await app.inject({ method: 'GET', url: '/api/catalog/companies' });
+      const response = await app.request('/api/catalog/companies', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual([mockCompany]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([mockCompany]);
     });
   });
 
@@ -334,13 +314,10 @@ describe('Catalog Routes', () => {
         nextCursor: undefined,
       });
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/catalog/tags/tech-stack',
-      });
+      const response = await app.request('/api/catalog/tags/tech-stack', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual([mockTag]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([mockTag]);
     });
   });
 
@@ -351,17 +328,17 @@ describe('Catalog Routes', () => {
         nextCursor: undefined,
       });
 
-      const response = await app.inject({ method: 'GET', url: '/api/catalog/tags/job-fit' });
+      const response = await app.request('/api/catalog/tags/job-fit', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual([mockTag]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([mockTag]);
     });
   });
 
   describe('GET /api/catalog/tags/:type — invalid type', () => {
     it('returns 400 for unknown tag type', async () => {
-      const response = await app.inject({ method: 'GET', url: '/api/catalog/tags/unknown' });
-      expect(response.statusCode).toBe(400);
+      const response = await app.request('/api/catalog/tags/unknown', { method: 'GET' })
+      expect(response.status).toBe(400);
     });
   });
 
@@ -372,15 +349,14 @@ describe('Catalog Routes', () => {
       const updated = { ...mockTag, displayName: 'React 18', version: 2 };
       vi.mocked(catalogService.updateTechStackTag).mockResolvedValue(updated);
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/tags/tech-stack/01HZ_TAG_001', {
         method: 'PATCH',
-        url: '/api/catalog/tags/tech-stack/01HZ_TAG_001',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ displayName: 'React 18', version: 1 }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().displayName).toBe('React 18');
+      expect(response.status).toBe(200);
+      expect((await response.json()).displayName).toBe('React 18');
     });
 
     it('returns 404 on version conflict', async () => {
@@ -388,14 +364,13 @@ describe('Catalog Routes', () => {
         new NotFoundError('TechStackTag (version conflict)')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/tags/tech-stack/01HZ_TAG_001', {
         method: 'PATCH',
-        url: '/api/catalog/tags/tech-stack/01HZ_TAG_001',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ displayName: 'React 18', version: 99 }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -404,14 +379,13 @@ describe('Catalog Routes', () => {
       const updated = { ...mockTag, needsReview: false, version: 2 };
       vi.mocked(catalogService.updateJobFitTag).mockResolvedValue(updated);
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/tags/job-fit/01HZ_TAG_001', {
         method: 'PATCH',
-        url: '/api/catalog/tags/job-fit/01HZ_TAG_001',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ needsReview: false, version: 1 }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(200);
+      expect(response.status).toBe(200);
     });
 
     it('returns 404 on version conflict', async () => {
@@ -419,14 +393,13 @@ describe('Catalog Routes', () => {
         new NotFoundError('JobFitTag (version conflict)')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/catalog/tags/job-fit/01HZ_TAG_001', {
         method: 'PATCH',
-        url: '/api/catalog/tags/job-fit/01HZ_TAG_001',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ needsReview: false, version: 99 }),
-      });
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
+      })
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -453,13 +426,10 @@ describe('Catalog Routes', () => {
         nextCursor: undefined,
       });
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/catalog/quantified-bullets',
-      });
+      const response = await app.request('/api/catalog/quantified-bullets', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual([mockBullet]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([mockBullet]);
     });
   });
 
@@ -483,10 +453,10 @@ describe('Catalog Routes', () => {
         nextCursor: undefined,
       });
 
-      const response = await app.inject({ method: 'GET', url: '/api/catalog/themes' });
+      const response = await app.request('/api/catalog/themes', { method: 'GET' })
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual([mockTheme]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([mockTheme]);
     });
   });
 });
