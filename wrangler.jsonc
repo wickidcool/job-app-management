@@ -28,7 +28,7 @@
 	"r2_buckets": [
 		{
 			"binding": "R2_BUCKET",
-			"bucket_name": "jobapp-documents"
+			"bucket_name": "jobtrail-documents"
 		}
 	],
 	// Non-secret environment variables (secrets go in .dev.vars locally or via `wrangler secret put` for prod)
@@ -59,7 +59,7 @@
 			"r2_buckets": [
 				{
 					"binding": "R2_BUCKET",
-					"bucket_name": "jobapp-documents-dev"
+					"bucket_name": "jobtrail-documents-dev"
 				}
 			]
 		}
