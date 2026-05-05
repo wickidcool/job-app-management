@@ -39,7 +39,8 @@ function encodeCursor(offset: number): string {
 }
 
 export async function getPipelineReport(
-  params: PipelineParams = {}
+  params: PipelineParams = {},
+  userId?: string
 ): Promise<PipelineReportResponse> {
   const db = getDb();
 
@@ -56,6 +57,10 @@ export async function getPipelineReport(
       orderBy = sortOrder(applications.updatedAt);
   }
 
+  const whereClause = userId
+    ? and(inArray(applications.status, ACTIVE_STATUSES), eq(applications.userId, userId))
+    : inArray(applications.status, ACTIVE_STATUSES);
+
   const rows = await db
     .select({
       id: applications.id,
@@ -69,7 +74,7 @@ export async function getPipelineReport(
       createdAt: applications.createdAt,
     })
     .from(applications)
-    .where(inArray(applications.status, ACTIVE_STATUSES))
+    .where(whereClause)
     .orderBy(orderBy);
 
   const groups = PIPELINE_STATUS_ORDER.map((status) => {
@@ -88,9 +93,9 @@ export async function getPipelineReport(
     return { status, count: appsForStatus.length, applications: appsForStatus };
   });
 
-  const byStatus = Object.fromEntries(
-    groups.map((g) => [g.status, g.count])
-  ) as Partial<Record<ActiveStatus, number>>;
+  const byStatus = Object.fromEntries(groups.map((g) => [g.status, g.count])) as Partial<
+    Record<ActiveStatus, number>
+  >;
 
   return {
     groups,
@@ -103,7 +108,8 @@ export async function getPipelineReport(
 }
 
 export async function getNeedsActionReport(
-  params: NeedsActionParams = {}
+  params: NeedsActionParams = {},
+  userId?: string
 ): Promise<NeedsActionReportResponse> {
   const db = getDb();
   const days = Math.min(Math.max(params.days ?? 7, 1), 365);
@@ -123,6 +129,7 @@ export async function getNeedsActionReport(
     isNotNull(applications.nextActionDue),
     isNotNull(applications.nextAction),
     notInArray(applications.status, TERMINAL_STATUSES),
+    ...(userId ? [eq(applications.userId, userId)] : []),
   ];
 
   if (includeOverdue) {
@@ -187,7 +194,10 @@ export async function getNeedsActionReport(
   };
 }
 
-export async function getStaleReport(params: StaleParams = {}): Promise<StaleReportResponse> {
+export async function getStaleReport(
+  params: StaleParams = {},
+  userId?: string
+): Promise<StaleReportResponse> {
   const db = getDb();
   const staleDays = Math.min(Math.max(params.days ?? 14, 1), 365);
   const limit = Math.min(params.limit ?? 50, 100);
@@ -222,7 +232,8 @@ export async function getStaleReport(params: StaleParams = {}): Promise<StaleRep
     .where(
       and(
         inArray(applications.status, staleStatuses),
-        lt(applications.updatedAt, threshold)
+        lt(applications.updatedAt, threshold),
+        ...(userId ? [eq(applications.userId, userId)] : [])
       )
     )
     .orderBy(asc(applications.updatedAt))
@@ -277,9 +288,7 @@ export async function getStaleReport(params: StaleParams = {}): Promise<StaleRep
 
   const averageDaysStale =
     staleApps.length > 0
-      ? Math.round(
-          staleApps.reduce((sum, a) => sum + a.daysSinceUpdate, 0) / staleApps.length
-        )
+      ? Math.round(staleApps.reduce((sum, a) => sum + a.daysSinceUpdate, 0) / staleApps.length)
       : 0;
 
   return {
@@ -291,7 +300,8 @@ export async function getStaleReport(params: StaleParams = {}): Promise<StaleRep
 }
 
 export async function getClosedLoopReport(
-  params: ClosedLoopParams = {}
+  params: ClosedLoopParams = {},
+  userId?: string
 ): Promise<ClosedLoopReportResponse> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 50, 100);
@@ -313,7 +323,10 @@ export async function getClosedLoopReport(
     terminalStatuses = VALID_TERMINAL;
   }
 
-  const conditions = [inArray(applications.status, terminalStatuses)];
+  const conditions = [
+    inArray(applications.status, terminalStatuses),
+    ...(userId ? [eq(applications.userId, userId)] : []),
+  ];
 
   if (params.period && params.period !== 'all') {
     const daysMap: Record<string, number> = { '30d': 30, '60d': 60, '90d': 90 };
@@ -361,9 +374,7 @@ export async function getClosedLoopReport(
       const secondToLast = history[history.length - 2];
       closedAtMap.set(appId, {
         closedAt: last.changedAt.toISOString(),
-        previousStatus: secondToLast
-          ? (secondToLast.toStatus as ApplicationStatus)
-          : undefined,
+        previousStatus: secondToLast ? (secondToLast.toStatus as ApplicationStatus) : undefined,
       });
     }
   }
@@ -425,7 +436,8 @@ export async function getClosedLoopReport(
 }
 
 export async function getByFitTierReport(
-  params: FitTierParams = {}
+  params: FitTierParams = {},
+  userId?: string
 ): Promise<ByFitTierReportResponse> {
   const db = getDb();
 
@@ -442,6 +454,9 @@ export async function getByFitTierReport(
   const conditions = [];
   if (!params.includeTerminal) {
     conditions.push(notInArray(applications.status, TERMINAL_STATUSES));
+  }
+  if (userId) {
+    conditions.push(eq(applications.userId, userId));
   }
 
   const rows = await db
@@ -471,9 +486,9 @@ export async function getByFitTierReport(
     return { tier, count: appsForTier.length, applications: appsForTier };
   });
 
-  const byTier = Object.fromEntries(
-    groups.map((g) => [g.tier, g.count])
-  ) as Partial<Record<FitTier, number>>;
+  const byTier = Object.fromEntries(groups.map((g) => [g.tier, g.count])) as Partial<
+    Record<FitTier, number>
+  >;
 
   return {
     groups,

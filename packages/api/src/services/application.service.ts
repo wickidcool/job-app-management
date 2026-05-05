@@ -51,7 +51,8 @@ function historyToDTO(h: StatusHistoryEntry): StatusHistoryDTO {
 }
 
 export async function createApplication(
-  input: CreateApplicationInput
+  input: CreateApplicationInput,
+  userId?: string
 ): Promise<{ application: ApplicationDTO }> {
   const db = getDb();
   const id = ulid();
@@ -63,6 +64,7 @@ export async function createApplication(
       .insert(applications)
       .values({
         id,
+        userId: userId ?? null,
         jobTitle: input.jobTitle,
         company: input.company,
         url: input.url ?? null,
@@ -85,6 +87,7 @@ export async function createApplication(
 
     await tx.insert(statusHistory).values({
       id: ulid(),
+      userId: userId ?? null,
       applicationId: id,
       fromStatus: null,
       toStatus: status,
@@ -97,11 +100,16 @@ export async function createApplication(
 }
 
 export async function getApplication(
-  id: string
+  id: string,
+  userId?: string
 ): Promise<{ application: ApplicationDTO; statusHistory: StatusHistoryDTO[] }> {
   const db = getDb();
 
-  const [app] = await db.select().from(applications).where(eq(applications.id, id));
+  const whereClause = userId
+    ? and(eq(applications.id, id), eq(applications.userId, userId))
+    : eq(applications.id, id);
+
+  const [app] = await db.select().from(applications).where(whereClause);
   if (!app) throw new NotFoundError('Application');
 
   const history = await db
@@ -116,7 +124,10 @@ export async function getApplication(
   };
 }
 
-export async function listApplications(params: ListApplicationsParams): Promise<{
+export async function listApplications(
+  params: ListApplicationsParams,
+  userId?: string
+): Promise<{
   applications: ApplicationDTO[];
   nextPage?: string;
   totalCount: number;
@@ -125,6 +136,10 @@ export async function listApplications(params: ListApplicationsParams): Promise<
   const limit = Math.min(params.limit ?? 50, 100);
 
   const conditions = [];
+
+  if (userId) {
+    conditions.push(eq(applications.userId, userId));
+  }
 
   if (params.status) {
     const VALID_STATUSES: ApplicationStatus[] = [
@@ -141,7 +156,6 @@ export async function listApplications(params: ListApplicationsParams): Promise<
       .map((s) => s.trim())
       .filter((s): s is ApplicationStatus => VALID_STATUSES.includes(s as ApplicationStatus));
     if (statuses.length === 0) {
-      // No valid status values — return empty result
       return { applications: [], totalCount: 0 };
     }
     if (statuses.length === 1) {
@@ -166,7 +180,6 @@ export async function listApplications(params: ListApplicationsParams): Promise<
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  // Offset-based pagination: decode page token as offset
   let offset = 0;
   if (params.page) {
     try {
@@ -176,7 +189,6 @@ export async function listApplications(params: ListApplicationsParams): Promise<
     }
   }
 
-  // Determine sort column and direction
   const sortOrder = params.sortOrder === 'asc' ? asc : desc;
   let orderBy;
   switch (params.sortBy) {
@@ -190,7 +202,6 @@ export async function listApplications(params: ListApplicationsParams): Promise<
       orderBy = sortOrder(applications.updatedAt);
   }
 
-  // Count total matching records
   const [{ count }] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(applications)
@@ -221,11 +232,11 @@ export async function listApplications(params: ListApplicationsParams): Promise<
 
 export async function updateApplication(
   id: string,
-  input: UpdateApplicationInput
+  input: UpdateApplicationInput,
+  userId?: string
 ): Promise<{ application: ApplicationDTO }> {
   const db = getDb();
 
-  // Build update payload (only provided fields)
   const updates: Partial<typeof applications.$inferInsert> = {};
   if (input.jobTitle !== undefined) updates.jobTitle = input.jobTitle;
   if (input.company !== undefined) updates.company = input.company;
@@ -240,15 +251,20 @@ export async function updateApplication(
   if ('nextActionDue' in input) updates.nextActionDue = input.nextActionDue;
   if ('jobDescription' in input) updates.jobDescription = input.jobDescription;
 
+  const baseWhere = and(eq(applications.id, id), eq(applications.version, input.version));
+  const whereClause = userId ? and(baseWhere, eq(applications.userId, userId)) : baseWhere;
+
   const [updated] = await db
     .update(applications)
     .set({ ...updates, updatedAt: new Date(), version: sql`${applications.version} + 1` })
-    .where(and(eq(applications.id, id), eq(applications.version, input.version)))
+    .where(whereClause)
     .returning();
 
   if (!updated) {
-    // Distinguish not found vs version conflict
-    const [existing] = await db.select().from(applications).where(eq(applications.id, id));
+    const existingWhere = userId
+      ? and(eq(applications.id, id), eq(applications.userId, userId))
+      : eq(applications.id, id);
+    const [existing] = await db.select().from(applications).where(existingWhere);
     if (!existing) throw new NotFoundError('Application');
     throw new VersionConflictError();
   }
@@ -257,11 +273,15 @@ export async function updateApplication(
   return { application: toDTO(updated) };
 }
 
-export async function deleteApplication(id: string): Promise<void> {
+export async function deleteApplication(id: string, userId?: string): Promise<void> {
   const db = getDb();
+  const whereClause = userId
+    ? and(eq(applications.id, id), eq(applications.userId, userId))
+    : eq(applications.id, id);
+
   const [deleted] = await db
     .delete(applications)
-    .where(eq(applications.id, id))
+    .where(whereClause)
     .returning({ id: applications.id });
 
   if (!deleted) throw new NotFoundError('Application');
@@ -269,17 +289,17 @@ export async function deleteApplication(id: string): Promise<void> {
 
 export async function updateApplicationStatus(
   id: string,
-  input: UpdateStatusInput
+  input: UpdateStatusInput,
+  userId?: string
 ): Promise<{ application: ApplicationDTO; statusHistory: StatusHistoryDTO[] }> {
   const db = getDb();
 
   return db.transaction(async (tx) => {
-    // Lock the row
-    const [current] = await tx
-      .select()
-      .from(applications)
-      .where(eq(applications.id, id))
-      .for('update');
+    const lockWhere = userId
+      ? and(eq(applications.id, id), eq(applications.userId, userId))
+      : eq(applications.id, id);
+
+    const [current] = await tx.select().from(applications).where(lockWhere).for('update');
 
     if (!current) throw new NotFoundError('Application');
 
@@ -307,6 +327,7 @@ export async function updateApplicationStatus(
 
     await tx.insert(statusHistory).values({
       id: ulid(),
+      userId: userId ?? null,
       applicationId: id,
       fromStatus,
       toStatus,

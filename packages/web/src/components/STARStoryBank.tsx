@@ -42,7 +42,8 @@ export function STARStoryBank({
   });
 
   const getRelevanceBadge = (score: number) => {
-    if (score >= 90) return { color: 'bg-green-100 text-green-800', label: 'Excellent', icon: '🟢' };
+    if (score >= 90)
+      return { color: 'bg-green-100 text-green-800', label: 'Excellent', icon: '🟢' };
     if (score >= 80) return { color: 'bg-green-50 text-green-700', label: 'Strong', icon: '🟢' };
     if (score >= 70) return { color: 'bg-yellow-100 text-yellow-800', label: 'Good', icon: '🟡' };
     if (score >= 60) return { color: 'bg-orange-100 text-orange-800', label: 'Fair', icon: '🟠' };
@@ -132,9 +133,7 @@ export function STARStoryBank({
                       <div className="flex items-center gap-2 mb-1">
                         <h3
                           className="font-medium text-gray-900 cursor-pointer hover:text-blue-600"
-                          onClick={() =>
-                            setExpandedStoryId(isExpanded ? null : story.id)
-                          }
+                          onClick={() => setExpandedStoryId(isExpanded ? null : story.id)}
                         >
                           {story.starEntryId.substring(0, 50)}
                           {story.starEntryId.length > 50 ? '...' : ''}
@@ -151,9 +150,7 @@ export function STARStoryBank({
                         ))}
                       </div>
                       {!isExpanded && (
-                        <p className="text-sm text-gray-600 line-clamp-2">
-                          {story.twoMinVersion}
-                        </p>
+                        <p className="text-sm text-gray-600 line-clamp-2">{story.twoMinVersion}</p>
                       )}
                     </div>
                   </div>
@@ -162,9 +159,7 @@ export function STARStoryBank({
                       {badge.icon} {story.relevanceScore}%
                     </span>
                     {story.confidenceLevel !== 'not_practiced' && (
-                      <span className="text-sm">
-                        {getConfidenceBadge(story.confidenceLevel)}
-                      </span>
+                      <span className="text-sm">{getConfidenceBadge(story.confidenceLevel)}</span>
                     )}
                   </div>
                 </div>
@@ -199,9 +194,12 @@ export function STARStoryBank({
                           </p>
                           <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
                             <span>
-                              {timeVersionTab === '1min' && `~${story.oneMinVersion.split(' ').length} words`}
-                              {timeVersionTab === '2min' && `~${story.twoMinVersion.split(' ').length} words`}
-                              {timeVersionTab === '5min' && `~${story.fiveMinVersion.split(' ').length} words`}
+                              {timeVersionTab === '1min' &&
+                                `~${story.oneMinVersion.split(' ').length} words`}
+                              {timeVersionTab === '2min' &&
+                                `~${story.twoMinVersion.split(' ').length} words`}
+                              {timeVersionTab === '5min' &&
+                                `~${story.fiveMinVersion.split(' ').length} words`}
                             </span>
                             <button
                               className="text-blue-600 hover:text-blue-700 font-medium"

@@ -10,7 +10,9 @@ import { catalogRoutes } from './routes/catalog.routes.js';
 import { reportsRoutes } from './routes/reports.js';
 import { resumeVariantsRoutes } from './routes/resume-variants.js';
 import { interviewPrepsRoutes } from './routes/interview-preps.js';
+import { authRoutes } from './routes/auth.js';
 import { AppError } from './types/index.js';
+import { authPlugin } from './plugins/auth.js';
 
 export function buildApp(opts?: { logger?: boolean }) {
   const fastify = Fastify({ logger: opts?.logger ?? true });
@@ -27,6 +29,8 @@ export function buildApp(opts?: { logger?: boolean }) {
   // API routes under /api prefix
   fastify.register(
     async (api) => {
+      api.register(authPlugin);
+      api.register(authRoutes);
       api.register(applicationsRoutes);
       api.register(dashboardRoutes);
       api.register(coverLettersRoutes);

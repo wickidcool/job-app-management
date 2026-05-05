@@ -35,7 +35,8 @@ export function CoverLetterPreview({
     }
   };
 
-  const calculatedWordCount = wordCount || (content.trim() === '' ? 0 : content.trim().split(/\s+/).length);
+  const calculatedWordCount =
+    wordCount || (content.trim() === '' ? 0 : content.trim().split(/\s+/).length);
 
   const formatContent = () => {
     return content.split('\n').map((paragraph, idx) => {
@@ -91,10 +92,10 @@ export function CoverLetterPreview({
               color: '#1a1a1a',
             }}
           >
-            {content ? formatContent() : (
-              <div className="text-center text-gray-400 py-12">
-                No content to preview
-              </div>
+            {content ? (
+              formatContent()
+            ) : (
+              <div className="text-center text-gray-400 py-12">No content to preview</div>
             )}
           </div>
         </div>
@@ -105,9 +106,7 @@ export function CoverLetterPreview({
         <div className="px-8 py-4 border-t bg-gray-50 text-sm text-gray-600">
           <div className="max-w-3xl mx-auto flex items-center gap-4">
             {wordCount && (
-              <span className="flex items-center gap-2">
-                📊 {calculatedWordCount} words
-              </span>
+              <span className="flex items-center gap-2">📊 {calculatedWordCount} words</span>
             )}
             {variant && (
               <>

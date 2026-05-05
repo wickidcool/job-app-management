@@ -4,11 +4,12 @@ import { applications, statusHistory } from '../db/schema.js';
 import { DashboardStats, ActivityItem, ApplicationStatus } from '../types/index.js';
 import { ALL_STATUSES } from './status.service.js';
 
-export async function getDashboardStats(): Promise<{
+export async function getDashboardStats(userId?: string): Promise<{
   stats: DashboardStats;
   recentActivity: ActivityItem[];
 }> {
   const db = getDb();
+  const userFilter = userId ? eq(applications.userId, userId) : undefined;
 
   // Count by status
   const statusCounts = await db
@@ -17,6 +18,7 @@ export async function getDashboardStats(): Promise<{
       count: sql<number>`cast(count(*) as int)`,
     })
     .from(applications)
+    .where(userFilter)
     .groupBy(applications.status);
 
   const byStatus: Record<ApplicationStatus, number> = Object.fromEntries(
@@ -36,7 +38,9 @@ export async function getDashboardStats(): Promise<{
   const [weekRow] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(applications)
-    .where(and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneWeekAgo)));
+    .where(
+      and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneWeekAgo), userFilter)
+    );
 
   // Applied this month
   const oneMonthAgo = new Date();
@@ -45,7 +49,9 @@ export async function getDashboardStats(): Promise<{
   const [monthRow] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(applications)
-    .where(and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneMonthAgo)));
+    .where(
+      and(eq(applications.status, 'applied'), gte(applications.appliedAt, oneMonthAgo), userFilter)
+    );
 
   // Response rate: applications that progressed beyond 'applied'
   const responded = byStatus.phone_screen + byStatus.interview + byStatus.offer + byStatus.rejected;
@@ -69,6 +75,7 @@ export async function getDashboardStats(): Promise<{
     })
     .from(statusHistory)
     .innerJoin(applications, eq(statusHistory.applicationId, applications.id))
+    .where(userFilter)
     .orderBy(desc(statusHistory.changedAt))
     .limit(10);
 

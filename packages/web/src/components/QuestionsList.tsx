@@ -134,7 +134,9 @@ export function QuestionsList({
               <div
                 key={question.id}
                 className={`border rounded-lg p-4 transition-all ${
-                  isExpanded ? 'border-blue-300 shadow-md bg-blue-50' : 'border-gray-200 bg-white hover:shadow-sm'
+                  isExpanded
+                    ? 'border-blue-300 shadow-md bg-blue-50'
+                    : 'border-gray-200 bg-white hover:shadow-sm'
                 }`}
               >
                 {/* Question Header */}
@@ -155,7 +157,9 @@ export function QuestionsList({
                           <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded">
                             {question.category.replace('_', ' ')}
                           </span>
-                          <span className={`px-2 py-1 rounded ${difficultyInfo.color} bg-opacity-10`}>
+                          <span
+                            className={`px-2 py-1 rounded ${difficultyInfo.color} bg-opacity-10`}
+                          >
                             {difficultyInfo.label}
                           </span>
                           {question.personalNotes && (
@@ -168,7 +172,9 @@ export function QuestionsList({
                     </div>
                   </div>
                   {practiceBadge && (
-                    <span className={`flex items-center gap-1 text-sm font-medium ${practiceBadge.color}`}>
+                    <span
+                      className={`flex items-center gap-1 text-sm font-medium ${practiceBadge.color}`}
+                    >
                       {practiceBadge.icon} {practiceBadge.label}
                     </span>
                   )}
@@ -180,9 +186,7 @@ export function QuestionsList({
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-3">
                         <div>
-                          <h4 className="text-sm font-semibold text-gray-900 mb-2">
-                            Why They Ask
-                          </h4>
+                          <h4 className="text-sm font-semibold text-gray-900 mb-2">Why They Ask</h4>
                           <p className="text-sm text-gray-700">{question.whyTheyAsk}</p>
                         </div>
                         <div>
@@ -225,7 +229,9 @@ export function QuestionsList({
                                 <input
                                   type="radio"
                                   checked={isLinked}
-                                  onChange={() => onLinkSTAR(question.id, isLinked ? null : storyId)}
+                                  onChange={() =>
+                                    onLinkSTAR(question.id, isLinked ? null : storyId)
+                                  }
                                   className="h-4 w-4 text-blue-600"
                                 />
                                 <div className="flex-1 min-w-0">
@@ -260,7 +266,9 @@ export function QuestionsList({
                           <span className="text-green-600">✓</span>
                           <div className="flex-1">
                             <p className="text-sm font-medium text-green-900">Linked Story</p>
-                            <p className="text-xs text-green-700 mt-1">{linkedStory.twoMinVersion}</p>
+                            <p className="text-xs text-green-700 mt-1">
+                              {linkedStory.twoMinVersion}
+                            </p>
                           </div>
                         </div>
                       </div>

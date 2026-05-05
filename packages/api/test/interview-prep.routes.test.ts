@@ -67,8 +67,10 @@ const mockStory = {
   themes: ['technical', 'problem_solving'],
   relevanceScore: 92,
   oneMinVersion: 'Led API optimization that reduced response times by 40%.',
-  twoMinVersion: 'At Acme Corp, I identified performance bottlenecks in our API layer. I implemented query optimization and Redis caching, reducing response times by 40% and improving user satisfaction by 15%.',
-  fiveMinVersion: 'When I joined Acme Corp, our API response times were averaging 800ms...[full story]',
+  twoMinVersion:
+    'At Acme Corp, I identified performance bottlenecks in our API layer. I implemented query optimization and Redis caching, reducing response times by 40% and improving user satisfaction by 15%.',
+  fiveMinVersion:
+    'When I joined Acme Corp, our API response times were averaging 800ms...[full story]',
   isFavorite: false,
   practiceCount: 0,
   confidenceLevel: 'not_practiced' as const,
@@ -80,9 +82,11 @@ const mockQuestion = {
   text: 'Tell me about a time you led a challenging technical project.',
   category: 'behavioral' as const,
   difficulty: 'standard' as const,
-  whyTheyAsk: 'They want to understand your leadership style and technical problem-solving approach.',
+  whyTheyAsk:
+    'They want to understand your leadership style and technical problem-solving approach.',
   whatTheyWant: 'Concrete examples of leading through ambiguity and delivering results.',
-  answerFramework: 'Use STAR format: describe the project scope, leadership role, key decisions, and measurable outcomes.',
+  answerFramework:
+    'Use STAR format: describe the project scope, leadership role, key decisions, and measurable outcomes.',
   suggestedStoryIds: ['01HXK5R3J7Q8N2M4P6W9Y1Z3S1'],
   practiceStatus: 'not_practiced' as const,
 };
@@ -96,19 +100,23 @@ const mockGapMitigation = {
   strategies: {
     acknowledgePivot: {
       title: 'Acknowledge & Pivot',
-      script: "While I haven't worked directly with AWS, I have extensive experience with Azure which shares similar cloud concepts.",
+      script:
+        "While I haven't worked directly with AWS, I have extensive experience with Azure which shares similar cloud concepts.",
       keyPhrases: ['transferable skills', 'cloud fundamentals', 'quick learner'],
-      redirectToStrength: 'My Azure experience includes deploying containerized applications at scale...',
+      redirectToStrength:
+        'My Azure experience includes deploying containerized applications at scale...',
     },
     growthMindset: {
       title: 'Growth Mindset',
-      script: "I'm actively building AWS skills through hands-on projects and have already earned the Cloud Practitioner certification.",
+      script:
+        "I'm actively building AWS skills through hands-on projects and have already earned the Cloud Practitioner certification.",
       keyPhrases: ['actively learning', 'certification progress', 'hands-on practice'],
       redirectToStrength: "I've found my cloud fundamentals transfer well...",
     },
     adjacentExperience: {
       title: 'Adjacent Experience',
-      script: 'In my current role, I architected similar distributed systems using Azure, which shares core cloud patterns with AWS.',
+      script:
+        'In my current role, I architected similar distributed systems using Azure, which shares core cloud patterns with AWS.',
       keyPhrases: ['distributed systems', 'cloud architecture', 'infrastructure as code'],
       redirectToStrength: 'For example, I designed a multi-region deployment that...',
     },
@@ -210,7 +218,12 @@ describe('Interview Prep Routes', () => {
         questionsGenerated: 8,
         gapsIdentified: 0,
         catalogEntriesUsed: 10,
-        warnings: [{ code: 'NO_FIT_ANALYSIS', message: 'Generated without job fit analysis (gaps may be incomplete)' }],
+        warnings: [
+          {
+            code: 'NO_FIT_ANALYSIS',
+            message: 'Generated without job fit analysis (gaps may be incomplete)',
+          },
+        ],
       });
 
       const res = await app.inject({
@@ -235,7 +248,9 @@ describe('Interview Prep Routes', () => {
         questionsGenerated: 4,
         gapsIdentified: 1,
         catalogEntriesUsed: 2,
-        warnings: [{ code: 'LIMITED_STAR_ENTRIES', message: 'Fewer than 5 STAR entries in catalog' }],
+        warnings: [
+          { code: 'LIMITED_STAR_ENTRIES', message: 'Fewer than 5 STAR entries in catalog' },
+        ],
       });
 
       const res = await app.inject({
@@ -253,7 +268,12 @@ describe('Interview Prep Routes', () => {
 
     it('returns 422 with CATALOG_EMPTY when user has no STAR entries (AC 10j row 10)', async () => {
       vi.mocked(prepService.generateInterviewPrep).mockRejectedValue(
-        new InterviewPrepError('CATALOG_EMPTY', 'No catalog entries found. Upload a resume to build your story bank.', undefined, 422)
+        new InterviewPrepError(
+          'CATALOG_EMPTY',
+          'No catalog entries found. Upload a resume to build your story bank.',
+          undefined,
+          422
+        )
       );
 
       const res = await app.inject({
@@ -536,9 +556,7 @@ describe('Interview Prep Routes', () => {
     });
 
     it('returns 404 when prep not found', async () => {
-      vi.mocked(prepService.getInterviewPrep).mockRejectedValue(
-        new NotFoundError('InterviewPrep')
-      );
+      vi.mocked(prepService.getInterviewPrep).mockRejectedValue(new NotFoundError('InterviewPrep'));
 
       const res = await app.inject({
         method: 'GET',
@@ -608,7 +626,11 @@ describe('Interview Prep Routes', () => {
     });
 
     it('returns 200 when linking a story to a question', async () => {
-      const updatedQuestion = { ...mockQuestion, linkedStoryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1', practiceStatus: 'comfortable' as const };
+      const updatedQuestion = {
+        ...mockQuestion,
+        linkedStoryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1',
+        practiceStatus: 'comfortable' as const,
+      };
       const updated = { ...mockPrep, questions: [updatedQuestion], version: 2 };
       vi.mocked(prepService.updateInterviewPrep).mockResolvedValue({
         interviewPrep: updated,
@@ -620,21 +642,29 @@ describe('Interview Prep Routes', () => {
         url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          questionUpdates: [{
-            questionId: '01HXK5R3J7Q8N2M4P6W9Y1Z3Q1',
-            linkedStoryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1',
-            practiceStatus: 'comfortable',
-          }],
+          questionUpdates: [
+            {
+              questionId: '01HXK5R3J7Q8N2M4P6W9Y1Z3Q1',
+              linkedStoryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1',
+              practiceStatus: 'comfortable',
+            },
+          ],
           version: 1,
         }),
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json().interviewPrep.questions[0].linkedStoryId).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3S1');
+      expect(res.json().interviewPrep.questions[0].linkedStoryId).toBe(
+        '01HXK5R3J7Q8N2M4P6W9Y1Z3S1'
+      );
     });
 
     it('returns 200 when selecting a gap mitigation strategy and marking as addressed', async () => {
-      const updatedGap = { ...mockGapMitigation, selectedStrategy: 'acknowledge_pivot' as const, isAddressed: true };
+      const updatedGap = {
+        ...mockGapMitigation,
+        selectedStrategy: 'acknowledge_pivot' as const,
+        isAddressed: true,
+      };
       const updated = { ...mockPrep, gapMitigations: [updatedGap], version: 2 };
       vi.mocked(prepService.updateInterviewPrep).mockResolvedValue({
         interviewPrep: updated,
@@ -646,11 +676,13 @@ describe('Interview Prep Routes', () => {
         url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          gapUpdates: [{
-            gapId: '01HXK5R3J7Q8N2M4P6W9Y1Z3G1',
-            selectedStrategy: 'acknowledge_pivot',
-            isAddressed: true,
-          }],
+          gapUpdates: [
+            {
+              gapId: '01HXK5R3J7Q8N2M4P6W9Y1Z3G1',
+              selectedStrategy: 'acknowledge_pivot',
+              isAddressed: true,
+            },
+          ],
           version: 1,
         }),
       });
@@ -750,7 +782,9 @@ describe('Interview Prep Routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['content-type']).toBe('text/markdown');
       expect(res.headers['content-disposition']).toContain('attachment');
-      expect(res.headers['content-disposition']).toContain('interview-prep-acme-corp-2026-04-28.md');
+      expect(res.headers['content-disposition']).toContain(
+        'interview-prep-acme-corp-2026-04-28.md'
+      );
     });
 
     it('returns JSON with base64 content when Accept: application/json header is set for PDF (fallback)', async () => {
@@ -759,7 +793,7 @@ describe('Interview Prep Routes', () => {
       const res = await app.inject({
         method: 'GET',
         url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf',
-        headers: { 'accept': 'application/json' },
+        headers: { accept: 'application/json' },
       });
 
       expect(res.statusCode).toBe(200);
@@ -848,7 +882,8 @@ describe('Interview Prep Routes', () => {
       expect(prepService.exportInterviewPrep).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
         'pdf',
-        ['stories', 'questions']
+        ['stories', 'questions'],
+        undefined
       );
     });
   });
@@ -891,13 +926,21 @@ describe('Interview Prep Routes', () => {
           endedAt: '2026-04-28T14:30:00.000Z',
           focusAreas: ['leadership', 'technical'],
           questionResults: [
-            { questionId: '01HXK5R3J7Q8N2M4P6W9Y1Z3Q1', confidenceRating: 'comfortable', usedStoryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1' },
+            {
+              questionId: '01HXK5R3J7Q8N2M4P6W9Y1Z3Q1',
+              confidenceRating: 'comfortable',
+              usedStoryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1',
+            },
           ],
           storyResults: [
             { storyId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1', confidenceRating: 'confident', timeUsed: 95 },
           ],
           gapResults: [
-            { gapId: '01HXK5R3J7Q8N2M4P6W9Y1Z3G1', strategyUsed: 'acknowledge_pivot', confidenceRating: 'comfortable' },
+            {
+              gapId: '01HXK5R3J7Q8N2M4P6W9Y1Z3G1',
+              strategyUsed: 'acknowledge_pivot',
+              confidenceRating: 'comfortable',
+            },
           ],
           version: 1,
         }),

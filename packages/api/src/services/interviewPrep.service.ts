@@ -150,7 +150,12 @@ export interface LogPracticeSessionInput {
 function getAiClient(): Anthropic {
   const { anthropicApiKey } = getConfig();
   if (!anthropicApiKey) {
-    throw new InterviewPrepError('AI_NOT_CONFIGURED', 'ANTHROPIC_API_KEY is not configured', undefined, 503);
+    throw new InterviewPrepError(
+      'AI_NOT_CONFIGURED',
+      'ANTHROPIC_API_KEY is not configured',
+      undefined,
+      503
+    );
   }
   return new Anthropic({ apiKey: anthropicApiKey });
 }
@@ -195,10 +200,7 @@ function storyRowToDTO(row: InterviewPrepStory): PrepStoryDTO {
   };
 }
 
-function prepRowToDTO(
-  row: InterviewPrep,
-  stories: InterviewPrepStory[]
-): InterviewPrepDTO {
+function prepRowToDTO(row: InterviewPrep, stories: InterviewPrepStory[]): InterviewPrepDTO {
   const storyDTOs = stories.map(storyRowToDTO);
   const questions = (row.generatedQuestions ?? []) as GeneratedQuestion[];
   const gapMitigations = (row.gapMitigations ?? []) as GapMitigation[];
@@ -255,7 +257,8 @@ async function generatePrepWithAI(
     .map((b, i) => `${i + 1}. [ID:${b.id}] [Category:${b.impactCategory}] ${b.rawText}`)
     .join('\n');
 
-  const focusStr = focusAreas.length > 0 ? focusAreas.join(', ') : 'leadership, technical, problem-solving';
+  const focusStr =
+    focusAreas.length > 0 ? focusAreas.join(', ') : 'leadership, technical, problem-solving';
 
   const prompt = `You are an expert interview coach preparing a candidate for an interview at ${app.company} for the role of ${app.jobTitle}.
 
@@ -342,7 +345,12 @@ Rules:
   const text = response.content[0].type === 'text' ? response.content[0].text : '';
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new InterviewPrepError('AI_PARSE_FAILED', 'Failed to parse AI response for interview prep', undefined, 500);
+    throw new InterviewPrepError(
+      'AI_PARSE_FAILED',
+      'Failed to parse AI response for interview prep',
+      undefined,
+      500
+    );
   }
 
   const parsed = JSON.parse(jsonMatch[0]) as {
@@ -372,7 +380,10 @@ Rules:
 
 // ── Generate Interview Prep ───────────────────────────────────────────────────
 
-export async function generateInterviewPrep(input: GenerateInterviewPrepInput): Promise<{
+export async function generateInterviewPrep(
+  input: GenerateInterviewPrepInput,
+  userId?: string
+): Promise<{
   interviewPrep: InterviewPrepDTO;
   storiesGenerated: number;
   questionsGenerated: number;
@@ -389,7 +400,12 @@ export async function generateInterviewPrep(input: GenerateInterviewPrepInput): 
     .limit(1);
 
   if (!app) {
-    throw new InterviewPrepError('APPLICATION_NOT_FOUND', 'Referenced application does not exist', undefined, 404);
+    throw new InterviewPrepError(
+      'APPLICATION_NOT_FOUND',
+      'Referenced application does not exist',
+      undefined,
+      404
+    );
   }
 
   const [existing] = await db
@@ -408,21 +424,36 @@ export async function generateInterviewPrep(input: GenerateInterviewPrepInput): 
   }
 
   const allBullets = await db
-    .select({ id: quantifiedBullets.id, rawText: quantifiedBullets.rawText, impactCategory: quantifiedBullets.impactCategory })
+    .select({
+      id: quantifiedBullets.id,
+      rawText: quantifiedBullets.rawText,
+      impactCategory: quantifiedBullets.impactCategory,
+    })
     .from(quantifiedBullets)
     .limit(200);
 
   const warnings: Array<{ code: string; message: string }> = [];
 
   if (allBullets.length === 0) {
-    throw new InterviewPrepError('CATALOG_EMPTY', 'Cannot generate prep without STAR entries in catalog', undefined, 422);
+    throw new InterviewPrepError(
+      'CATALOG_EMPTY',
+      'Cannot generate prep without STAR entries in catalog',
+      undefined,
+      422
+    );
   }
 
   if (allBullets.length < 5) {
-    warnings.push({ code: 'LIMITED_STAR_ENTRIES', message: 'Fewer than 5 STAR entries in catalog' });
+    warnings.push({
+      code: 'LIMITED_STAR_ENTRIES',
+      message: 'Fewer than 5 STAR entries in catalog',
+    });
   }
   if (!input.jobFitAnalysisId) {
-    warnings.push({ code: 'NO_FIT_ANALYSIS', message: 'Generated without job fit analysis (gaps may be incomplete)' });
+    warnings.push({
+      code: 'NO_FIT_ANALYSIS',
+      message: 'Generated without job fit analysis (gaps may be incomplete)',
+    });
   }
 
   const interviewType = input.interviewType ?? 'mixed';
@@ -430,7 +461,14 @@ export async function generateInterviewPrep(input: GenerateInterviewPrepInput): 
   const focusAreas = input.focusAreas ?? [];
 
   const ai = getAiClient();
-  const generated = await generatePrepWithAI(ai, app, allBullets, interviewType, timeAvailable, focusAreas);
+  const generated = await generatePrepWithAI(
+    ai,
+    app,
+    allBullets,
+    interviewType,
+    timeAvailable,
+    focusAreas
+  );
   warnings.push(...generated.warnings);
 
   if (generated.stories.length === 0 && focusAreas.length > 0) {
@@ -442,6 +480,7 @@ export async function generateInterviewPrep(input: GenerateInterviewPrepInput): 
 
   const newPrep: NewInterviewPrep = {
     id: prepId,
+    userId: userId ?? null,
     applicationId: input.applicationId,
     jobFitAnalysisId: input.jobFitAnalysisId ?? null,
     interviewType,
@@ -521,18 +560,26 @@ export async function generateInterviewPrep(input: GenerateInterviewPrepInput): 
 
 // ── Get Interview Prep ────────────────────────────────────────────────────────
 
-export async function getInterviewPrep(id: string): Promise<{
+export async function getInterviewPrep(
+  id: string,
+  userId?: string
+): Promise<{
   interviewPrep: InterviewPrepDTO;
   application: { id: string; jobTitle: string; company: string; status: string };
-  fitAnalysis?: { id: string; recommendation?: string; confidence?: string; analysisTimestamp?: string } | null;
+  fitAnalysis?: {
+    id: string;
+    recommendation?: string;
+    confidence?: string;
+    analysisTimestamp?: string;
+  } | null;
 }> {
   const db = getDb();
 
-  const [prep] = await db
-    .select()
-    .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
-    .limit(1);
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
+
+  const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
@@ -544,7 +591,12 @@ export async function getInterviewPrep(id: string): Promise<{
     .where(eq(interviewPrepStories.interviewPrepId, id));
 
   const [app] = await db
-    .select({ id: applications.id, jobTitle: applications.jobTitle, company: applications.company, status: applications.status })
+    .select({
+      id: applications.id,
+      jobTitle: applications.jobTitle,
+      company: applications.company,
+      status: applications.status,
+    })
     .from(applications)
     .where(eq(applications.id, prep.applicationId))
     .limit(1);
@@ -560,46 +612,55 @@ export async function getInterviewPrep(id: string): Promise<{
 
 // ── Get Interview Prep by Application ─────────────────────────────────────────
 
-export async function getInterviewPrepByApplication(applicationId: string): Promise<{
+export async function getInterviewPrepByApplication(
+  applicationId: string,
+  userId?: string
+): Promise<{
   interviewPrep: InterviewPrepDTO;
   application: { id: string; jobTitle: string; company: string; status: string };
   fitAnalysis?: { id: string } | null;
 }> {
   const db = getDb();
 
-  const [prep] = await db
-    .select()
-    .from(interviewPreps)
-    .where(eq(interviewPreps.applicationId, applicationId))
-    .limit(1);
+  const whereClause = userId
+    ? and(eq(interviewPreps.applicationId, applicationId), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.applicationId, applicationId);
+
+  const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
   }
 
-  return getInterviewPrep(prep.id);
+  return getInterviewPrep(prep.id, userId);
 }
 
 // ── Update Interview Prep ─────────────────────────────────────────────────────
 
 export async function updateInterviewPrep(
   id: string,
-  input: UpdateInterviewPrepInput
+  input: UpdateInterviewPrepInput,
+  userId?: string
 ): Promise<{ interviewPrep: InterviewPrepDTO; completenessChange: number }> {
   const db = getDb();
 
-  const [prep] = await db
-    .select()
-    .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
-    .limit(1);
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
+
+  const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
   }
 
   if (prep.version !== input.version) {
-    throw new AppError('INTERVIEW_PREP_VERSION_CONFLICT', 'Interview prep was modified by another request', undefined, 409);
+    throw new AppError(
+      'INTERVIEW_PREP_VERSION_CONFLICT',
+      'Interview prep was modified by another request',
+      undefined,
+      409
+    );
   }
 
   const oldCompleteness = prep.completeness;
@@ -616,7 +677,12 @@ export async function updateInterviewPrep(
         await db
           .update(interviewPrepStories)
           .set(updates)
-          .where(and(eq(interviewPrepStories.id, su.storyId), eq(interviewPrepStories.interviewPrepId, id)));
+          .where(
+            and(
+              eq(interviewPrepStories.id, su.storyId),
+              eq(interviewPrepStories.interviewPrepId, id)
+            )
+          );
       }
     }
   }
@@ -688,10 +754,18 @@ export async function updateInterviewPrep(
     .where(eq(interviewPrepStories.interviewPrepId, id));
 
   const dto = prepRowToDTO(updatedPrep, updatedStories);
-  const newCompleteness = calculateCompleteness(dto.stories, dto.questions, dto.gapMitigations, dto.quickReference);
+  const newCompleteness = calculateCompleteness(
+    dto.stories,
+    dto.questions,
+    dto.gapMitigations,
+    dto.quickReference
+  );
 
   if (newCompleteness !== updatedPrep.completeness) {
-    await db.update(interviewPreps).set({ completeness: newCompleteness }).where(eq(interviewPreps.id, id));
+    await db
+      .update(interviewPreps)
+      .set({ completeness: newCompleteness })
+      .where(eq(interviewPreps.id, id));
     dto.completeness = newCompleteness;
   }
 
@@ -702,7 +776,8 @@ export async function updateInterviewPrep(
 
 export async function logPracticeSession(
   id: string,
-  input: LogPracticeSessionInput
+  input: LogPracticeSessionInput,
+  userId?: string
 ): Promise<{
   session: PracticeSession;
   interviewPrep: InterviewPrepDTO;
@@ -717,18 +792,23 @@ export async function logPracticeSession(
 }> {
   const db = getDb();
 
-  const [prep] = await db
-    .select()
-    .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
-    .limit(1);
+  const prepWhereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
+
+  const [prep] = await db.select().from(interviewPreps).where(prepWhereClause).limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
   }
 
   if (prep.version !== input.version) {
-    throw new AppError('INTERVIEW_PREP_VERSION_CONFLICT', 'Interview prep was modified by another request', undefined, 409);
+    throw new AppError(
+      'INTERVIEW_PREP_VERSION_CONFLICT',
+      'Interview prep was modified by another request',
+      undefined,
+      409
+    );
   }
 
   const oldCompleteness = prep.completeness;
@@ -763,8 +843,7 @@ export async function logPracticeSession(
   }
 
   const avgScore = totalRatings > 0 ? totalConfidenceScore / totalRatings : 0;
-  const avgConfidence =
-    avgScore < 1 ? 'needs_work' : avgScore < 2 ? 'comfortable' : 'confident';
+  const avgConfidence = avgScore < 1 ? 'needs_work' : avgScore < 2 ? 'comfortable' : 'confident';
 
   const session: PracticeSession = {
     id: sessionId,
@@ -818,7 +897,9 @@ export async function logPracticeSession(
           lastPracticedAt: new Date(input.startedAt),
           updatedAt: new Date(),
         })
-        .where(and(eq(interviewPrepStories.id, sr.storyId), eq(interviewPrepStories.interviewPrepId, id)));
+        .where(
+          and(eq(interviewPrepStories.id, sr.storyId), eq(interviewPrepStories.interviewPrepId, id))
+        );
     }
   }
 
@@ -834,10 +915,18 @@ export async function logPracticeSession(
     .where(eq(interviewPrepStories.interviewPrepId, id));
 
   const dto = prepRowToDTO(updatedPrep, updatedStories);
-  const newCompleteness = calculateCompleteness(dto.stories, dto.questions, dto.gapMitigations, dto.quickReference);
+  const newCompleteness = calculateCompleteness(
+    dto.stories,
+    dto.questions,
+    dto.gapMitigations,
+    dto.quickReference
+  );
 
   if (newCompleteness !== updatedPrep.completeness) {
-    await db.update(interviewPreps).set({ completeness: newCompleteness }).where(eq(interviewPreps.id, id));
+    await db
+      .update(interviewPreps)
+      .set({ completeness: newCompleteness })
+      .where(eq(interviewPreps.id, id));
     dto.completeness = newCompleteness;
   }
 
@@ -862,15 +951,16 @@ export async function logPracticeSession(
 export async function exportInterviewPrep(
   id: string,
   format: 'pdf' | 'markdown' | 'print',
-  sections?: string[]
+  sections?: string[],
+  userId?: string
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
   const db = getDb();
 
-  const [prep] = await db
-    .select()
-    .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
-    .limit(1);
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
+
+  const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
@@ -953,8 +1043,8 @@ export async function exportInterviewPrep(
         selectedStrategy === 'acknowledge_pivot'
           ? 'acknowledgePivot'
           : selectedStrategy === 'growth_mindset'
-          ? 'growthMindset'
-          : 'adjacentExperience';
+            ? 'growthMindset'
+            : 'adjacentExperience';
       const tp: TalkingPoint = gap.strategies[strategyKey as keyof typeof gap.strategies];
       lines.push(`**Approach:** ${tp.title}`);
       lines.push(tp.script);
@@ -979,7 +1069,13 @@ export async function exportInterviewPrep(
     .update(interviewPreps)
     .set({
       quickReference: {
-        ...(quickRef ?? { sections: [], topStoryIds: [], keyQuestionIds: [], gapPointIds: [], companyFacts: [] }),
+        ...(quickRef ?? {
+          sections: [],
+          topStoryIds: [],
+          keyQuestionIds: [],
+          gapPointIds: [],
+          companyFacts: [],
+        }),
         lastExportedAt: new Date().toISOString(),
         exportFormat: format,
       },
@@ -1043,18 +1139,22 @@ function markdownToHtml(md: string): string {
 
 // ── Delete Interview Prep ─────────────────────────────────────────────────────
 
-export async function deleteInterviewPrep(id: string): Promise<void> {
+export async function deleteInterviewPrep(id: string, userId?: string): Promise<void> {
   const db = getDb();
+
+  const whereClause = userId
+    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
+    : eq(interviewPreps.id, id);
 
   const [prep] = await db
     .select({ id: interviewPreps.id })
     .from(interviewPreps)
-    .where(eq(interviewPreps.id, id))
+    .where(whereClause)
     .limit(1);
 
   if (!prep) {
     throw new NotFoundError('Interview prep');
   }
 
-  await db.delete(interviewPreps).where(eq(interviewPreps.id, id));
+  await db.delete(interviewPreps).where(whereClause);
 }

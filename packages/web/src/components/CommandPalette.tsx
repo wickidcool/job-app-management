@@ -21,9 +21,19 @@ const RECENT_SEARCHES_KEY = 'wic-recent-searches';
 const MAX_RECENT_SEARCHES = 5;
 
 const SUGGESTED_FILTERS = [
-  { id: 'interviews', title: 'Interviews This Week', path: '/applications?status=interview,phone_screen', icon: '🤝' },
+  {
+    id: 'interviews',
+    title: 'Interviews This Week',
+    path: '/applications?status=interview,phone_screen',
+    icon: '🤝',
+  },
   { id: 'needs-followup', title: 'Needs Follow-up', path: '/reports/stale', icon: '⏰' },
-  { id: 'recently-applied', title: 'Recently Applied', path: '/applications?status=applied', icon: '📤' },
+  {
+    id: 'recently-applied',
+    title: 'Recently Applied',
+    path: '/applications?status=applied',
+    icon: '📤',
+  },
   { id: 'offers', title: 'Active Offers', path: '/applications?status=offer', icon: '🎉' },
 ];
 
@@ -42,7 +52,7 @@ function addRecentSearch(query: string) {
 
   try {
     const recent = getRecentSearches();
-    const updated = [query, ...recent.filter(q => q !== query)].slice(0, MAX_RECENT_SEARCHES);
+    const updated = [query, ...recent.filter((q) => q !== query)].slice(0, MAX_RECENT_SEARCHES);
     localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
   } catch {
     // Ignore localStorage errors
@@ -93,15 +103,15 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     const lowerQuery = query.toLowerCase();
 
     // Check if query matches a suggested filter
-    const matchedSuggestions: SearchResult[] = SUGGESTED_FILTERS
-      .filter((filter) => filter.title.toLowerCase().includes(lowerQuery))
-      .map((filter) => ({
-        id: filter.id,
-        type: 'suggestion',
-        title: filter.title,
-        path: filter.path,
-        icon: filter.icon,
-      }));
+    const matchedSuggestions: SearchResult[] = SUGGESTED_FILTERS.filter((filter) =>
+      filter.title.toLowerCase().includes(lowerQuery)
+    ).map((filter) => ({
+      id: filter.id,
+      type: 'suggestion',
+      title: filter.title,
+      path: filter.path,
+      icon: filter.icon,
+    }));
 
     const appResults: SearchResult[] = applications
       .filter(
@@ -249,13 +259,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 {!query && (
                   <>
                     {/* Suggested Filters Section */}
-                    {searchResults.some(r => r.type === 'suggestion') && (
+                    {searchResults.some((r) => r.type === 'suggestion') && (
                       <div className="mb-3">
                         <div className="text-xs font-medium text-neutral-500 px-3 py-2">
                           Suggested Filters
                         </div>
                         {searchResults
-                          .filter(r => r.type === 'suggestion')
+                          .filter((r) => r.type === 'suggestion')
                           .map((result) => {
                             const globalIndex = searchResults.indexOf(result);
                             return (
@@ -268,7 +278,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                                <div
+                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
+                                >
                                   {getResultIcon(result)}
                                 </div>
                                 <div className="flex-1 overflow-hidden">
@@ -279,8 +291,18 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     </div>
                                   )}
                                 </div>
-                                <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                <svg
+                                  className="h-4 w-4 flex-shrink-0 text-neutral-400"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M9 5l7 7-7 7"
+                                  />
                                 </svg>
                               </button>
                             );
@@ -289,13 +311,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     )}
 
                     {/* Recent Searches Section */}
-                    {searchResults.some(r => r.type === 'recent') && (
+                    {searchResults.some((r) => r.type === 'recent') && (
                       <div className="mb-3">
                         <div className="text-xs font-medium text-neutral-500 px-3 py-2">
                           Recent Searches
                         </div>
                         {searchResults
-                          .filter(r => r.type === 'recent')
+                          .filter((r) => r.type === 'recent')
                           .map((result) => {
                             const globalIndex = searchResults.indexOf(result);
                             return (
@@ -308,14 +330,26 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                                <div
+                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
+                                >
                                   {getResultIcon(result)}
                                 </div>
                                 <div className="flex-1 overflow-hidden">
                                   <div className="truncate font-medium">{result.title}</div>
                                 </div>
-                                <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                <svg
+                                  className="h-4 w-4 flex-shrink-0 text-neutral-400"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M9 5l7 7-7 7"
+                                  />
                                 </svg>
                               </button>
                             );
@@ -324,13 +358,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     )}
 
                     {/* Recent Applications Section */}
-                    {searchResults.some(r => r.type === 'application') && (
+                    {searchResults.some((r) => r.type === 'application') && (
                       <div>
                         <div className="text-xs font-medium text-neutral-500 px-3 py-2">
                           Recent Applications
                         </div>
                         {searchResults
-                          .filter(r => r.type === 'application')
+                          .filter((r) => r.type === 'application')
                           .map((result) => {
                             const globalIndex = searchResults.indexOf(result);
                             return (
@@ -343,7 +377,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                                <div
+                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
+                                >
                                   {getResultIcon(result)}
                                 </div>
                                 <div className="flex-1 overflow-hidden">
@@ -354,8 +390,18 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     </div>
                                   )}
                                 </div>
-                                <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                <svg
+                                  className="h-4 w-4 flex-shrink-0 text-neutral-400"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M9 5l7 7-7 7"
+                                  />
                                 </svg>
                               </button>
                             );
@@ -367,9 +413,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
                 {query && (
                   <>
-                    <div className="text-xs font-medium text-neutral-500 px-3 py-2">
-                      Results
-                    </div>
+                    <div className="text-xs font-medium text-neutral-500 px-3 py-2">Results</div>
                     {searchResults.map((result, index) => (
                       <button
                         key={result.id}
@@ -380,7 +424,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                             : 'text-neutral-900 hover:bg-neutral-100'
                         }`}
                       >
-                        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}>
+                        <div
+                          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
+                        >
                           {getResultIcon(result)}
                         </div>
                         <div className="flex-1 overflow-hidden">
@@ -391,8 +437,18 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                             </div>
                           )}
                         </div>
-                        <svg className="h-4 w-4 flex-shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        <svg
+                          className="h-4 w-4 flex-shrink-0 text-neutral-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 5l7 7-7 7"
+                          />
                         </svg>
                       </button>
                     ))}

@@ -30,12 +30,10 @@ import { createInterviewPrepService } from './interviewPrepService';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 /**
- * Get authentication token
- * Single-user mode: no authentication required for local backend
+ * Get authentication token from localStorage
  */
 async function getAuthToken(): Promise<string | null> {
-  // Local single-user mode - no auth required
-  return null;
+  return localStorage.getItem('auth_token');
 }
 
 // Create API client

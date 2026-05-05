@@ -29,7 +29,9 @@ export interface CoverLetter {
   updatedAt: Date;
 }
 
-function transformCoverLetter(apiCoverLetter: GenerateCoverLetterResponse['coverLetter']): CoverLetter {
+function transformCoverLetter(
+  apiCoverLetter: GenerateCoverLetterResponse['coverLetter']
+): CoverLetter {
   return {
     id: apiCoverLetter.id,
     title: apiCoverLetter.title,
@@ -66,20 +68,16 @@ export class CoverLetterService {
   }
 
   async getById(id: string): Promise<CoverLetter> {
-    const response = await this.client.get<{ coverLetter: GenerateCoverLetterResponse['coverLetter'] }>(
-      `/cover-letters/${id}`
-    );
+    const response = await this.client.get<{
+      coverLetter: GenerateCoverLetterResponse['coverLetter'];
+    }>(`/cover-letters/${id}`);
     return transformCoverLetter(response.coverLetter);
   }
 
-  async update(
-    id: string,
-    request: UpdateCoverLetterRequest
-  ): Promise<CoverLetter> {
-    const response = await this.client.patch<{ coverLetter: GenerateCoverLetterResponse['coverLetter'] }>(
-      `/cover-letters/${id}`,
-      request
-    );
+  async update(id: string, request: UpdateCoverLetterRequest): Promise<CoverLetter> {
+    const response = await this.client.patch<{
+      coverLetter: GenerateCoverLetterResponse['coverLetter'];
+    }>(`/cover-letters/${id}`, request);
     return transformCoverLetter(response.coverLetter);
   }
 

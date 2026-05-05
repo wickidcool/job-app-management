@@ -1,7 +1,12 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useState } from 'react';
-import { useApplication, useUpdateApplicationStatus, useDeleteApplication, useUpdateApplication } from '../hooks/useApplications';
+import {
+  useApplication,
+  useUpdateApplicationStatus,
+  useDeleteApplication,
+  useUpdateApplication,
+} from '../hooks/useApplications';
 import { StatusBadge } from '../components/StatusBadge';
 import { StatusDropdown } from '../components/StatusDropdown';
 import { ApplicationForm } from '../components/ApplicationForm';
@@ -217,7 +222,10 @@ export function ApplicationDetail() {
         </div>
 
         {/* Extended Tracking (UC-5 fields) */}
-        {(application.contact || application.compTarget || application.nextAction || application.nextActionDue) && (
+        {(application.contact ||
+          application.compTarget ||
+          application.nextAction ||
+          application.nextActionDue) && (
           <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Tracking</h2>
             <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -141,7 +141,9 @@ export function ReportsNeedsAction() {
                     >
                       {urgencyIcon(item.urgency)} {dueDateLabel(item)}
                     </span>
-                    <StatusBadge status={item.status as Parameters<typeof StatusBadge>[0]['status']} />
+                    <StatusBadge
+                      status={item.status as Parameters<typeof StatusBadge>[0]['status']}
+                    />
                   </div>
                   <h3 className="text-lg font-semibold text-neutral-900">
                     {item.jobTitle} @ {item.company}

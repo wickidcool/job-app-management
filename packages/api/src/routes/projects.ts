@@ -16,8 +16,8 @@ import { AppError } from '../types/index.js';
 
 export async function projectsRoutes(fastify: FastifyInstance) {
   // GET /api/projects
-  fastify.get('/projects', async (_request, reply) => {
-    const projects = await listProjects();
+  fastify.get('/projects', async (request, reply) => {
+    const projects = await listProjects(request.userId ?? undefined);
     return reply.send({ projects });
   });
 
@@ -33,7 +33,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       if (!name || typeof name !== 'string') {
         throw new AppError('BAD_REQUEST', 'name is required', undefined, 400);
       }
-      const project = await createProject({ name, slug, description });
+      const project = await createProject({ name, slug, description }, request.userId ?? undefined);
       return reply.status(201).send(project);
     }
   );
@@ -41,7 +41,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
   // GET /api/projects/:projectId
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId', async (request, reply) => {
     const { projectId } = request.params;
-    const project = await getProjectBySlug(projectId);
+    const project = await getProjectBySlug(projectId, request.userId ?? undefined);
     return reply.send(project);
   });
 
@@ -50,8 +50,8 @@ export async function projectsRoutes(fastify: FastifyInstance) {
     '/projects/:projectId',
     async (request, reply) => {
       const { projectId } = request.params;
-      const project = await getProjectBySlug(projectId);
-      await deleteProject(project.id);
+      const project = await getProjectBySlug(projectId, request.userId ?? undefined);
+      await deleteProject(project.id, request.userId ?? undefined);
       return reply.status(204).send();
     }
   );
@@ -61,7 +61,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
     '/projects/:projectId/files',
     async (request, reply) => {
       const { projectId } = request.params;
-      const files = await listProjectFiles(projectId);
+      const files = await listProjectFiles(projectId, request.userId ?? undefined);
       return reply.send({ files });
     }
   );
@@ -71,7 +71,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
     '/projects/:projectId/files/:fileName',
     async (request, reply) => {
       const { projectId, fileName } = request.params;
-      const content = await getProjectFile(projectId, fileName);
+      const content = await getProjectFile(projectId, fileName, request.userId ?? undefined);
       return reply.send({ content });
     }
   );
@@ -85,7 +85,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       if (typeof content !== 'string') {
         throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
       }
-      await updateProjectFile(projectId, fileName, content);
+      await updateProjectFile(projectId, fileName, content, request.userId ?? undefined);
       return reply.status(204).send();
     }
   );
@@ -102,7 +102,7 @@ export async function projectsRoutes(fastify: FastifyInstance) {
       if (typeof content !== 'string') {
         throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
       }
-      await createProjectFile(projectId, fileName, content);
+      await createProjectFile(projectId, fileName, content, request.userId ?? undefined);
       return reply.status(201).send({ fileName });
     }
   );
@@ -112,14 +112,14 @@ export async function projectsRoutes(fastify: FastifyInstance) {
     '/projects/:projectId/files/:fileName',
     async (request, reply) => {
       const { projectId, fileName } = request.params;
-      await deleteProjectFile(projectId, fileName);
+      await deleteProjectFile(projectId, fileName, request.userId ?? undefined);
       return reply.status(204).send();
     }
   );
 
   // POST /api/projects/generate-index
-  fastify.post('/projects/generate-index', async (_request, reply) => {
-    const result = await generateProjectIndex();
+  fastify.post('/projects/generate-index', async (request, reply) => {
+    const result = await generateProjectIndex(request.userId ?? undefined);
     return reply.status(201).send(result);
   });
 }

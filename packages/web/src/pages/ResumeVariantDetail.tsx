@@ -97,9 +97,12 @@ export function ResumeVariantDetail() {
       const response = await exportVariant.mutateAsync({ id, request });
 
       // Download the file
-      const blob = new Blob([Uint8Array.from(atob(response.base64Content), c => c.charCodeAt(0))], {
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      });
+      const blob = new Blob(
+        [Uint8Array.from(atob(response.base64Content), (c) => c.charCodeAt(0))],
+        {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -174,7 +177,9 @@ export function ResumeVariantDetail() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors[variant.status]}`}>
+          <span
+            className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors[variant.status]}`}
+          >
             {variant.status}
           </span>
         </div>

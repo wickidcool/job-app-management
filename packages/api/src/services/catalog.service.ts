@@ -33,12 +33,13 @@ export interface ListCompaniesOptions {
   cursor?: string;
 }
 
-export async function listCompanies(opts: ListCompaniesOptions = {}) {
+export async function listCompanies(opts: ListCompaniesOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
+  if (userId) conditions.push(eq(companyCatalog.userId, userId));
   if (!opts.includeDeleted) conditions.push(eq(companyCatalog.isDeleted, false));
   if (opts.search) conditions.push(ilike(companyCatalog.name, `%${opts.search}%`));
 
@@ -73,7 +74,7 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
   };
 }
 
-export async function mergeCompanies(sourceIds: string[], targetId: string) {
+export async function mergeCompanies(sourceIds: string[], targetId: string, _userId?: string) {
   const db = getDb();
   const [target] = await db.select().from(companyCatalog).where(eq(companyCatalog.id, targetId));
   if (!target) throw new NotFoundError('Company');
@@ -116,12 +117,13 @@ export interface ListTagsOptions {
   cursor?: string;
 }
 
-export async function listJobFitTags(opts: ListTagsOptions = {}) {
+export async function listJobFitTags(opts: ListTagsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
+  if (userId) conditions.push(eq(jobFitTags.userId, userId));
   if (opts.category && VALID_JOB_FIT_CATEGORIES.includes(opts.category as JobFitCategory)) {
     conditions.push(eq(jobFitTags.category, opts.category as JobFitCategory));
   }
@@ -161,7 +163,8 @@ function toJobFitTagDTO(row: typeof jobFitTags.$inferSelect) {
 
 export async function updateJobFitTag(
   id: string,
-  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number }
+  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
+  userId?: string
 ) {
   const db = getDb();
   const [existing] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, id));
@@ -195,7 +198,7 @@ export async function updateJobFitTag(
   return toJobFitTagDTO(updated);
 }
 
-export async function mergeJobFitTags(sourceIds: string[], targetId: string) {
+export async function mergeJobFitTags(sourceIds: string[], targetId: string, _userId?: string) {
   const db = getDb();
   const [target] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, targetId));
   if (!target) throw new NotFoundError('JobFitTag');
@@ -229,12 +232,13 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string) {
   return { mergedTag: toJobFitTagDTO(updated!), mergedCount: sources.length };
 }
 
-export async function listTechStackTags(opts: ListTagsOptions = {}) {
+export async function listTechStackTags(opts: ListTagsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
+  if (userId) conditions.push(eq(techStackTags.userId, userId));
   if (opts.category && VALID_TECH_STACK_CATEGORIES.includes(opts.category as TechStackCategory)) {
     conditions.push(eq(techStackTags.category, opts.category as TechStackCategory));
   }
@@ -275,7 +279,8 @@ function toTechStackTagDTO(row: typeof techStackTags.$inferSelect) {
 
 export async function updateTechStackTag(
   id: string,
-  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number }
+  patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
+  userId?: string
 ) {
   const db = getDb();
   const [existing] = await db.select().from(techStackTags).where(eq(techStackTags.id, id));
@@ -309,7 +314,7 @@ export async function updateTechStackTag(
   return toTechStackTagDTO(updated);
 }
 
-export async function mergeTechStackTags(sourceIds: string[], targetId: string) {
+export async function mergeTechStackTags(sourceIds: string[], targetId: string, _userId?: string) {
   const db = getDb();
   const [target] = await db.select().from(techStackTags).where(eq(techStackTags.id, targetId));
   if (!target) throw new NotFoundError('TechStackTag');
@@ -352,12 +357,13 @@ export interface ListBulletsOptions {
   cursor?: string;
 }
 
-export async function listBullets(opts: ListBulletsOptions = {}) {
+export async function listBullets(opts: ListBulletsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
+  if (userId) conditions.push(eq(quantifiedBullets.userId, userId));
   if (opts.impactCategory)
     conditions.push(eq(quantifiedBullets.impactCategory, opts.impactCategory as any));
   if (opts.sourceId) conditions.push(eq(quantifiedBullets.sourceId, opts.sourceId));
@@ -398,11 +404,12 @@ export async function listBullets(opts: ListBulletsOptions = {}) {
 
 // ── STAR Catalog Entries ──────────────────────────────────────────────────────
 
-export async function listStarEntries() {
+export async function listStarEntries(userId?: string) {
   const db = getDb();
   const rows = await db
     .select()
     .from(quantifiedBullets)
+    .where(userId ? eq(quantifiedBullets.userId, userId) : undefined)
     .orderBy(desc(quantifiedBullets.extractedAt));
 
   return rows.map((r) => ({
@@ -432,12 +439,13 @@ export interface ListThemesOptions {
   cursor?: string;
 }
 
-export async function listThemes(opts: ListThemesOptions = {}) {
+export async function listThemes(opts: ListThemesOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
+  if (userId) conditions.push(eq(recurringThemes.userId, userId));
   if (opts.coreOnly) conditions.push(eq(recurringThemes.isCoreStrength, true));
   if (!opts.includeHistorical) conditions.push(eq(recurringThemes.isHistorical, false));
 
@@ -479,12 +487,13 @@ export interface ListDiffsOptions {
   cursor?: string;
 }
 
-export async function listDiffs(opts: ListDiffsOptions = {}) {
+export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 20, 100);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
   const conditions = [];
+  if (userId) conditions.push(eq(catalogDiffs.userId, userId));
   if (opts.status) {
     conditions.push(eq(catalogDiffs.status, opts.status as any));
   } else {
@@ -521,9 +530,12 @@ export async function listDiffs(opts: ListDiffsOptions = {}) {
   };
 }
 
-export async function getDiff(id: string) {
+export async function getDiff(id: string, userId?: string) {
   const db = getDb();
-  const [diff] = await db.select().from(catalogDiffs).where(eq(catalogDiffs.id, id));
+  const whereClause = userId
+    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
+    : eq(catalogDiffs.id, id);
+  const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
 
   return {
@@ -551,9 +563,12 @@ export interface ApplyDiffInput {
   }>;
 }
 
-export async function applyDiff(id: string, input: ApplyDiffInput) {
+export async function applyDiff(id: string, input: ApplyDiffInput, userId?: string) {
   const db = getDb();
-  const [diff] = await db.select().from(catalogDiffs).where(eq(catalogDiffs.id, id));
+  const whereClause = userId
+    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
+    : eq(catalogDiffs.id, id);
+  const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
 
   if (diff.status !== 'pending') {
@@ -620,8 +635,14 @@ export async function applyDiff(id: string, input: ApplyDiffInput) {
   });
 
   const pendingReviewCount = (diff.pendingReview as ReviewItem[]).length;
-  const finalStatus = appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
-  return { applied: appliedCount, rejected: rejectedCount, pendingReview: pendingReviewCount, status: finalStatus };
+  const finalStatus =
+    appliedCount === 0 ? 'rejected' : rejectedCount === 0 ? 'approved' : 'partial';
+  return {
+    applied: appliedCount,
+    rejected: rejectedCount,
+    pendingReview: pendingReviewCount,
+    status: finalStatus,
+  };
 }
 
 async function applyChange(tx: any, change: DiffChange): Promise<void> {
@@ -760,7 +781,11 @@ async function applyChange(tx: any, change: DiffChange): Promise<void> {
   }
 }
 
-export async function generateDiff(sourceType: 'resume' | 'application', sourceId: string) {
+export async function generateDiff(
+  sourceType: 'resume' | 'application',
+  sourceId: string,
+  userId?: string
+) {
   const db = getDb();
   await processCatalogChange({
     id: ulid(),
@@ -796,11 +821,14 @@ export async function generateDiff(sourceType: 'resume' | 'application', sourceI
   };
 }
 
-export async function discardDiff(id: string): Promise<void> {
+export async function discardDiff(id: string, userId?: string): Promise<void> {
   const db = getDb();
-  const [diff] = await db.select().from(catalogDiffs).where(eq(catalogDiffs.id, id));
+  const whereClause = userId
+    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
+    : eq(catalogDiffs.id, id);
+  const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
-  await db.delete(catalogDiffs).where(eq(catalogDiffs.id, id));
+  await db.delete(catalogDiffs).where(whereClause);
 }
 
 export async function resolveDiffItem(
@@ -810,10 +838,14 @@ export async function resolveDiffItem(
     itemIndex: number;
     decision: 'approve' | 'reject';
     selectedOption?: string;
-  }
+  },
+  userId?: string
 ) {
   const db = getDb();
-  const [diff] = await db.select().from(catalogDiffs).where(eq(catalogDiffs.id, id));
+  const whereClause = userId
+    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
+    : eq(catalogDiffs.id, id);
+  const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
 
   const existing = (diff.userDecisions as any) ?? {};

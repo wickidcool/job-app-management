@@ -7,12 +7,73 @@ import { test, expect, type Page } from '@playwright/test';
  * 1. Field-level validation errors from the server are displayed on the relevant inputs
  * 2. Form-level validation errors are displayed in a banner
  * 3. Errors clear when the user re-submits
+ *
+ * Tests use mock auth to bypass authentication without a real backend.
  */
 
+const MOCK_USER = {
+  id: 'test-user-001',
+  email: 'test@example.com',
+};
+
+async function setupMockAuth(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+}
+
+async function setupBasicMocks(page: Page) {
+  await setupMockAuth(page);
+
+  await page.route('**/api/dashboard*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: 0,
+        byStatus: {
+          saved: 0,
+          applied: 0,
+          phone_screen: 0,
+          interview: 0,
+          offer: 0,
+          rejected: 0,
+          withdrawn: 0,
+        },
+        recentActivity: [],
+      }),
+    })
+  );
+
+  await page.route('**/api/applications*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ applications: [], nextPage: null }),
+    })
+  );
+}
+
 test.describe('ApplicationForm - Server Validation Errors', () => {
+  // These tests require a real backend with server-side validation
+  // Skip when running without backend (no TEST_USER_EMAIL configured)
+  test.skip(
+    !process.env.TEST_USER_EMAIL,
+    'Server validation tests require a running backend with TEST_USER_EMAIL configured'
+  );
+
   test.beforeEach(async ({ page }) => {
+    await setupBasicMocks(page);
     // Navigate to the applications page
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Wait for the page to load
     await page.waitForSelector('body');
@@ -188,8 +249,15 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
 });
 
 test.describe('ApplicationForm - Edit Mode Errors', () => {
+  // These tests require a real backend with existing applications
+  test.skip(
+    !process.env.TEST_USER_EMAIL,
+    'Edit mode tests require a running backend with TEST_USER_EMAIL configured'
+  );
+
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await setupBasicMocks(page);
+    await page.goto('/');
     await page.waitForSelector('body');
   });
 

@@ -61,9 +61,7 @@ export function QuickWins({ applications }: QuickWinsProps) {
 
   // Medium Priority: Applications missing job description (can't do fit analysis)
   const missingDescApps = applications.filter(
-    (app) =>
-      !app.jobDescription &&
-      !['offer', 'rejected', 'withdrawn'].includes(app.status)
+    (app) => !app.jobDescription && !['offer', 'rejected', 'withdrawn'].includes(app.status)
   );
 
   missingDescApps.slice(0, 2).forEach((app) => {
@@ -138,9 +136,7 @@ export function QuickWins({ applications }: QuickWinsProps) {
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <span className="mb-3 text-4xl">🎉</span>
           <p className="text-sm font-medium text-success-700">All caught up!</p>
-          <p className="mt-1 text-xs text-neutral-500">
-            No urgent actions needed right now
-          </p>
+          <p className="mt-1 text-xs text-neutral-500">No urgent actions needed right now</p>
         </div>
       </div>
     );
@@ -169,9 +165,7 @@ export function QuickWins({ applications }: QuickWinsProps) {
                 <span className="text-lg flex-shrink-0">{getPriorityIcon(win.priority)}</span>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-semibold text-neutral-900">{win.title}</h3>
-                  <p className="mt-0.5 text-xs text-neutral-600 truncate">
-                    {win.description}
-                  </p>
+                  <p className="mt-0.5 text-xs text-neutral-600 truncate">{win.description}</p>
                 </div>
               </div>
               <Link

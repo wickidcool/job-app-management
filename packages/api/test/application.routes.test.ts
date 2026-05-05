@@ -68,7 +68,8 @@ describe('Application Routes', () => {
       });
 
       expect(appService.listApplications).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'applied', sortBy: 'company', limit: 10 })
+        expect.objectContaining({ status: 'applied', sortBy: 'company', limit: 10 }),
+        undefined
       );
     });
 
