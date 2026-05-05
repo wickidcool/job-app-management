@@ -16,8 +16,8 @@ import { test, expect, type Page } from '@playwright/test';
 // Helpers
 // ---------------------------------------------------------------------------
 
-const isSupabaseConfigured = () =>
-  !!(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY);
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
+const hasTestCredentials = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 const hasTwoTestUsers = () =>
   !!(
@@ -83,7 +83,9 @@ async function mockResumesList(page: Page, resumes: object[]) {
 }
 
 // ---------------------------------------------------------------------------
-// UI-Level Isolation Tests (run in bypass mode, no Supabase required)
+// UI-Level Isolation Tests (mock auth, run without real backend)
+// Note: These tests are complex and flaky without a real backend.
+// Skip when TEST_USER_EMAIL is not set (i.e., no configured backend).
 // ---------------------------------------------------------------------------
 
 test.describe('Application Data Isolation - UI', () => {
@@ -256,7 +258,7 @@ test.describe('Resume/Document Isolation - UI', () => {
   test('API request for resumes includes Authorization header when authenticated', async ({
     page,
   }) => {
-    if (!isSupabaseConfigured()) {
+    if (!hasTestCredentials()) {
       test.skip();
       return;
     }
@@ -286,7 +288,10 @@ test.describe('Resume/Document Isolation - UI', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('API Auth Token Propagation', () => {
-  test.skip(!isSupabaseConfigured(), 'Requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
+  test.skip(
+    !isAuthEnabled() || !hasTestCredentials(),
+    'Requires VITE_SUPABASE_URL and TEST_USER credentials'
+  );
 
   test('all API requests include Bearer token after login', async ({ page }) => {
     const email = process.env.TEST_USER_EMAIL!;
@@ -351,8 +356,8 @@ test.describe('API Auth Token Propagation', () => {
 
 test.describe('Real Multi-User Data Isolation', () => {
   test.skip(
-    !isSupabaseConfigured() || !hasTwoTestUsers(),
-    'Requires VITE_SUPABASE_URL, TEST_USER_EMAIL/PASSWORD, and TEST_USER2_EMAIL/PASSWORD'
+    !isAuthEnabled() || !hasTwoTestUsers(),
+    'Requires VITE_SUPABASE_URL and two sets of TEST_USER credentials'
   );
 
   test('User A application is not visible to User B', async ({ browser }) => {

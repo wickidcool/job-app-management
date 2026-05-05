@@ -3,6 +3,9 @@ import { test, expect, type Page } from '@playwright/test';
 /**
  * Workflow Pre-fill E2E Tests
  *
+ * These tests verify that workflow pages (Job Fit Analysis, Resume Variants,
+ * Cover Letters) correctly pre-fill forms when an appId is provided.
+ *
  * Tests use mock auth to bypass authentication without a real backend.
  */
 

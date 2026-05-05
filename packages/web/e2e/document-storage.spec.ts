@@ -32,9 +32,7 @@ async function setupMockAuth(page: Page) {
   });
 }
 
-const isSupabaseConfigured = () =>
-  !!(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY);
-
+const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
 const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 async function loginAs(page: Page, email: string, password: string) {
@@ -296,8 +294,8 @@ test.describe('R2 Document Download - UI', () => {
 
 test.describe('Real Document Storage (requires Supabase + test user)', () => {
   test.skip(
-    !isSupabaseConfigured() || !hasTestUser(),
-    'Requires VITE_SUPABASE_URL, TEST_USER_EMAIL and TEST_USER_PASSWORD'
+    !isAuthEnabled() || !hasTestUser(),
+    'Requires VITE_SUPABASE_URL and TEST_USER credentials'
   );
 
   test('authenticated user can upload and see their resume', async ({ page }) => {
