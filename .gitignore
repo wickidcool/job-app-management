@@ -42,3 +42,4 @@ test-results/
 
 # TypeScript build info
 *.tsbuildinfo
+packages/api/coverage/
