@@ -18,6 +18,9 @@ packages/api/data/*
 .env.local
 .env.*.local
 
+# Cloudflare Workers local dev secrets
+.dev.vars
+
 # CDK output
 cdk.out
 

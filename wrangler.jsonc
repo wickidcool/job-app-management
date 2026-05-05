@@ -1,8 +1,60 @@
 {
   "name": "jobtrail",
+  // Entry point created by WIC-222 (Hono migration)
+  "main": "packages/api/src/worker.ts",
   "compatibility_date": "2026-05-05",
+  // nodejs_compat enables Node.js built-ins (crypto, stream, etc.) needed by drizzle-orm and dependencies
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static frontend assets — served by the Worker for any path without a matching API route
   "assets": {
     "directory": "./packages/web/dist",
     "include": ["**/*"]
+  },
+
+  // Hyperdrive: connection pooling proxy to Supabase PostgreSQL
+  // Setup: wrangler hyperdrive create jobtrail-db --connection-string="<SUPABASE_POOLER_URL>"
+  // Replace REPLACE_WITH_HYPERDRIVE_CONFIG_ID with the ID from the command output above
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_HYPERDRIVE_CONFIG_ID",
+      // Used by wrangler dev to connect to local PostgreSQL (Docker)
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
+    }
+  ],
+
+  // R2: object storage for resume files and cover letters
+  // Setup: wrangler r2 bucket create jobapp-documents
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "jobapp-documents"
+    }
+  ],
+
+  // Non-secret environment variables (secrets go in .dev.vars locally or via `wrangler secret put` for prod)
+  "vars": {
+    "NODE_ENV": "production"
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  // Preview environment — used by PR preview deployments (wrangler deploy --env preview)
+  "env": {
+    "preview": {
+      "name": "jobtrail-preview",
+      "vars": {
+        "NODE_ENV": "development"
+      },
+      "r2_buckets": [
+        {
+          "binding": "R2_BUCKET",
+          "bucket_name": "jobapp-documents-dev"
+        }
+      ]
+    }
   }
 }
