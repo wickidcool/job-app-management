@@ -21,7 +21,11 @@ const isSupabase =
   databaseUrl.includes('supabase.co') || databaseUrl.includes('pooler.supabase.com');
 
 async function runMigrations() {
-  const sql = postgres(databaseUrl, { max: 1, ssl: isSupabase ? 'require' : false, prepare: false });
+  const sql = postgres(databaseUrl, {
+    max: 1,
+    ssl: isSupabase ? 'require' : false,
+    prepare: false,
+  });
   const db = drizzle(sql);
 
   console.log('Running migrations...');
