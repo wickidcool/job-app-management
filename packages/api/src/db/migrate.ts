@@ -7,11 +7,11 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL ?? '';
 if (!databaseUrl) {
   console.error('Error: DATABASE_URL environment variable is not set.');
   console.error(
-    'Example: DATABASE_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT].supabase.co:5432/postgres"'
+    'Example: DATABASE_URL="postgresql://postgres.PROJECT:PASSWORD@aws-X.pooler.supabase.com:5432/postgres"'
   );
   process.exit(1);
 }
