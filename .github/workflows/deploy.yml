@@ -108,6 +108,7 @@ jobs:
           [ -z "$SUPABASE_URL" ]         && missing="$missing SUPABASE_URL"
           [ -z "$SUPABASE_ANON_KEY" ]    && missing="$missing SUPABASE_ANON_KEY"
           [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
+          [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
           [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_API_TOKEN"
           [ -z "$CF_ACCOUNT_ID" ]        && missing="$missing CLOUDFLARE_ACCOUNT_ID"
           if [ -n "$missing" ]; then
@@ -119,8 +120,14 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: npm run db:migrate --workspace=@wic/api
 
       - name: Build for preview
         run: npm run build
