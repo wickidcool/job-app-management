@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync } from 'fastify';
-import { jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { getConfig } from '../config.js';
 
 declare module 'fastify' {
@@ -16,9 +16,16 @@ const authPluginImpl: FastifyPluginAsync = async (fastify) => {
 
   const publicRoutes = ['/api/auth/login', '/api/auth/register', '/api/auth/logout'];
 
+  // Supabase now signs JWTs with ES256 (asymmetric). Verify via JWKS so we
+  // accept the token regardless of which key Supabase rotates to in future.
+  // Fall back to the symmetric secret only when no Supabase URL is configured.
+  const jwks = config.supabaseUrl
+    ? createRemoteJWKSet(new URL(`${config.supabaseUrl}/auth/v1/.well-known/jwks.json`))
+    : null;
+
   fastify.addHook('onRequest', async (request, reply) => {
-    // Bypass auth when SUPABASE_JWT_SECRET is not set (local dev without Supabase)
-    if (!config.supabaseJwtSecret) {
+    // Bypass auth entirely in local dev when neither Supabase URL nor secret is set
+    if (!jwks && !config.supabaseJwtSecret) {
       return;
     }
 
@@ -37,9 +44,18 @@ const authPluginImpl: FastifyPluginAsync = async (fastify) => {
     const token = authHeader.slice(7);
 
     try {
-      const secret = new TextEncoder().encode(config.supabaseJwtSecret);
-      const { payload } = await jwtVerify(token, secret);
-      request.userId = (payload.sub as string) ?? null;
+      if (jwks) {
+        const { payload } = await jwtVerify(token, jwks, {
+          issuer: `${config.supabaseUrl}/auth/v1`,
+          audience: 'authenticated',
+        });
+        request.userId = (payload.sub as string) ?? null;
+      } else {
+        // Symmetric fallback for environments without a Supabase URL
+        const secret = new TextEncoder().encode(config.supabaseJwtSecret!);
+        const { payload } = await jwtVerify(token, secret);
+        request.userId = (payload.sub as string) ?? null;
+      }
     } catch {
       return reply.status(401).send({
         error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' },
