@@ -141,7 +141,7 @@ describe('Auth Middleware', () => {
       const app = buildApp();
       const res = await app.request('/health', { method: 'GET' });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ status: 'ok' });
+      expect(await res.json()).toMatchObject({ status: 'ok' });
     });
   });
 

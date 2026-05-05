@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { sql } from 'drizzle-orm';
+import { getDb } from './db/client.js';
 import { applicationsRoutes } from './routes/applications.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { coverLettersRoutes } from './routes/cover-letters.js';
@@ -26,7 +28,22 @@ export function buildApp() {
     })
   );
 
-  app.get('/health', (c) => c.json({ status: 'ok' }));
+  app.get('/health', async (c) => {
+    const hyperdrive = !!c.env?.HYPERDRIVE;
+    // Only probe the DB when the HYPERDRIVE binding is present (Workers context).
+    // In local/test contexts there's no binding and no live DB to test.
+    let db: 'ok' | 'not_applicable' | string = 'not_applicable';
+    if (hyperdrive) {
+      try {
+        await getDb().execute(sql`SELECT 1`);
+        db = 'ok';
+      } catch (err) {
+        db = err instanceof Error ? err.message : String(err);
+      }
+    }
+    const status = db === 'ok' || db === 'not_applicable' ? 'ok' : 'degraded';
+    return c.json({ status, hyperdrive, db }, status === 'ok' ? 200 : 503);
+  });
 
   const api = new Hono<AppEnv>();
   api.use('*', authMiddleware);
