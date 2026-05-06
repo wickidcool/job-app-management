@@ -1,11 +1,17 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { ulid } from 'ulid';
 import { eq, desc, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { projects } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, AppError, ConflictError } from '../types/index.js';
+import {
+  isStorageAvailable,
+  uploadObject,
+  deleteObject,
+  deleteObjects,
+  getObject,
+  listObjectKeys,
+} from './storage.service.js';
 
 export interface ProjectMeta {
   id: string;
@@ -30,17 +36,46 @@ export interface CreateProjectInput {
   description?: string;
 }
 
-function projectsDir(): string {
-  return path.join(getConfig().dataDir, 'projects');
+// ── R2 key helpers ────────────────────────────────────────────────────────────
+
+function projectFileKey(slug: string, fileName: string): string {
+  return `projects/${slug}/${fileName}`;
 }
 
-function safeJoin(base: string, ...parts: string[]): string {
-  const resolved = path.resolve(base, ...parts);
-  if (!resolved.startsWith(path.resolve(base))) {
+function projectPrefix(slug: string): string {
+  return `projects/${slug}/`;
+}
+
+function validateFileName(fileName: string): void {
+  if (fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
     throw new AppError('INVALID_PATH', 'Path traversal detected', undefined, 400);
   }
-  return resolved;
 }
+
+// ── Local filesystem helpers (used only when R2 is not available) ────────────
+
+async function localFs() {
+  return (await import('node:fs')).promises;
+}
+
+async function localPath() {
+  return (await import('node:path')).default;
+}
+
+function localProjectsDir(): string {
+  return `${getConfig().dataDir}/projects`;
+}
+
+function localSafeJoin(base: string, ...parts: string[]): string {
+  // Simple path join without requiring node:path at module level
+  const joined = [base, ...parts].join('/').replace(/\/+/g, '/');
+  if (!joined.startsWith(base.replace(/\/+$/, ''))) {
+    throw new AppError('INVALID_PATH', 'Path traversal detected', undefined, 400);
+  }
+  return joined;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 export function toSlug(name: string): string {
   return name
@@ -49,8 +84,21 @@ export function toSlug(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
+function slugToName(slug: string): string {
+  return slug
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 async function getFileCount(slug: string): Promise<number> {
-  const dir = safeJoin(projectsDir(), slug);
+  if (isStorageAvailable()) {
+    const keys = await listObjectKeys(projectPrefix(slug));
+    return keys.filter((k) => k.endsWith('.md')).length;
+  }
+  const fs = await localFs();
+  const path = await localPath();
+  const dir = path.join(localProjectsDir(), slug);
   try {
     const files = await fs.readdir(dir);
     return files.filter((f) => f.endsWith('.md')).length;
@@ -58,6 +106,8 @@ async function getFileCount(slug: string): Promise<number> {
     return 0;
   }
 }
+
+// ── CRUD ─────────────────────────────────────────────────────────────────────
 
 export async function createProject(
   input: CreateProjectInput,
@@ -80,10 +130,15 @@ export async function createProject(
     throw new ConflictError('Project with this slug already exists');
   }
 
-  const id = ulid();
-  const dir = safeJoin(projectsDir(), slug);
-  await fs.mkdir(dir, { recursive: true });
+  // Create directory on local filesystem when R2 is not available
+  if (!isStorageAvailable()) {
+    const fs = await localFs();
+    const path = await localPath();
+    const dir = path.join(localProjectsDir(), slug);
+    await fs.mkdir(dir, { recursive: true });
+  }
 
+  const id = ulid();
   const [project] = await db
     .insert(projects)
     .values({
@@ -150,8 +205,14 @@ export async function getProjectBySlug(slug: string, userId?: string): Promise<P
     };
   }
 
-  // Fallback to filesystem-only project
-  const dir = safeJoin(projectsDir(), slug);
+  // Local filesystem fallback — not available in Workers (no persistent FS)
+  if (isStorageAvailable()) {
+    throw new NotFoundError('Project');
+  }
+
+  const fs = await localFs();
+  const path = await localPath();
+  const dir = path.join(localProjectsDir(), slug);
   const stat = await fs.stat(dir).catch(() => null);
   if (!stat?.isDirectory()) {
     throw new NotFoundError('Project');
@@ -180,28 +241,17 @@ export async function getProjectBySlug(slug: string, userId?: string): Promise<P
   };
 }
 
-function slugToName(slug: string): string {
-  return slug
-    .split('-')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
-
 export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
   const db = getDb();
-  const dir = projectsDir();
 
-  // Get projects from database
   const dbProjects = await db
     .select()
     .from(projects)
     .where(userId ? eq(projects.userId, userId) : undefined)
     .orderBy(desc(projects.updatedAt));
 
-  const dbSlugs = new Set(dbProjects.map((p) => p.slug));
   const result: ProjectMeta[] = [];
 
-  // Add database projects
   for (const project of dbProjects) {
     const fileCount = await getFileCount(project.slug);
     result.push({
@@ -216,42 +266,48 @@ export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
     });
   }
 
-  // Discover filesystem-only projects (backwards compatibility)
-  let entries: string[] = [];
-  try {
-    entries = await fs.readdir(dir);
-  } catch {
-    // No projects directory yet
-  }
+  // Discover filesystem-only projects only when local storage is in use
+  if (!isStorageAvailable()) {
+    const fs = await localFs();
+    const path = await localPath();
+    const dir = localProjectsDir();
+    const dbSlugs = new Set(dbProjects.map((p) => p.slug));
+    let entries: string[] = [];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      // No projects directory yet
+    }
 
-  for (const entry of entries) {
-    if (entry === 'index.md' || dbSlugs.has(entry)) continue;
-    const entryPath = path.join(dir, entry);
-    const stat = await fs.stat(entryPath).catch(() => null);
-    if (!stat?.isDirectory()) continue;
+    for (const entry of entries) {
+      if (entry === 'index.md' || dbSlugs.has(entry)) continue;
+      const entryPath = path.join(dir, entry);
+      const stat = await fs.stat(entryPath).catch(() => null);
+      if (!stat?.isDirectory()) continue;
 
-    const files = await fs.readdir(entryPath).catch(() => [] as string[]);
-    const mdFiles = files.filter((f) => f.endsWith('.md'));
-    if (mdFiles.length === 0) continue;
+      const files = await fs.readdir(entryPath).catch(() => [] as string[]);
+      const mdFiles = files.filter((f) => f.endsWith('.md'));
+      if (mdFiles.length === 0) continue;
 
-    const mtimes = await Promise.all(
-      mdFiles.map((f) => fs.stat(path.join(entryPath, f)).catch(() => null))
-    );
-    const latest = mtimes.reduce<Date | null>((max, s) => {
-      if (!s) return max;
-      return !max || s.mtime > max ? s.mtime : max;
-    }, null);
+      const mtimes = await Promise.all(
+        mdFiles.map((f) => fs.stat(path.join(entryPath, f)).catch(() => null))
+      );
+      const latest = mtimes.reduce<Date | null>((max, s) => {
+        if (!s) return max;
+        return !max || s.mtime > max ? s.mtime : max;
+      }, null);
 
-    result.push({
-      id: entry,
-      name: slugToName(entry),
-      slug: entry,
-      description: null,
-      fileCount: mdFiles.length,
-      createdAt: stat.birthtime.toISOString(),
-      updatedAt: (latest ?? stat.mtime).toISOString(),
-      version: 1,
-    });
+      result.push({
+        id: entry,
+        name: slugToName(entry),
+        slug: entry,
+        description: null,
+        fileCount: mdFiles.length,
+        createdAt: stat.birthtime.toISOString(),
+        updatedAt: (latest ?? stat.mtime).toISOString(),
+        version: 1,
+      });
+    }
   }
 
   return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -268,8 +324,16 @@ export async function deleteProject(projectId: string, userId?: string): Promise
     throw new NotFoundError('Project');
   }
 
-  const dir = safeJoin(projectsDir(), project.slug);
-  await fs.rm(dir, { recursive: true, force: true }).catch(() => null);
+  if (isStorageAvailable()) {
+    const keys = await listObjectKeys(projectPrefix(project.slug));
+    await deleteObjects(keys);
+  } else {
+    const fs = await localFs();
+    const path = await localPath();
+    const dir = path.join(localProjectsDir(), project.slug);
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => null);
+  }
+
   await db.delete(projects).where(whereClause);
 }
 
@@ -283,7 +347,22 @@ export async function listProjectFiles(slug: string, userId?: string): Promise<P
       .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
-  const dir = safeJoin(projectsDir(), slug);
+
+  if (isStorageAvailable()) {
+    const keys = await listObjectKeys(projectPrefix(slug));
+    return keys
+      .filter((k) => k.endsWith('.md'))
+      .map((k) => ({
+        fileName: k.replace(projectPrefix(slug), ''),
+        size: 0,
+        updatedAt: new Date().toISOString(),
+      }))
+      .sort((a, b) => a.fileName.localeCompare(b.fileName));
+  }
+
+  const fs = await localFs();
+  const path = await localPath();
+  const dir = path.join(localProjectsDir(), slug);
   let files: string[];
   try {
     files = await fs.readdir(dir);
@@ -308,6 +387,7 @@ export async function getProjectFile(
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
   }
+  validateFileName(fileName);
   if (userId) {
     const db = getDb();
     const [project] = await db
@@ -317,7 +397,16 @@ export async function getProjectFile(
       .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
-  const filePath = safeJoin(projectsDir(), slug, fileName);
+
+  if (isStorageAvailable()) {
+    const buf = await getObject(projectFileKey(slug, fileName));
+    if (!buf) throw new NotFoundError('Project file');
+    return buf.toString('utf-8');
+  }
+
+  const fs = await localFs();
+  const path = await localPath();
+  const filePath = localSafeJoin(localProjectsDir(), slug, fileName);
   try {
     return await fs.readFile(filePath, 'utf-8');
   } catch {
@@ -334,6 +423,7 @@ export async function updateProjectFile(
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
   }
+  validateFileName(fileName);
   if (userId) {
     const db = getDb();
     const [project] = await db
@@ -343,16 +433,23 @@ export async function updateProjectFile(
       .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
-  const dir = safeJoin(projectsDir(), slug);
-  try {
-    await fs.access(dir);
-  } catch {
-    throw new NotFoundError('Project');
-  }
-  const filePath = safeJoin(dir, fileName);
-  await fs.writeFile(filePath, content, 'utf-8');
 
-  // Update project's updatedAt timestamp
+  if (isStorageAvailable()) {
+    // Verify project exists (check for any file, or skip — file creation is idempotent)
+    await uploadObject(projectFileKey(slug, fileName), content, 'text/markdown');
+  } else {
+    const fs = await localFs();
+    const path = await localPath();
+    const dir = path.join(localProjectsDir(), slug);
+    try {
+      await fs.access(dir);
+    } catch {
+      throw new NotFoundError('Project');
+    }
+    const filePath = localSafeJoin(dir, fileName);
+    await fs.writeFile(filePath, content, 'utf-8');
+  }
+
   const db = getDb();
   await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
@@ -366,6 +463,7 @@ export async function createProjectFile(
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
   }
+  validateFileName(fileName);
   if (userId) {
     const db = getDb();
     const [project] = await db
@@ -375,25 +473,31 @@ export async function createProjectFile(
       .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
-  const dir = safeJoin(projectsDir(), slug);
-  try {
-    await fs.access(dir);
-  } catch {
-    throw new NotFoundError('Project');
+
+  if (isStorageAvailable()) {
+    // Check existence via head
+    const keys = await listObjectKeys(projectFileKey(slug, fileName));
+    if (keys.length > 0) throw new ConflictError('File already exists');
+    await uploadObject(projectFileKey(slug, fileName), content, 'text/markdown');
+  } else {
+    const fs = await localFs();
+    const path = await localPath();
+    const dir = path.join(localProjectsDir(), slug);
+    try {
+      await fs.access(dir);
+    } catch {
+      throw new NotFoundError('Project');
+    }
+    const filePath = localSafeJoin(dir, fileName);
+    try {
+      await fs.access(filePath);
+      throw new ConflictError('File already exists');
+    } catch (err) {
+      if (err instanceof ConflictError) throw err;
+    }
+    await fs.writeFile(filePath, content, 'utf-8');
   }
-  const filePath = safeJoin(dir, fileName);
 
-  // Check if file already exists
-  try {
-    await fs.access(filePath);
-    throw new ConflictError('File already exists');
-  } catch (err) {
-    if (err instanceof ConflictError) throw err;
-  }
-
-  await fs.writeFile(filePath, content, 'utf-8');
-
-  // Update project's updatedAt timestamp
   const db = getDb();
   await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
@@ -406,6 +510,7 @@ export async function deleteProjectFile(
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
   }
+  validateFileName(fileName);
   if (userId) {
     const db = getDb();
     const [project] = await db
@@ -415,14 +520,20 @@ export async function deleteProjectFile(
       .limit(1);
     if (!project) throw new NotFoundError('Project');
   }
-  const filePath = safeJoin(projectsDir(), slug, fileName);
-  try {
-    await fs.unlink(filePath);
-  } catch {
-    throw new NotFoundError('Project file');
+
+  if (isStorageAvailable()) {
+    await deleteObject(projectFileKey(slug, fileName));
+  } else {
+    const fs = await localFs();
+    const path = await localPath();
+    const filePath = localSafeJoin(localProjectsDir(), slug, fileName);
+    try {
+      await fs.unlink(filePath);
+    } catch {
+      throw new NotFoundError('Project file');
+    }
   }
 
-  // Update project's updatedAt timestamp
   const db = getDb();
   await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.slug, slug));
 }
@@ -431,8 +542,6 @@ export async function generateProjectIndex(
   userId?: string
 ): Promise<{ path: string; projectCount: number }> {
   const allProjects = await listProjects(userId);
-  const dir = projectsDir();
-  await fs.mkdir(dir, { recursive: true });
 
   const lines: string[] = [];
   lines.push('# Projects Index');
@@ -454,8 +563,17 @@ export async function generateProjectIndex(
     lines.push('');
   }
 
-  const indexPath = path.join(dir, 'index.md');
-  await fs.writeFile(indexPath, lines.join('\n'), 'utf-8');
+  const indexContent = lines.join('\n');
+
+  if (isStorageAvailable()) {
+    await uploadObject('projects/index.md', indexContent, 'text/markdown');
+  } else {
+    const fs = await localFs();
+    const path = await localPath();
+    const dir = localProjectsDir();
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'index.md'), indexContent, 'utf-8');
+  }
 
   return { path: 'projects/index.md', projectCount: allProjects.length };
 }

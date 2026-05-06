@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import {
   getPipelineReport,
@@ -7,7 +7,7 @@ import {
   getClosedLoopReport,
   getByFitTierReport,
 } from '../services/reports.service.js';
-import { AppError } from '../types/index.js';
+import type { AppEnv } from '../types/env.js';
 
 const pipelineQuerySchema = z.object({
   sortBy: z.enum(['updatedAt', 'createdAt', 'company']).optional(),
@@ -86,84 +86,89 @@ const byFitTierQuerySchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).optional(),
 });
 
-export async function reportsRoutes(fastify: FastifyInstance) {
-  // GET /api/reports/pipeline
-  fastify.get('/reports/pipeline', async (request, reply) => {
-    const query = pipelineQuerySchema.safeParse(request.query);
+export const reportsRoutes = new Hono<AppEnv>()
+  .get('/reports/pipeline', async (c) => {
+    const query = pipelineQuerySchema.safeParse(c.req.query());
     if (!query.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters',
-          details: query.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid query parameters',
+            details: query.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await getPipelineReport(query.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/reports/needs-action
-  fastify.get('/reports/needs-action', async (request, reply) => {
-    const query = needsActionQuerySchema.safeParse(request.query);
+    const result = await getPipelineReport(query.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/reports/needs-action', async (c) => {
+    const query = needsActionQuerySchema.safeParse(c.req.query());
     if (!query.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters',
-          details: query.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid query parameters',
+            details: query.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await getNeedsActionReport(query.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/reports/stale
-  fastify.get('/reports/stale', async (request, reply) => {
-    const query = staleQuerySchema.safeParse(request.query);
+    const result = await getNeedsActionReport(query.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/reports/stale', async (c) => {
+    const query = staleQuerySchema.safeParse(c.req.query());
     if (!query.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters',
-          details: query.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid query parameters',
+            details: query.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await getStaleReport(query.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/reports/closed-loop
-  fastify.get('/reports/closed-loop', async (request, reply) => {
-    const query = closedLoopQuerySchema.safeParse(request.query);
+    const result = await getStaleReport(query.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/reports/closed-loop', async (c) => {
+    const query = closedLoopQuerySchema.safeParse(c.req.query());
     if (!query.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters',
-          details: query.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid query parameters',
+            details: query.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await getClosedLoopReport(query.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/reports/by-fit-tier
-  fastify.get('/reports/by-fit-tier', async (request, reply) => {
-    const query = byFitTierQuerySchema.safeParse(request.query);
+    const result = await getClosedLoopReport(query.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/reports/by-fit-tier', async (c) => {
+    const query = byFitTierQuerySchema.safeParse(c.req.query());
     if (!query.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid query parameters',
-          details: query.error.flatten(),
+      return c.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid query parameters',
+            details: query.error.flatten(),
+          },
         },
-      });
+        400
+      );
     }
-    const result = await getByFitTierReport(query.data, request.userId ?? undefined);
-    return reply.send(result);
+    const result = await getByFitTierReport(query.data, c.get('userId') ?? undefined);
+    return c.json(result);
   });
-}

@@ -25,7 +25,6 @@ interface RateLimitBucket {
 const TEXT_LIMIT = 30;
 const URL_LIMIT = 10;
 const WINDOW_MS = 60_000;
-const BUCKET_CLEANUP_INTERVAL = 5 * 60_000;
 
 const textBuckets = new Map<string, RateLimitBucket>();
 const urlBuckets = new Map<string, RateLimitBucket>();
@@ -38,11 +37,6 @@ function cleanupStaleBuckets(buckets: Map<string, RateLimitBucket>): void {
     }
   }
 }
-
-setInterval(() => {
-  cleanupStaleBuckets(textBuckets);
-  cleanupStaleBuckets(urlBuckets);
-}, BUCKET_CLEANUP_INTERVAL);
 
 function getBucket(buckets: Map<string, RateLimitBucket>, clientId: string): RateLimitBucket {
   let bucket = buckets.get(clientId);
@@ -58,6 +52,7 @@ export function checkRateLimit(
   clientId: string,
   limit: number
 ): { remaining: number; reset: number } {
+  cleanupStaleBuckets(buckets);
   const bucket = getBucket(buckets, clientId);
   const now = Date.now();
   if (now - bucket.windowStart > WINDOW_MS) {

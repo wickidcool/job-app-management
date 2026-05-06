@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import {
   generateCoverLetter,
@@ -10,6 +10,7 @@ import {
   generateOutreach,
   exportCoverLetter,
 } from '../services/cover-letter.service.js';
+import type { AppEnv } from '../types/env.js';
 
 const toneValues = ['professional', 'conversational', 'enthusiastic', 'technical'] as const;
 const lengthValues = ['concise', 'standard', 'detailed'] as const;
@@ -93,96 +94,75 @@ const listQuerySchema = z.object({
   cursor: z.string().optional(),
 });
 
-export async function coverLettersRoutes(fastify: FastifyInstance) {
-  // POST /api/cover-letters/generate
-  fastify.post('/cover-letters/generate', async (request, reply) => {
-    const parsed = generateSchema.safeParse(request.body);
+export const coverLettersRoutes = new Hono<AppEnv>()
+  .post('/cover-letters/generate', async (c) => {
+    const parsed = generateSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateCoverLetter(parsed.data, request.userId ?? undefined);
-    return reply.status(201).send(result);
-  });
-
-  // POST /api/cover-letters/outreach
-  fastify.post('/cover-letters/outreach', async (request, reply) => {
-    const parsed = outreachSchema.safeParse(request.body);
+    const result = await generateCoverLetter(parsed.data, c.get('userId') ?? undefined);
+    return c.json(result, 201);
+  })
+  .post('/cover-letters/outreach', async (c) => {
+    const parsed = outreachSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateOutreach(parsed.data, request.userId ?? undefined);
-    return reply.status(201).send(result);
-  });
-
-  // GET /api/cover-letters
-  fastify.get('/cover-letters', async (request, reply) => {
-    const parsed = listQuerySchema.safeParse(request.query);
+    const result = await generateOutreach(parsed.data, c.get('userId') ?? undefined);
+    return c.json(result, 201);
+  })
+  .get('/cover-letters', async (c) => {
+    const parsed = listQuerySchema.safeParse(c.req.query());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await listCoverLetters(parsed.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/cover-letters/:id
-  fastify.get('/cover-letters/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const result = await getCoverLetter(id, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // PATCH /api/cover-letters/:id
-  fastify.patch('/cover-letters/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = updateSchema.safeParse(request.body);
+    const result = await listCoverLetters(parsed.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/cover-letters/:id', async (c) => {
+    const result = await getCoverLetter(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .patch('/cover-letters/:id', async (c) => {
+    const parsed = updateSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const coverLetter = await updateCoverLetter(id, parsed.data, request.userId ?? undefined);
-    return reply.send({ coverLetter });
-  });
-
-  // DELETE /api/cover-letters/:id
-  fastify.delete('/cover-letters/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    await deleteCoverLetter(id, request.userId ?? undefined);
-    return reply.status(204).send();
-  });
-
-  // POST /api/cover-letters/:id/revise
-  fastify.post('/cover-letters/:id/revise', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = reviseSchema.safeParse(request.body);
+    const coverLetter = await updateCoverLetter(
+      c.req.param('id'),
+      parsed.data,
+      c.get('userId') ?? undefined
+    );
+    return c.json({ coverLetter });
+  })
+  .delete('/cover-letters/:id', async (c) => {
+    await deleteCoverLetter(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.body(null, 204);
+  })
+  .post('/cover-letters/:id/revise', async (c) => {
+    const parsed = reviseSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await reviseCoverLetter(id, parsed.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // POST /api/cover-letters/:id/export
-  fastify.post('/cover-letters/:id/export', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = exportSchema.safeParse(request.body);
+    const result = await reviseCoverLetter(
+      c.req.param('id'),
+      parsed.data,
+      c.get('userId') ?? undefined
+    );
+    return c.json(result);
+  })
+  .post('/cover-letters/:id/export', async (c) => {
+    const parsed = exportSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-
-    const result = await exportCoverLetter(id, parsed.data, request.userId ?? undefined);
-    return reply.send({
-      exportId: id,
+    const result = await exportCoverLetter(
+      c.req.param('id'),
+      parsed.data,
+      c.get('userId') ?? undefined
+    );
+    return c.json({
+      exportId: c.req.param('id'),
       format: parsed.data.format,
       filename: result.filename,
       fileSize: result.buffer.length,
@@ -190,4 +170,3 @@ export async function coverLettersRoutes(fastify: FastifyInstance) {
       createdAt: new Date().toISOString(),
     });
   });
-}

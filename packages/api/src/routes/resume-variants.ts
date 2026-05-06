@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import { ulid } from 'ulid';
 import {
@@ -11,6 +11,7 @@ import {
   suggestBullets,
   exportResumeVariant,
 } from '../services/resume-variant.service.js';
+import type { AppEnv } from '../types/env.js';
 
 const formatValues = ['chronological', 'functional', 'hybrid'] as const;
 const emphasisValues = ['experience_heavy', 'skills_heavy', 'balanced'] as const;
@@ -111,98 +112,78 @@ const exportSchema = z
   })
   .strict();
 
-export async function resumeVariantsRoutes(fastify: FastifyInstance) {
-  // POST /api/resume-variants/generate
-  fastify.post('/resume-variants/generate', async (request, reply) => {
-    const parsed = generateSchema.safeParse(request.body);
+export const resumeVariantsRoutes = new Hono<AppEnv>()
+  .post('/resume-variants/generate', async (c) => {
+    const parsed = generateSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateResumeVariant(parsed.data, request.userId ?? undefined);
-    return reply.status(201).send(result);
-  });
-
-  // POST /api/resume-variants/suggest-bullets
-  fastify.post('/resume-variants/suggest-bullets', async (request, reply) => {
-    const parsed = suggestBulletsSchema.safeParse(request.body);
+    const result = await generateResumeVariant(parsed.data, c.get('userId') ?? undefined);
+    return c.json(result, 201);
+  })
+  .post('/resume-variants/suggest-bullets', async (c) => {
+    const parsed = suggestBulletsSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await suggestBullets(parsed.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/resume-variants
-  fastify.get('/resume-variants', async (request, reply) => {
-    const parsed = listQuerySchema.safeParse(request.query);
+    const result = await suggestBullets(parsed.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/resume-variants', async (c) => {
+    const parsed = listQuerySchema.safeParse(c.req.query());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await listResumeVariants(parsed.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // GET /api/resume-variants/:id
-  fastify.get('/resume-variants/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const result = await getResumeVariant(id, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // PATCH /api/resume-variants/:id
-  fastify.patch('/resume-variants/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = updateSchema.safeParse(request.body);
+    const result = await listResumeVariants(parsed.data, c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .get('/resume-variants/:id', async (c) => {
+    const result = await getResumeVariant(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.json(result);
+  })
+  .patch('/resume-variants/:id', async (c) => {
+    const parsed = updateSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const variant = await updateResumeVariant(id, parsed.data, request.userId ?? undefined);
-    return reply.send({ variant });
-  });
-
-  // DELETE /api/resume-variants/:id
-  fastify.delete('/resume-variants/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    await deleteResumeVariant(id, request.userId ?? undefined);
-    return reply.status(204).send();
-  });
-
-  // POST /api/resume-variants/:id/revise
-  fastify.post('/resume-variants/:id/revise', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = reviseSchema.safeParse(request.body);
+    const variant = await updateResumeVariant(
+      c.req.param('id'),
+      parsed.data,
+      c.get('userId') ?? undefined
+    );
+    return c.json({ variant });
+  })
+  .delete('/resume-variants/:id', async (c) => {
+    await deleteResumeVariant(c.req.param('id'), c.get('userId') ?? undefined);
+    return c.body(null, 204);
+  })
+  .post('/resume-variants/:id/revise', async (c) => {
+    const parsed = reviseSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await reviseResumeVariant(id, parsed.data, request.userId ?? undefined);
-    return reply.send(result);
-  });
-
-  // POST /api/resume-variants/:id/export
-  fastify.post('/resume-variants/:id/export', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = exportSchema.safeParse(request.body);
+    const result = await reviseResumeVariant(
+      c.req.param('id'),
+      parsed.data,
+      c.get('userId') ?? undefined
+    );
+    return c.json(result);
+  })
+  .post('/resume-variants/:id/export', async (c) => {
+    const parsed = exportSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return reply
-        .status(400)
-        .send({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
 
-    const acceptJson = (request.headers['accept'] ?? '').includes('application/json');
-    const result = await exportResumeVariant(id, parsed.data, request.userId ?? undefined);
+    const acceptJson = (c.req.header('accept') ?? '').includes('application/json');
+    const result = await exportResumeVariant(
+      c.req.param('id'),
+      parsed.data,
+      c.get('userId') ?? undefined
+    );
 
     if (acceptJson) {
-      return reply.send({
+      return c.json({
         exportId: ulid(),
         format: parsed.data.format,
         filename: result.filename,
@@ -213,9 +194,11 @@ export async function resumeVariantsRoutes(fastify: FastifyInstance) {
       });
     }
 
-    return reply
-      .header('Content-Type', result.contentType)
-      .header('Content-Disposition', `attachment; filename="${result.filename}"`)
-      .send(result.buffer);
+    return new Response(result.buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': result.contentType,
+        'Content-Disposition': `attachment; filename="${result.filename}"`,
+      },
+    });
   });
-}

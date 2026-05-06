@@ -90,7 +90,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -100,21 +100,21 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       rateLimitHeaders: { remaining: 29, reset: 1714045860 },
     });
 
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: {
+      body: JSON.stringify({
         jobDescriptionText:
           'Senior Software Engineer\n\nRequirements:\n- TypeScript\n- React\n- PostgreSQL\n- AWS cloud experience required\n',
-      },
+      }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
+    expect(res.status).toBe(200);
+    const body = await res.json();
     expect(body.recommendation).toBe('moderate_fit');
     expect(body.parsedJd.seniority).toBe('senior');
-    expect(res.headers['x-ratelimit-remaining']).toBe('29');
-    expect(res.headers['x-ratelimit-reset']).toBe('1714045860');
+    expect(res.headers.get('x-ratelimit-remaining')).toBe('29');
+    expect(res.headers.get('x-ratelimit-reset')).toBe('1714045860');
   });
 
   it('returns analysis for valid URL input', async () => {
@@ -123,78 +123,78 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       rateLimitHeaders: { remaining: 9, reset: 1714045860 },
     });
 
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: { jobDescriptionUrl: 'https://boards.greenhouse.io/acme/jobs/12345' },
+      body: JSON.stringify({ jobDescriptionUrl: 'https://boards.greenhouse.io/acme/jobs/12345' }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).recommendation).toBe('strong_fit');
+    expect(res.status).toBe(200);
+    expect((await res.json()).recommendation).toBe('strong_fit');
   });
 
   it('returns 400 for missing input (caught at route validation)', async () => {
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: {},
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('BAD_REQUEST');
   });
 
   it('returns 400 for both inputs provided (caught at route validation)', async () => {
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: {
+      body: JSON.stringify({
         jobDescriptionText:
           'Some job description text that is long enough to pass validation for minimum length requirements',
         jobDescriptionUrl: 'https://example.com/job',
-      },
+      }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('BAD_REQUEST');
   });
 
   it('returns 400 for text too short (caught at route validation)', async () => {
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: { jobDescriptionText: 'short' },
+      body: JSON.stringify({ jobDescriptionText: 'short' }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('BAD_REQUEST');
   });
 
   it('returns 400 for invalid URL (caught at route validation)', async () => {
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: { jobDescriptionUrl: 'not-a-url' },
+      body: JSON.stringify({ jobDescriptionUrl: 'not-a-url' }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('BAD_REQUEST');
   });
 
   it('returns 429 when rate limit exceeded', async () => {
     vi.mocked(jobFitService.analyzeJobFit).mockRejectedValue(new RateLimitError(1714045860));
 
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: {
+      body: JSON.stringify({
         jobDescriptionText:
           'Senior Software Engineer role requiring TypeScript, React, and PostgreSQL experience.',
-      },
+      }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(429);
-    expect(JSON.parse(res.body).error.code).toBe('RATE_LIMIT_EXCEEDED');
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.code).toBe('RATE_LIMIT_EXCEEDED');
   });
 
   it('returns catalogEmpty response when catalog has no data', async () => {
@@ -227,17 +227,17 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       rateLimitHeaders: { remaining: 29, reset: 1714045860 },
     });
 
-    const res = await app.inject({
+    const res = await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: {
+      body: JSON.stringify({
         jobDescriptionText:
           'Senior Software Engineer role requiring TypeScript and React experience.',
-      },
+      }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
+    expect(res.status).toBe(200);
+    const body = await res.json();
     expect(body.catalogEmpty).toBe(true);
     expect(body.recommendation).toBeNull();
   });
@@ -248,12 +248,12 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       rateLimitHeaders: { remaining: 29, reset: 1714045860 },
     });
 
-    await app.inject({
+    await app.request('/api/catalog/job-fit/analyze', {
       method: 'POST',
-      url: '/api/catalog/job-fit/analyze',
-      payload: {
+      body: JSON.stringify({
         jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.',
-      },
+      }),
+      headers: { 'Content-Type': 'application/json' },
     });
 
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(

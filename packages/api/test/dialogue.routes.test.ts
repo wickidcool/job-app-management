@@ -88,7 +88,7 @@ describe('Dialogue Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -96,15 +96,14 @@ describe('Dialogue Routes', () => {
     it('returns 201 with capture result on valid body', async () => {
       vi.mocked(dialogueService.captureProjectFile).mockResolvedValue(captureResult);
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/capture', {
         method: 'POST',
-        url: '/api/projects/acme-corp/capture',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(validCaptureBody),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json()).toEqual(captureResult);
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual(captureResult);
       expect(dialogueService.captureProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         expect.objectContaining({ company: 'Acme Corp', role: 'Senior Engineer' }),
@@ -116,40 +115,37 @@ describe('Dialogue Routes', () => {
     it('returns 400 when company is missing', async () => {
       const { company: _c, ...noCompany } = validCaptureBody;
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/capture', {
         method: 'POST',
-        url: '/api/projects/acme-corp/capture',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(noCompany),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
       expect(dialogueService.captureProjectFile).not.toHaveBeenCalled();
     });
 
     it('returns 400 when accomplishments array is empty', async () => {
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/capture', {
         method: 'POST',
-        url: '/api/projects/acme-corp/capture',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...validCaptureBody, accomplishments: [] }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
       expect(dialogueService.captureProjectFile).not.toHaveBeenCalled();
     });
 
     it('returns 400 when accomplishment is missing required fields', async () => {
       const badAccomplishment = { title: 'Test', situation: 'ok' }; // missing task/action/result
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/capture', {
         method: 'POST',
-        url: '/api/projects/acme-corp/capture',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...validCaptureBody, accomplishments: [badAccomplishment] }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
     });
 
     it('returns 409 when file already exists', async () => {
@@ -157,25 +153,23 @@ describe('Dialogue Routes', () => {
         new ConflictError('File already exists')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/capture', {
         method: 'POST',
-        url: '/api/projects/acme-corp/capture',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(validCaptureBody),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(409);
+      expect(response.status).toBe(409);
     });
 
     it('defaults technologies and jobFit to empty arrays when omitted', async () => {
       vi.mocked(dialogueService.captureProjectFile).mockResolvedValue(captureResult);
       const { technologies: _t, jobFit: _j, ...minimal } = validCaptureBody;
 
-      await app.inject({
+      await app.request('/api/projects/acme-corp/capture', {
         method: 'POST',
-        url: '/api/projects/acme-corp/capture',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(minimal),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
       expect(dialogueService.captureProjectFile).toHaveBeenCalledWith(
@@ -192,15 +186,20 @@ describe('Dialogue Routes', () => {
       const enrichResult = { content: '---\ncompany: Acme Corp\n---\n# Updated\n' };
       vi.mocked(dialogueService.enrichProjectFile).mockResolvedValue(enrichResult);
 
-      const response = await app.inject({
-        method: 'POST',
-        url: '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ industry: 'Fintech', jobFit: ['payments'] }),
-      });
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich',
+        {
+          method: 'POST',
+          body: JSON.stringify({ industry: 'Fintech', jobFit: ['payments'] }),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual(enrichResult);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(enrichResult);
       expect(dialogueService.enrichProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'acme-corp-senior-engineer.md',
@@ -210,26 +209,30 @@ describe('Dialogue Routes', () => {
     });
 
     it('returns 400 for non-.md file', async () => {
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/files/file.txt/enrich', {
         method: 'POST',
-        url: '/api/projects/acme-corp/files/file.txt/enrich',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ industry: 'Tech' }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
       expect(dialogueService.enrichProjectFile).not.toHaveBeenCalled();
     });
 
     it('returns 400 when body is empty object', async () => {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
-      });
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/enrich',
+        {
+          method: 'POST',
+          body: JSON.stringify({}),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
       expect(dialogueService.enrichProjectFile).not.toHaveBeenCalled();
     });
 
@@ -238,14 +241,13 @@ describe('Dialogue Routes', () => {
         new NotFoundError('Project file')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/files/missing.md/enrich', {
         method: 'POST',
-        url: '/api/projects/acme-corp/files/missing.md/enrich',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ industry: 'Tech' }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -254,15 +256,20 @@ describe('Dialogue Routes', () => {
       const correctResult = { content: '---\ncompany: Acme Corp\n---\n# Corrected\n' };
       vi.mocked(dialogueService.correctProjectFile).mockResolvedValue(correctResult);
 
-      const response = await app.inject({
-        method: 'POST',
-        url: '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(validCaptureBody),
-      });
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct',
+        {
+          method: 'POST',
+          body: JSON.stringify(validCaptureBody),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual(correctResult);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(correctResult);
       expect(dialogueService.correctProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'acme-corp-senior-engineer.md',
@@ -272,28 +279,32 @@ describe('Dialogue Routes', () => {
     });
 
     it('returns 400 for non-.md file', async () => {
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/files/file.txt/correct', {
         method: 'POST',
-        url: '/api/projects/acme-corp/files/file.txt/correct',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(validCaptureBody),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
       expect(dialogueService.correctProjectFile).not.toHaveBeenCalled();
     });
 
     it('returns 400 when role is missing', async () => {
       const { role: _r, ...noRole } = validCaptureBody;
 
-      const response = await app.inject({
-        method: 'POST',
-        url: '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(noRole),
-      });
+      const response = await app.request(
+        '/api/projects/acme-corp/files/acme-corp-senior-engineer.md/correct',
+        {
+          method: 'POST',
+          body: JSON.stringify(noRole),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
+        }
+      );
 
-      expect(response.statusCode).toBe(400);
+      expect(response.status).toBe(400);
       expect(dialogueService.correctProjectFile).not.toHaveBeenCalled();
     });
 
@@ -302,14 +313,13 @@ describe('Dialogue Routes', () => {
         new NotFoundError('Project file')
       );
 
-      const response = await app.inject({
+      const response = await app.request('/api/projects/acme-corp/files/missing.md/correct', {
         method: 'POST',
-        url: '/api/projects/acme-corp/files/missing.md/correct',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(validCaptureBody),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(response.statusCode).toBe(404);
+      expect(response.status).toBe(404);
     });
   });
 });

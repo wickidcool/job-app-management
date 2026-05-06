@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import { Hono } from 'hono';
 import {
   listProjects,
   listProjectFiles,
@@ -6,120 +6,93 @@ import {
   updateProjectFile,
   generateProjectIndex,
   createProject,
-  getProject,
   getProjectBySlug,
   deleteProject,
   createProjectFile,
   deleteProjectFile,
 } from '../services/project.service.js';
 import { AppError } from '../types/index.js';
+import type { AppEnv } from '../types/env.js';
 
-export async function projectsRoutes(fastify: FastifyInstance) {
-  // GET /api/projects
-  fastify.get('/projects', async (request, reply) => {
-    const projects = await listProjects(request.userId ?? undefined);
-    return reply.send({ projects });
+export const projectsRoutes = new Hono<AppEnv>()
+  .get('/projects', async (c) => {
+    const projects = await listProjects(c.get('userId') ?? undefined);
+    return c.json({ projects });
+  })
+  .post('/projects', async (c) => {
+    const { name, slug, description } = (await c.req.json()) as {
+      name: string;
+      slug?: string;
+      description?: string;
+    };
+    if (!name || typeof name !== 'string') {
+      throw new AppError('BAD_REQUEST', 'name is required', undefined, 400);
+    }
+    const project = await createProject({ name, slug, description }, c.get('userId') ?? undefined);
+    return c.json(project, 201);
+  })
+  .get('/projects/:projectId', async (c) => {
+    const project = await getProjectBySlug(c.req.param('projectId'), c.get('userId') ?? undefined);
+    return c.json(project);
+  })
+  .delete('/projects/:projectId', async (c) => {
+    const project = await getProjectBySlug(c.req.param('projectId'), c.get('userId') ?? undefined);
+    await deleteProject(project.id, c.get('userId') ?? undefined);
+    return c.body(null, 204);
+  })
+  .get('/projects/:projectId/files', async (c) => {
+    const files = await listProjectFiles(c.req.param('projectId'), c.get('userId') ?? undefined);
+    return c.json({ files });
+  })
+  .get('/projects/:projectId/files/:fileName', async (c) => {
+    const content = await getProjectFile(
+      c.req.param('projectId'),
+      c.req.param('fileName'),
+      c.get('userId') ?? undefined
+    );
+    return c.json({ content });
+  })
+  .put('/projects/:projectId/files/:fileName', async (c) => {
+    const { content } = (await c.req.json()) as { content: string };
+    if (typeof content !== 'string') {
+      throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
+    }
+    await updateProjectFile(
+      c.req.param('projectId'),
+      c.req.param('fileName'),
+      content,
+      c.get('userId') ?? undefined
+    );
+    return c.body(null, 204);
+  })
+  .post('/projects/:projectId/files', async (c) => {
+    const { fileName, content } = (await c.req.json()) as {
+      fileName: string;
+      content: string;
+    };
+    if (!fileName || typeof fileName !== 'string') {
+      throw new AppError('BAD_REQUEST', 'fileName is required', undefined, 400);
+    }
+    if (typeof content !== 'string') {
+      throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
+    }
+    await createProjectFile(
+      c.req.param('projectId'),
+      fileName,
+      content,
+      c.get('userId') ?? undefined
+    );
+    return c.json({ fileName }, 201);
+  })
+  .delete('/projects/:projectId/files/:fileName', async (c) => {
+    await deleteProjectFile(
+      c.req.param('projectId'),
+      c.req.param('fileName'),
+      c.get('userId') ?? undefined
+    );
+    return c.body(null, 204);
+  })
+  .post('/projects/generate-index', async (c) => {
+    const result = await generateProjectIndex(c.get('userId') ?? undefined);
+    return c.json(result, 201);
   });
-
-  // POST /api/projects
-  fastify.post<{ Body: { name: string; slug?: string; description?: string } }>(
-    '/projects',
-    async (request, reply) => {
-      const { name, slug, description } = request.body as {
-        name: string;
-        slug?: string;
-        description?: string;
-      };
-      if (!name || typeof name !== 'string') {
-        throw new AppError('BAD_REQUEST', 'name is required', undefined, 400);
-      }
-      const project = await createProject({ name, slug, description }, request.userId ?? undefined);
-      return reply.status(201).send(project);
-    }
-  );
-
-  // GET /api/projects/:projectId
-  fastify.get<{ Params: { projectId: string } }>('/projects/:projectId', async (request, reply) => {
-    const { projectId } = request.params;
-    const project = await getProjectBySlug(projectId, request.userId ?? undefined);
-    return reply.send(project);
-  });
-
-  // DELETE /api/projects/:projectId
-  fastify.delete<{ Params: { projectId: string } }>(
-    '/projects/:projectId',
-    async (request, reply) => {
-      const { projectId } = request.params;
-      const project = await getProjectBySlug(projectId, request.userId ?? undefined);
-      await deleteProject(project.id, request.userId ?? undefined);
-      return reply.status(204).send();
-    }
-  );
-
-  // GET /api/projects/:projectId/files
-  fastify.get<{ Params: { projectId: string } }>(
-    '/projects/:projectId/files',
-    async (request, reply) => {
-      const { projectId } = request.params;
-      const files = await listProjectFiles(projectId, request.userId ?? undefined);
-      return reply.send({ files });
-    }
-  );
-
-  // GET /api/projects/:projectId/files/:fileName
-  fastify.get<{ Params: { projectId: string; fileName: string } }>(
-    '/projects/:projectId/files/:fileName',
-    async (request, reply) => {
-      const { projectId, fileName } = request.params;
-      const content = await getProjectFile(projectId, fileName, request.userId ?? undefined);
-      return reply.send({ content });
-    }
-  );
-
-  // PUT /api/projects/:projectId/files/:fileName
-  fastify.put<{ Params: { projectId: string; fileName: string }; Body: { content: string } }>(
-    '/projects/:projectId/files/:fileName',
-    async (request, reply) => {
-      const { projectId, fileName } = request.params;
-      const { content } = request.body as { content: string };
-      if (typeof content !== 'string') {
-        throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
-      }
-      await updateProjectFile(projectId, fileName, content, request.userId ?? undefined);
-      return reply.status(204).send();
-    }
-  );
-
-  // POST /api/projects/:projectId/files
-  fastify.post<{ Params: { projectId: string }; Body: { fileName: string; content: string } }>(
-    '/projects/:projectId/files',
-    async (request, reply) => {
-      const { projectId } = request.params;
-      const { fileName, content } = request.body as { fileName: string; content: string };
-      if (!fileName || typeof fileName !== 'string') {
-        throw new AppError('BAD_REQUEST', 'fileName is required', undefined, 400);
-      }
-      if (typeof content !== 'string') {
-        throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
-      }
-      await createProjectFile(projectId, fileName, content, request.userId ?? undefined);
-      return reply.status(201).send({ fileName });
-    }
-  );
-
-  // DELETE /api/projects/:projectId/files/:fileName
-  fastify.delete<{ Params: { projectId: string; fileName: string } }>(
-    '/projects/:projectId/files/:fileName',
-    async (request, reply) => {
-      const { projectId, fileName } = request.params;
-      await deleteProjectFile(projectId, fileName, request.userId ?? undefined);
-      return reply.status(204).send();
-    }
-  );
-
-  // POST /api/projects/generate-index
-  fastify.post('/projects/generate-index', async (request, reply) => {
-    const result = await generateProjectIndex(request.userId ?? undefined);
-    return reply.status(201).send(result);
-  });
-}

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "npm run dev --workspace=@wic/web",
     "dev:api": "npm run dev --workspace=@wic/api",
+    "dev:worker": "wrangler dev",
     "build": "npm run build --workspaces --if-present",
     "build:web": "npm run build --workspace=@wic/web",
     "build:api": "npm run build --workspace=@wic/api",

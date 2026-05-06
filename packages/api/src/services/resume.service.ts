@@ -1,12 +1,16 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { ulid } from 'ulid';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
-import { isR2Configured, uploadObject, deleteObject, buildObjectKey } from './storage.service.js';
+import {
+  isR2Configured,
+  isStorageAvailable,
+  uploadObject,
+  deleteObject,
+  buildObjectKey,
+} from './storage.service.js';
 import { enqueueChange } from './change-queue.service.js';
 import {
   parseResumeWithAI,
@@ -302,6 +306,27 @@ function exportToDTO(e: typeof resumeExports.$inferSelect): ResumeExportDTO {
   };
 }
 
+async function writeProjectFile(
+  slug: string,
+  fileName: string,
+  content: string,
+  config: ReturnType<typeof getConfig>
+): Promise<void> {
+  if (isStorageAvailable()) {
+    await uploadObject(`projects/${slug}/${fileName}`, content, 'text/markdown');
+  } else {
+    const { promises: fs } = await import('node:fs');
+    const path = await import('node:path');
+    const projectDir = path.join(config.dataDir, 'projects', slug);
+    await fs.mkdir(projectDir, { recursive: true });
+    const filePath = path.join(projectDir, fileName);
+    if (!filePath.startsWith(projectDir)) {
+      throw new Error('Invalid filename: path traversal detected');
+    }
+    await fs.writeFile(filePath, content, 'utf-8');
+  }
+}
+
 export async function uploadResume(
   fileBuffer: Buffer,
   fileName: string,
@@ -318,10 +343,12 @@ export async function uploadResume(
   const storedFileName = `${resumeId}${ext}`;
 
   let filePath: string;
-  if (isR2Configured()) {
+  if (isStorageAvailable()) {
     filePath = buildObjectKey(userId ?? null, 'resumes', storedFileName);
     await uploadObject(filePath, fileBuffer, mimeType);
   } else {
+    const { promises: fs } = await import('node:fs');
+    const path = await import('node:path');
     const resumeDir = path.join(config.dataDir, 'resumes');
     await fs.mkdir(resumeDir, { recursive: true });
     filePath = path.join(resumeDir, storedFileName);
@@ -350,10 +377,12 @@ export async function uploadResume(
   const exportFileName = `${exportId}_star.md`;
 
   let exportPath: string;
-  if (isR2Configured()) {
+  if (isStorageAvailable()) {
     exportPath = buildObjectKey(userId ?? null, 'resume-exports', exportFileName);
     await uploadObject(exportPath, Buffer.from(starMarkdown, 'utf-8'), 'text/markdown');
   } else {
+    const { promises: fs } = await import('node:fs');
+    const path = await import('node:path');
     const resumeDir = path.join(config.dataDir, 'resumes');
     exportPath = path.join(resumeDir, exportFileName);
     await fs.writeFile(exportPath, starMarkdown, 'utf-8');
@@ -392,15 +421,13 @@ export async function uploadResume(
           const slug = toProjectSlug(aiProject.company) || resumeId;
           const project = await getOrCreateProjectBySlug(slug, aiProject.company);
           await addCompanyToCatalog(aiProject.company);
-          const projectDir = path.join(config.dataDir, 'projects', project.slug);
-          await fs.mkdir(projectDir, { recursive: true });
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
-          const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
-          const projectFilePath = path.join(projectDir, `${safeBase}.md`);
-          if (!path.resolve(projectFilePath).startsWith(path.resolve(projectDir) + path.sep)) {
-            throw new Error('Invalid filename: path traversal detected');
-          }
-          await fs.writeFile(projectFilePath, projectMarkdown, 'utf-8');
+          const safeBase = fileName
+            .split(/[/\\]/)
+            .pop()!
+            .replace(/\.[^.]+$/, '')
+            .replace(/[^a-zA-Z0-9._-]/g, '_');
+          await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
         }
       }
     } catch (err) {
@@ -415,15 +442,13 @@ export async function uploadResume(
       const slug = toProjectSlug(entry.company) || resumeId;
       const project = await getOrCreateProjectBySlug(slug, entry.company);
       await addCompanyToCatalog(entry.company);
-      const projectDir = path.join(config.dataDir, 'projects', project.slug);
-      await fs.mkdir(projectDir, { recursive: true });
       const projectMarkdown = generateProjectMarkdown(entry);
-      const safeBase = path.basename(fileName).replace(/\.[^.]+$/, '');
-      const projectFilePath2 = path.join(projectDir, `${safeBase}.md`);
-      if (!path.resolve(projectFilePath2).startsWith(path.resolve(projectDir) + path.sep)) {
-        throw new Error('Invalid filename: path traversal detected');
-      }
-      await fs.writeFile(projectFilePath2, projectMarkdown, 'utf-8');
+      const safeBase = fileName
+        .split(/[/\\]/)
+        .pop()!
+        .replace(/\.[^.]+$/, '')
+        .replace(/[^a-zA-Z0-9._-]/g, '_');
+      await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
     }
   }
 
@@ -497,19 +522,19 @@ export async function deleteResume(resumeId: string, userId?: string): Promise<v
   const [resume] = await db.select().from(resumes).where(whereClause).limit(1);
   if (!resume) throw new NotFoundError('Resume');
 
-  const useR2 = isR2Configured();
-
-  if (useR2) {
+  if (isStorageAvailable()) {
     await deleteObject(resume.filePath).catch(() => null);
   } else {
+    const { promises: fs } = await import('node:fs');
     await fs.unlink(resume.filePath).catch(() => null);
   }
 
   const exports = await db.select().from(resumeExports).where(eq(resumeExports.resumeId, resumeId));
   for (const exp of exports) {
-    if (useR2) {
+    if (isStorageAvailable()) {
       await deleteObject(exp.filePath).catch(() => null);
     } else {
+      const { promises: fs } = await import('node:fs');
       await fs.unlink(exp.filePath).catch(() => null);
     }
   }

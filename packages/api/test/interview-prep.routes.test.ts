@@ -163,7 +163,7 @@ describe('Interview Prep Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -183,10 +183,8 @@ describe('Interview Prep Routes', () => {
         warnings: [],
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
           jobFitAnalysisId: '01HXK5R3J7Q8N2M4P6W9Y1Z3D8',
@@ -194,10 +192,11 @@ describe('Interview Prep Routes', () => {
           timeAvailable: '1hr',
           focusAreas: ['leadership', 'technical', 'problem_solving'],
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(201);
-      const body = res.json();
+      expect(res.status).toBe(201);
+      const body = await res.json();
       expect(body.interviewPrep.id).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3P1');
       expect(body.interviewPrep.applicationId).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3A5');
       expect(body.interviewPrep.jobFitAnalysisId).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3D8');
@@ -226,17 +225,16 @@ describe('Interview Prep Routes', () => {
         ],
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(201);
-      const body = res.json();
+      expect(res.status).toBe(201);
+      const body = await res.json();
       expect(body.warnings).toHaveLength(1);
       expect(body.warnings[0].code).toBe('NO_FIT_ANALYSIS');
     });
@@ -253,17 +251,16 @@ describe('Interview Prep Routes', () => {
         ],
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(201);
-      expect(res.json().warnings[0].code).toBe('LIMITED_STAR_ENTRIES');
+      expect(res.status).toBe(201);
+      expect((await res.json()).warnings[0].code).toBe('LIMITED_STAR_ENTRIES');
     });
 
     it('returns 422 with CATALOG_EMPTY when user has no STAR entries (AC 10j row 10)', async () => {
@@ -276,59 +273,55 @@ describe('Interview Prep Routes', () => {
         )
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(422);
-      expect(res.json().error.code).toBe('CATALOG_EMPTY');
+      expect(res.status).toBe(422);
+      expect((await res.json()).error.code).toBe('CATALOG_EMPTY');
     });
 
     it('returns 400 when applicationId is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           interviewType: 'behavioral',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('BAD_REQUEST');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns 400 when interviewType is invalid', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
           interviewType: 'dance_off',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
 
     it('returns 400 when timeAvailable is invalid', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
           timeAvailable: '45min',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
 
     it('returns 404 when application does not exist', async () => {
@@ -336,16 +329,15 @@ describe('Interview Prep Routes', () => {
         new NotFoundError('Application')
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: 'nonexistent-app-id',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
 
     it('returns existing prep (200) instead of 201 when prep already exists for the application', async () => {
@@ -359,17 +351,16 @@ describe('Interview Prep Routes', () => {
         existing: true,
       } as any);
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps', {
         method: 'POST',
-        url: '/api/interview-preps',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
       // Should return 200 (existing) or 201 (newly created) — either is acceptable
-      expect([200, 201]).toContain(res.statusCode);
+      expect([200, 201]).toContain(res.status);
     });
 
     it('passes all valid interviewType values', async () => {
@@ -383,17 +374,19 @@ describe('Interview Prep Routes', () => {
           warnings: [],
         });
 
-        const res = await app.inject({
+        const res = await app.request('/api/interview-preps', {
           method: 'POST',
-          url: '/api/interview-preps',
-          headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             applicationId: '01HXK5R3J7Q8N2M4P6W9Y1Z3A5',
             interviewType: type,
           }),
+          headers: {
+            'Content-Type': 'application/json',
+            ...{ 'content-type': 'application/json' },
+          },
         });
 
-        expect(res.statusCode).toBe(201);
+        expect(res.status).toBe(201);
       }
     });
   });
@@ -409,13 +402,12 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.interviewPrep.id).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3P1');
       expect(body.application.status).toBe('interview');
       expect(body.fitAnalysis.recommendation).toBe('moderate_fit');
@@ -434,13 +426,12 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
       });
 
-      expect(res.statusCode).toBe(200);
-      const { stories } = res.json().interviewPrep;
+      expect(res.status).toBe(200);
+      const { stories } = (await res.json()).interviewPrep;
       expect(stories).toHaveLength(3);
       expect(stories[0].themes).toContain('leadership');
       stories.forEach((s: any) => {
@@ -457,13 +448,12 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
       });
 
-      expect(res.statusCode).toBe(200);
-      const { stories } = res.json().interviewPrep;
+      expect(res.status).toBe(200);
+      const { stories } = (await res.json()).interviewPrep;
       stories.forEach((s: any) => {
         expect(s).toHaveProperty('oneMinVersion');
         expect(s).toHaveProperty('twoMinVersion');
@@ -491,13 +481,12 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
       });
 
-      expect(res.statusCode).toBe(200);
-      const { gapMitigations } = res.json().interviewPrep;
+      expect(res.status).toBe(200);
+      const { gapMitigations } = (await res.json()).interviewPrep;
       expect(gapMitigations).toHaveLength(2);
       gapMitigations.forEach((g: any) => {
         expect(g.strategies).toHaveProperty('acknowledgePivot');
@@ -524,13 +513,12 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
       });
 
-      expect(res.statusCode).toBe(200);
-      const { questions } = res.json().interviewPrep;
+      expect(res.status).toBe(200);
+      const { questions } = (await res.json()).interviewPrep;
       const behavioralCount = questions.filter((q: any) => q.category === 'behavioral').length;
       expect(behavioralCount).toBeGreaterThanOrEqual(2);
     });
@@ -542,13 +530,12 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: undefined,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.application).toBeDefined();
       expect(body.application.jobTitle).toBe('Senior Software Engineer');
       expect(body.application.company).toBe('Acme Corp');
@@ -558,12 +545,9 @@ describe('Interview Prep Routes', () => {
     it('returns 404 when prep not found', async () => {
       vi.mocked(prepService.getInterviewPrep).mockRejectedValue(new NotFoundError('InterviewPrep'));
 
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/interview-preps/nonexistent',
-      });
+      const res = await app.request('/api/interview-preps/nonexistent', { method: 'GET' });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -578,13 +562,12 @@ describe('Interview Prep Routes', () => {
         fitAnalysis: mockFitAnalysis,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXK5R3J7Q8N2M4P6W9Y1Z3A5/interview-prep', {
         method: 'GET',
-        url: '/api/applications/01HXK5R3J7Q8N2M4P6W9Y1Z3A5/interview-prep',
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().interviewPrep.applicationId).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3A5');
+      expect(res.status).toBe(200);
+      expect((await res.json()).interviewPrep.applicationId).toBe('01HXK5R3J7Q8N2M4P6W9Y1Z3A5');
     });
 
     it('returns 404 when no prep exists for the application', async () => {
@@ -592,12 +575,11 @@ describe('Interview Prep Routes', () => {
         new NotFoundError('InterviewPrep')
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications/app-with-no-prep/interview-prep', {
         method: 'GET',
-        url: '/api/applications/app-with-no-prep/interview-prep',
       });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -611,18 +593,17 @@ describe('Interview Prep Routes', () => {
         completenessChange: 5,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'PATCH',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           storyUpdates: [{ storyId: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1', isFavorite: true }],
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().interviewPrep.stories[0].isFavorite).toBe(true);
+      expect(res.status).toBe(200);
+      expect((await res.json()).interviewPrep.stories[0].isFavorite).toBe(true);
     });
 
     it('returns 200 when linking a story to a question', async () => {
@@ -637,10 +618,8 @@ describe('Interview Prep Routes', () => {
         completenessChange: 10,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'PATCH',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           questionUpdates: [
             {
@@ -651,10 +630,11 @@ describe('Interview Prep Routes', () => {
           ],
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().interviewPrep.questions[0].linkedStoryId).toBe(
+      expect(res.status).toBe(200);
+      expect((await res.json()).interviewPrep.questions[0].linkedStoryId).toBe(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3S1'
       );
     });
@@ -671,10 +651,8 @@ describe('Interview Prep Routes', () => {
         completenessChange: 15,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'PATCH',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           gapUpdates: [
             {
@@ -685,10 +663,11 @@ describe('Interview Prep Routes', () => {
           ],
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.interviewPrep.gapMitigations[0].isAddressed).toBe(true);
       expect(body.interviewPrep.gapMitigations[0].selectedStrategy).toBe('acknowledge_pivot');
     });
@@ -700,49 +679,46 @@ describe('Interview Prep Routes', () => {
         completenessChange: 40,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'PATCH',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           focusAreas: ['leadership', 'technical'],
           version: 2,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.completenessChange).toBe(40);
     });
 
     it('returns 409 on optimistic lock version conflict', async () => {
       vi.mocked(prepService.updateInterviewPrep).mockRejectedValue(new VersionConflictError());
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'PATCH',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           focusAreas: ['leadership'],
           version: 99,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error.code).toBe('VERSION_CONFLICT');
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('VERSION_CONFLICT');
     });
 
     it('returns 400 when version field is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1', {
         method: 'PATCH',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           focusAreas: ['leadership'],
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
 
     it('returns 404 when prep not found', async () => {
@@ -750,14 +726,13 @@ describe('Interview Prep Routes', () => {
         new NotFoundError('InterviewPrep')
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/nonexistent', {
         method: 'PATCH',
-        url: '/api/interview-preps/nonexistent',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ version: 1 }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -774,15 +749,15 @@ describe('Interview Prep Routes', () => {
     it('returns markdown binary when format=pdf (fallback) and no Accept: application/json header', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf',
-      });
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf',
+        { method: 'GET' }
+      );
 
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toBe('text/markdown');
-      expect(res.headers['content-disposition']).toContain('attachment');
-      expect(res.headers['content-disposition']).toContain(
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('text/markdown');
+      expect(res.headers.get('content-disposition')).toContain('attachment');
+      expect(res.headers.get('content-disposition')).toContain(
         'interview-prep-acme-corp-2026-04-28.md'
       );
     });
@@ -790,14 +765,13 @@ describe('Interview Prep Routes', () => {
     it('returns JSON with base64 content when Accept: application/json header is set for PDF (fallback)', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf',
-        headers: { accept: 'application/json' },
-      });
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf',
+        { method: 'GET', headers: { accept: 'application/json' } }
+      );
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.exportId).toBeDefined();
       expect(body.format).toBe('pdf');
       expect(body.filename).toContain('.md');
@@ -812,13 +786,13 @@ describe('Interview Prep Routes', () => {
       };
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mdResult);
 
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=markdown',
-      });
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=markdown',
+        { method: 'GET' }
+      );
 
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toContain('text/markdown');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/markdown');
     });
 
     it('returns print-friendly HTML when format=print', async () => {
@@ -829,33 +803,32 @@ describe('Interview Prep Routes', () => {
       };
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(printResult);
 
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=print',
-      });
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=print',
+        { method: 'GET' }
+      );
 
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/html');
     });
 
     it('returns 400 when format is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export', {
         method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export',
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('BAD_REQUEST');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns 400 when format is invalid', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=docx',
-      });
+      const res = await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=docx',
+        { method: 'GET' }
+      );
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('BAD_REQUEST');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns 404 when prep not found', async () => {
@@ -863,21 +836,20 @@ describe('Interview Prep Routes', () => {
         new NotFoundError('InterviewPrep')
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/nonexistent/export?format=pdf', {
         method: 'GET',
-        url: '/api/interview-preps/nonexistent/export?format=pdf',
       });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
 
     it('passes sections query param to service', async () => {
       vi.mocked(prepService.exportInterviewPrep).mockResolvedValue(mockExportResult);
 
-      await app.inject({
-        method: 'GET',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf&sections=stories,questions',
-      });
+      await app.request(
+        '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf&sections=stories,questions',
+        { method: 'GET' }
+      );
 
       expect(prepService.exportInterviewPrep).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
@@ -916,10 +888,8 @@ describe('Interview Prep Routes', () => {
         },
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'full_interview',
           startedAt: '2026-04-28T14:00:00.000Z',
@@ -944,10 +914,11 @@ describe('Interview Prep Routes', () => {
           ],
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.session.type).toBe('full_interview');
       expect(body.session.questionsAttempted).toBe(5);
       expect(body.summary.questionsAttempted).toBe(5);
@@ -972,10 +943,8 @@ describe('Interview Prep Routes', () => {
         },
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'single_question',
           startedAt: '2026-04-28T14:00:00.000Z',
@@ -984,10 +953,11 @@ describe('Interview Prep Routes', () => {
           ],
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().session.type).toBe('single_question');
+      expect(res.status).toBe(200);
+      expect((await res.json()).session.type).toBe('single_question');
     });
 
     it('returns 200 for a timed_responses practice session', async () => {
@@ -1004,10 +974,8 @@ describe('Interview Prep Routes', () => {
         },
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'timed_responses',
           startedAt: '2026-04-28T14:00:00.000Z',
@@ -1016,70 +984,67 @@ describe('Interview Prep Routes', () => {
           ],
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().summary.improvementAreas).toHaveLength(2);
+      expect(res.status).toBe(200);
+      expect((await res.json()).summary.improvementAreas).toHaveLength(2);
     });
 
     it('returns 400 when type field is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           startedAt: '2026-04-28T14:00:00.000Z',
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
 
     it('returns 400 when startedAt field is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'single_question',
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
 
     it('returns 400 when version field is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'full_interview',
           startedAt: '2026-04-28T14:00:00.000Z',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
 
     it('returns 409 on version conflict', async () => {
       vi.mocked(prepService.logPracticeSession).mockRejectedValue(new VersionConflictError());
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'full_interview',
           startedAt: '2026-04-28T14:00:00.000Z',
           version: 99,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error.code).toBe('VERSION_CONFLICT');
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('VERSION_CONFLICT');
     });
 
     it('returns 404 when prep not found', async () => {
@@ -1087,18 +1052,17 @@ describe('Interview Prep Routes', () => {
         new NotFoundError('InterviewPrep')
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/nonexistent/practice', {
         method: 'POST',
-        url: '/api/interview-preps/nonexistent/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'single_question',
           startedAt: '2026-04-28T14:00:00.000Z',
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
 
     it('updates interviewPrep practice log in response (AC 10j row 7 — practice mode tracking)', async () => {
@@ -1122,10 +1086,8 @@ describe('Interview Prep Routes', () => {
       };
       vi.mocked(prepService.logPracticeSession).mockResolvedValue(sessionResult);
 
-      const res = await app.inject({
+      const res = await app.request('/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice', {
         method: 'POST',
-        url: '/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'full_interview',
           startedAt: '2026-04-28T14:00:00.000Z',
@@ -1134,10 +1096,11 @@ describe('Interview Prep Routes', () => {
           ],
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.interviewPrep.practiceLog).toHaveLength(1);
       expect(body.interviewPrep.stories[0].practiceCount).toBe(1);
       expect(body.interviewPrep.stories[0].confidenceLevel).toBe('comfortable');

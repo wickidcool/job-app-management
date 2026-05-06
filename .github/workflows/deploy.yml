@@ -81,7 +81,9 @@ jobs:
 
   deploy-preview:
     name: Deploy Preview
-    needs: [lint-and-test, e2e-tests]
+    # Only requires lint-and-test — E2E tests need a live environment and
+    # should not gate PR preview deploys.
+    needs: [lint-and-test]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     environment: dev
@@ -100,29 +102,81 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate required secrets
+        run: |
+          missing=""
+          [ -z "$SUPABASE_URL" ]         && missing="$missing SUPABASE_URL"
+          [ -z "$SUPABASE_ANON_KEY" ]    && missing="$missing SUPABASE_ANON_KEY"
+          [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
+          [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
+          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -z "$CF_ACCOUNT_ID" ]        && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Required secrets/vars not configured:$missing"
+            echo "Set these in GitHub → Settings → Secrets and variables (repo or 'dev' environment)."
+            exit 1
+          fi
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Run database migrations
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
+          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          export DATABASE_URL
+          npm run db:migrate --workspace=@wic/api
+
       - name: Build for preview
         run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
-      - name: Deploy to Cloudflare Pages (Preview)
+      - name: Ensure preview R2 bucket exists
+        # Idempotent — exits 0 even if the bucket already exists.
+        run: npx wrangler r2 bucket create jobtrail-documents-dev || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy preview to Cloudflare Workers
         id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy packages/web/dist --project-name=jobtrail --branch=${{ github.head_ref }}
+          command: deploy --env preview
+          secrets: |
+            SUPABASE_URL
+            SUPABASE_ANON_KEY
+            SUPABASE_JWT_SECRET
+            ANTHROPIC_API_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Comment preview URL on PR
         uses: actions/github-script@v7
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
         with:
           script: |
+            const url = process.env.DEPLOY_URL || '(URL not available — check workflow logs)';
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## Preview Deployment\n\nDeployed to: ${{ steps.deploy.outputs.deployment-url }}`
+              body: `## Preview Deployment\n\nDeployed to: ${url}`
             })
 
   deploy-production:
@@ -147,10 +201,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate required secrets
+        run: |
+          missing=""
+          [ -z "$SUPABASE_URL" ]         && missing="$missing SUPABASE_URL"
+          [ -z "$SUPABASE_ANON_KEY" ]    && missing="$missing SUPABASE_ANON_KEY"
+          [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
+          [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
+          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -z "$CF_ACCOUNT_ID" ]        && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Required secrets/vars not configured:$missing"
+            echo "Set these in GitHub → Settings → Secrets and variables (repo or 'production' environment)."
+            exit 1
+          fi
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Run database migrations
         env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-        run: npm run db:migrate --workspace=@wic/api
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
+          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          export DATABASE_URL
+          npm run db:migrate --workspace=@wic/api
 
       - name: Build for production
         run: npm run build
@@ -158,9 +238,26 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
-      - name: Deploy to Cloudflare Pages (Production)
+      - name: Ensure production R2 bucket exists
+        run: npx wrangler r2 bucket create jobtrail-documents || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy to Cloudflare Workers (Production)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy packages/web/dist --project-name=jobtrail --branch=main
+          command: deploy
+          secrets: |
+            ANTHROPIC_API_KEY
+            SUPABASE_URL
+            SUPABASE_ANON_KEY
+            SUPABASE_JWT_SECRET
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}

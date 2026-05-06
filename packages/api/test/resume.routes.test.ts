@@ -46,7 +46,7 @@ describe('Resume Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -62,47 +62,27 @@ describe('Resume Routes', () => {
       const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
       form.append('file', blob, 'resume.pdf');
 
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/resumes/upload',
-        headers: {
-          'content-type': 'multipart/form-data; boundary=----boundary',
-        },
-        payload:
-          '------boundary\r\nContent-Disposition: form-data; name="file"; filename="resume.pdf"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.4 fake\r\n------boundary--\r\n',
-      });
+      const res = await app.request('/api/resumes/upload', { method: 'POST', body: form });
 
-      expect(res.statusCode).toBe(201);
-      const body = res.json();
+      expect(res.status).toBe(201);
+      const body = await res.json();
       expect(body.resume).toBeDefined();
       expect(body.export).toBeDefined();
     });
 
     it('returns 415 for unsupported file type', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/resumes/upload',
-        headers: {
-          'content-type': 'multipart/form-data; boundary=----boundary',
-        },
-        payload:
-          '------boundary\r\nContent-Disposition: form-data; name="file"; filename="resume.txt"\r\nContent-Type: text/plain\r\n\r\nhello\r\n------boundary--\r\n',
-      });
+      const form = new FormData();
+      const blob = new Blob(['hello'], { type: 'text/plain' });
+      form.append('file', blob, 'resume.txt');
+      const res = await app.request('/api/resumes/upload', { method: 'POST', body: form });
 
-      expect(res.statusCode).toBe(415);
+      expect(res.status).toBe(415);
     });
 
     it('returns 400 when no file provided', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/resumes/upload',
-        headers: {
-          'content-type': 'multipart/form-data; boundary=----boundary',
-        },
-        payload: '------boundary--\r\n',
-      });
+      const res = await app.request('/api/resumes/upload', { method: 'POST' });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
   });
 
@@ -110,13 +90,10 @@ describe('Resume Routes', () => {
     it('returns list of exports for a resume', async () => {
       vi.mocked(resumeService.listResumeExports).mockResolvedValue([mockExport]);
 
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/resumes/${mockResume.id}/exports`,
-      });
+      const res = await app.request(`/api/resumes/${mockResume.id}/exports`, { method: 'GET' });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.exports).toHaveLength(1);
       expect(body.exports[0].resumeId).toBe(mockResume.id);
     });
@@ -124,12 +101,9 @@ describe('Resume Routes', () => {
     it('returns 404 when resume not found', async () => {
       vi.mocked(resumeService.listResumeExports).mockRejectedValue(new NotFoundError('Resume'));
 
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/resumes/nonexistent/exports',
-      });
+      const res = await app.request('/api/resumes/nonexistent/exports', { method: 'GET' });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -137,13 +111,12 @@ describe('Resume Routes', () => {
     it('returns a single export', async () => {
       vi.mocked(resumeService.getResumeExport).mockResolvedValue(mockExport);
 
-      const res = await app.inject({
+      const res = await app.request(`/api/resumes/${mockResume.id}/exports/${mockExport.id}`, {
         method: 'GET',
-        url: `/api/resumes/${mockResume.id}/exports/${mockExport.id}`,
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.id).toBe(mockExport.id);
       expect(body.exportType).toBe('star_markdown');
     });
@@ -153,12 +126,11 @@ describe('Resume Routes', () => {
         new NotFoundError('Resume export')
       );
 
-      const res = await app.inject({
+      const res = await app.request(`/api/resumes/${mockResume.id}/exports/nonexistent`, {
         method: 'GET',
-        url: `/api/resumes/${mockResume.id}/exports/nonexistent`,
       });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 });

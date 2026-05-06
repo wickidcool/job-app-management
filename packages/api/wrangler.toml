@@ -1,0 +1,58 @@
+# Cloudflare Workers configuration for Job Application Manager API
+# See: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "jobapp-api"
+main = "src/worker.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Build configuration
+[build]
+command = "npm run build"
+
+# Observability
+[observability]
+enabled = true
+
+# Production environment variables
+[vars]
+NODE_ENV = "production"
+
+# Hyperdrive PostgreSQL connection pooling
+# Create with: wrangler hyperdrive create jobapp-db --connection-string="$DATABASE_URL"
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "HYPERDRIVE_CONFIG_ID_PLACEHOLDER"
+
+# R2 bucket for document storage (resumes, cover letters)
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "jobtrail-documents"
+
+# Development environment
+[env.dev]
+name = "jobapp-api-dev"
+
+[env.dev.vars]
+NODE_ENV = "development"
+
+[[env.dev.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "jobtrail-documents-dev"
+
+# Staging environment
+[env.staging]
+name = "jobapp-api-staging"
+
+[env.staging.vars]
+NODE_ENV = "staging"
+
+[[env.staging.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "jobtrail-documents-staging"
+
+# Secrets (set via wrangler secret put):
+# - SUPABASE_JWT_SECRET
+# - ANTHROPIC_API_KEY
+# - SUPABASE_URL
+# - SUPABASE_ANON_KEY

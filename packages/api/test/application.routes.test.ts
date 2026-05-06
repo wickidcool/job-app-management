@@ -38,7 +38,7 @@ describe('Application Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -49,9 +49,9 @@ describe('Application Routes', () => {
         totalCount: 1,
       });
 
-      const res = await app.inject({ method: 'GET', url: '/api/applications' });
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      const res = await app.request('/api/applications', { method: 'GET' });
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.applications).toHaveLength(1);
       expect(body.totalCount).toBe(1);
     });
@@ -62,9 +62,8 @@ describe('Application Routes', () => {
         totalCount: 0,
       });
 
-      await app.inject({
+      await app.request('/api/applications?status=applied&sortBy=company&limit=10', {
         method: 'GET',
-        url: '/api/applications?status=applied&sortBy=company&limit=10',
       });
 
       expect(appService.listApplications).toHaveBeenCalledWith(
@@ -74,11 +73,8 @@ describe('Application Routes', () => {
     });
 
     it('returns 400 for invalid sort field', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/applications?sortBy=invalid',
-      });
-      expect(res.statusCode).toBe(400);
+      const res = await app.request('/api/applications?sortBy=invalid', { method: 'GET' });
+      expect(res.status).toBe(400);
     });
   });
 
@@ -96,12 +92,11 @@ describe('Application Routes', () => {
         ],
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXTEST000000000000000001', {
         method: 'GET',
-        url: '/api/applications/01HXTEST000000000000000001',
       });
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.application.id).toBe('01HXTEST000000000000000001');
       expect(body.statusHistory).toHaveLength(1);
     });
@@ -109,12 +104,9 @@ describe('Application Routes', () => {
     it('returns 404 when not found', async () => {
       vi.mocked(appService.getApplication).mockRejectedValue(new NotFoundError('Application'));
 
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/applications/nonexistent',
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().error.code).toBe('NOT_FOUND');
+      const res = await app.request('/api/applications/nonexistent', { method: 'GET' });
+      expect(res.status).toBe(404);
+      expect((await res.json()).error.code).toBe('NOT_FOUND');
     });
   });
 
@@ -124,31 +116,31 @@ describe('Application Routes', () => {
         application: mockApplication,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications', {
         method: 'POST',
-        url: '/api/applications',
-        payload: { jobTitle: 'Senior Software Engineer', company: 'Acme Corp' },
+        body: JSON.stringify({ jobTitle: 'Senior Software Engineer', company: 'Acme Corp' }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(201);
-      expect(res.json().application.id).toBe(mockApplication.id);
+      expect(res.status).toBe(201);
+      expect((await res.json()).application.id).toBe(mockApplication.id);
     });
 
     it('returns 400 for missing required fields', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/applications', {
         method: 'POST',
-        url: '/api/applications',
-        payload: { company: 'Acme Corp' }, // missing jobTitle
+        body: JSON.stringify({ company: 'Acme Corp' }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
 
     it('returns 400 for empty jobTitle', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/applications', {
         method: 'POST',
-        url: '/api/applications',
-        payload: { jobTitle: '', company: 'Acme Corp' },
+        body: JSON.stringify({ jobTitle: '', company: 'Acme Corp' }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
   });
 
@@ -157,22 +149,22 @@ describe('Application Routes', () => {
       const updated = { ...mockApplication, jobTitle: 'Staff Engineer', version: 2 };
       vi.mocked(appService.updateApplication).mockResolvedValue({ application: updated });
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXTEST000000000000000001', {
         method: 'PATCH',
-        url: '/api/applications/01HXTEST000000000000000001',
-        payload: { jobTitle: 'Staff Engineer', version: 1 },
+        body: JSON.stringify({ jobTitle: 'Staff Engineer', version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().application.jobTitle).toBe('Staff Engineer');
+      expect(res.status).toBe(200);
+      expect((await res.json()).application.jobTitle).toBe('Staff Engineer');
     });
 
     it('returns 400 when version is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXTEST000000000000000001', {
         method: 'PATCH',
-        url: '/api/applications/01HXTEST000000000000000001',
-        payload: { jobTitle: 'Staff Engineer' },
+        body: JSON.stringify({ jobTitle: 'Staff Engineer' }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
   });
 
@@ -180,21 +172,17 @@ describe('Application Routes', () => {
     it('returns 204 on success', async () => {
       vi.mocked(appService.deleteApplication).mockResolvedValue(undefined);
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXTEST000000000000000001', {
         method: 'DELETE',
-        url: '/api/applications/01HXTEST000000000000000001',
       });
-      expect(res.statusCode).toBe(204);
+      expect(res.status).toBe(204);
     });
 
     it('returns 404 when not found', async () => {
       vi.mocked(appService.deleteApplication).mockRejectedValue(new NotFoundError('Application'));
 
-      const res = await app.inject({
-        method: 'DELETE',
-        url: '/api/applications/nonexistent',
-      });
-      expect(res.statusCode).toBe(404);
+      const res = await app.request('/api/applications/nonexistent', { method: 'DELETE' });
+      expect(res.status).toBe(404);
     });
   });
 
@@ -219,14 +207,15 @@ describe('Application Routes', () => {
         ],
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXTEST000000000000000001/status', {
         method: 'POST',
-        url: '/api/applications/01HXTEST000000000000000001/status',
-        payload: { status: 'applied', version: 1 },
+        body: JSON.stringify({ status: 'applied', version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().application.status).toBe('applied');
-      expect(res.json().statusHistory).toHaveLength(2);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.application.status).toBe('applied');
+      expect(body.statusHistory).toHaveLength(2);
     });
 
     it('returns 400 for invalid transition', async () => {
@@ -234,22 +223,22 @@ describe('Application Routes', () => {
         new InvalidTransitionError('saved', 'offer', ['applied', 'withdrawn'])
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXTEST000000000000000001/status', {
         method: 'POST',
-        url: '/api/applications/01HXTEST000000000000000001/status',
-        payload: { status: 'offer', version: 1 },
+        body: JSON.stringify({ status: 'offer', version: 1 }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('INVALID_STATUS_TRANSITION');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('INVALID_STATUS_TRANSITION');
     });
 
     it('returns 400 for missing version', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/applications/01HXTEST000000000000000001/status', {
         method: 'POST',
-        url: '/api/applications/01HXTEST000000000000000001/status',
-        payload: { status: 'applied' },
+        body: JSON.stringify({ status: 'applied' }),
+        headers: { 'Content-Type': 'application/json' },
       });
-      expect(res.statusCode).toBe(400);
+      expect(res.status).toBe(400);
     });
   });
 });

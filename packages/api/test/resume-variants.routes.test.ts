@@ -96,7 +96,7 @@ describe('Resume Variants Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
-    app = buildApp({ logger: false });
+    app = buildApp();
     vi.clearAllMocks();
   });
 
@@ -113,18 +113,17 @@ describe('Resume Variants Routes', () => {
         warnings: [],
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/generate', {
         method: 'POST',
-        url: '/api/resume-variants/generate',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           jobDescriptionText:
             'Build great software with a strong engineering team to ship products fast.',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(201);
-      const body = res.json();
+      expect(res.status).toBe(201);
+      const body = await res.json();
       expect(body.variant.id).toBe('01HZ_VAR_001');
       expect(variantService.generateResumeVariant).toHaveBeenCalledOnce();
     });
@@ -137,15 +136,14 @@ describe('Resume Variants Routes', () => {
         )
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/generate', {
         method: 'POST',
-        url: '/api/resume-variants/generate',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('JOB_CONTEXT_REQUIRED');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('JOB_CONTEXT_REQUIRED');
     });
 
     it('returns 422 when catalog is empty', async () => {
@@ -158,18 +156,17 @@ describe('Resume Variants Routes', () => {
         )
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/generate', {
         method: 'POST',
-        url: '/api/resume-variants/generate',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           jobDescriptionText:
             'Build great software with a strong engineering team to ship products fast.',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(422);
-      expect(res.json().error.code).toBe('CATALOG_EMPTY');
+      expect(res.status).toBe(422);
+      expect((await res.json()).error.code).toBe('CATALOG_EMPTY');
     });
   });
 
@@ -182,10 +179,10 @@ describe('Resume Variants Routes', () => {
         nextCursor: undefined,
       });
 
-      const res = await app.inject({ method: 'GET', url: '/api/resume-variants' });
+      const res = await app.request('/api/resume-variants', { method: 'GET' });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.variants).toHaveLength(1);
       expect(variantService.listResumeVariants).toHaveBeenCalledOnce();
     });
@@ -196,9 +193,8 @@ describe('Resume Variants Routes', () => {
         nextCursor: undefined,
       });
 
-      await app.inject({
+      await app.request('/api/resume-variants?status=draft&company=Acme&limit=10', {
         method: 'GET',
-        url: '/api/resume-variants?status=draft&company=Acme&limit=10',
       });
 
       expect(variantService.listResumeVariants).toHaveBeenCalledWith(
@@ -214,10 +210,10 @@ describe('Resume Variants Routes', () => {
     it('returns 200 with variant on success', async () => {
       vi.mocked(variantService.getResumeVariant).mockResolvedValue(mockVariant);
 
-      const res = await app.inject({ method: 'GET', url: '/api/resume-variants/01HZ_VAR_001' });
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001', { method: 'GET' });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().id).toBe('01HZ_VAR_001');
+      expect(res.status).toBe(200);
+      expect((await res.json()).id).toBe('01HZ_VAR_001');
     });
 
     it('returns 404 when variant not found', async () => {
@@ -225,9 +221,9 @@ describe('Resume Variants Routes', () => {
         new NotFoundError('ResumeVariant')
       );
 
-      const res = await app.inject({ method: 'GET', url: '/api/resume-variants/nonexistent' });
+      const res = await app.request('/api/resume-variants/nonexistent', { method: 'GET' });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -238,29 +234,27 @@ describe('Resume Variants Routes', () => {
       const updated = { ...mockVariant, title: 'Updated Title', version: 2 };
       vi.mocked(variantService.updateResumeVariant).mockResolvedValue(updated);
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001', {
         method: 'PATCH',
-        url: '/api/resume-variants/01HZ_VAR_001',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title: 'Updated Title', version: 1 }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().variant.title).toBe('Updated Title');
+      expect(res.status).toBe(200);
+      expect((await res.json()).variant.title).toBe('Updated Title');
     });
 
     it('returns 409 on version conflict', async () => {
       vi.mocked(variantService.updateResumeVariant).mockRejectedValue(new VersionConflictError());
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001', {
         method: 'PATCH',
-        url: '/api/resume-variants/01HZ_VAR_001',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title: 'Stale Update', version: 99 }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error.code).toBe('VERSION_CONFLICT');
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('VERSION_CONFLICT');
     });
   });
 
@@ -270,9 +264,9 @@ describe('Resume Variants Routes', () => {
     it('returns 204 on success', async () => {
       vi.mocked(variantService.deleteResumeVariant).mockResolvedValue(undefined);
 
-      const res = await app.inject({ method: 'DELETE', url: '/api/resume-variants/01HZ_VAR_001' });
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001', { method: 'DELETE' });
 
-      expect(res.statusCode).toBe(204);
+      expect(res.status).toBe(204);
       expect(variantService.deleteResumeVariant).toHaveBeenCalledWith('01HZ_VAR_001', undefined);
     });
 
@@ -281,9 +275,9 @@ describe('Resume Variants Routes', () => {
         new NotFoundError('ResumeVariant')
       );
 
-      const res = await app.inject({ method: 'DELETE', url: '/api/resume-variants/nonexistent' });
+      const res = await app.request('/api/resume-variants/nonexistent', { method: 'DELETE' });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -294,34 +288,32 @@ describe('Resume Variants Routes', () => {
       const revised = { ...mockVariant, version: 2 };
       vi.mocked(variantService.reviseResumeVariant).mockResolvedValue(revised);
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/revise', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/revise',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           instructions: 'Focus more on leadership experience and team management skills.',
           version: 1,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.json().version).toBe(2);
+      expect(res.status).toBe(200);
+      expect((await res.json()).version).toBe(2);
     });
 
     it('returns 409 on version conflict', async () => {
       vi.mocked(variantService.reviseResumeVariant).mockRejectedValue(new VersionConflictError());
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/revise', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/revise',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           instructions: 'Focus more on leadership experience and team management skills.',
           version: 99,
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(409);
+      expect(res.status).toBe(409);
     });
   });
 
@@ -346,18 +338,17 @@ describe('Resume Variants Routes', () => {
         totalCatalogBullets: 42,
       });
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/suggest-bullets', {
         method: 'POST',
-        url: '/api/resume-variants/suggest-bullets',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           jobDescriptionText:
             'Build high performance distributed systems with strong engineering and optimization skills.',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.suggestions).toHaveLength(1);
       expect(body.totalCatalogBullets).toBe(42);
     });
@@ -376,13 +367,8 @@ describe('Resume Variants Routes', () => {
     it('returns JSON response when Accept: application/json header is present (DOCX)', async () => {
       vi.mocked(variantService.exportResumeVariant).mockResolvedValue(mockExportResult);
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/export', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/export',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-        },
         body: JSON.stringify({
           format: 'docx',
           headerInfo: {
@@ -392,10 +378,17 @@ describe('Resume Variants Routes', () => {
           },
           template: 'modern',
         }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...{
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+        },
       });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(body.exportId).toBeDefined();
       expect(body.format).toBe('docx');
       expect(body.filename).toBe('resume-variant-senior-engineer.docx');
@@ -406,13 +399,8 @@ describe('Resume Variants Routes', () => {
     });
 
     it('rejects PDF format with validation error', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/export', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/export',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-        },
         body: JSON.stringify({
           format: 'pdf',
           headerInfo: {
@@ -421,21 +409,24 @@ describe('Resume Variants Routes', () => {
           },
           template: 'minimal',
         }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...{
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+        },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('BAD_REQUEST');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns binary response when Accept header is not application/json', async () => {
       vi.mocked(variantService.exportResumeVariant).mockResolvedValue(mockExportResult);
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/export', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/export',
-        headers: {
-          'content-type': 'application/json',
-        },
         body: JSON.stringify({
           format: 'docx',
           headerInfo: {
@@ -443,60 +434,63 @@ describe('Resume Variants Routes', () => {
             email: 'john@example.com',
           },
         }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...{
+            'content-type': 'application/json',
+          },
+        },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toBe(mockExportResult.contentType);
-      expect(res.headers['content-disposition']).toContain('attachment');
-      expect(res.headers['content-disposition']).toContain(mockExportResult.filename);
-      expect(res.rawPayload).toEqual(mockExportResult.buffer);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe(mockExportResult.contentType);
+      expect(res.headers.get('content-disposition')).toContain('attachment');
+      expect(res.headers.get('content-disposition')).toContain(mockExportResult.filename);
+      expect(Buffer.from(await res.arrayBuffer())).toEqual(mockExportResult.buffer);
     });
 
     it('returns 400 when format is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/export', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/export',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           headerInfo: {
             name: 'John Doe',
           },
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('BAD_REQUEST');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns 400 when format is invalid', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/export', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/export',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           format: 'txt',
           headerInfo: {
             name: 'John Doe',
           },
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('BAD_REQUEST');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns 400 when headerInfo is missing', async () => {
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/01HZ_VAR_001/export', {
         method: 'POST',
-        url: '/api/resume-variants/01HZ_VAR_001/export',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           format: 'docx',
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('BAD_REQUEST');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('BAD_REQUEST');
     });
 
     it('returns 404 when variant not found', async () => {
@@ -504,19 +498,18 @@ describe('Resume Variants Routes', () => {
         new NotFoundError('ResumeVariant')
       );
 
-      const res = await app.inject({
+      const res = await app.request('/api/resume-variants/nonexistent/export', {
         method: 'POST',
-        url: '/api/resume-variants/nonexistent/export',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           format: 'docx',
           headerInfo: {
             name: 'John Doe',
           },
         }),
+        headers: { 'Content-Type': 'application/json', ...{ 'content-type': 'application/json' } },
       });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.status).toBe(404);
     });
   });
 });
