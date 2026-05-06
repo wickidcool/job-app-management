@@ -124,31 +124,12 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Debug SUPABASE_DATABASE_URL secret
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-        run: |
-          echo "DB_URL_LEN=${#DATABASE_URL}"
-          echo "DB_URL_PREFIX=${DATABASE_URL:0:30}..."
-          echo "=== PG* env vars ==="
-          env | grep -i '^PG' || echo "(none)"
-          HOST=$(echo "$DATABASE_URL" | sed 's|.*@||' | sed 's|:.*||')
-          PORT=$(echo "$DATABASE_URL" | sed 's|.*:||' | sed 's|/.*||')
-          PASS=$(echo "$DATABASE_URL" | sed 's|.*://[^:]*:||' | sed 's|@.*||')
-          USER=$(echo "$DATABASE_URL" | sed 's|.*://||' | sed 's|:.*||')
-          echo "PASSWORD_LEN=${#PASS}"
-          echo "USER=$USER"
-          echo "=== psql auth test (port 5432) ==="
-          PGPASSWORD="$PASS" psql "postgresql://$USER@$HOST:$PORT/postgres?sslmode=require" \
-            -c "SELECT 1 AS ok" 2>&1 || echo "psql failed"
-
       - name: Run database migrations
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
-          # Swap port 5432 → 6543 (transaction pooler) — session pooler auth fails in GitHub Actions
+          # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
           DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
-          echo "Migration URL port: $(echo "$DATABASE_URL" | grep -oP ':\d+/' | head -1)"
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
 
@@ -246,7 +227,7 @@ jobs:
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
-          # Swap port 5432 → 6543 (transaction pooler) — session pooler auth fails in GitHub Actions
+          # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
           DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
