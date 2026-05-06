@@ -36,9 +36,13 @@
 			"vars": {
 				"NODE_ENV": "development"
 			},
-			// Hyperdrive removed until CF config is verified. Both envs use direct
-			// DATABASE_URL (Supabase pooler) for now; re-add hyperdrive block once
-			// the CF Hyperdrive config is confirmed working.
+			"hyperdrive": [
+				{
+					"binding": "HYPERDRIVE",
+					"id": "374db58fe1014823a9e54ba393125676",
+					"localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
+				}
+			],
 			"r2_buckets": [
 				{
 					"binding": "R2_BUCKET",
