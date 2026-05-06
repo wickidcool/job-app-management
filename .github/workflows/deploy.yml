@@ -124,6 +124,13 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Debug SUPABASE_DATABASE_URL secret
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          echo "DB_URL_LEN=${#DATABASE_URL}"
+          echo "DB_URL_PREFIX=${DATABASE_URL:0:30}..."
+
       - name: Run database migrations
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
