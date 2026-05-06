@@ -36,15 +36,9 @@
 			"vars": {
 				"NODE_ENV": "development"
 			},
-			// Preview uses Hyperdrive for connection pooling. Production connects directly
-			// via DATABASE_URL secret until a production Hyperdrive config is created.
-			"hyperdrive": [
-				{
-					"binding": "HYPERDRIVE",
-					"id": "374db58fe1014823a9e54ba393125676",
-					"localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
-				}
-			],
+			// Hyperdrive removed until CF config is verified. Both envs use direct
+			// DATABASE_URL (Supabase pooler) for now; re-add hyperdrive block once
+			// the CF Hyperdrive config is confirmed working.
 			"r2_buckets": [
 				{
 					"binding": "R2_BUCKET",
