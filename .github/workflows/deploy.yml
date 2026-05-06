@@ -134,11 +134,13 @@ jobs:
           env | grep -i '^PG' || echo "(none)"
           HOST=$(echo "$DATABASE_URL" | sed 's|.*@||' | sed 's|:.*||')
           PORT=$(echo "$DATABASE_URL" | sed 's|.*:||' | sed 's|/.*||')
-          echo "Resolved host: $HOST"
-          echo "Port: $PORT"
-          nc -zv "$HOST" "$PORT" 2>&1 || echo "TCP connect failed"
-          echo "=== Try transaction pooler (port 6543) ==="
-          nc -zv "$HOST" 6543 2>&1 || echo "TCP connect on 6543 failed"
+          PASS=$(echo "$DATABASE_URL" | sed 's|.*://[^:]*:||' | sed 's|@.*||')
+          USER=$(echo "$DATABASE_URL" | sed 's|.*://||' | sed 's|:.*||')
+          echo "PASSWORD_LEN=${#PASS}"
+          echo "USER=$USER"
+          echo "=== psql auth test (port 5432) ==="
+          PGPASSWORD="$PASS" psql "postgresql://$USER@$HOST:$PORT/postgres?sslmode=require" \
+            -c "SELECT 1 AS ok" 2>&1 || echo "psql failed"
 
       - name: Run database migrations
         env:
