@@ -14,15 +14,6 @@
 		"directory": "./packages/web/dist",
 		"not_found_handling": "single-page-application"
 	},
-	// Hyperdrive: connection pooling proxy to Supabase PostgreSQL
-	"hyperdrive": [
-		{
-			"binding": "HYPERDRIVE",
-			"id": "374db58fe1014823a9e54ba393125676",
-			// Used by wrangler dev to connect to local PostgreSQL (Docker)
-			"localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
-		}
-	],
 	// R2: object storage for resume files and cover letters
 	// Setup: wrangler r2 bucket create jobtrail-documents
 	"r2_buckets": [

@@ -31,10 +31,11 @@ export function buildApp() {
 
   app.get('/health', async (c) => {
     const hyperdrive = !!c.env?.HYPERDRIVE;
-    // Only probe the DB when the HYPERDRIVE binding is present (Workers context).
-    // In local/test contexts there's no binding and no live DB to test.
+    const hasDbUrl = !!c.env?.DATABASE_URL;
+    // Only probe the DB when a Workers DB binding is present.
+    // In local/test contexts neither binding exists — skip the probe.
     let db: 'ok' | 'not_applicable' | string = 'not_applicable';
-    if (hyperdrive) {
+    if (hyperdrive || hasDbUrl) {
       try {
         await getDb().execute(sql`SELECT 1`);
         db = 'ok';

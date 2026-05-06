@@ -9,11 +9,18 @@ let _sql: ReturnType<typeof postgres> | null = null;
 export function getDb() {
   const ctx = getRequestContext();
   if (ctx?.env?.HYPERDRIVE) {
-    // Workers: reuse the per-request postgres client so each request opens
-    // exactly one connection through Hyperdrive, regardless of how many times
-    // getDb() is called by different service functions during the same request.
+    // Workers (preview): Hyperdrive handles connection pooling.
     if (!ctx.sql) {
       ctx.sql = postgres(ctx.env.HYPERDRIVE.connectionString, { prepare: false });
+    }
+    return drizzle(ctx.sql as ReturnType<typeof postgres>);
+  }
+
+  if (ctx?.env?.DATABASE_URL) {
+    // Workers (production): direct Supabase connection — one connection per request,
+    // reused across service calls within the same request via the context cache.
+    if (!ctx.sql) {
+      ctx.sql = postgres(ctx.env.DATABASE_URL, { prepare: false, ssl: 'require' });
     }
     return drizzle(ctx.sql as ReturnType<typeof postgres>);
   }

@@ -41,6 +41,7 @@ export interface R2Bucket {
 
 export interface Env {
   HYPERDRIVE?: { connectionString: string };
+  DATABASE_URL?: string;
   R2_BUCKET?: R2Bucket;
   SUPABASE_JWT_SECRET?: string;
   ANTHROPIC_API_KEY?: string;
