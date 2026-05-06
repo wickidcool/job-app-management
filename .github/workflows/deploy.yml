@@ -130,6 +130,12 @@ jobs:
         run: |
           echo "DB_URL_LEN=${#DATABASE_URL}"
           echo "DB_URL_PREFIX=${DATABASE_URL:0:30}..."
+          HOST=$(echo "$DATABASE_URL" | sed 's|.*@||' | sed 's|:.*||')
+          PORT=$(echo "$DATABASE_URL" | sed 's|.*:||' | sed 's|/.*||')
+          echo "Resolved host: $HOST"
+          echo "Port: $PORT"
+          nslookup "$HOST" || true
+          nc -zv "$HOST" "$PORT" 2>&1 || echo "TCP connect failed"
 
       - name: Run database migrations
         env:
