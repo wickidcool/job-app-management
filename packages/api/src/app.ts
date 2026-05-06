@@ -16,6 +16,7 @@ import { authRoutes } from './routes/auth.js';
 import { authMiddleware } from './middleware/auth.js';
 import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
+import { isHyperdriveTimeout } from './db/hyperdrive.js';
 
 export function buildApp() {
   const app = new Hono<AppEnv>();
@@ -62,6 +63,9 @@ export function buildApp() {
   app.route('/api', api);
 
   app.onError((err, c) => {
+    // Re-throw so worker.ts can retry with a fresh Hyperdrive connection.
+    if (isHyperdriveTimeout(err)) throw err;
+
     if (err instanceof AppError) {
       return c.json(
         { error: { code: err.code, message: err.message, details: err.details } },
