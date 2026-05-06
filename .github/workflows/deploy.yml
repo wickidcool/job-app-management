@@ -130,17 +130,25 @@ jobs:
         run: |
           echo "DB_URL_LEN=${#DATABASE_URL}"
           echo "DB_URL_PREFIX=${DATABASE_URL:0:30}..."
+          echo "=== PG* env vars ==="
+          env | grep -i '^PG' || echo "(none)"
           HOST=$(echo "$DATABASE_URL" | sed 's|.*@||' | sed 's|:.*||')
           PORT=$(echo "$DATABASE_URL" | sed 's|.*:||' | sed 's|/.*||')
           echo "Resolved host: $HOST"
           echo "Port: $PORT"
-          nslookup "$HOST" || true
           nc -zv "$HOST" "$PORT" 2>&1 || echo "TCP connect failed"
+          echo "=== Try transaction pooler (port 6543) ==="
+          nc -zv "$HOST" 6543 2>&1 || echo "TCP connect on 6543 failed"
 
       - name: Run database migrations
         env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-        run: npm run db:migrate --workspace=@wic/api
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          # Swap port 5432 → 6543 (transaction pooler) — session pooler auth fails in GitHub Actions
+          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          echo "Migration URL port: $(echo "$DATABASE_URL" | grep -oP ':\d+/' | head -1)"
+          export DATABASE_URL
+          npm run db:migrate --workspace=@wic/api
 
       - name: Build for preview
         run: npm run build
@@ -234,8 +242,12 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-        run: npm run db:migrate --workspace=@wic/api
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          # Swap port 5432 → 6543 (transaction pooler) — session pooler auth fails in GitHub Actions
+          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          export DATABASE_URL
+          npm run db:migrate --workspace=@wic/api
 
       - name: Build for production
         run: npm run build
