@@ -1,30 +1,20 @@
 -- UC-7: Interview Prep Pull
 
-CREATE TYPE interview_type AS ENUM ('behavioral', 'technical', 'mixed', 'case_study');
+DO $$ BEGIN CREATE TYPE interview_type AS ENUM ('behavioral', 'technical', 'mixed', 'case_study'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE prep_time AS ENUM ('30min', '1hr', '2hr', 'full_day');
+DO $$ BEGIN CREATE TYPE prep_time AS ENUM ('30min', '1hr', '2hr', 'full_day'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE confidence_level AS ENUM ('not_practiced', 'needs_work', 'comfortable', 'confident');
+DO $$ BEGIN CREATE TYPE confidence_level AS ENUM ('not_practiced', 'needs_work', 'comfortable', 'confident'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE question_category AS ENUM (
-  'behavioral',
-  'technical',
-  'situational',
-  'role_specific',
-  'gap_probing'
-);
+DO $$ BEGIN CREATE TYPE question_category AS ENUM ('behavioral', 'technical', 'situational', 'role_specific', 'gap_probing'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE question_difficulty AS ENUM ('standard', 'challenging', 'tough');
+DO $$ BEGIN CREATE TYPE question_difficulty AS ENUM ('standard', 'challenging', 'tough'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE gap_severity AS ENUM ('critical', 'moderate', 'minor');
+DO $$ BEGIN CREATE TYPE gap_severity AS ENUM ('critical', 'moderate', 'minor'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE mitigation_strategy AS ENUM (
-  'acknowledge_pivot',
-  'growth_mindset',
-  'adjacent_experience'
-);
+DO $$ BEGIN CREATE TYPE mitigation_strategy AS ENUM ('acknowledge_pivot', 'growth_mindset', 'adjacent_experience'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TABLE interview_preps (
+CREATE TABLE IF NOT EXISTS interview_preps (
   id                    TEXT PRIMARY KEY,
   application_id        TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
   job_fit_analysis_id   TEXT,
@@ -42,7 +32,7 @@ CREATE TABLE interview_preps (
   UNIQUE (application_id)
 );
 
-CREATE TABLE interview_prep_stories (
+CREATE TABLE IF NOT EXISTS interview_prep_stories (
   id                    TEXT PRIMARY KEY,
   interview_prep_id     TEXT NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
   star_entry_id         TEXT NOT NULL,
@@ -61,7 +51,7 @@ CREATE TABLE interview_prep_stories (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE prep_question_story_links (
+CREATE TABLE IF NOT EXISTS prep_question_story_links (
   id                    TEXT PRIMARY KEY,
   question_id           TEXT NOT NULL,
   story_id              TEXT NOT NULL REFERENCES interview_prep_stories(id) ON DELETE CASCADE,
@@ -70,8 +60,8 @@ CREATE TABLE prep_question_story_links (
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_interview_preps_application ON interview_preps(application_id);
-CREATE INDEX idx_interview_preps_created ON interview_preps(created_at DESC);
-CREATE INDEX idx_interview_prep_stories_prep ON interview_prep_stories(interview_prep_id);
-CREATE INDEX idx_interview_prep_stories_star ON interview_prep_stories(star_entry_id);
-CREATE INDEX idx_prep_question_story_links_story ON prep_question_story_links(story_id);
+CREATE INDEX IF NOT EXISTS idx_interview_preps_application ON interview_preps(application_id);
+CREATE INDEX IF NOT EXISTS idx_interview_preps_created ON interview_preps(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_interview_prep_stories_prep ON interview_prep_stories(interview_prep_id);
+CREATE INDEX IF NOT EXISTS idx_interview_prep_stories_star ON interview_prep_stories(star_entry_id);
+CREATE INDEX IF NOT EXISTS idx_prep_question_story_links_story ON prep_question_story_links(story_id);

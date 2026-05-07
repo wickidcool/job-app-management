@@ -2,6 +2,6 @@
 -- Stores the full job posting text for reference and cover letter generation
 
 ALTER TABLE applications
-  ADD COLUMN job_description text;
+  ADD COLUMN IF NOT EXISTS job_description text;
 
 -- No length constraint - job descriptions can be quite long (10k+ chars)
