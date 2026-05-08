@@ -50,9 +50,7 @@ export function OnboardingBanner({
             <p className="text-sm font-medium text-primary-900">
               Get started by uploading your resume
             </p>
-            <p className="text-xs text-primary-700">
-              Complete your profile to unlock all features
-            </p>
+            <p className="text-xs text-primary-700">Complete your profile to unlock all features</p>
           </div>
         </div>
 
@@ -65,12 +63,7 @@ export function OnboardingBanner({
           >
             Resume Setup
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5l7 7-7 7"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
 

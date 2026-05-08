@@ -87,5 +87,10 @@ export type { JobFitService } from './jobFitService';
 export type { CoverLetterService, CoverLetter } from './coverLetters';
 export type { ResumeVariantService } from './resumeVariantService';
 export type { InterviewPrepService } from './interviewPrepService';
-export type { OnboardingService, OnboardingStatus, OnboardingStep, OnboardingProgress } from './onboardingService';
+export type {
+  OnboardingService,
+  OnboardingStatus,
+  OnboardingStep,
+  OnboardingProgress,
+} from './onboardingService';
 export type * from './types';

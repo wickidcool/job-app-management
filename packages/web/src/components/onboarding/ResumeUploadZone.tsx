@@ -172,7 +172,12 @@ export function ResumeUploadZone({
     return (
       <div className="rounded-lg border-2 border-success-300 bg-success-50 p-6 text-center">
         <div className="mb-3 flex justify-center">
-          <svg className="h-12 w-12 text-success-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="h-12 w-12 text-success-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -201,7 +206,12 @@ export function ResumeUploadZone({
     return (
       <div className="rounded-lg border-2 border-error-500 bg-error-50 p-6 text-center">
         <div className="mb-3 flex justify-center">
-          <svg className="h-12 w-12 text-error-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="h-12 w-12 text-error-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -228,11 +238,7 @@ export function ResumeUploadZone({
     return (
       <div className="rounded-lg border-2 border-primary-300 bg-primary-50 p-6 text-center">
         <div className="mb-3 flex justify-center">
-          <svg
-            className="h-12 w-12 animate-spin text-primary-600"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
+          <svg className="h-12 w-12 animate-spin text-primary-600" fill="none" viewBox="0 0 24 24">
             <circle
               className="opacity-25"
               cx="12"
@@ -290,7 +296,12 @@ export function ResumeUploadZone({
 
       <div className="mb-3 flex justify-center">
         {isDragOver ? (
-          <svg className="h-16 w-16 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="h-16 w-16 text-primary-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -299,7 +310,12 @@ export function ResumeUploadZone({
             />
           </svg>
         ) : (
-          <svg className="h-16 w-16 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="h-16 w-16 text-neutral-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -323,7 +339,8 @@ export function ResumeUploadZone({
 
       {showFormatHints && (
         <p id="upload-hint" className="mt-4 text-xs text-neutral-500">
-          Accepts: {acceptedFormats.join(', ').toUpperCase()} (max {(maxSizeBytes / (1024 * 1024)).toFixed(0)}MB)
+          Accepts: {acceptedFormats.join(', ').toUpperCase()} (max{' '}
+          {(maxSizeBytes / (1024 * 1024)).toFixed(0)}MB)
         </p>
       )}
     </div>

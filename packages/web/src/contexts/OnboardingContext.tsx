@@ -110,24 +110,21 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const updateProgress = useCallback(
-    async (progress: OnboardingProgress) => {
-      try {
-        const updated = await onboardingService.updateProgress(progress);
-        setStatus(updated);
+  const updateProgress = useCallback(async (progress: OnboardingProgress) => {
+    try {
+      const updated = await onboardingService.updateProgress(progress);
+      setStatus(updated);
 
-        // Update current step if provided
-        if (progress.currentStep) {
-          const stepNumber = STEP_TO_NUMBER[progress.currentStep] || 1;
-          setCurrentStep(stepNumber);
-        }
-      } catch (error) {
-        console.error('Failed to update onboarding progress:', error);
-        throw error;
+      // Update current step if provided
+      if (progress.currentStep) {
+        const stepNumber = STEP_TO_NUMBER[progress.currentStep] || 1;
+        setCurrentStep(stepNumber);
       }
-    },
-    []
-  );
+    } catch (error) {
+      console.error('Failed to update onboarding progress:', error);
+      throw error;
+    }
+  }, []);
 
   const completeOnboarding = useCallback(async () => {
     try {

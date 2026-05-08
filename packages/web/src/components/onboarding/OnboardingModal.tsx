@@ -5,13 +5,7 @@ import { OnboardingStep } from './OnboardingStep';
 import { ResumeUploadZone } from './ResumeUploadZone';
 import type { Resume } from '../../services/api';
 
-const STEP_LABELS = [
-  'Welcome',
-  'Upload Resume',
-  'App Overview',
-  'Create First App',
-  'All Set!',
-];
+const STEP_LABELS = ['Welcome', 'Upload Resume', 'App Overview', 'Create First App', 'All Set!'];
 
 export function OnboardingModal() {
   const {

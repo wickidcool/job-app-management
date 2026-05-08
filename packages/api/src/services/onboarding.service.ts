@@ -7,9 +7,7 @@ import { NotFoundError, VersionConflictError } from '../types/index.js';
 /**
  * Get onboarding status for a user
  */
-export async function getOnboardingStatus(
-  userId: string
-): Promise<OnboardingStatus | null> {
+export async function getOnboardingStatus(userId: string): Promise<OnboardingStatus | null> {
   const db = getDb();
   const result = await db
     .select()
@@ -24,9 +22,7 @@ export async function getOnboardingStatus(
  * Create or initialize onboarding status for a new user.
  * Uses ON CONFLICT DO NOTHING to handle concurrent initialization attempts.
  */
-export async function initializeOnboardingStatus(
-  userId: string
-): Promise<OnboardingStatus> {
+export async function initializeOnboardingStatus(userId: string): Promise<OnboardingStatus> {
   const db = getDb();
   const newStatus: typeof onboardingStatus.$inferInsert = {
     id: ulid(),
@@ -87,10 +83,7 @@ export async function updateOnboardingProgress(
       version: existing.version + 1,
     })
     .where(
-      and(
-        eq(onboardingStatus.id, existing.id),
-        eq(onboardingStatus.version, existing.version)
-      )
+      and(eq(onboardingStatus.id, existing.id), eq(onboardingStatus.version, existing.version))
     )
     .returning();
 
@@ -104,9 +97,7 @@ export async function updateOnboardingProgress(
 /**
  * Mark onboarding as completed
  */
-export async function completeOnboarding(
-  userId: string
-): Promise<OnboardingStatus> {
+export async function completeOnboarding(userId: string): Promise<OnboardingStatus> {
   const db = getDb();
   const existing = await getOnboardingStatus(userId);
   if (!existing) {
@@ -122,10 +113,7 @@ export async function completeOnboarding(
       version: existing.version + 1,
     })
     .where(
-      and(
-        eq(onboardingStatus.id, existing.id),
-        eq(onboardingStatus.version, existing.version)
-      )
+      and(eq(onboardingStatus.id, existing.id), eq(onboardingStatus.version, existing.version))
     )
     .returning();
 
@@ -139,9 +127,7 @@ export async function completeOnboarding(
 /**
  * Check if user needs onboarding (first-time user detection)
  */
-export async function shouldShowOnboarding(
-  userId: string
-): Promise<boolean> {
+export async function shouldShowOnboarding(userId: string): Promise<boolean> {
   const status = await getOnboardingStatus(userId);
 
   // If no onboarding record exists, user needs onboarding
