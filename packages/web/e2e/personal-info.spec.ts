@@ -3,27 +3,26 @@ import { test, expect, type Page } from '@playwright/test';
 /**
  * E2E tests for the personal information feature (WIC-247)
  *
+ * API contract (WIC-251):
+ *   GET /api/personal-info  → { personalInfo: PersonalInfo | null }
+ *   PUT /api/personal-info  → { personalInfo: PersonalInfo }
+ *   Validation errors       → 400 { error: { code: "VALIDATION_ERROR", ... } }
+ *
+ * Fields: fullName, email, linkedinUrl, githubUrl, homeAddress,
+ *         phoneNumber, projectsWebsite, publishingPlatforms (string[])
+ *
  * Covers:
  *  - Personal info step in the onboarding flow
  *  - Personal info form in Settings → Profile
- *  - All eight fields (fullName, email, phoneNumber, linkedinUrl, githubUrl,
- *    homeAddress, projectsWebsite, substackUrl)
+ *  - All fields rendered and editable
  *  - Field validation: invalid URLs, invalid email
- *  - Save / update functionality
+ *  - Save / update (PUT) functionality
  *  - Pre-populated data (returning user)
  *  - Auth guard on the settings route
  *
- * All tests use mock auth and mock API routes — no running backend required.
- *
- * NOTE: Some locator patterns use fallback selectors (e.g. id OR name attribute)
- * to stay robust across React Hook Form binding choices.  Adjust once the
- * concrete component (WIC-252) is merged.
- *
- * The personal-info REST endpoint is mocked at both likely paths:
- *   /api/personal-info
- *   /api/users/me/personal-info
- * Update setupPersonalInfoMocks() if the backend (WIC-251) settles on a
- * different URL.
+ * All tests use mock auth and route-intercepted API calls — no backend required.
+ * Locators use id-OR-name fallbacks so they stay robust across React Hook Form
+ * binding choices. Adjust once the concrete component (WIC-252) is merged.
  */
 
 // ─── Shared mock data ─────────────────────────────────────────────────────────
@@ -33,24 +32,10 @@ const MOCK_USER = {
   email: 'test@example.com',
 };
 
-const MOCK_PERSONAL_INFO_EMPTY = {
-  personalInfo: {
-    id: 'pi-001',
-    userId: MOCK_USER.id,
-    fullName: null,
-    email: null,
-    linkedinUrl: null,
-    githubUrl: null,
-    homeAddress: null,
-    phoneNumber: null,
-    projectsWebsite: null,
-    substackUrl: null,
-    createdAt: '2026-05-01T00:00:00.000Z',
-    updatedAt: '2026-05-01T00:00:00.000Z',
-    version: 1,
-  },
-};
+/** GET returns null when no record exists yet. */
+const MOCK_PERSONAL_INFO_NULL = { personalInfo: null };
 
+/** Populated record returned after at least one save. */
 const MOCK_PERSONAL_INFO_POPULATED = {
   personalInfo: {
     id: 'pi-001',
@@ -62,7 +47,7 @@ const MOCK_PERSONAL_INFO_POPULATED = {
     homeAddress: '123 Main St, San Francisco, CA 94102',
     phoneNumber: '+1 (555) 123-4567',
     projectsWebsite: 'https://janedoe.dev',
-    substackUrl: 'https://janedoe.substack.com',
+    publishingPlatforms: ['https://janedoe.substack.com'],
     createdAt: '2026-05-01T00:00:00.000Z',
     updatedAt: '2026-05-01T00:00:00.000Z',
     version: 1,
@@ -132,19 +117,23 @@ async function setupOnboardingMocks(page: Page, onboardingStatus: object) {
   );
 }
 
+type PersonalInfoFixture =
+  | typeof MOCK_PERSONAL_INFO_NULL
+  | typeof MOCK_PERSONAL_INFO_POPULATED;
+
 async function setupPersonalInfoMocks(
   page: Page,
-  personalInfo: typeof MOCK_PERSONAL_INFO_EMPTY | typeof MOCK_PERSONAL_INFO_POPULATED,
+  getFixture: PersonalInfoFixture,
   { saveSuccess = true }: { saveSuccess?: boolean } = {}
 ) {
-  const handler = async (route: Parameters<Parameters<typeof page.route>[1]>[0]) => {
+  await page.route('**/api/personal-info', async (route) => {
     const method = route.request().method();
 
     if (method === 'GET') {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(personalInfo),
+        body: JSON.stringify(getFixture),
       });
     }
 
@@ -158,27 +147,39 @@ async function setupPersonalInfoMocks(
           }),
         });
       }
-      const body = route.request().postDataJSON() ?? {};
+      const body = (route.request().postDataJSON() as Record<string, unknown>) ?? {};
+      const base =
+        getFixture.personalInfo ??
+        ({
+          id: 'pi-new',
+          userId: MOCK_USER.id,
+          fullName: null,
+          email: null,
+          linkedinUrl: null,
+          githubUrl: null,
+          homeAddress: null,
+          phoneNumber: null,
+          projectsWebsite: null,
+          publishingPlatforms: [],
+          createdAt: new Date().toISOString(),
+          version: 1,
+        } as NonNullable<typeof MOCK_PERSONAL_INFO_POPULATED.personalInfo>);
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           personalInfo: {
-            ...personalInfo.personalInfo,
+            ...base,
             ...body,
             updatedAt: new Date().toISOString(),
-            version: personalInfo.personalInfo.version + 1,
+            version: base.version + 1,
           },
         }),
       });
     }
 
     return route.fallback();
-  };
-
-  // Cover both plausible API paths until WIC-251 is finalised.
-  await page.route('**/api/personal-info', handler);
-  await page.route('**/api/users/me/personal-info', handler);
+  });
 }
 
 async function setupDashboardMocks(page: Page) {
@@ -217,13 +218,13 @@ function field(page: Page, fieldName: string) {
   );
 }
 
-/** Opens the profile/personal-info form if it's behind a card link in Settings. */
+/** Clicks the profile trigger if it's behind a card/link in Settings. */
 async function openProfileFormIfNeeded(page: Page) {
-  const profileTrigger = page.locator(
+  const trigger = page.locator(
     'a:has-text("Profile"), button:has-text("Profile"), [data-testid="profile-card"]'
   );
-  if (await profileTrigger.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await profileTrigger.click();
+  if (await trigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await trigger.click();
   }
 }
 
@@ -233,19 +234,17 @@ test.describe('Personal Information — Onboarding flow', () => {
   test.beforeEach(async ({ page }) => {
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_EMPTY);
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
   });
 
   test('onboarding modal shows a personal information step', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
-    await expect(
-      page.getByRole('heading', { name: /personal information/i })
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
   });
 
-  test('all eight personal info fields are rendered', async ({ page }) => {
+  test('all personal info fields are rendered', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
@@ -258,13 +257,20 @@ test.describe('Personal Information — Onboarding flow', () => {
       'githubUrl',
       'homeAddress',
       'projectsWebsite',
-      'substackUrl',
     ]) {
       await expect(field(page, name)).toBeVisible();
     }
+
+    // publishingPlatforms renders as at least one URL input or textarea
+    const platformInput = page.locator(
+      'input[id="publishingPlatforms"], input[name="publishingPlatforms"],' +
+        ' input[id^="publishingPlatforms"], input[name^="publishingPlatforms"],' +
+        ' textarea[id="publishingPlatforms"], textarea[name="publishingPlatforms"]'
+    );
+    await expect(platformInput.first()).toBeVisible();
   });
 
-  test('all fields start empty for a new user', async ({ page }) => {
+  test('all text fields start empty for a new user', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
@@ -274,7 +280,7 @@ test.describe('Personal Information — Onboarding flow', () => {
     await expect(field(page, 'githubUrl')).toHaveValue('');
   });
 
-  test('filling all fields and proceeding advances the onboarding step', async ({ page }) => {
+  test('filling fields and clicking next advances the onboarding step', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
@@ -286,7 +292,6 @@ test.describe('Personal Information — Onboarding flow', () => {
     await field(page, 'githubUrl').fill('https://github.com/janedoe');
     await field(page, 'homeAddress').fill('123 Main St, San Francisco, CA 94102');
     await field(page, 'projectsWebsite').fill('https://janedoe.dev');
-    await field(page, 'substackUrl').fill('https://janedoe.substack.com');
 
     await page.getByRole('button', { name: /next|continue|save/i }).click();
 
@@ -345,16 +350,35 @@ test.describe('Personal Information — Onboarding flow', () => {
     expect(eitherVisible).toBe(true);
   });
 
+  test('publishingPlatforms field rejects a non-URL entry', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
+
+    // Fill the first platform input with an invalid value
+    const platformInput = page.locator(
+      'input[id="publishingPlatforms"], input[name="publishingPlatforms"],' +
+        ' input[id^="publishingPlatforms"], input[name^="publishingPlatforms"],' +
+        ' textarea[id="publishingPlatforms"], textarea[name="publishingPlatforms"]'
+    );
+    await platformInput.first().fill('not-a-url');
+    await page.getByRole('button', { name: /next|continue|save/i }).click();
+
+    const platformErr = page.locator(
+      '[id*="publishingPlatforms"][id*="error"], [data-testid*="publishingPlatforms"], [aria-describedby*="publishingPlatforms"]'
+    );
+    await expect(platformErr.first()).toBeVisible({ timeout: 3_000 });
+  });
+
   test('email field rejects an obviously invalid address', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
 
-    const emailInput = field(page, 'email');
-    await emailInput.fill('not-an-email');
+    await field(page, 'email').fill('not-an-email');
     await page.getByRole('button', { name: /next|continue|save/i }).click();
 
-    // Accept either browser-native validation or a rendered error element.
+    // Accept browser-native validation or a rendered error element.
     const nativeInvalid = await page.evaluate(() => {
       const el = document.querySelector(
         'input[id="email"], input[name="email"]'
@@ -391,10 +415,10 @@ test.describe('Personal Information — Onboarding with existing data', () => {
     await expect(field(page, 'linkedinUrl')).toHaveValue('https://linkedin.com/in/janedoe');
     await expect(field(page, 'githubUrl')).toHaveValue('https://github.com/janedoe');
     await expect(field(page, 'projectsWebsite')).toHaveValue('https://janedoe.dev');
-    await expect(field(page, 'substackUrl')).toHaveValue('https://janedoe.substack.com');
+    await expect(field(page, 'phoneNumber')).toHaveValue('+1 (555) 123-4567');
   });
 
-  test('updated data is sent to the API when the step is saved', async ({ page }) => {
+  test('updated data is PUT to /api/personal-info when the step is saved', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
@@ -403,10 +427,10 @@ test.describe('Personal Information — Onboarding with existing data', () => {
     await fullNameInput.clear();
     await fullNameInput.fill('Jane Smith');
 
-    let capturedFullName: string | null = null;
+    let capturedBody: Record<string, unknown> | null = null;
     page.on('request', (req) => {
-      if (req.url().includes('personal-info') && req.method() === 'PUT') {
-        capturedFullName = (req.postDataJSON() as Record<string, string> | null)?.fullName ?? null;
+      if (req.url().includes('/api/personal-info') && req.method() === 'PUT') {
+        capturedBody = req.postDataJSON() as Record<string, unknown>;
       }
     });
 
@@ -415,7 +439,8 @@ test.describe('Personal Information — Onboarding with existing data', () => {
       page.getByRole('heading', { name: /personal information/i })
     ).not.toBeVisible({ timeout: 5_000 });
 
-    expect(capturedFullName).toBe('Jane Smith');
+    expect(capturedBody).not.toBeNull();
+    expect((capturedBody as Record<string, unknown>).fullName).toBe('Jane Smith');
   });
 });
 
@@ -428,8 +453,8 @@ test.describe('Personal Information — Settings page', () => {
     await setupDashboardMocks(page);
   });
 
-  test('Settings page has a Profile section', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_EMPTY);
+  test('settings page has a Profile section', async ({ page }) => {
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -437,7 +462,7 @@ test.describe('Personal Information — Settings page', () => {
   });
 
   test('Profile section exposes the personal info form', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_EMPTY);
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -479,8 +504,8 @@ test.describe('Personal Information — Settings page', () => {
     });
   });
 
-  test('URL fields show a validation error for non-URL input in settings', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_EMPTY);
+  test('URL fields show validation error in settings', async ({ page }) => {
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -497,8 +522,8 @@ test.describe('Personal Information — Settings page', () => {
     await expect(linkedinErr).toContainText(/url|valid/i);
   });
 
-  test('settings form shows an error banner when the API save fails', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_EMPTY, { saveSuccess: false });
+  test('settings form shows error feedback when the API save fails', async ({ page }) => {
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -514,7 +539,7 @@ test.describe('Personal Information — Settings page', () => {
   });
 
   test('settings form is empty when the user has no saved personal info', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_EMPTY);
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -529,7 +554,7 @@ test.describe('Personal Information — Settings page', () => {
 // ─── Auth protection ──────────────────────────────────────────────────────────
 
 test.describe('Personal Information — Auth protection', () => {
-  test('unauthenticated user is redirected to login when accessing settings', async ({ page }) => {
+  test('unauthenticated user is redirected to /login when accessing settings', async ({ page }) => {
     await page.goto('/settings');
     await expect(page).toHaveURL('/login', { timeout: 5_000 });
   });
