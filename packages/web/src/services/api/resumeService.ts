@@ -33,6 +33,20 @@ export class ResumeService {
     return response.resumes.map(transformAPIResume);
   }
 
+  async upload(file: File): Promise<Resume> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await this.client.request<APIResume>('/resumes/upload', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        // Don't set Content-Type - let browser set it with multipart boundary
+      },
+    });
+    return transformAPIResume(response);
+  }
+
   async delete(id: string): Promise<void> {
     await this.client.delete(`/resumes/${id}`);
   }
