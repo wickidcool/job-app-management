@@ -3,7 +3,6 @@ import { z } from 'zod';
 import type { AppEnv } from '../types/env.js';
 import { AppError } from '../types/index.js';
 import * as onboardingService from '../services/onboarding.service.js';
-import { getDbFromContext } from '../db/context.js';
 
 const progressSchema = z.object({
   currentStep: z.enum(['welcome', 'resume_upload', 'first_application', 'completed']).optional(),
@@ -24,12 +23,11 @@ export const onboardingRoutes = new Hono<AppEnv>()
       throw new AppError('UNAUTHORIZED', 'Authentication required', undefined, 401);
     }
 
-    const db = getDbFromContext(c);
-    let status = await onboardingService.getOnboardingStatus(db, userId);
+    let status = await onboardingService.getOnboardingStatus(userId);
 
     // Auto-initialize if not exists
     if (!status) {
-      status = await onboardingService.initializeOnboardingStatus(db, userId);
+      status = await onboardingService.initializeOnboardingStatus(userId);
     }
 
     return c.json(status, 200);
@@ -50,15 +48,13 @@ export const onboardingRoutes = new Hono<AppEnv>()
       throw new AppError('VALIDATION_ERROR', 'Invalid request body', parsed.error.flatten(), 400);
     }
 
-    const db = getDbFromContext(c);
-
     // Ensure onboarding status exists
-    let existing = await onboardingService.getOnboardingStatus(db, userId);
+    let existing = await onboardingService.getOnboardingStatus(userId);
     if (!existing) {
-      existing = await onboardingService.initializeOnboardingStatus(db, userId);
+      existing = await onboardingService.initializeOnboardingStatus(userId);
     }
 
-    const updated = await onboardingService.updateOnboardingProgress(db, userId, parsed.data);
+    const updated = await onboardingService.updateOnboardingProgress(userId, parsed.data);
 
     return c.json(updated, 200);
   })
@@ -73,15 +69,13 @@ export const onboardingRoutes = new Hono<AppEnv>()
       throw new AppError('UNAUTHORIZED', 'Authentication required', undefined, 401);
     }
 
-    const db = getDbFromContext(c);
-
     // Ensure onboarding status exists
-    let existing = await onboardingService.getOnboardingStatus(db, userId);
+    let existing = await onboardingService.getOnboardingStatus(userId);
     if (!existing) {
-      existing = await onboardingService.initializeOnboardingStatus(db, userId);
+      existing = await onboardingService.initializeOnboardingStatus(userId);
     }
 
-    const completed = await onboardingService.completeOnboarding(db, userId);
+    const completed = await onboardingService.completeOnboarding(userId);
 
     return c.json(completed, 200);
   })
@@ -96,8 +90,7 @@ export const onboardingRoutes = new Hono<AppEnv>()
       throw new AppError('UNAUTHORIZED', 'Authentication required', undefined, 401);
     }
 
-    const db = getDbFromContext(c);
-    const shouldShow = await onboardingService.shouldShowOnboarding(db, userId);
+    const shouldShow = await onboardingService.shouldShowOnboarding(userId);
 
     return c.json({ shouldShow }, 200);
   });

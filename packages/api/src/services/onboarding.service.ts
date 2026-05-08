@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import { ulid } from 'ulid';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { getDb } from '../db/client.js';
 import { onboardingStatus, type OnboardingStatus, type OnboardingStep } from '../db/schema.js';
 import { NotFoundError, VersionConflictError } from '../types/index.js';
 
@@ -8,9 +8,9 @@ import { NotFoundError, VersionConflictError } from '../types/index.js';
  * Get onboarding status for a user
  */
 export async function getOnboardingStatus(
-  db: PostgresJsDatabase,
   userId: string
 ): Promise<OnboardingStatus | null> {
+  const db = getDb();
   const result = await db
     .select()
     .from(onboardingStatus)
@@ -25,9 +25,9 @@ export async function getOnboardingStatus(
  * Uses ON CONFLICT DO NOTHING to handle concurrent initialization attempts.
  */
 export async function initializeOnboardingStatus(
-  db: PostgresJsDatabase,
   userId: string
 ): Promise<OnboardingStatus> {
+  const db = getDb();
   const newStatus: typeof onboardingStatus.$inferInsert = {
     id: ulid(),
     userId,
@@ -53,7 +53,7 @@ export async function initializeOnboardingStatus(
     return result[0];
   }
 
-  const existing = await getOnboardingStatus(db, userId);
+  const existing = await getOnboardingStatus(userId);
   if (!existing) {
     throw new NotFoundError('Failed to initialize onboarding status');
   }
@@ -64,7 +64,6 @@ export async function initializeOnboardingStatus(
  * Update onboarding progress
  */
 export async function updateOnboardingProgress(
-  db: PostgresJsDatabase,
   userId: string,
   updates: {
     currentStep?: OnboardingStep;
@@ -74,7 +73,8 @@ export async function updateOnboardingProgress(
     applicationStepSkipped?: boolean;
   }
 ): Promise<OnboardingStatus> {
-  const existing = await getOnboardingStatus(db, userId);
+  const db = getDb();
+  const existing = await getOnboardingStatus(userId);
   if (!existing) {
     throw new NotFoundError('Onboarding status not found. Initialize first.');
   }
@@ -105,10 +105,10 @@ export async function updateOnboardingProgress(
  * Mark onboarding as completed
  */
 export async function completeOnboarding(
-  db: PostgresJsDatabase,
   userId: string
 ): Promise<OnboardingStatus> {
-  const existing = await getOnboardingStatus(db, userId);
+  const db = getDb();
+  const existing = await getOnboardingStatus(userId);
   if (!existing) {
     throw new NotFoundError('Onboarding status not found. Initialize first.');
   }
@@ -140,10 +140,9 @@ export async function completeOnboarding(
  * Check if user needs onboarding (first-time user detection)
  */
 export async function shouldShowOnboarding(
-  db: PostgresJsDatabase,
   userId: string
 ): Promise<boolean> {
-  const status = await getOnboardingStatus(db, userId);
+  const status = await getOnboardingStatus(userId);
 
   // If no onboarding record exists, user needs onboarding
   if (!status) {
