@@ -21,6 +21,15 @@ const isSupabase =
   databaseUrl.includes('supabase.co') || databaseUrl.includes('pooler.supabase.com');
 
 async function runMigrations() {
+  // Log the target host (no password) so it's obvious which database is being migrated.
+  try {
+    const u = new URL(databaseUrl);
+    u.password = '***';
+    console.log(`Target database: ${u.toString()}`);
+  } catch {
+    console.log('Target database: (could not parse DATABASE_URL)');
+  }
+
   const sql = postgres(databaseUrl, {
     max: 1,
     ssl: isSupabase ? 'require' : false,

@@ -16,6 +16,7 @@ import { authRoutes } from './routes/auth.js';
 import { authMiddleware } from './middleware/auth.js';
 import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
+import { isHyperdriveTimeout } from './db/hyperdrive.js';
 
 export function buildApp() {
   const app = new Hono<AppEnv>();
@@ -30,10 +31,11 @@ export function buildApp() {
 
   app.get('/health', async (c) => {
     const hyperdrive = !!c.env?.HYPERDRIVE;
-    // Only probe the DB when the HYPERDRIVE binding is present (Workers context).
-    // In local/test contexts there's no binding and no live DB to test.
+    const hasDbUrl = !!c.env?.DATABASE_URL;
+    // Only probe the DB when a Workers DB binding is present.
+    // In local/test contexts neither binding exists — skip the probe.
     let db: 'ok' | 'not_applicable' | string = 'not_applicable';
-    if (hyperdrive) {
+    if (hyperdrive || hasDbUrl) {
       try {
         await getDb().execute(sql`SELECT 1`);
         db = 'ok';
@@ -62,6 +64,9 @@ export function buildApp() {
   app.route('/api', api);
 
   app.onError((err, c) => {
+    // Re-throw so worker.ts can retry with a fresh Hyperdrive connection.
+    if (isHyperdriveTimeout(err)) throw err;
+
     if (err instanceof AppError) {
       return c.json(
         { error: { code: err.code, message: err.message, details: err.details } },

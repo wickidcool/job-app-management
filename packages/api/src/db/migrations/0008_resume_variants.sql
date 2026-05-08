@@ -1,20 +1,12 @@
 -- UC-6: Resume Variant Generation
 
-CREATE TYPE resume_variant_status AS ENUM ('draft', 'finalized');
+DO $$ BEGIN CREATE TYPE resume_variant_status AS ENUM ('draft', 'finalized'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE resume_format AS ENUM (
-  'chronological',
-  'functional',
-  'hybrid'
-);
+DO $$ BEGIN CREATE TYPE resume_format AS ENUM ('chronological', 'functional', 'hybrid'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE section_emphasis AS ENUM (
-  'experience_heavy',
-  'skills_heavy',
-  'balanced'
-);
+DO $$ BEGIN CREATE TYPE section_emphasis AS ENUM ('experience_heavy', 'skills_heavy', 'balanced'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TABLE resume_variants (
+CREATE TABLE IF NOT EXISTS resume_variants (
   id                    TEXT PRIMARY KEY,
   status                resume_variant_status NOT NULL DEFAULT 'draft',
   title                 TEXT NOT NULL,
@@ -53,6 +45,6 @@ CREATE TABLE resume_variants (
   version               INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE INDEX idx_resume_variants_status ON resume_variants(status);
-CREATE INDEX idx_resume_variants_company ON resume_variants(target_company);
-CREATE INDEX idx_resume_variants_created ON resume_variants(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_resume_variants_status ON resume_variants(status);
+CREATE INDEX IF NOT EXISTS idx_resume_variants_company ON resume_variants(target_company);
+CREATE INDEX IF NOT EXISTS idx_resume_variants_created ON resume_variants(created_at DESC);

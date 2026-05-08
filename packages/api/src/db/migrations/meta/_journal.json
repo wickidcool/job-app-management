@@ -43,6 +43,41 @@
       "when": 1745769600000,
       "tag": "0006_cover_letters_emphasis",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777390404000,
+      "tag": "0007_extended_application_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777395208000,
+      "tag": "0008_resume_variants",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777421247000,
+      "tag": "0009_interview_prep",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777561920000,
+      "tag": "0010_job_description",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777587858000,
+      "tag": "0011_add_user_id_multi_tenancy",
+      "breakpoints": true
     }
   ]
 }
