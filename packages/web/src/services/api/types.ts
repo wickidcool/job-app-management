@@ -608,3 +608,55 @@ export interface ExportResumeVariantResponse {
   pageCount: number;
   createdAt: string;
 }
+
+/**
+ * Personal Information API Types
+ */
+export interface PersonalInfo {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  linkedinUrl?: string;
+  githubUrl?: string;
+  portfolioUrl?: string;
+  websiteUrl?: string;
+  professionalSummary?: string;
+  headline?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface GetPersonalInfoResponse {
+  personalInfo: PersonalInfo;
+  isComplete: boolean;
+  completionPercentage: number;
+}
+
+export interface UpdatePersonalInfoRequest {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+  linkedinUrl?: string | null;
+  githubUrl?: string | null;
+  portfolioUrl?: string | null;
+  websiteUrl?: string | null;
+  professionalSummary?: string | null;
+  headline?: string | null;
+  version?: number;
+}
