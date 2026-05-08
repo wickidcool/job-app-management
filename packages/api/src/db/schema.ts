@@ -703,3 +703,23 @@ export type NewPrepQuestionStoryLink = typeof prepQuestionStoryLinks.$inferInser
 export type InterviewType = (typeof interviewTypeEnum.enumValues)[number];
 export type PrepTime = (typeof prepTimeEnum.enumValues)[number];
 export type ConfidenceLevel = (typeof confidenceLevelEnum.enumValues)[number];
+
+// Personal Info
+export const personalInfo = pgTable('personal_info', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id'),
+  fullName: text('full_name'),
+  email: text('email'),
+  linkedinUrl: text('linkedin_url'),
+  githubUrl: text('github_url'),
+  homeAddress: text('home_address'),
+  phoneNumber: text('phone_number'),
+  projectsWebsite: text('projects_website'),
+  publishingPlatforms: jsonb('publishing_platforms').$type<string[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export type PersonalInfo = typeof personalInfo.$inferSelect;
+export type NewPersonalInfo = typeof personalInfo.$inferInsert;
