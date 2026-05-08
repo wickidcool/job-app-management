@@ -79,6 +79,29 @@ export const resumeExports = pgTable('resume_exports', {
   metadata: jsonb('metadata'),
 });
 
+// Onboarding enum and table
+export const onboardingStepEnum = pgEnum('onboarding_step', [
+  'welcome',
+  'resume_upload',
+  'first_application',
+  'completed',
+]);
+
+export const onboardingStatus = pgTable('onboarding_status', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull().unique(),
+  currentStep: onboardingStepEnum('current_step').notNull().default('welcome'),
+  resumeStepCompleted: boolean('resume_step_completed').notNull().default(false),
+  resumeStepSkipped: boolean('resume_step_skipped').notNull().default(false),
+  applicationStepCompleted: boolean('application_step_completed').notNull().default(false),
+  applicationStepSkipped: boolean('application_step_skipped').notNull().default(false),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
 export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
   userId: uuid('user_id'),
@@ -94,6 +117,9 @@ export type Resume = typeof resumes.$inferSelect;
 export type NewResume = typeof resumes.$inferInsert;
 export type ResumeExport = typeof resumeExports.$inferSelect;
 export type NewResumeExport = typeof resumeExports.$inferInsert;
+export type OnboardingStatus = typeof onboardingStatus.$inferSelect;
+export type NewOnboardingStatus = typeof onboardingStatus.$inferInsert;
+export type OnboardingStep = (typeof onboardingStepEnum.enumValues)[number];
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 

@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
+import { OnboardingProvider } from './contexts/OnboardingContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { OnboardingModal } from './components/onboarding';
 import { Login } from './pages/Login';
 import { TopNavigation } from './components/TopNavigation';
 import { MobileNavigation } from './components/MobileNavigation';
@@ -63,13 +65,14 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <div className="min-h-screen bg-neutral-50">
+        <OnboardingProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <div className="min-h-screen bg-neutral-50">
                   <div className="hidden md:block">
                     <TopNavigation applicationCount={inProgressCount} exportCount={exportCount} />
                   </div>
@@ -118,11 +121,15 @@ function App() {
                   <BottomTabBar applicationCount={inProgressCount} exportCount={exportCount} />
 
                   <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+
+                  {/* Onboarding Modal */}
+                  <OnboardingModal />
                 </div>
               </ProtectedRoute>
             }
           />
         </Routes>
+        </OnboardingProvider>
       </AuthProvider>
     </BrowserRouter>
   );

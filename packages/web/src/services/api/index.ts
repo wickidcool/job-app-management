@@ -24,6 +24,7 @@ import { createJobFitService } from './jobFitService';
 import { createCoverLetterService } from './coverLetters';
 import { createResumeVariantService } from './resumeVariantService';
 import { createInterviewPrepService } from './interviewPrepService';
+import { createOnboardingService } from './onboardingService';
 
 // API Configuration
 // Local backend runs on port 3000
@@ -53,6 +54,7 @@ export const jobFitService = createJobFitService(apiClient);
 export const coverLetterService = createCoverLetterService(apiClient);
 export const resumeVariantService = createResumeVariantService(apiClient);
 export const interviewPrepService = createInterviewPrepService(apiClient);
+export const onboardingService = createOnboardingService(apiClient);
 
 // Re-export types for convenience
 export type { ApplicationService } from './applicationService';
@@ -85,4 +87,5 @@ export type { JobFitService } from './jobFitService';
 export type { CoverLetterService, CoverLetter } from './coverLetters';
 export type { ResumeVariantService } from './resumeVariantService';
 export type { InterviewPrepService } from './interviewPrepService';
+export type { OnboardingService, OnboardingStatus, OnboardingStep, OnboardingProgress } from './onboardingService';
 export type * from './types';

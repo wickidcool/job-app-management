@@ -12,6 +12,7 @@ import { catalogRoutes } from './routes/catalog.routes.js';
 import { reportsRoutes } from './routes/reports.js';
 import { resumeVariantsRoutes } from './routes/resume-variants.js';
 import { interviewPrepsRoutes } from './routes/interview-preps.js';
+import { onboardingRoutes } from './routes/onboarding.js';
 import { authRoutes } from './routes/auth.js';
 import { authMiddleware } from './middleware/auth.js';
 import { AppError } from './types/index.js';
@@ -60,6 +61,7 @@ export function buildApp() {
   api.route('/', reportsRoutes);
   api.route('/', resumeVariantsRoutes);
   api.route('/', interviewPrepsRoutes);
+  api.route('/', onboardingRoutes);
 
   app.route('/api', api);
 

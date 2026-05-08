@@ -31,8 +31,8 @@ const STEP_MAP: Record<number, OnboardingStep | undefined> = {
 const STEP_TO_NUMBER: Record<OnboardingStep, number> = {
   welcome: 1,
   resume_upload: 2,
-  first_application: 3,
-  completed: 4,
+  first_application: 4, // Step 3 is App Overview (no DB state)
+  completed: 5,
 };
 
 const TOTAL_STEPS = 5; // Welcome, Resume Upload, App Overview (Feature Tour), Create First App, Completion
