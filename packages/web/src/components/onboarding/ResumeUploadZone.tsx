@@ -75,15 +75,14 @@ export function ResumeUploadZone({
       setIsUploading(true);
       setUploadProgress(0);
 
+      let progressInterval: ReturnType<typeof setInterval> | undefined;
       try {
-        // Simulate upload progress for better UX
-        const progressInterval = setInterval(() => {
+        progressInterval = setInterval(() => {
           setUploadProgress((prev) => Math.min(prev + 10, 90));
         }, 200);
 
         const resume = await resumeService.upload(file);
 
-        clearInterval(progressInterval);
         setUploadProgress(100);
         setUploadedResume(resume);
         onUploadSuccess(resume);
@@ -95,6 +94,7 @@ export function ResumeUploadZone({
         setError(uploadError);
         onUploadError(uploadError);
       } finally {
+        clearInterval(progressInterval);
         setIsUploading(false);
       }
     },

@@ -1,8 +1,8 @@
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { onboardingStatus, type OnboardingStatus, type OnboardingStep } from '../db/schema.js';
-import { NotFoundError } from '../types/index.js';
+import { NotFoundError, VersionConflictError } from '../types/index.js';
 
 /**
  * Get onboarding status for a user
@@ -21,17 +21,13 @@ export async function getOnboardingStatus(
 }
 
 /**
- * Create or initialize onboarding status for a new user
+ * Create or initialize onboarding status for a new user.
+ * Uses ON CONFLICT DO NOTHING to handle concurrent initialization attempts.
  */
 export async function initializeOnboardingStatus(
   db: PostgresJsDatabase,
   userId: string
 ): Promise<OnboardingStatus> {
-  const existing = await getOnboardingStatus(db, userId);
-  if (existing) {
-    return existing;
-  }
-
   const newStatus: typeof onboardingStatus.$inferInsert = {
     id: ulid(),
     userId,
@@ -47,8 +43,21 @@ export async function initializeOnboardingStatus(
     version: 1,
   };
 
-  const result = await db.insert(onboardingStatus).values(newStatus).returning();
-  return result[0];
+  const result = await db
+    .insert(onboardingStatus)
+    .values(newStatus)
+    .onConflictDoNothing({ target: onboardingStatus.userId })
+    .returning();
+
+  if (result.length > 0) {
+    return result[0];
+  }
+
+  const existing = await getOnboardingStatus(db, userId);
+  if (!existing) {
+    throw new NotFoundError('Failed to initialize onboarding status');
+  }
+  return existing;
 }
 
 /**
@@ -77,11 +86,16 @@ export async function updateOnboardingProgress(
       updatedAt: new Date(),
       version: existing.version + 1,
     })
-    .where(eq(onboardingStatus.id, existing.id))
+    .where(
+      and(
+        eq(onboardingStatus.id, existing.id),
+        eq(onboardingStatus.version, existing.version)
+      )
+    )
     .returning();
 
   if (result.length === 0) {
-    throw new NotFoundError('Failed to update onboarding status');
+    throw new VersionConflictError();
   }
 
   return result[0];
@@ -107,11 +121,16 @@ export async function completeOnboarding(
       updatedAt: new Date(),
       version: existing.version + 1,
     })
-    .where(eq(onboardingStatus.id, existing.id))
+    .where(
+      and(
+        eq(onboardingStatus.id, existing.id),
+        eq(onboardingStatus.version, existing.version)
+      )
+    )
     .returning();
 
   if (result.length === 0) {
-    throw new NotFoundError('Failed to complete onboarding');
+    throw new VersionConflictError();
   }
 
   return result[0];
