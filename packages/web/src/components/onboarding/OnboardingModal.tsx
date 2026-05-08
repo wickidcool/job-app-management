@@ -65,8 +65,8 @@ export function OnboardingModal() {
     await updateProgress({
       resumeStepCompleted: true,
       resumeStepSkipped: false,
-      currentStep: 'first_application',
     });
+    nextStep();
   };
 
   const handleResumeUploadError = (error: { code: string; message: string }) => {
@@ -76,9 +76,8 @@ export function OnboardingModal() {
   const handleSkipResume = async () => {
     await updateProgress({
       resumeStepSkipped: true,
-      currentStep: 'first_application',
     });
-    // updateProgress already advances the step, no need to call nextStep()
+    nextStep();
   };
 
   const handleCompleteStep = async (stepNumber: number) => {
