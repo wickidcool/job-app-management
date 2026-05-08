@@ -39,13 +39,14 @@ const TOTAL_STEPS = 5; // Welcome, Resume Upload, App Overview (Feature Tour), C
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Initialize loading based on whether auth token exists
+  const [loading, setLoading] = useState(() => !!localStorage.getItem('auth_token'));
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
 
   const fetchStatus = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
       const result = await onboardingService.getStatus();
       setStatus(result);
 
@@ -69,14 +70,45 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Only fetch if user is authenticated (token exists)
+    // Skip fetch if user is not authenticated
     const token = localStorage.getItem('auth_token');
-    if (token) {
-      void fetchStatus();
-    } else {
-      setLoading(false);
+    if (!token) {
+      return;
     }
-  }, [fetchStatus]);
+
+    let cancelled = false;
+
+    const initFetch = async () => {
+      try {
+        const result = await onboardingService.getStatus();
+        if (cancelled) return;
+
+        setStatus(result);
+        const stepNumber = STEP_TO_NUMBER[result.currentStep] || 1;
+        setCurrentStep(stepNumber);
+
+        if (result.completedAt !== null || result.currentStep === 'completed') {
+          setShowOnboarding(false);
+        } else {
+          setShowOnboarding(true);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to fetch onboarding status:', error);
+        setShowOnboarding(false);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void initFetch();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateProgress = useCallback(
     async (progress: OnboardingProgress) => {

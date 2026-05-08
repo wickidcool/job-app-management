@@ -32,35 +32,38 @@ export function ResumeUploadZone({
   const [error, setError] = useState<UploadError | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const validateFile = (file: File): UploadError | null => {
-    // Check file type
-    const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
-    if (!acceptedFormats.includes(fileExt)) {
-      return {
-        code: 'INVALID_FORMAT',
-        message: `File type not supported. Please upload ${acceptedFormats.join(' or ')} files.`,
-      };
-    }
+  const validateFile = useCallback(
+    (file: File): UploadError | null => {
+      // Check file type
+      const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
+      if (!acceptedFormats.includes(fileExt)) {
+        return {
+          code: 'INVALID_FORMAT',
+          message: `File type not supported. Please upload ${acceptedFormats.join(' or ')} files.`,
+        };
+      }
 
-    // Check file size
-    if (file.size > maxSizeBytes) {
-      const sizeMB = (maxSizeBytes / (1024 * 1024)).toFixed(0);
-      return {
-        code: 'FILE_TOO_LARGE',
-        message: `File is too large. Maximum size is ${sizeMB}MB.`,
-      };
-    }
+      // Check file size
+      if (file.size > maxSizeBytes) {
+        const sizeMB = (maxSizeBytes / (1024 * 1024)).toFixed(0);
+        return {
+          code: 'FILE_TOO_LARGE',
+          message: `File is too large. Maximum size is ${sizeMB}MB.`,
+        };
+      }
 
-    // Check minimum size (1KB to avoid empty files)
-    if (file.size < 1024) {
-      return {
-        code: 'FILE_TOO_LARGE',
-        message: 'File is too small. Please upload a valid resume.',
-      };
-    }
+      // Check minimum size (1KB to avoid empty files)
+      if (file.size < 1024) {
+        return {
+          code: 'FILE_TOO_LARGE',
+          message: 'File is too small. Please upload a valid resume.',
+        };
+      }
 
-    return null;
-  };
+      return null;
+    },
+    [acceptedFormats, maxSizeBytes]
+  );
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -98,7 +101,7 @@ export function ResumeUploadZone({
         setIsUploading(false);
       }
     },
-    [onUploadSuccess, onUploadError, maxSizeBytes, acceptedFormats]
+    [validateFile, onUploadSuccess, onUploadError]
   );
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
