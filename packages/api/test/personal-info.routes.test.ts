@@ -52,14 +52,22 @@ import { VersionConflictError } from '../src/types/index.js';
 const mockPersonalInfo = {
   id: '01HXTEST000000000000000001',
   userId: null,
-  fullName: 'Jane Doe',
+  firstName: 'Jane',
+  lastName: 'Doe',
   email: 'jane@example.com',
+  phone: '+1-555-555-5555',
+  addressLine1: '123 Main St',
+  addressLine2: 'Apt 4B',
+  city: 'Anytown',
+  state: 'CA',
+  postalCode: '12345',
+  country: 'USA',
   linkedinUrl: 'https://linkedin.com/in/janedoe',
   githubUrl: 'https://github.com/janedoe',
-  homeAddress: '123 Main St, Anytown, USA',
-  phoneNumber: '+1-555-555-5555',
-  projectsWebsite: 'https://janedoe.dev',
-  publishingPlatforms: ['https://janedoe.substack.com'],
+  portfolioUrl: 'https://janedoe.dev',
+  websiteUrl: 'https://janedoe.com',
+  professionalSummary: 'Software engineer with 10 years of experience',
+  headline: 'Senior Software Engineer',
   createdAt: new Date('2026-05-01T00:00:00.000Z'),
   updatedAt: new Date('2026-05-01T00:00:00.000Z'),
   version: 1,
@@ -75,88 +83,140 @@ describe('Personal Info Routes', () => {
 
   describe('GET /api/personal-info', () => {
     it('returns personal info when it exists', async () => {
-      vi.mocked(personalInfoService.getPersonalInfo).mockResolvedValue(mockPersonalInfo);
+      vi.mocked(personalInfoService.getPersonalInfo).mockResolvedValue({
+        personalInfo: mockPersonalInfo,
+        isComplete: true,
+        completionPercentage: 100,
+      });
 
       const res = await app.request('/api/personal-info', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.personalInfo.fullName).toBe('Jane Doe');
+      expect(body.personalInfo.firstName).toBe('Jane');
+      expect(body.personalInfo.lastName).toBe('Doe');
       expect(body.personalInfo.email).toBe('jane@example.com');
     });
 
-    it('returns null when no personal info exists', async () => {
-      vi.mocked(personalInfoService.getPersonalInfo).mockResolvedValue(null);
+    it('returns default object when no personal info exists', async () => {
+      const defaultInfo = {
+        id: '01HXTEST000000000000000002',
+        userId: null,
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: null,
+        addressLine1: null,
+        addressLine2: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        country: null,
+        linkedinUrl: null,
+        githubUrl: null,
+        portfolioUrl: null,
+        websiteUrl: null,
+        professionalSummary: null,
+        headline: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: 1,
+      };
+      vi.mocked(personalInfoService.getPersonalInfo).mockResolvedValue({
+        personalInfo: defaultInfo,
+        isComplete: false,
+        completionPercentage: 0,
+      });
 
       const res = await app.request('/api/personal-info', { method: 'GET' });
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.personalInfo).toBeNull();
+      expect(body.personalInfo.firstName).toBe('');
+      expect(body.isComplete).toBe(false);
     });
   });
 
-  describe('PUT /api/personal-info', () => {
+  describe('PATCH /api/personal-info', () => {
     it('creates personal info on first call', async () => {
-      vi.mocked(personalInfoService.upsertPersonalInfo).mockResolvedValue(mockPersonalInfo);
+      vi.mocked(personalInfoService.upsertPersonalInfo).mockResolvedValue({
+        personalInfo: mockPersonalInfo,
+        isComplete: false,
+        completionPercentage: 20,
+      });
 
       const res = await app.request('/api/personal-info', {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fullName: 'Jane Doe',
+          firstName: 'Jane',
+          lastName: 'Doe',
           email: 'jane@example.com',
         }),
       });
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.personalInfo.fullName).toBe('Jane Doe');
+      expect(body.personalInfo.firstName).toBe('Jane');
+      expect(body.personalInfo.lastName).toBe('Doe');
     });
 
     it('updates personal info with all fields', async () => {
-      const updated = { ...mockPersonalInfo, fullName: 'Jane Smith', version: 2 };
-      vi.mocked(personalInfoService.upsertPersonalInfo).mockResolvedValue(updated);
+      const updated = { ...mockPersonalInfo, firstName: 'Janet', version: 2 };
+      vi.mocked(personalInfoService.upsertPersonalInfo).mockResolvedValue({
+        personalInfo: updated,
+        isComplete: true,
+        completionPercentage: 100,
+      });
 
       const res = await app.request('/api/personal-info', {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fullName: 'Jane Smith',
+          firstName: 'Janet',
+          lastName: 'Doe',
           email: 'jane@example.com',
+          phone: '+1-555-555-5555',
+          addressLine1: '123 Main St',
+          city: 'Anytown',
+          state: 'CA',
+          postalCode: '12345',
+          country: 'USA',
           linkedinUrl: 'https://linkedin.com/in/janedoe',
           githubUrl: 'https://github.com/janedoe',
-          homeAddress: '123 Main St, Anytown, USA',
-          phoneNumber: '+1-555-555-5555',
-          projectsWebsite: 'https://janedoe.dev',
-          publishingPlatforms: ['https://janedoe.substack.com'],
+          portfolioUrl: 'https://janedoe.dev',
+          websiteUrl: 'https://janedoe.com',
+          professionalSummary: 'Software engineer',
+          headline: 'Senior Engineer',
           version: 1,
         }),
       });
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.personalInfo.fullName).toBe('Jane Smith');
+      expect(body.personalInfo.firstName).toBe('Janet');
       expect(personalInfoService.upsertPersonalInfo).toHaveBeenCalledWith(
-        expect.objectContaining({ fullName: 'Jane Smith', version: 1 }),
+        expect.objectContaining({ firstName: 'Janet', version: 1 }),
         undefined
       );
     });
 
     it('returns 400 for invalid email', async () => {
       const res = await app.request('/api/personal-info', {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'not-a-valid-email' }),
       });
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error.code).toBe('VALIDATION_ERROR');
+      expect(body.error.code).toBe('INVALID_EMAIL');
     });
 
     it('returns 400 for invalid URL fields', async () => {
       const res = await app.request('/api/personal-info', {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ linkedinUrl: 'not-a-url' }),
       });
       expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe('INVALID_URL');
     });
 
     it('returns 409 on version conflict', async () => {
@@ -165,9 +225,9 @@ describe('Personal Info Routes', () => {
       );
 
       const res = await app.request('/api/personal-info', {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName: 'Jane Doe', version: 99 }),
+        body: JSON.stringify({ firstName: 'Jane', version: 99 }),
       });
       expect(res.status).toBe(409);
       const body = await res.json();
@@ -175,17 +235,22 @@ describe('Personal Info Routes', () => {
     });
 
     it('accepts null values to clear fields', async () => {
-      const cleared = { ...mockPersonalInfo, fullName: null, linkedinUrl: null };
-      vi.mocked(personalInfoService.upsertPersonalInfo).mockResolvedValue(cleared);
+      const cleared = { ...mockPersonalInfo, phone: null, linkedinUrl: null };
+      vi.mocked(personalInfoService.upsertPersonalInfo).mockResolvedValue({
+        personalInfo: cleared,
+        isComplete: true,
+        completionPercentage: 85,
+      });
 
       const res = await app.request('/api/personal-info', {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName: null, linkedinUrl: null }),
+        body: JSON.stringify({ phone: null, linkedinUrl: null }),
       });
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.personalInfo.fullName).toBeNull();
+      expect(body.personalInfo.phone).toBeNull();
+      expect(body.personalInfo.linkedinUrl).toBeNull();
     });
   });
 });

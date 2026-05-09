@@ -1,4 +1,4 @@
-import { eq, isNull, sql } from 'drizzle-orm';
+import { eq, isNull, isNotNull, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import { personalInfo, type PersonalInfo } from '../db/schema.js';
@@ -173,6 +173,7 @@ export async function upsertPersonalInfo(
       .values(insertValues)
       .onConflictDoUpdate({
         target: personalInfo.userId,
+        targetWhere: isNotNull(personalInfo.userId),
         set: updateSet,
       })
       .returning();
