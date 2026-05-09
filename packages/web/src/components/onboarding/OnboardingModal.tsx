@@ -278,7 +278,7 @@ export function OnboardingModal() {
               totalSteps={totalSteps}
               title="Tell Us About Yourself"
               description="Fill in your personal information. This will be used for resumes, cover letters, and applications."
-              canProceed={personalInfoCompleted || personalInfoData?.isComplete}
+              canProceed={personalInfoCompleted || personalInfoData?.isComplete || false}
               onNext={() => handleCompleteStep(2)}
               onBack={previousStep}
             >
