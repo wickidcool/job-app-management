@@ -1,6 +1,11 @@
 import type { APIClient } from './apiClient';
 
-export type OnboardingStep = 'welcome' | 'personal_info' | 'resume_upload' | 'first_application' | 'completed';
+export type OnboardingStep =
+  | 'welcome'
+  | 'personal_info'
+  | 'resume_upload'
+  | 'first_application'
+  | 'completed';
 
 export interface OnboardingStatus {
   id: string;

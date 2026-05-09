@@ -258,9 +258,7 @@ test.describe('Personal Information — Onboarding flow', () => {
     await page.goto('/');
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     // Step 2 title is "Tell Us About Yourself" (OnboardingModal STEP_LABELS: 'Personal Info')
-    await expect(
-      page.getByRole('heading', { name: /tell us about yourself/i })
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: /tell us about yourself/i })).toBeVisible();
   });
 
   test('all personal info fields are rendered', async ({ page }) => {
@@ -537,9 +535,9 @@ test.describe('Personal Information — Settings page', () => {
     await page.getByRole('button', { name: /save changes/i }).click();
 
     // Success message must NOT appear when the save failed
-    await expect(
-      page.getByText('Personal information updated successfully')
-    ).not.toBeVisible({ timeout: 3_000 });
+    await expect(page.getByText('Personal information updated successfully')).not.toBeVisible({
+      timeout: 3_000,
+    });
   });
 
   test('settings form is empty when the user has no saved personal info', async ({ page }) => {
