@@ -307,6 +307,8 @@ test.describe('Personal Information — Onboarding flow', () => {
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
 
+    // Wait for form to render before checking values
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
     await expect(field(page, 'firstName')).toHaveValue('');
     await expect(field(page, 'lastName')).toHaveValue('');
     await expect(field(page, 'email')).toHaveValue('');
@@ -321,6 +323,8 @@ test.describe('Personal Information — Onboarding flow', () => {
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
 
+    // Wait for form to render
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
     await field(page, 'firstName').fill('Jane');
     await field(page, 'lastName').fill('Doe');
     await field(page, 'email').fill('jane@example.com');
@@ -375,7 +379,8 @@ test.describe('Personal Information — Onboarding flow', () => {
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
 
-    // Fill required fields first
+    // Wait for form to render, then fill required fields
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
     await field(page, 'firstName').fill('Test');
     await field(page, 'lastName').fill('User');
     await field(page, 'email').fill('test@example.com');
@@ -395,6 +400,8 @@ test.describe('Personal Information — Onboarding flow', () => {
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
 
+    // Wait for form to render
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
     await field(page, 'firstName').fill('Test');
     await field(page, 'lastName').fill('User');
     await field(page, 'email').fill('not-an-email');
@@ -424,7 +431,9 @@ test.describe('Personal Information — Onboarding with existing data', () => {
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
 
-    await expect(field(page, 'firstName')).toHaveValue('Jane', { timeout: 5_000 });
+    // Wait for form to render before checking values
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
+    await expect(field(page, 'firstName')).toHaveValue('Jane');
     await expect(field(page, 'lastName')).toHaveValue('Doe');
     await expect(field(page, 'email')).toHaveValue('jane@example.com');
     await expect(field(page, 'linkedinUrl')).toHaveValue('https://linkedin.com/in/janedoe');
@@ -441,6 +450,7 @@ test.describe('Personal Information — Onboarding with existing data', () => {
     ).toBeVisible();
 
     const firstNameInput = field(page, 'firstName');
+    await expect(firstNameInput).toBeVisible({ timeout: 5_000 });
     await firstNameInput.clear();
     await firstNameInput.fill('Janet');
 
@@ -498,7 +508,9 @@ test.describe('Personal Information — Settings page', () => {
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
-    await expect(field(page, 'firstName')).toHaveValue('Jane', { timeout: 5_000 });
+    // Wait for form to render before checking values
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
+    await expect(field(page, 'firstName')).toHaveValue('Jane');
     await expect(field(page, 'lastName')).toHaveValue('Doe');
     await expect(field(page, 'email')).toHaveValue('jane@example.com');
     await expect(field(page, 'linkedinUrl')).toHaveValue('https://linkedin.com/in/janedoe');
@@ -570,7 +582,9 @@ test.describe('Personal Information — Settings page', () => {
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
-    await expect(field(page, 'firstName')).toHaveValue('', { timeout: 5_000 });
+    // Wait for form to render before checking values
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
+    await expect(field(page, 'firstName')).toHaveValue('');
     await expect(field(page, 'lastName')).toHaveValue('');
     await expect(field(page, 'linkedinUrl')).toHaveValue('');
     await expect(field(page, 'githubUrl')).toHaveValue('');
