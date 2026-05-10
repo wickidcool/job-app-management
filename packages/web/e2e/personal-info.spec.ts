@@ -252,7 +252,9 @@ function field(page: Page, fieldName: string) {
 /** Catches unmocked API requests and returns empty responses */
 async function setupFallbackApiMocks(page: Page) {
   await page.route('**/api/**', (route) => {
-    console.log(`[FALLBACK MOCK] Intercepted unmocked request: ${route.request().method()} ${route.request().url()}`);
+    console.log(
+      `[FALLBACK MOCK] Intercepted unmocked request: ${route.request().method()} ${route.request().url()}`
+    );
     route.fulfill({
       status: 200,
       contentType: 'application/json',
