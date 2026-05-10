@@ -24,6 +24,10 @@ import { test, expect, type Page } from '@playwright/test';
  * All tests use mock auth and route-intercepted API calls — no backend required.
  * Locators use id-OR-name fallbacks so they stay robust across React Hook Form
  * binding choices.
+ *
+ * Navigation pattern: page.goto() is called inside beforeEach (not individual tests),
+ * matching the working job-fit-analysis.spec.ts pattern. The beforeEach also waits
+ * for the expected initial page state so tests start with the UI ready.
  */
 
 // ─── Shared mock data ─────────────────────────────────────────────────────────
@@ -252,18 +256,17 @@ test.describe('Personal Information — Onboarding flow', () => {
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
+    await page.goto('/');
+    // Wait for the onboarding modal to appear before each test runs
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
   });
 
   test('onboarding modal shows a personal information step', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     // Step 2 title is "Tell Us About Yourself" (OnboardingModal STEP_LABELS: 'Personal Info')
     await expect(page.getByRole('heading', { name: /tell us about yourself/i })).toBeVisible();
   });
 
   test('all personal info fields are rendered', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -282,8 +285,6 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('all text fields start empty for a new user', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -298,8 +299,6 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('filling fields and clicking next advances the onboarding step', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -322,8 +321,6 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('skip button advances past the personal information step', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -336,8 +333,6 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('back button returns to the previous onboarding step', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -354,8 +349,6 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('URL fields show a validation error for non-URL input', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -375,8 +368,6 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('email field rejects an obviously invalid address', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -401,11 +392,12 @@ test.describe('Personal Information — Onboarding with existing data', () => {
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await setupDashboardMocks(page);
+    await page.goto('/');
+    // Wait for the onboarding modal to appear before each test runs
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
   });
 
   test('form is pre-filled with existing personal information', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -422,8 +414,6 @@ test.describe('Personal Information — Onboarding with existing data', () => {
   });
 
   test('updated data is PATCH to /api/personal-info when the step is saved', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
@@ -458,27 +448,21 @@ test.describe('Personal Information — Settings page (empty form)', () => {
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
+    await page.goto('/settings');
+    // Wait for the Settings page to fully render before each test runs.
+    // This ensures auth has resolved and ProtectedRoute renders children.
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
   });
 
   test('auth mock works and allows access to protected route', async ({ page }) => {
-    await page.goto('/settings');
-    // If auth mock works, we should NOT be redirected to /login
-    await expect(page).not.toHaveURL('/login', { timeout: 5_000 });
+    await expect(page).not.toHaveURL('/login');
   });
 
   test('settings page has a Personal Information section', async ({ page }) => {
-    await page.goto('/settings');
-
-    // Debug: verify we're not redirected to login
-    await expect(page).not.toHaveURL('/login', { timeout: 5_000 });
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
   });
 
   test('Personal Information section exposes the form', async ({ page }) => {
-    await page.goto('/settings');
-
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
     await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
@@ -486,9 +470,6 @@ test.describe('Personal Information — Settings page (empty form)', () => {
   });
 
   test('settings form is empty when the user has no saved personal info', async ({ page }) => {
-    await page.goto('/settings');
-
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
     // Wait for form to render before checking values
@@ -506,12 +487,11 @@ test.describe('Personal Information — Settings page (populated form)', () => {
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await setupDashboardMocks(page);
+    await page.goto('/settings');
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
   });
 
   test('settings form pre-fills existing personal information', async ({ page }) => {
-    await page.goto('/settings');
-
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
     // Wait for form to render before checking values
@@ -525,9 +505,6 @@ test.describe('Personal Information — Settings page (populated form)', () => {
   });
 
   test('saving updated personal information shows success feedback', async ({ page }) => {
-    await page.goto('/settings');
-
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
     const phoneInput = field(page, 'phone');
@@ -543,9 +520,6 @@ test.describe('Personal Information — Settings page (populated form)', () => {
   });
 
   test('URL fields show validation error in settings', async ({ page }) => {
-    await page.goto('/settings');
-
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
     await expect(field(page, 'linkedinUrl')).toBeVisible({ timeout: 5_000 });
@@ -564,15 +538,14 @@ test.describe('Personal Information — Settings page (save failure)', () => {
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
     await setupDashboardMocks(page);
+    await page.goto('/settings');
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
   });
 
   test('settings form does not show success message when the API save fails', async ({ page }) => {
     // BUG: Settings.tsx swallows PATCH mutation errors (console.error only, no UI feedback).
     // This test documents the current (broken) behaviour: on save failure, the success
     // message must NOT appear. A follow-up ticket should add visible error handling.
-    await page.goto('/settings');
-
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
 
     await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
