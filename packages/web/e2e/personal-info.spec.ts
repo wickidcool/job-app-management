@@ -459,10 +459,18 @@ test.describe('Personal Information — Settings page', () => {
     await setupDashboardMocks(page);
   });
 
+  test('auth mock works and allows access to protected route', async ({ page }) => {
+    await page.goto('/settings');
+    // If auth mock works, we should NOT be redirected to /login
+    await expect(page).not.toHaveURL('/login', { timeout: 5_000 });
+  });
+
   test('settings page has a Personal Information section', async ({ page }) => {
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await page.goto('/settings');
 
+    // Debug: verify we're not redirected to login
+    await expect(page).not.toHaveURL('/login', { timeout: 5_000 });
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
   });
