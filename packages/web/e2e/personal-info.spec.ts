@@ -107,6 +107,9 @@ const ONBOARDING_COMPLETED = {
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
 async function setupMockAuth(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({
       status: 200,
@@ -114,33 +117,34 @@ async function setupMockAuth(page: Page) {
       body: JSON.stringify({ user: MOCK_USER }),
     })
   );
-  await page.addInitScript(() => {
-    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
-  });
 }
 
 async function setupOnboardingMocks(page: Page, onboardingStatus: object) {
-  await page.route('**/api/users/me/onboarding/status', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(onboardingStatus),
-    })
-  );
-  await page.route('**/api/users/me/onboarding/progress', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ ...onboardingStatus, version: 2 }),
-    })
-  );
-  await page.route('**/api/users/me/onboarding/complete', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(ONBOARDING_COMPLETED),
-    })
-  );
+  await page.route('**/api/users/me/onboarding/**', (route) => {
+    const url = route.request().url();
+    if (url.includes('/status')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(onboardingStatus),
+      });
+    }
+    if (url.includes('/progress')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...onboardingStatus, version: 2 }),
+      });
+    }
+    if (url.includes('/complete')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(ONBOARDING_COMPLETED),
+      });
+    }
+    return route.fallback();
+  });
 }
 
 type PersonalInfoFixture = typeof MOCK_PERSONAL_INFO_NULL | typeof MOCK_PERSONAL_INFO_POPULATED;
@@ -243,6 +247,18 @@ function field(page: Page, fieldName: string) {
   return page.locator(
     `input[id="${fieldName}"], input[name="${fieldName}"], textarea[id="${fieldName}"], textarea[name="${fieldName}"]`
   );
+}
+
+/** Catches unmocked API requests and returns empty responses */
+async function setupFallbackApiMocks(page: Page) {
+  await page.route('**/api/**', (route) => {
+    console.log(`[FALLBACK MOCK] Intercepted unmocked request: ${route.request().method()} ${route.request().url()}`);
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({}),
+    });
+  });
 }
 
 /** Clicks the profile trigger if it's behind a card/link in Settings. */
@@ -541,6 +557,7 @@ test.describe('Personal Information — Settings page (populated form)', () => {
 
 test.describe('Personal Information — Settings page (save failure)', () => {
   test.beforeEach(async ({ page }) => {
+    await setupFallbackApiMocks(page);
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
