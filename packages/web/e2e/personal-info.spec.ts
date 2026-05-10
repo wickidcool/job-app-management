@@ -102,6 +102,22 @@ const ONBOARDING_COMPLETED = {
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
+/**
+ * Catch-all mock for any /api routes that aren't explicitly mocked.
+ * This prevents tests from hanging when the backend isn't running in CI.
+ * Should be called LAST after all specific mocks are set up.
+ */
+async function setupFallbackApiMock(page: Page) {
+  await page.route('**/api/**', (route) => {
+    console.warn(`[E2E] Unmocked API route: ${route.request().method()} ${route.request().url()}`);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({}),
+    });
+  });
+}
+
 async function setupMockAuth(page: Page) {
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({
@@ -252,6 +268,7 @@ test.describe('Personal Information — Onboarding flow', () => {
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
+    await setupFallbackApiMock(page);
   });
 
   test('onboarding modal shows a personal information step', async ({ page }) => {
@@ -394,6 +411,7 @@ test.describe('Personal Information — Onboarding with existing data', () => {
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await setupDashboardMocks(page);
+    await setupFallbackApiMock(page);
   });
 
   test('form is pre-filled with existing personal information', async ({ page }) => {
@@ -447,6 +465,7 @@ test.describe('Personal Information — Settings page', () => {
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupDashboardMocks(page);
+    await setupFallbackApiMock(page);
   });
 
   test('settings page has a Personal Information section', async ({ page }) => {
