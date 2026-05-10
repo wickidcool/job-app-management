@@ -229,6 +229,13 @@ async function setupDashboardMocks(page: Page) {
       body: JSON.stringify({ applications: [], nextPage: null }),
     })
   );
+  await page.route('**/api/resumes*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ resumes: [] }),
+    })
+  );
 }
 
 /** Returns a locator that matches a field by id OR name attribute. */
