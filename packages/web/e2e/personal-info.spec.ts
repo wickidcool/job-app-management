@@ -146,7 +146,7 @@ async function setupPersonalInfoMocks(
   getFixture: PersonalInfoFixture,
   { saveSuccess = true }: { saveSuccess?: boolean } = {}
 ) {
-  await page.route('**/api/personal-info', async (route) => {
+  await page.route('**/api/personal-info*', async (route) => {
     const method = route.request().method();
 
     if (method === 'GET') {
@@ -452,10 +452,11 @@ test.describe('Personal Information — Onboarding with existing data', () => {
 
 // ─── Settings page ────────────────────────────────────────────────────────────
 
-test.describe('Personal Information — Settings page', () => {
+test.describe('Personal Information — Settings page (empty form)', () => {
   test.beforeEach(async ({ page }) => {
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
   });
 
@@ -466,7 +467,6 @@ test.describe('Personal Information — Settings page', () => {
   });
 
   test('settings page has a Personal Information section', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await page.goto('/settings');
 
     // Debug: verify we're not redirected to login
@@ -476,7 +476,6 @@ test.describe('Personal Information — Settings page', () => {
   });
 
   test('Personal Information section exposes the form', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -486,8 +485,30 @@ test.describe('Personal Information — Settings page', () => {
     await expect(field(page, 'lastName')).toBeVisible({ timeout: 5_000 });
   });
 
-  test('settings form pre-fills existing personal information', async ({ page }) => {
+  test('settings form is empty when the user has no saved personal info', async ({ page }) => {
+    await page.goto('/settings');
+
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
+    await openProfileFormIfNeeded(page);
+
+    // Wait for form to render before checking values
+    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
+    await expect(field(page, 'firstName')).toHaveValue('');
+    await expect(field(page, 'lastName')).toHaveValue('');
+    await expect(field(page, 'linkedinUrl')).toHaveValue('');
+    await expect(field(page, 'githubUrl')).toHaveValue('');
+  });
+});
+
+test.describe('Personal Information — Settings page (populated form)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+    await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
+    await setupDashboardMocks(page);
+  });
+
+  test('settings form pre-fills existing personal information', async ({ page }) => {
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -504,7 +525,6 @@ test.describe('Personal Information — Settings page', () => {
   });
 
   test('saving updated personal information shows success feedback', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -523,7 +543,6 @@ test.describe('Personal Information — Settings page', () => {
   });
 
   test('URL fields show validation error in settings', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -537,12 +556,20 @@ test.describe('Personal Information — Settings page', () => {
 
     await expect(page.getByText('Must be a valid URL').first()).toBeVisible({ timeout: 3_000 });
   });
+});
+
+test.describe('Personal Information — Settings page (save failure)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupMockAuth(page);
+    await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
+    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
+    await setupDashboardMocks(page);
+  });
 
   test('settings form does not show success message when the API save fails', async ({ page }) => {
     // BUG: Settings.tsx swallows PATCH mutation errors (console.error only, no UI feedback).
     // This test documents the current (broken) behaviour: on save failure, the success
     // message must NOT appear. A follow-up ticket should add visible error handling.
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
     await page.goto('/settings');
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
@@ -558,21 +585,6 @@ test.describe('Personal Information — Settings page', () => {
     await expect(page.getByText('Personal information updated successfully')).not.toBeVisible({
       timeout: 3_000,
     });
-  });
-
-  test('settings form is empty when the user has no saved personal info', async ({ page }) => {
-    await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
-    await page.goto('/settings');
-
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
-    await openProfileFormIfNeeded(page);
-
-    // Wait for form to render before checking values
-    await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
-    await expect(field(page, 'firstName')).toHaveValue('');
-    await expect(field(page, 'lastName')).toHaveValue('');
-    await expect(field(page, 'linkedinUrl')).toHaveValue('');
-    await expect(field(page, 'githubUrl')).toHaveValue('');
   });
 });
 
