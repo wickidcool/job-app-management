@@ -5,7 +5,11 @@ import { AppError } from '../types/index.js';
 import * as onboardingService from '../services/onboarding.service.js';
 
 const progressSchema = z.object({
-  currentStep: z.enum(['welcome', 'resume_upload', 'first_application', 'completed']).optional(),
+  currentStep: z
+    .enum(['welcome', 'personal_info', 'resume_upload', 'first_application', 'completed'])
+    .optional(),
+  personalInfoStepCompleted: z.boolean().optional(),
+  personalInfoStepSkipped: z.boolean().optional(),
   resumeStepCompleted: z.boolean().optional(),
   resumeStepSkipped: z.boolean().optional(),
   applicationStepCompleted: z.boolean().optional(),
