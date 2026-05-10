@@ -272,14 +272,14 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('onboarding modal shows a personal information step', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     // Step 2 title is "Tell Us About Yourself" (OnboardingModal STEP_LABELS: 'Personal Info')
     await expect(page.getByRole('heading', { name: /tell us about yourself/i })).toBeVisible();
   });
 
   test('all personal info fields are rendered', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -299,7 +299,7 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('all text fields start empty for a new user', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -313,7 +313,7 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('filling fields and clicking next advances the onboarding step', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -335,7 +335,7 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('skip button advances past the personal information step', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -349,7 +349,7 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('back button returns to the previous onboarding step', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -367,7 +367,7 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('URL fields show a validation error for non-URL input', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -387,7 +387,7 @@ test.describe('Personal Information — Onboarding flow', () => {
   });
 
   test('email field rejects an obviously invalid address', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -415,7 +415,7 @@ test.describe('Personal Information — Onboarding with existing data', () => {
   });
 
   test('form is pre-filled with existing personal information', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -431,7 +431,7 @@ test.describe('Personal Information — Onboarding with existing data', () => {
   });
 
   test('updated data is PATCH to /api/personal-info when the step is saved', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
@@ -470,7 +470,7 @@ test.describe('Personal Information — Settings page', () => {
 
   test('settings page has a Personal Information section', async ({ page }) => {
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /personal information/i })).toBeVisible();
@@ -478,7 +478,7 @@ test.describe('Personal Information — Settings page', () => {
 
   test('Personal Information section exposes the form', async ({ page }) => {
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
@@ -489,7 +489,7 @@ test.describe('Personal Information — Settings page', () => {
 
   test('settings form pre-fills existing personal information', async ({ page }) => {
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
@@ -504,7 +504,7 @@ test.describe('Personal Information — Settings page', () => {
 
   test('saving updated personal information shows success feedback', async ({ page }) => {
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
@@ -523,7 +523,7 @@ test.describe('Personal Information — Settings page', () => {
 
   test('URL fields show validation error in settings', async ({ page }) => {
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
@@ -542,7 +542,7 @@ test.describe('Personal Information — Settings page', () => {
     // This test documents the current (broken) behaviour: on save failure, the success
     // message must NOT appear. A follow-up ticket should add visible error handling.
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
@@ -561,7 +561,7 @@ test.describe('Personal Information — Settings page', () => {
 
   test('settings form is empty when the user has no saved personal info', async ({ page }) => {
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
 
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
     await openProfileFormIfNeeded(page);
@@ -577,7 +577,7 @@ test.describe('Personal Information — Settings page', () => {
 
 test.describe('Personal Information — Auth protection', () => {
   test('unauthenticated user is redirected to /login when accessing settings', async ({ page }) => {
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'networkidle' });
     await expect(page).toHaveURL('/login', { timeout: 5_000 });
   });
 });
