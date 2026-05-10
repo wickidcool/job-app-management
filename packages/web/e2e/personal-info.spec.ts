@@ -105,7 +105,8 @@ const ONBOARDING_COMPLETED = {
 /**
  * Catch-all mock for any /api routes that aren't explicitly mocked.
  * This prevents tests from hanging when the backend isn't running in CI.
- * Should be called LAST after all specific mocks are set up.
+ * Should be called FIRST before all specific mocks (Playwright uses LIFO order
+ * for route matching, so first-registered is checked last).
  */
 async function setupFallbackApiMock(page: Page) {
   await page.route('**/api/**', (route) => {
@@ -264,11 +265,12 @@ async function openProfileFormIfNeeded(page: Page) {
 
 test.describe('Personal Information — Onboarding flow', () => {
   test.beforeEach(async ({ page }) => {
+    // IMPORTANT: Register fallback FIRST so it's checked LAST (Playwright uses LIFO order)
+    await setupFallbackApiMock(page);
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
-    await setupFallbackApiMock(page);
   });
 
   test('onboarding modal shows a personal information step', async ({ page }) => {
@@ -407,11 +409,12 @@ test.describe('Personal Information — Onboarding flow', () => {
 
 test.describe('Personal Information — Onboarding with existing data', () => {
   test.beforeEach(async ({ page }) => {
+    // IMPORTANT: Register fallback FIRST so it's checked LAST (Playwright uses LIFO order)
+    await setupFallbackApiMock(page);
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await setupDashboardMocks(page);
-    await setupFallbackApiMock(page);
   });
 
   test('form is pre-filled with existing personal information', async ({ page }) => {
@@ -462,10 +465,11 @@ test.describe('Personal Information — Onboarding with existing data', () => {
 
 test.describe('Personal Information — Settings page', () => {
   test.beforeEach(async ({ page }) => {
+    // IMPORTANT: Register fallback FIRST so it's checked LAST (Playwright uses LIFO order)
+    await setupFallbackApiMock(page);
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupDashboardMocks(page);
-    await setupFallbackApiMock(page);
   });
 
   test('settings page has a Personal Information section', async ({ page }) => {
