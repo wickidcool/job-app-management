@@ -82,6 +82,7 @@ export const resumeExports = pgTable('resume_exports', {
 // Onboarding enum and table
 export const onboardingStepEnum = pgEnum('onboarding_step', [
   'welcome',
+  'personal_info',
   'resume_upload',
   'first_application',
   'completed',
@@ -91,6 +92,8 @@ export const onboardingStatus = pgTable('onboarding_status', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull().unique(),
   currentStep: onboardingStepEnum('current_step').notNull().default('welcome'),
+  personalInfoStepCompleted: boolean('personal_info_step_completed').notNull().default(false),
+  personalInfoStepSkipped: boolean('personal_info_step_skipped').notNull().default(false),
   resumeStepCompleted: boolean('resume_step_completed').notNull().default(false),
   resumeStepSkipped: boolean('resume_step_skipped').notNull().default(false),
   applicationStepCompleted: boolean('application_step_completed').notNull().default(false),
