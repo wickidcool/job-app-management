@@ -102,18 +102,6 @@ const ONBOARDING_COMPLETED = {
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-/**
- * Catch-all mock for any /api routes that aren't explicitly mocked.
- * WARNING: This interferes with specific route mocks even when registered first.
- * Prefer mocking all needed routes explicitly instead.
- * @deprecated Do not use - causes route conflicts
- */
-async function setupFallbackApiMock(_page: Page) {
-  // Intentionally disabled - fallback mock was intercepting specific route mocks
-  // despite LIFO registration order, causing auth failures.
-  // The job-fit-analysis tests prove that tests work without a fallback.
-}
-
 async function setupMockAuth(page: Page) {
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({
