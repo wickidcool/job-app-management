@@ -278,25 +278,11 @@ async function openProfileFormIfNeeded(page: Page) {
 
 test.describe('Personal Information — Onboarding flow', () => {
   test.beforeEach(async ({ page }) => {
-    // Log network requests to diagnose auth flow
-    page.on('request', (request) => {
-      if (request.url().includes('/api/')) {
-        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
-      }
-    });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/')) {
-        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
-      }
-    });
-
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
-    await page.goto('/');
-    // Wait for the onboarding modal to appear before each test runs
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
+    await page.goto('/', { waitUntil: 'networkidle' });
   });
 
   test('onboarding modal shows a personal information step', async ({ page }) => {
@@ -426,25 +412,11 @@ test.describe('Personal Information — Onboarding flow', () => {
 
 test.describe('Personal Information — Onboarding with existing data', () => {
   test.beforeEach(async ({ page }) => {
-    // Log network requests to diagnose auth flow
-    page.on('request', (request) => {
-      if (request.url().includes('/api/')) {
-        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
-      }
-    });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/')) {
-        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
-      }
-    });
-
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await setupDashboardMocks(page);
-    await page.goto('/');
-    // Wait for the onboarding modal to appear before each test runs
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
+    await page.goto('/', { waitUntil: 'networkidle' });
   });
 
   test('form is pre-filled with existing personal information', async ({ page }) => {
@@ -510,10 +482,7 @@ test.describe('Personal Information — Settings page (empty form)', () => {
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
     await setupDashboardMocks(page);
-    await page.goto('/settings');
-    // Wait for the Settings page to fully render before each test runs.
-    // This ensures auth has resolved and ProtectedRoute renders children.
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
+    await page.goto('/settings', { waitUntil: 'networkidle' });
   });
 
   test('auth mock works and allows access to protected route', async ({ page }) => {
@@ -561,8 +530,7 @@ test.describe('Personal Information — Settings page (populated form)', () => {
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
     await setupDashboardMocks(page);
-    await page.goto('/settings');
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
+    await page.goto('/settings', { waitUntil: 'networkidle' });
   });
 
   test('settings form pre-fills existing personal information', async ({ page }) => {
@@ -608,25 +576,12 @@ test.describe('Personal Information — Settings page (populated form)', () => {
 
 test.describe('Personal Information — Settings page (save failure)', () => {
   test.beforeEach(async ({ page }) => {
-    // Log all network requests to diagnose blocking
-    page.on('request', (request) => {
-      if (request.url().includes('/api/')) {
-        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
-      }
-    });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/')) {
-        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
-      }
-    });
-
     await setupFallbackApiMocks(page);
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
     await setupDashboardMocks(page);
-    await page.goto('/settings', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
+    await page.goto('/settings', { waitUntil: 'networkidle' });
   });
 
   test('settings form does not show success message when the API save fails', async ({ page }) => {
