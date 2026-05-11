@@ -278,6 +278,18 @@ async function openProfileFormIfNeeded(page: Page) {
 
 test.describe('Personal Information — Onboarding flow', () => {
   test.beforeEach(async ({ page }) => {
+    // Log network requests to diagnose auth flow
+    page.on('request', (request) => {
+      if (request.url().includes('/api/')) {
+        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
+      }
+    });
+    page.on('response', (response) => {
+      if (response.url().includes('/api/')) {
+        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
+      }
+    });
+
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
@@ -414,6 +426,18 @@ test.describe('Personal Information — Onboarding flow', () => {
 
 test.describe('Personal Information — Onboarding with existing data', () => {
   test.beforeEach(async ({ page }) => {
+    // Log network requests to diagnose auth flow
+    page.on('request', (request) => {
+      if (request.url().includes('/api/')) {
+        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
+      }
+    });
+    page.on('response', (response) => {
+      if (response.url().includes('/api/')) {
+        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
+      }
+    });
+
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
@@ -470,6 +494,18 @@ test.describe('Personal Information — Onboarding with existing data', () => {
 
 test.describe('Personal Information — Settings page (empty form)', () => {
   test.beforeEach(async ({ page }) => {
+    // Log network requests to diagnose auth flow
+    page.on('request', (request) => {
+      if (request.url().includes('/api/')) {
+        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
+      }
+    });
+    page.on('response', (response) => {
+      if (response.url().includes('/api/')) {
+        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
+      }
+    });
+
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
@@ -509,6 +545,18 @@ test.describe('Personal Information — Settings page (empty form)', () => {
 
 test.describe('Personal Information — Settings page (populated form)', () => {
   test.beforeEach(async ({ page }) => {
+    // Log network requests to diagnose auth flow
+    page.on('request', (request) => {
+      if (request.url().includes('/api/')) {
+        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
+      }
+    });
+    page.on('response', (response) => {
+      if (response.url().includes('/api/')) {
+        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
+      }
+    });
+
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
