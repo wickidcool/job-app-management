@@ -560,12 +560,24 @@ test.describe('Personal Information — Settings page (populated form)', () => {
 
 test.describe('Personal Information — Settings page (save failure)', () => {
   test.beforeEach(async ({ page }) => {
+    // Log all network requests to diagnose blocking
+    page.on('request', (request) => {
+      if (request.url().includes('/api/')) {
+        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
+      }
+    });
+    page.on('response', (response) => {
+      if (response.url().includes('/api/')) {
+        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
+      }
+    });
+
     await setupFallbackApiMocks(page);
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL, { saveSuccess: false });
     await setupDashboardMocks(page);
-    await page.goto('/settings');
+    await page.goto('/settings', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
   });
 
