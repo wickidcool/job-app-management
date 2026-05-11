@@ -107,9 +107,6 @@ const ONBOARDING_COMPLETED = {
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
 async function setupMockAuth(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
-  });
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({
       status: 200,
@@ -117,6 +114,10 @@ async function setupMockAuth(page: Page) {
       body: JSON.stringify({ user: MOCK_USER }),
     })
   );
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
 }
 
 async function setupOnboardingMocks(page: Page, onboardingStatus: object) {
