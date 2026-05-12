@@ -103,10 +103,12 @@ export class LLMService {
         });
 
         console.log(
-          `[llm] parseJobDescription attempt=${attempt + 1} input_tokens=${response.usage.input_tokens} output_tokens=${response.usage.output_tokens}`,
+          `[llm] parseJobDescription attempt=${attempt + 1} input_tokens=${response.usage.input_tokens} output_tokens=${response.usage.output_tokens}`
         );
 
-        const toolUse = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+        const toolUse = response.content.find(
+          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+        );
         if (!toolUse) {
           throw new Error('[llm] No tool_use block in response');
         }
@@ -114,7 +116,9 @@ export class LLMService {
         return toolUse.input as ParsedJD;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        console.error(`[llm] parseJobDescription attempt=${attempt + 1} failed: ${lastError.message}`);
+        console.error(
+          `[llm] parseJobDescription attempt=${attempt + 1} failed: ${lastError.message}`
+        );
       }
     }
 

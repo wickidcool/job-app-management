@@ -325,7 +325,9 @@ describe('parseJobDescription - LLM integration', () => {
     const mockParseJD = vi.fn().mockResolvedValue(llmResult);
     vi.mocked(LLMService).mockImplementation(() => ({ parseJobDescription: mockParseJD }) as any);
 
-    const result = await parseJobDescription('Senior Engineer at Acme requiring TypeScript and React.');
+    const result = await parseJobDescription(
+      'Senior Engineer at Acme requiring TypeScript and React.'
+    );
 
     expect(mockParseJD).toHaveBeenCalledOnce();
     expect(result).toEqual(llmResult);

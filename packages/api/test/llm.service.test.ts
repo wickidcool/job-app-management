@@ -80,7 +80,9 @@ describe('LLMService', () => {
       mockCreate.mockResolvedValueOnce(makeToolUseResponse(PARSED_JD_FIXTURE));
 
       const service = new LLMService();
-      const result = await service.parseJobDescription('We are hiring a Senior Software Engineer...');
+      const result = await service.parseJobDescription(
+        'We are hiring a Senior Software Engineer...'
+      );
 
       expect(result).toEqual(PARSED_JD_FIXTURE);
       expect(mockCreate).toHaveBeenCalledOnce();
@@ -115,7 +117,9 @@ describe('LLMService', () => {
       mockCreate.mockRejectedValue(new Error('persistent error'));
 
       const service = new LLMService();
-      await expect(service.parseJobDescription('Job description text')).rejects.toThrow('persistent error');
+      await expect(service.parseJobDescription('Job description text')).rejects.toThrow(
+        'persistent error'
+      );
       expect(mockCreate).toHaveBeenCalledTimes(3);
     });
 
@@ -129,7 +133,7 @@ describe('LLMService', () => {
 
       const service = new LLMService();
       await expect(service.parseJobDescription('Job description text')).rejects.toThrow(
-        '[llm] No tool_use block in response',
+        '[llm] No tool_use block in response'
       );
       expect(mockCreate).toHaveBeenCalledTimes(3);
     });
