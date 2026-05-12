@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ParsedResume, UploadState, UploadProgress } from '../types/resume';
+import { apiClient } from '../services/api';
 
 interface ResumeUploadProps {
   onUploadComplete: (resumeId: string, parsedData: ParsedResume) => void;
@@ -142,7 +143,11 @@ export function ResumeUpload({
           setFileName('');
         });
 
-        xhr.open('POST', '/api/resumes/upload');
+        const token = await apiClient.config.getAuthToken();
+        xhr.open('POST', `${apiClient.config.baseURL}/resumes/upload`);
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
         xhr.send(formData);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Upload failed';
