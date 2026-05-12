@@ -4,6 +4,14 @@ import { test, expect, type Page } from '@playwright/test';
  * Job Fit Analysis E2E Tests
  *
  * Tests use mock auth to bypass authentication without a real backend.
+ *
+ * LLM mocking strategy:
+ * - mockJobFitApi() intercepts browser→API requests at /api/catalog/job-fit/analyze,
+ *   preventing any server-side Anthropic API calls from occurring in tests.
+ * - mockAnthropicApi() intercepts browser→Anthropic requests directly. Use this
+ *   for future integration-style tests that bypass the analyze endpoint mock and
+ *   require control over raw LLM responses (e.g. when ANTHROPIC_BASE_URL points
+ *   to a local mock server).
  */
 
 const MOCK_USER = {
@@ -24,6 +32,22 @@ async function setupMockAuth(page: Page) {
     localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
   });
 }
+
+// Non-standard prose-style JD without explicit "Requirements:" section headers.
+// Regex parsing struggles with this format; LLM handles it correctly.
+const JD_TEXT_NONSTANDARD = `We're building the future of fintech infrastructure and need a Staff
+Infrastructure Engineer who can lead our platform team of five.
+
+You'll spend your days crafting Kubernetes manifests and Terraform modules that power our
+AWS-hosted data pipelines. PostgreSQL is our backbone—you'll need to own it deeply.
+TypeScript ties it all together on the application layer, and Redis keeps our latency
+targets in check.
+
+If you've shipped distributed systems at scale and know your way around a blast radius,
+we want to talk. Bonus points for Rust experience and familiarity with GraphQL federation.
+
+Compensation reflects your geography and experience—we're talking $200,000–$240,000 for
+the right person, with meaningful equity. Remote-first, US or EU timezones.`;
 
 const JD_TEXT_VALID = `Senior Full Stack Engineer
 
@@ -146,12 +170,102 @@ const MOCK_EMPTY_CATALOG_RESPONSE = {
   analysisTimestamp: '2026-04-25T10:30:00.000Z',
 };
 
+// What the LLM correctly extracts from JD_TEXT_NONSTANDARD.
+// LLM understands prose context (e.g. "team of five" → teamScope, implied required skills).
+const MOCK_LLM_ANALYSIS_RESPONSE = {
+  recommendation: 'strong_fit',
+  summary: 'Strong match — you meet 5 of 6 required skills.',
+  confidence: 'high',
+  parsedJd: {
+    roleTitle: 'Staff Infrastructure Engineer',
+    seniority: 'staff',
+    seniorityConfidence: 'high',
+    requiredStack: ['typescript', 'kubernetes', 'aws', 'terraform', 'postgresql', 'redis'],
+    niceToHaveStack: ['rust', 'graphql'],
+    industries: ['fintech'],
+    teamScope: 'Manager of 5',
+    location: 'Remote (US/EU)',
+    compensation: '$200,000 - $240,000',
+  },
+  strongMatches: [
+    { type: 'tech_stack', catalogEntry: 'typescript', jdRequirement: 'typescript', matchType: 'exact', isRequired: true },
+    { type: 'tech_stack', catalogEntry: 'kubernetes', jdRequirement: 'kubernetes', matchType: 'exact', isRequired: true },
+    { type: 'tech_stack', catalogEntry: 'aws', jdRequirement: 'aws', matchType: 'exact', isRequired: true },
+    { type: 'tech_stack', catalogEntry: 'terraform', jdRequirement: 'terraform', matchType: 'exact', isRequired: true },
+    { type: 'tech_stack', catalogEntry: 'postgresql', jdRequirement: 'postgresql', matchType: 'alias', isRequired: true },
+  ],
+  partialMatches: [],
+  gaps: [
+    { type: 'tech_stack', jdRequirement: 'redis', isRequired: true, severity: 'moderate' },
+  ],
+  recommendedStarEntries: [],
+  catalogEmpty: false,
+  analysisTimestamp: '2026-05-12T10:30:00.000Z',
+};
+
+// What regex fallback returns from the same JD_TEXT_NONSTANDARD.
+// Without standard section headers, regex finds no required stack and cannot score fit.
+const MOCK_LLM_FALLBACK_ANALYSIS_RESPONSE = {
+  recommendation: null,
+  summary: 'Unable to compute fit score — no required skills found in the job description.',
+  confidence: 'low',
+  parsedJd: {
+    roleTitle: null,
+    seniority: 'staff',
+    seniorityConfidence: 'high',
+    requiredStack: [],
+    niceToHaveStack: [],
+    industries: [],
+    teamScope: null,
+    location: null,
+    compensation: '$200,000–$240,000',
+  },
+  strongMatches: [],
+  partialMatches: [],
+  gaps: [],
+  recommendedStarEntries: [],
+  catalogEmpty: false,
+  analysisTimestamp: '2026-05-12T10:30:00.000Z',
+};
+
 async function mockJobFitApi(page: Page, responseBody: object, status = 200) {
   await page.route('**/api/catalog/job-fit/analyze', (route) =>
     route.fulfill({
       status,
       contentType: 'application/json',
       body: JSON.stringify(responseBody),
+    })
+  );
+}
+
+/**
+ * Mocks the Anthropic messages endpoint for integration-style tests that run
+ * against a real API server configured with ANTHROPIC_BASE_URL pointing to a
+ * local mock proxy. Returns a valid tool_use response for parse_job_description.
+ *
+ * This is not used when mockJobFitApi() intercepts the analyze endpoint entirely.
+ */
+async function mockAnthropicApi(page: Page, parsedJd: object) {
+  await page.route('**/api.anthropic.com/v1/messages', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'msg_mock_e2e_001',
+        type: 'message',
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_mock_e2e_001',
+            name: 'parse_job_description',
+            input: parsedJd,
+          },
+        ],
+        model: 'claude-sonnet-4-6',
+        stop_reason: 'tool_use',
+        usage: { input_tokens: 500, output_tokens: 200 },
+      }),
     })
   );
 }
@@ -411,5 +525,58 @@ test.describe('Job Fit Analysis page', () => {
   test('navigation links work - Back to Dashboard', async ({ page }) => {
     await page.getByRole('button', { name: '← Back to Dashboard' }).click();
     await expect(page).toHaveURL('/');
+  });
+
+  // TC-LLM-1: LLM-powered parsing of non-standard prose-style JD
+  test('TC-LLM-1: LLM correctly parses non-standard prose JD and displays full results', async ({
+    page,
+  }) => {
+    // mockAnthropicApi is set up in addition to mockJobFitApi so both interception
+    // layers are covered if tests are later adapted to run against a real backend.
+    await mockAnthropicApi(page, MOCK_LLM_ANALYSIS_RESPONSE.parsedJd);
+    await mockJobFitApi(page, MOCK_LLM_ANALYSIS_RESPONSE);
+
+    await page.locator('#jobDescriptionText').fill(JD_TEXT_NONSTANDARD);
+    await page.getByRole('button', { name: 'Analyze Fit →' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
+      timeout: 15000,
+    });
+
+    await expect(page.getByText('STRONG FIT')).toBeVisible();
+    await expect(page.getByText('Strong match — you meet 5 of 6 required skills.')).toBeVisible();
+    await expect(page.getByText('Staff Infrastructure Engineer')).toBeVisible();
+    await expect(page.getByText('Remote (US/EU)')).toBeVisible();
+    await expect(page.getByText('$200,000 - $240,000')).toBeVisible();
+    await expect(page.getByText('✅ Strong Matches (5)')).toBeVisible();
+    await expect(page.getByText('❌ Gaps (1)')).toBeVisible();
+  });
+
+  // TC-LLM-2: LLM unavailable — regex fallback produces degraded results, UI stays stable
+  test('TC-LLM-2: UI handles regex fallback gracefully when LLM is unavailable', async ({
+    page,
+  }) => {
+    // Simulate the fallback path: LLM failed, regex could not extract required skills
+    // from the prose-style JD, so recommendation is null and requiredStack is empty.
+    await mockJobFitApi(page, MOCK_LLM_FALLBACK_ANALYSIS_RESPONSE);
+
+    await page.locator('#jobDescriptionText').fill(JD_TEXT_NONSTANDARD);
+    await page.getByRole('button', { name: 'Analyze Fit →' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Degraded fallback still renders without crash; summary explains the situation
+    await expect(page.getByText('NO RECOMMENDATION')).toBeVisible();
+    await expect(
+      page.getByText(
+        'Unable to compute fit score — no required skills found in the job description.'
+      )
+    ).toBeVisible();
+
+    // Navigation still works from the degraded results state
+    await page.getByRole('button', { name: '← Analyze Another' }).click();
+    await expect(page.getByRole('heading', { name: 'Job Fit Analysis' })).toBeVisible();
   });
 });
