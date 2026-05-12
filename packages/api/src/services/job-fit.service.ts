@@ -3,6 +3,8 @@ import { lookup } from 'node:dns/promises';
 import { getDb } from '../db/client.js';
 import { techStackTags, jobFitTags, quantifiedBullets } from '../db/schema.js';
 import { AppError, JobFitInputError, JobFitUrlFetchError, RateLimitError } from '../types/index.js';
+import { getConfig } from '../config.js';
+import { LLMService } from './llm.service.js';
 import type {
   AnalyzeJobFitInput,
   AnalyzeJobFitResponse,
@@ -442,7 +444,7 @@ export interface ParsedJD {
   compensation: string | null;
 }
 
-export function parseJobDescription(text: string): ParsedJD {
+function parseJobDescriptionRegex(text: string): ParsedJD {
   const roleTitle = extractRoleTitle(text);
   const { seniority, confidence: seniorityConfidence } = extractSeniority(text);
 
@@ -487,6 +489,21 @@ export function parseJobDescription(text: string): ParsedJD {
     location: extractLocation(text),
     compensation: extractCompensation(text),
   };
+}
+
+export async function parseJobDescription(text: string): Promise<ParsedJD> {
+  const config = getConfig();
+  if (config.anthropicApiKey) {
+    try {
+      const llm = new LLMService();
+      return await llm.parseJobDescription(text);
+    } catch (err) {
+      console.warn(
+        `[job-fit] LLM parsing failed, falling back to regex: ${(err as Error).message}`
+      );
+    }
+  }
+  return parseJobDescriptionRegex(text);
 }
 
 // ── Catalog matching ─────────────────────────────────────────────────────────
@@ -652,7 +669,7 @@ export async function analyzeJobFit(
     jdText = await fetchJobDescriptionFromUrl(url);
   }
 
-  const parsed = parseJobDescription(jdText);
+  const parsed = await parseJobDescription(jdText);
 
   const db = getDb();
   let techTags, jfTags, bullets;

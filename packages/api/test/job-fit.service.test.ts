@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseJobDescription,
   extractSeniority,
@@ -7,6 +7,13 @@ import {
   computeRecommendation,
 } from '../src/services/job-fit.service.js';
 import type { FitMatchDTO, FitGapDTO } from '../src/types/index.js';
+import type { ParsedJD } from '../src/services/job-fit.service.js';
+import { _resetConfig } from '../src/config.js';
+import { LLMService } from '../src/services/llm.service.js';
+
+vi.mock('../src/services/llm.service.js', () => ({
+  LLMService: vi.fn(),
+}));
 
 // ── extractSeniority ──────────────────────────────────────────────────────────
 
@@ -108,54 +115,60 @@ Nice to have:
 Manage a team of 3 engineers.
   `.trim();
 
-  it('extracts role title', () => {
-    const result = parseJobDescription(sampleJD);
+  beforeEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+    _resetConfig();
+    vi.clearAllMocks();
+  });
+
+  it('extracts role title', async () => {
+    const result = await parseJobDescription(sampleJD);
     expect(result.roleTitle).toBeTruthy();
     expect(result.roleTitle?.toLowerCase()).toContain('engineer');
   });
 
-  it('extracts seniority', () => {
-    const result = parseJobDescription(sampleJD);
+  it('extracts seniority', async () => {
+    const result = await parseJobDescription(sampleJD);
     expect(result.seniority).toBe('senior');
     expect(result.seniorityConfidence).toBe('high');
   });
 
-  it('extracts required stack', () => {
-    const result = parseJobDescription(sampleJD);
+  it('extracts required stack', async () => {
+    const result = await parseJobDescription(sampleJD);
     expect(result.requiredStack).toContain('typescript');
     expect(result.requiredStack).toContain('react');
     expect(result.requiredStack).toContain('postgresql');
     expect(result.requiredStack).toContain('aws');
   });
 
-  it('extracts nice-to-have stack separately', () => {
-    const result = parseJobDescription(sampleJD);
+  it('extracts nice-to-have stack separately', async () => {
+    const result = await parseJobDescription(sampleJD);
     expect(result.niceToHaveStack).toContain('docker');
     expect(result.niceToHaveStack).toContain('kubernetes');
     // Nice-to-have should not duplicate required
     expect(result.niceToHaveStack).not.toContain('typescript');
   });
 
-  it('extracts location', () => {
-    const result = parseJobDescription(sampleJD);
+  it('extracts location', async () => {
+    const result = await parseJobDescription(sampleJD);
     expect(result.location).toBeTruthy();
     expect(result.location?.toLowerCase()).toContain('remote');
   });
 
-  it('extracts compensation', () => {
-    const result = parseJobDescription(sampleJD);
+  it('extracts compensation', async () => {
+    const result = await parseJobDescription(sampleJD);
     expect(result.compensation).toBeTruthy();
     expect(result.compensation).toContain('150k');
   });
 
-  it('extracts team scope', () => {
-    const result = parseJobDescription(sampleJD);
+  it('extracts team scope', async () => {
+    const result = await parseJobDescription(sampleJD);
     expect(result.teamScope).toContain('Manager of 3');
   });
 
-  it('handles short JD with no sections', () => {
+  it('handles short JD with no sections', async () => {
     const minimal = 'Looking for a developer with React and Python skills. Remote position.';
-    const result = parseJobDescription(minimal);
+    const result = await parseJobDescription(minimal);
     expect(result.requiredStack).toContain('react');
     expect(result.requiredStack).toContain('python');
     expect(result.seniority).toBeNull();
@@ -271,6 +284,80 @@ describe('computeRecommendation', () => {
     expect(computeRecommendation([...exactMatches, ...aliasMatches], [], 10, false)).toBe(
       'strong_fit'
     );
+  });
+});
+
+// ── parseJobDescription - LLM integration ────────────────────────────────────
+
+describe('parseJobDescription - LLM integration', () => {
+  let savedApiKey: string | undefined;
+
+  beforeEach(() => {
+    savedApiKey = process.env.ANTHROPIC_API_KEY;
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    if (savedApiKey !== undefined) {
+      process.env.ANTHROPIC_API_KEY = savedApiKey;
+    } else {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+    _resetConfig();
+  });
+
+  it('uses LLM result when API key is configured', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    _resetConfig();
+
+    const llmResult: ParsedJD = {
+      roleTitle: 'Senior Engineer',
+      seniority: 'senior',
+      seniorityConfidence: 'high',
+      requiredStack: ['typescript', 'react'],
+      niceToHaveStack: ['graphql'],
+      industries: ['fintech'],
+      teamScope: 'IC',
+      location: 'Remote',
+      compensation: '$150k-$190k',
+    };
+
+    const mockParseJD = vi.fn().mockResolvedValue(llmResult);
+    vi.mocked(LLMService).mockImplementation(() => ({ parseJobDescription: mockParseJD }) as any);
+
+    const result = await parseJobDescription(
+      'Senior Engineer at Acme requiring TypeScript and React.'
+    );
+
+    expect(mockParseJD).toHaveBeenCalledOnce();
+    expect(result).toEqual(llmResult);
+  });
+
+  it('falls back to regex when LLM throws', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    _resetConfig();
+
+    const mockParseJD = vi.fn().mockRejectedValue(new Error('LLM unavailable'));
+    vi.mocked(LLMService).mockImplementation(() => ({ parseJobDescription: mockParseJD }) as any);
+
+    const jd = 'Senior Software Engineer at Acme. Requirements: TypeScript, React. Remote.';
+    const result = await parseJobDescription(jd);
+
+    expect(mockParseJD).toHaveBeenCalledOnce();
+    expect(result.requiredStack).toContain('typescript');
+    expect(result.requiredStack).toContain('react');
+  });
+
+  it('skips LLM and uses regex when API key is not configured', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    _resetConfig();
+
+    const jd = 'Senior Software Engineer at Acme. Requirements: TypeScript, React. Remote.';
+    const result = await parseJobDescription(jd);
+
+    expect(LLMService).not.toHaveBeenCalled();
+    expect(result.requiredStack).toContain('typescript');
+    expect(result.requiredStack).toContain('react');
   });
 });
 

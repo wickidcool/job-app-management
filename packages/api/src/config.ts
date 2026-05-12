@@ -5,6 +5,7 @@ export interface Config {
   dataDir: string;
   nodeEnv: string;
   anthropicApiKey: string | null;
+  llmModel: string;
   supabaseUrl: string | null;
   supabaseAnonKey: string | null;
   supabaseJwtSecret: string | null;
@@ -33,6 +34,7 @@ export function getConfig(): Config {
       dataDir: process.env.DATA_DIR ?? './data',
       nodeEnv: process.env.NODE_ENV ?? 'development',
       anthropicApiKey: cleanKey || null,
+      llmModel: process.env.LLM_MODEL ?? 'claude-sonnet-4-6',
       supabaseUrl: process.env.SUPABASE_URL ?? null,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? null,
       supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
