@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { useEffect } from 'react';
 import type { PersonalInfo, UpdatePersonalInfoRequest } from '../services/api/types';
 
-const urlSchema = z
+const optionalUrlSchema = z
   .string()
   .url('Must be a valid URL')
   .max(500)
@@ -32,10 +32,14 @@ const personalInfoFormSchema = z.object({
   state: z.string().min(1).max(100).optional().or(z.literal('')),
   postalCode: z.string().min(1).max(20).optional().or(z.literal('')),
   country: z.string().min(1).max(100).optional().or(z.literal('')),
-  linkedinUrl: urlSchema,
-  githubUrl: urlSchema,
-  portfolioUrl: urlSchema,
-  websiteUrl: urlSchema,
+  linkedinUrl: z
+    .string()
+    .min(1, 'LinkedIn URL is required')
+    .url('Must be a valid URL')
+    .max(500, 'URL must be less than 500 characters'),
+  githubUrl: optionalUrlSchema,
+  portfolioUrl: optionalUrlSchema,
+  websiteUrl: optionalUrlSchema,
   professionalSummary: z.string().min(1).max(2000).optional().or(z.literal('')),
   headline: z.string().min(1).max(100).optional().or(z.literal('')),
 });
@@ -317,7 +321,7 @@ export function PersonalInfoForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="linkedinUrl" className="block text-sm font-medium text-neutral-700">
-              LinkedIn URL
+              LinkedIn URL <span className="text-error-600">*</span>
             </label>
             <input
               {...register('linkedinUrl')}
