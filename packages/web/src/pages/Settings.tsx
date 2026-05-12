@@ -1,7 +1,25 @@
+import { useState } from 'react';
 import { Breadcrumb } from '../components/Breadcrumb';
+import { PersonalInfoForm } from '../components/PersonalInfoForm';
+import { usePersonalInfo, useUpdatePersonalInfo } from '../hooks/usePersonalInfo';
+import type { UpdatePersonalInfoRequest } from '../services/api/types';
 
 export function Settings() {
   const breadcrumbTrail = [{ label: 'Dashboard', href: '/', icon: '🏠' }, { label: 'Settings' }];
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const { data, isLoading, error } = usePersonalInfo();
+  const updateMutation = useUpdatePersonalInfo();
+
+  const handleSubmit = async (formData: UpdatePersonalInfoRequest) => {
+    try {
+      await updateMutation.mutateAsync(formData);
+      setSuccessMessage('Personal information updated successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to update personal information:', err);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -14,25 +32,31 @@ export function Settings() {
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
-          <h3 className="mb-2 text-lg font-semibold text-neutral-900">Profile</h3>
-          <p className="text-sm text-neutral-600">
-            Update your personal information and contact details
-          </p>
+      {successMessage && (
+        <div className="mb-6 rounded-md bg-success-50 p-4">
+          <p className="text-sm text-success-800">{successMessage}</p>
         </div>
+      )}
 
-        <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
-          <h3 className="mb-2 text-lg font-semibold text-neutral-900">Preferences</h3>
-          <p className="text-sm text-neutral-600">
-            Customize your application tracking preferences
-          </p>
+      {error && (
+        <div className="mb-6 rounded-md bg-error-50 p-4">
+          <p className="text-sm text-error-800">Failed to load personal information</p>
         </div>
+      )}
 
-        <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
-          <h3 className="mb-2 text-lg font-semibold text-neutral-900">Integrations</h3>
-          <p className="text-sm text-neutral-600">Connect with external services and tools</p>
-        </div>
+      <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-6 text-xl font-semibold text-neutral-900">Personal Information</h2>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent"></div>
+          </div>
+        ) : (
+          <PersonalInfoForm
+            personalInfo={data?.personalInfo}
+            onSubmit={handleSubmit}
+            submitLabel="Save Changes"
+          />
+        )}
       </div>
     </div>
   );

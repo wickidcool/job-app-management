@@ -22,20 +22,22 @@ const OnboardingContext = createContext<OnboardingContextType | undefined>(undef
 
 const STEP_MAP: Record<number, OnboardingStep | undefined> = {
   1: 'welcome',
-  2: 'resume_upload',
-  3: undefined, // App Overview - no DB update needed
-  4: 'first_application',
-  // step 5 calls completeOnboarding() directly, no STEP_MAP needed
+  2: 'personal_info',
+  3: 'resume_upload',
+  4: undefined, // App Overview - no DB update needed
+  5: 'first_application',
+  // step 6 calls completeOnboarding() directly, no STEP_MAP needed
 };
 
 const STEP_TO_NUMBER: Record<OnboardingStep, number> = {
   welcome: 1,
-  resume_upload: 2,
-  first_application: 4, // Step 3 is App Overview (no DB state)
-  completed: 5,
+  personal_info: 2,
+  resume_upload: 3,
+  first_application: 5, // Step 4 is App Overview (no DB state)
+  completed: 6,
 };
 
-const TOTAL_STEPS = 5; // Welcome, Resume Upload, App Overview (Feature Tour), Create First App, Completion
+const TOTAL_STEPS = 6; // Welcome, Personal Info, Resume Upload, App Overview, Create First App, Completion
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<OnboardingStatus | null>(null);

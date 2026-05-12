@@ -28,6 +28,8 @@ export async function initializeOnboardingStatus(userId: string): Promise<Onboar
     id: ulid(),
     userId,
     currentStep: 'welcome',
+    personalInfoStepCompleted: false,
+    personalInfoStepSkipped: false,
     resumeStepCompleted: false,
     resumeStepSkipped: false,
     applicationStepCompleted: false,
@@ -63,6 +65,8 @@ export async function updateOnboardingProgress(
   userId: string,
   updates: {
     currentStep?: OnboardingStep;
+    personalInfoStepCompleted?: boolean;
+    personalInfoStepSkipped?: boolean;
     resumeStepCompleted?: boolean;
     resumeStepSkipped?: boolean;
     applicationStepCompleted?: boolean;

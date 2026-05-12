@@ -1,11 +1,18 @@
 import type { APIClient } from './apiClient';
 
-export type OnboardingStep = 'welcome' | 'resume_upload' | 'first_application' | 'completed';
+export type OnboardingStep =
+  | 'welcome'
+  | 'personal_info'
+  | 'resume_upload'
+  | 'first_application'
+  | 'completed';
 
 export interface OnboardingStatus {
   id: string;
   userId: string;
   currentStep: OnboardingStep;
+  personalInfoStepCompleted: boolean;
+  personalInfoStepSkipped: boolean;
   resumeStepCompleted: boolean;
   resumeStepSkipped: boolean;
   applicationStepCompleted: boolean;
@@ -19,6 +26,8 @@ export interface OnboardingStatus {
 
 export interface OnboardingProgress {
   currentStep?: OnboardingStep;
+  personalInfoStepCompleted?: boolean;
+  personalInfoStepSkipped?: boolean;
   resumeStepCompleted?: boolean;
   resumeStepSkipped?: boolean;
   applicationStepCompleted?: boolean;

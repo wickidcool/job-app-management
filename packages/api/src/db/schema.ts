@@ -82,6 +82,7 @@ export const resumeExports = pgTable('resume_exports', {
 // Onboarding enum and table
 export const onboardingStepEnum = pgEnum('onboarding_step', [
   'welcome',
+  'personal_info',
   'resume_upload',
   'first_application',
   'completed',
@@ -91,6 +92,8 @@ export const onboardingStatus = pgTable('onboarding_status', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull().unique(),
   currentStep: onboardingStepEnum('current_step').notNull().default('welcome'),
+  personalInfoStepCompleted: boolean('personal_info_step_completed').notNull().default(false),
+  personalInfoStepSkipped: boolean('personal_info_step_skipped').notNull().default(false),
   resumeStepCompleted: boolean('resume_step_completed').notNull().default(false),
   resumeStepSkipped: boolean('resume_step_skipped').notNull().default(false),
   applicationStepCompleted: boolean('application_step_completed').notNull().default(false),
@@ -703,3 +706,31 @@ export type NewPrepQuestionStoryLink = typeof prepQuestionStoryLinks.$inferInser
 export type InterviewType = (typeof interviewTypeEnum.enumValues)[number];
 export type PrepTime = (typeof prepTimeEnum.enumValues)[number];
 export type ConfidenceLevel = (typeof confidenceLevelEnum.enumValues)[number];
+
+// Personal Info
+export const personalInfo = pgTable('personal_info', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id'),
+  firstName: text('first_name').notNull(),
+  lastName: text('last_name').notNull(),
+  email: text('email').notNull(),
+  phone: text('phone'),
+  addressLine1: text('address_line1'),
+  addressLine2: text('address_line2'),
+  city: text('city'),
+  state: text('state'),
+  postalCode: text('postal_code'),
+  country: text('country'),
+  linkedinUrl: text('linkedin_url'),
+  githubUrl: text('github_url'),
+  portfolioUrl: text('portfolio_url'),
+  websiteUrl: text('website_url'),
+  professionalSummary: text('professional_summary'),
+  headline: text('headline'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export type PersonalInfo = typeof personalInfo.$inferSelect;
+export type NewPersonalInfo = typeof personalInfo.$inferInsert;

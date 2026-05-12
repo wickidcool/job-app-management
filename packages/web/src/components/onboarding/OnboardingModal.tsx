@@ -3,9 +3,19 @@ import { useOnboarding } from '../../contexts/OnboardingContext';
 import { OnboardingProgressIndicator } from './OnboardingProgressIndicator';
 import { OnboardingStep } from './OnboardingStep';
 import { ResumeUploadZone } from './ResumeUploadZone';
+import { PersonalInfoForm } from '../PersonalInfoForm';
+import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalInfo';
 import type { Resume } from '../../services/api';
+import type { UpdatePersonalInfoRequest } from '../../services/api/types';
 
-const STEP_LABELS = ['Welcome', 'Upload Resume', 'App Overview', 'Create First App', 'All Set!'];
+const STEP_LABELS = [
+  'Welcome',
+  'Personal Info',
+  'Upload Resume',
+  'App Overview',
+  'Create First App',
+  'All Set!',
+];
 
 export function OnboardingModal() {
   const {
@@ -22,6 +32,10 @@ export function OnboardingModal() {
 
   const [uploadedResume, setUploadedResume] = useState<Resume | null>(null);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
+  const [personalInfoCompleted, setPersonalInfoCompleted] = useState(false);
+
+  const { data: personalInfoData } = usePersonalInfo();
+  const updatePersonalInfo = useUpdatePersonalInfo();
 
   // Auto-save progress to localStorage
   useEffect(() => {
@@ -80,6 +94,26 @@ export function OnboardingModal() {
     } else {
       nextStep();
     }
+  };
+
+  const handlePersonalInfoSubmit = async (formData: UpdatePersonalInfoRequest) => {
+    try {
+      await updatePersonalInfo.mutateAsync(formData);
+      setPersonalInfoCompleted(true);
+      await updateProgress({
+        personalInfoStepCompleted: true,
+      });
+      nextStep();
+    } catch (err) {
+      console.error('Failed to save personal information:', err);
+    }
+  };
+
+  const handleSkipPersonalInfo = async () => {
+    await updateProgress({
+      personalInfoStepSkipped: true,
+    });
+    nextStep();
   };
 
   // Dismiss confirmation modal
@@ -237,15 +271,44 @@ export function OnboardingModal() {
             </OnboardingStep>
           )}
 
-          {/* Step 2: Upload Resume */}
+          {/* Step 2: Personal Information */}
           {currentStep === 2 && (
             <OnboardingStep
               stepNumber={2}
               totalSteps={totalSteps}
+              title="Tell Us About Yourself"
+              description="Fill in your personal information. This will be used for resumes, cover letters, and applications."
+              canProceed={personalInfoCompleted || personalInfoData?.isComplete || false}
+              onNext={() => handleCompleteStep(2)}
+              onBack={previousStep}
+            >
+              <div className="mx-auto max-w-2xl">
+                <PersonalInfoForm
+                  personalInfo={personalInfoData?.personalInfo}
+                  onSubmit={handlePersonalInfoSubmit}
+                  submitLabel="Continue"
+                  showCancel={false}
+                />
+                <button
+                  type="button"
+                  onClick={handleSkipPersonalInfo}
+                  className="mt-4 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 hover:underline"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </OnboardingStep>
+          )}
+
+          {/* Step 3: Upload Resume */}
+          {currentStep === 3 && (
+            <OnboardingStep
+              stepNumber={3}
+              totalSteps={totalSteps}
               title="Upload Your Resume"
               description="Your resume is the foundation of your profile. We'll extract your experience and achievements to help with applications later."
               canProceed={!!uploadedResume}
-              onNext={() => handleCompleteStep(2)}
+              onNext={() => handleCompleteStep(3)}
               onBack={previousStep}
               validationMessage={
                 !uploadedResume ? 'Please upload your resume to continue' : undefined
@@ -267,15 +330,15 @@ export function OnboardingModal() {
             </OnboardingStep>
           )}
 
-          {/* Step 3: App Overview / Feature Tour */}
-          {currentStep === 3 && (
+          {/* Step 4: App Overview / Feature Tour */}
+          {currentStep === 4 && (
             <OnboardingStep
-              stepNumber={3}
+              stepNumber={4}
               totalSteps={totalSteps}
               title="Here's How It Works"
               description="Track applications through every stage of your job search."
               canProceed={true}
-              onNext={() => handleCompleteStep(3)}
+              onNext={() => handleCompleteStep(4)}
               onBack={previousStep}
             >
               <div className="mx-auto max-w-2xl space-y-6">
@@ -305,15 +368,15 @@ export function OnboardingModal() {
             </OnboardingStep>
           )}
 
-          {/* Step 4: Create First Application (Optional) */}
-          {currentStep === 4 && (
+          {/* Step 5: Create First Application (Optional) */}
+          {currentStep === 5 && (
             <OnboardingStep
-              stepNumber={4}
+              stepNumber={5}
               totalSteps={totalSteps}
               title="Ready to Add Your First Application?"
               description="You can create your first application now, or explore the app and add one later."
               canProceed={true}
-              onNext={() => handleCompleteStep(4)}
+              onNext={() => handleCompleteStep(5)}
               onBack={previousStep}
             >
               <div className="mx-auto max-w-md space-y-4">
@@ -323,7 +386,7 @@ export function OnboardingModal() {
                   onClick={() => {
                     // This would open the application form modal
                     // For now, just proceed to next step
-                    handleCompleteStep(4);
+                    handleCompleteStep(5);
                   }}
                 >
                   Create Application Now
@@ -331,7 +394,7 @@ export function OnboardingModal() {
                 <button
                   type="button"
                   className="w-full rounded-md border border-neutral-300 bg-white px-6 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                  onClick={() => handleCompleteStep(4)}
+                  onClick={() => handleCompleteStep(5)}
                 >
                   I'll Do This Later
                 </button>
@@ -339,10 +402,10 @@ export function OnboardingModal() {
             </OnboardingStep>
           )}
 
-          {/* Step 5: Completion */}
-          {currentStep === 5 && (
+          {/* Step 6: Completion */}
+          {currentStep === 6 && (
             <OnboardingStep
-              stepNumber={5}
+              stepNumber={6}
               totalSteps={totalSteps}
               title="You're All Set! 🎉"
               description={
@@ -351,7 +414,7 @@ export function OnboardingModal() {
                   : "You're ready to start tracking applications. You can upload your resume anytime from the Resumes page."
               }
               canProceed={true}
-              onNext={() => handleCompleteStep(5)}
+              onNext={() => handleCompleteStep(6)}
               onBack={previousStep}
             >
               <div className="mx-auto max-w-md space-y-6 text-left">
