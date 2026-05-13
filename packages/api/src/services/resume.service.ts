@@ -42,7 +42,7 @@ import {
   deleteObject,
   buildObjectKey,
 } from './storage.service.js';
-import { enqueueChange } from './change-queue.service.js';
+import { enqueueChange, flush } from './change-queue.service.js';
 import {
   parseResumeWithAI,
   generateAIProjectMarkdown,
@@ -512,6 +512,9 @@ export async function uploadResume(
   }
 
   enqueueChange('resume', resumeId, 'created');
+  // Flush immediately to process catalog changes before response.
+  // The debounced timer won't survive in serverless environments.
+  await flush();
 
   return {
     resume: toDTO(resume),
