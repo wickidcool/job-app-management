@@ -64,7 +64,16 @@ export interface ParsedResume {
 
 export async function extractText(buffer: Buffer, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf') {
-    const { PDFParse } = await import('pdf-parse');
+    // Use namespace import to avoid bundler renaming issues with destructured imports
+    const pdfParseModule = (await import('pdf-parse')) as Record<string, unknown>;
+    // Find the PDFParse constructor - bundlers may rename it (e.g., PDFParse2)
+    const PDFParse = Object.values(pdfParseModule).find(
+      (v): v is new (opts: { data: Buffer }) => { getText: () => Promise<{ text: string }>; destroy: () => Promise<void> } =>
+        typeof v === 'function' && v.name?.includes('PDFParse')
+    );
+    if (!PDFParse) {
+      throw new Error('PDFParse constructor not found in pdf-parse module');
+    }
     const parser = new PDFParse({ data: buffer });
     const result = await parser.getText();
     await parser.destroy();
