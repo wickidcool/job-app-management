@@ -68,8 +68,12 @@ export async function extractText(buffer: Buffer, mimeType: string): Promise<str
     const pdfParseModule = (await import('pdf-parse')) as Record<string, unknown>;
     // Find the PDFParse constructor - bundlers may rename it (e.g., PDFParse2)
     const PDFParse = Object.values(pdfParseModule).find(
-      (v): v is new (opts: { data: Buffer }) => { getText: () => Promise<{ text: string }>; destroy: () => Promise<void> } =>
-        typeof v === 'function' && v.name?.includes('PDFParse')
+      (
+        v
+      ): v is new (opts: { data: Buffer }) => {
+        getText: () => Promise<{ text: string }>;
+        destroy: () => Promise<void>;
+      } => typeof v === 'function' && v.name?.includes('PDFParse')
     );
     if (!PDFParse) {
       throw new Error('PDFParse constructor not found in pdf-parse module');
