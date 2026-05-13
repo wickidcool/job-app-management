@@ -98,13 +98,17 @@ export async function extractText(buffer: Buffer, mimeType: string): Promise<str
     // Pre-register the pdfjs worker inline so it doesn't try to spawn a Web Worker.
     // pdfjs checks globalThis.pdfjsWorker?.WorkerMessageHandler before attempting
     // to load a worker URL, so this enables its fake-worker (inline) mode.
+    // Use the legacy build — the standard build emits a Node.js environment warning
+    // and fails to extract text in Cloudflare Workers (nodejs_compat mode).
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore — no type declaration for the build artifact
-    const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
+    const pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).pdfjsWorker = pdfjsWorker;
 
-    const { getDocument } = await import('pdfjs-dist');
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore — no type declaration for the build artifact
+    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     const loadingTask = getDocument({
       data,
