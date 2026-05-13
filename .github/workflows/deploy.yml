@@ -152,7 +152,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --env dev
+          command: deploy --env preview
           secrets: |
             SUPABASE_URL
             SUPABASE_ANON_KEY
