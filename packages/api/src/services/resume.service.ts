@@ -113,15 +113,36 @@ export async function extractText(buffer: Buffer, mimeType: string): Promise<str
       verbosity: 0,
     });
 
+    type PdfjsTextItem = { str: string; transform: number[] };
     const pdf = await loadingTask.promise;
     const pages: string[] = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item) => ('str' in item ? (item as { str: string }).str : ''))
-        .join(' ');
+      // Group text items by y-coordinate to reconstruct visual lines.
+      // pdfjs returns individual text runs; joining them all with spaces loses
+      // newlines, which breaks section-heading detection in parseResumeText.
+      const byLine = new Map<number, string[]>();
+      const yOrder: number[] = [];
+      for (const item of textContent.items) {
+        if (!('str' in item)) continue;
+        const raw = item as PdfjsTextItem;
+        const str = raw.str;
+        if (!str) continue;
+        const y = Math.round(raw.transform[5]);
+        if (!byLine.has(y)) {
+          byLine.set(y, []);
+          yOrder.push(y);
+        }
+        byLine.get(y)!.push(str);
+      }
+      // PDF y-axis increases bottom-up, so sort descending for top-to-bottom order.
+      yOrder.sort((a, b) => b - a);
+      const pageText = yOrder
+        .map((y) => byLine.get(y)!.join(' ').trim())
+        .filter((line) => line.length > 0)
+        .join('\n');
       pages.push(pageText);
       page.cleanup();
     }
