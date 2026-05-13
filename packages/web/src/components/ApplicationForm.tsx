@@ -1,4 +1,4 @@
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as Dialog from '@radix-ui/react-dialog';
 import { z } from 'zod';
@@ -71,7 +71,7 @@ export function ApplicationForm({
     handleSubmit,
     formState: { errors, isSubmitting, isDirty },
     reset,
-    watch,
+    control,
     setError,
   } = useForm<ApplicationFormData>({
     resolver: zodResolver(applicationFormSchema),
@@ -108,7 +108,7 @@ export function ApplicationForm({
 
   const [formError, setFormError] = useState<string | null>(null);
 
-  const linkCoverLetter = watch('linkCoverLetter');
+  const linkCoverLetter = useWatch({ control, name: 'linkCoverLetter' });
 
   // Reset form when dialog opens/closes or application changes
   useEffect(() => {
