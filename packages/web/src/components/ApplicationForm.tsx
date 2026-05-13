@@ -113,7 +113,6 @@ export function ApplicationForm({
   // Reset form when dialog opens/closes or application changes
   useEffect(() => {
     if (open) {
-      setFormError(null);
       reset(
         application
           ? {
