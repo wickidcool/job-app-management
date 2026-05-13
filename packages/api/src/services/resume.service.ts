@@ -1,3 +1,25 @@
+// Cloudflare Workers lacks canvas DOM APIs that pdfjs-dist references at module level.
+// These stubs satisfy module initialization; they are never invoked during text-only
+// PDF extraction (which uses no canvas rendering).
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const _g = globalThis as any;
+if (typeof _g.DOMMatrix === 'undefined') {
+  _g.DOMMatrix = class DOMMatrix {
+    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+    scaleSelf() { return this; }
+    translateSelf() { return this; }
+  };
+}
+if (typeof _g.ImageData === 'undefined') {
+  _g.ImageData = class ImageData {};
+}
+if (typeof _g.Path2D === 'undefined') {
+  _g.Path2D = class Path2D {
+    constructor(_path?: unknown) {}
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 import { ulid } from 'ulid';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
@@ -64,24 +86,39 @@ export interface ParsedResume {
 
 export async function extractText(buffer: Buffer, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf') {
-    // Use namespace import to avoid bundler renaming issues with destructured imports
-    const pdfParseModule = (await import('pdf-parse')) as Record<string, unknown>;
-    // Find the PDFParse constructor - bundlers may rename it (e.g., PDFParse2)
-    const PDFParse = Object.values(pdfParseModule).find(
-      (
-        v
-      ): v is new (opts: { data: Buffer }) => {
-        getText: () => Promise<{ text: string }>;
-        destroy: () => Promise<void>;
-      } => typeof v === 'function' && v.name?.includes('PDFParse')
-    );
-    if (!PDFParse) {
-      throw new Error('PDFParse constructor not found in pdf-parse module');
+    // Pre-register the pdfjs worker inline so it doesn't try to spawn a Web Worker.
+    // pdfjs checks globalThis.pdfjsWorker?.WorkerMessageHandler before attempting
+    // to load a worker URL, so this enables its fake-worker (inline) mode.
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore — no type declaration for the build artifact
+    const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).pdfjsWorker = pdfjsWorker;
+
+    const { getDocument } = await import('pdfjs-dist');
+    const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const loadingTask = getDocument({
+      data,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      verbosity: 0,
+    });
+
+    const pdf = await loadingTask.promise;
+    const pages: string[] = [];
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item) => ('str' in item ? (item as { str: string }).str : ''))
+        .join(' ');
+      pages.push(pageText);
+      page.cleanup();
     }
-    const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
-    await parser.destroy();
-    return result.text;
+
+    await pdf.destroy();
+    return pages.join('\n');
   }
 
   if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
