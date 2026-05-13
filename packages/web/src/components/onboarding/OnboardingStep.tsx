@@ -11,6 +11,7 @@ interface OnboardingStepProps {
   onBack?: () => void;
   children: ReactNode;
   validationMessage?: string;
+  formId?: string;
 }
 
 export function OnboardingStep({
@@ -24,6 +25,7 @@ export function OnboardingStep({
   onBack,
   children,
   validationMessage,
+  formId,
 }: OnboardingStepProps) {
   return (
     <div className="flex h-full flex-col">
@@ -109,11 +111,12 @@ export function OnboardingStep({
         )}
 
         <button
-          type="button"
-          onClick={onNext}
-          disabled={!canProceed}
+          type={formId ? 'submit' : 'button'}
+          form={formId}
+          onClick={formId ? undefined : onNext}
+          disabled={formId ? false : !canProceed}
           className={`inline-flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
-            canProceed
+            formId || canProceed
               ? 'bg-primary-600 text-white hover:bg-primary-700'
               : 'cursor-not-allowed bg-neutral-300 text-neutral-500'
           }`}

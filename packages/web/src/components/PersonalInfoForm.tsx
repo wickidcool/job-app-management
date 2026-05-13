@@ -52,6 +52,8 @@ export interface PersonalInfoFormProps {
   onCancel?: () => void;
   submitLabel?: string;
   showCancel?: boolean;
+  hideActions?: boolean;
+  formId?: string;
 }
 
 export function PersonalInfoForm({
@@ -60,6 +62,8 @@ export function PersonalInfoForm({
   onCancel,
   submitLabel = 'Save',
   showCancel = false,
+  hideActions = false,
+  formId,
 }: PersonalInfoFormProps) {
   const {
     register,
@@ -134,7 +138,7 @@ export function PersonalInfoForm({
   };
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
+    <form id={formId} onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
       {/* Basic Information */}
       <div>
         <h3 className="mb-4 text-lg font-semibold text-neutral-900">Basic Information</h3>
@@ -412,24 +416,26 @@ export function PersonalInfoForm({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex gap-3 border-t border-neutral-200 pt-6">
-        {showCancel && (
+      {!hideActions && (
+        <div className="flex gap-3 border-t border-neutral-200 pt-6">
+          {showCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+            >
+              Cancel
+            </button>
+          )}
           <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+            type="submit"
+            disabled={isSubmitting || !isDirty}
+            className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Cancel
+            {isSubmitting ? 'Saving...' : submitLabel}
           </button>
-        )}
-        <button
-          type="submit"
-          disabled={isSubmitting || !isDirty}
-          className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isSubmitting ? 'Saving...' : submitLabel}
-        </button>
-      </div>
+        </div>
+      )}
     </form>
   );
 }
