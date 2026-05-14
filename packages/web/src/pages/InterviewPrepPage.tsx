@@ -307,8 +307,8 @@ export function InterviewPrepPage() {
 
           {/* Tabs */}
           <div className="bg-white rounded-lg shadow">
-            <div className="border-b border-gray-200">
-              <nav className="flex -mb-px">
+            <div className="border-b border-gray-200 overflow-x-auto">
+              <nav className="flex -mb-px min-w-max sm:min-w-0">
                 {TABS.map((tab) => {
                   const isActive = activeTab === tab.id;
                   return (

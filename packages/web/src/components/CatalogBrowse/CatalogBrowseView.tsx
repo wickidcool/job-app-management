@@ -120,8 +120,8 @@ export function CatalogBrowseView() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-neutral-200 mb-6">
-        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+      <div className="border-b border-neutral-200 mb-6 -mx-4 px-4 overflow-x-auto sm:mx-0 sm:px-0 sm:overflow-visible">
+        <nav className="-mb-px flex space-x-4 sm:space-x-8 min-w-max sm:min-w-0" aria-label="Tabs">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -151,8 +151,8 @@ export function CatalogBrowseView() {
 
       {/* Search and Filters */}
       {activeTab !== 'pendingDiffs' && (
-        <div className="mb-6 flex gap-4 items-center">
-          <div className="flex-1">
+        <div className="mb-6 flex flex-col sm:flex-row gap-4 sm:items-center">
+          <div className="flex-1 min-w-0">
             <input
               type="search"
               placeholder={`Search ${tabs.find((t) => t.id === activeTab)?.label.toLowerCase()}...`}
@@ -246,10 +246,10 @@ export function CatalogBrowseView() {
           {diffs.map((diff) => (
             <div
               key={diff.id}
-              className="bg-white border border-neutral-200 rounded-lg p-6 hover:border-primary-300 cursor-pointer transition-colors"
+              className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 hover:border-primary-300 cursor-pointer transition-colors"
               onClick={() => handleDiffClick(diff)}
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                 <div>
                   <h3 className="text-h4 font-bold text-neutral-900 mb-1">
                     {diff.sourceType === 'resume' ? '📄' : '💼'}{' '}
@@ -262,13 +262,13 @@ export function CatalogBrowseView() {
                 </div>
                 <button
                   type="button"
-                  className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded hover:bg-primary-700"
+                  className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded hover:bg-primary-700"
                 >
                   Review Changes
                 </button>
               </div>
               <p className="text-neutral-700 mb-3">{diff.summary.summary}</p>
-              <div className="flex gap-4 text-sm">
+              <div className="flex flex-wrap gap-3 sm:gap-4 text-sm">
                 <span className="text-success-700">➕ {diff.summary.newCount} new</span>
                 <span className="text-info-700">✏️ {diff.summary.updatedCount} updated</span>
                 <span className="text-error-700">➖ {diff.summary.deletedCount} deleted</span>
