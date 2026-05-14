@@ -490,8 +490,13 @@ function stringSimilarity(a: string, b: string): number {
 
 async function getTextContent(
   sourceType: 'resume' | 'application',
-  sourceId: string
+  sourceId: string,
+  cachedText?: string
 ): Promise<string> {
+  // Use cached text when available — avoids re-reading the binary from R2 and
+  // re-invoking pdfjs, which triggers a require-shim warning in Workers.
+  if (cachedText) return cachedText;
+
   const db = getDb();
   if (sourceType === 'resume') {
     const [resume] = await db.select().from(resumes).where(eq(resumes.id, sourceId));
@@ -519,7 +524,9 @@ async function getTextContent(
 }
 
 export async function processCatalogChange(event: ChangeEvent): Promise<void> {
-  const text = await getTextContent(event.sourceType, event.sourceId);
+  const cachedText =
+    typeof event.metadata?.rawText === 'string' ? event.metadata.rawText : undefined;
+  const text = await getTextContent(event.sourceType, event.sourceId, cachedText);
   if (!text) return;
 
   const changes: DiffChange[] = [];

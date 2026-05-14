@@ -180,7 +180,7 @@ export function parseResumeText(rawText: string): ParsedResume {
   let currentSection: ParsedSection | null = null;
 
   const SECTION_HEADINGS =
-    /^(experience|work experience|employment|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
+    /^(experience|work experience|professional experience|employment history|work history|career history|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
 
   for (const line of lines) {
     if (SECTION_HEADINGS.test(line) && line.length < 60) {
@@ -577,7 +577,9 @@ export async function uploadResume(
     `[resume] Upload complete: usedAI=${usedAI} companiesAdded=${companiesAddedToCatalog.length} [${companiesAddedToCatalog.join(', ')}]`
   );
 
-  enqueueChange('resume', resumeId, 'created');
+  // Pass rawText so extraction.service never needs to re-read the file from R2
+  // (avoids a second pdfjs invocation in Workers which triggers the require-shim warning).
+  enqueueChange('resume', resumeId, 'created', { rawText });
   // Flush immediately to process catalog changes before response.
   // The debounced timer won't survive in serverless environments.
   await flush();
