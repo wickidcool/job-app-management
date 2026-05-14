@@ -24,7 +24,10 @@ export function ResumeManagerTabs() {
 
   return (
     <div className="border-b border-neutral-200 -mx-4 px-4 overflow-x-auto sm:mx-0 sm:px-0 sm:overflow-visible">
-      <nav className="-mb-px flex gap-4 sm:gap-6 min-w-max sm:min-w-0" aria-label="Resume Manager tabs">
+      <nav
+        className="-mb-px flex gap-4 sm:gap-6 min-w-max sm:min-w-0"
+        aria-label="Resume Manager tabs"
+      >
         {tabs.map((tab) => (
           <Link
             key={tab.id}

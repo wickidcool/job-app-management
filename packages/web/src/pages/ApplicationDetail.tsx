@@ -110,7 +110,9 @@ export function ApplicationDetail() {
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{application.jobTitle}</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+                {application.jobTitle}
+              </h1>
               <p className="text-lg sm:text-xl text-gray-600 mb-4">{application.company}</p>
 
               {/* Status Badge */}
