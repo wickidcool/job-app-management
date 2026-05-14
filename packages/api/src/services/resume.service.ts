@@ -509,37 +509,49 @@ export async function uploadResume(
   );
 
   if (aiAvailable) {
+    let aiResult = null;
     try {
-      const aiResult = await parseResumeWithAI(rawText);
+      aiResult = await parseResumeWithAI(rawText);
       console.log(`[resume] AI result: projects=${aiResult?.projects.length ?? 0}`);
+    } catch (err) {
+      aiError = err instanceof Error ? err.message : String(err);
+      console.error('[resume] AI parse API call failed:', aiError);
+    }
 
-      if (aiResult && aiResult.projects.length > 0) {
-        usedAI = true;
-        for (const aiProject of aiResult.projects) {
+    if (aiResult && aiResult.projects.length > 0) {
+      const safeBase = fileName
+        .split(/[/\\]/)
+        .pop()!
+        .replace(/\.[^.]+$/, '')
+        .replace(/[^a-zA-Z0-9._-]/g, '_');
+
+      for (const aiProject of aiResult.projects) {
+        // Catalog write is always attempted — project file write is best-effort.
+        // Separating them so an R2 write failure doesn't prevent catalog updates.
+        try {
           const slug = toProjectSlug(aiProject.company) || resumeId;
           const project = await getOrCreateProjectBySlug(slug, aiProject.company);
           await addCompanyToCatalog(aiProject.company);
           companiesAddedToCatalog.push(aiProject.company);
-          console.log(`[resume] AI: added company="${aiProject.company}" slug="${project.slug}"`);
+          console.log(
+            `[resume] AI: catalog updated company="${aiProject.company}" slug="${project.slug}"`
+          );
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
-          const safeBase = fileName
-            .split(/[/\\]/)
-            .pop()!
-            .replace(/\.[^.]+$/, '')
-            .replace(/[^a-zA-Z0-9._-]/g, '_');
           await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+        } catch (err) {
+          console.error(
+            `[resume] AI: failed to process company="${aiProject.company}":`,
+            err instanceof Error ? err.message : err
+          );
         }
-      } else {
-        console.log('[resume] AI returned 0 projects, falling back to heuristic');
       }
-    } catch (err) {
-      aiError = err instanceof Error ? err.message : String(err);
-      console.error('[resume] AI parsing failed:', aiError);
-      usedAI = false;
+      usedAI = companiesAddedToCatalog.length > 0;
+    } else if (!aiError) {
+      console.log('[resume] AI returned 0 projects, falling back to heuristic');
     }
   } else {
     console.log(
-      '[resume] AI parser not available — ANTHROPIC_API_KEY not set as a Cloudflare Workers secret. Use: wrangler secret put ANTHROPIC_API_KEY --env dev'
+      '[resume] AI parser not available — ANTHROPIC_API_KEY not set as Cloudflare Workers secret'
     );
   }
 
