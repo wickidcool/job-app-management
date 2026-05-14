@@ -40,6 +40,17 @@ NODE_ENV = "development"
 binding = "R2_BUCKET"
 bucket_name = "jobtrail-documents-dev"
 
+# Preview environment (used by CI deploy-preview)
+[env.preview]
+name = "jobtrail"
+
+[env.preview.vars]
+NODE_ENV = "preview"
+
+[[env.preview.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "jobtrail-documents-dev"
+
 # Staging environment
 [env.staging]
 name = "jobapp-api-staging"
