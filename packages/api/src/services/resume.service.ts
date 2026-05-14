@@ -538,7 +538,9 @@ export async function uploadResume(
       usedAI = false;
     }
   } else {
-    console.log('[resume] AI parser not available — ANTHROPIC_API_KEY not set as a Cloudflare Workers secret. Use: wrangler secret put ANTHROPIC_API_KEY --env dev');
+    console.log(
+      '[resume] AI parser not available — ANTHROPIC_API_KEY not set as a Cloudflare Workers secret. Use: wrangler secret put ANTHROPIC_API_KEY --env dev'
+    );
   }
 
   const experienceEntries = extractExperienceEntries(parsed);
@@ -558,7 +560,9 @@ export async function uploadResume(
       const project = await getOrCreateProjectBySlug(slug, entry.company);
       await addCompanyToCatalog(entry.company);
       companiesAddedToCatalog.push(entry.company);
-      console.log(`[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`);
+      console.log(
+        `[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`
+      );
       const projectMarkdown = generateProjectMarkdown(entry);
       const safeBase = fileName
         .split(/[/\\]/)
