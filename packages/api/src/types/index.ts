@@ -129,12 +129,23 @@ export interface ParsedExperience {
   bullets: string[];
 }
 
+export interface ParseDebugInfo {
+  aiAvailable: boolean;
+  usedAI: boolean;
+  sectionCount: number;
+  sectionHeadings: string[];
+  experienceEntryCount: number;
+  companiesAddedToCatalog: string[];
+  aiError?: string;
+}
+
 export interface UploadResumeResult {
   resume: ResumeDTO;
   export: ResumeExportDTO;
   experiences: ParsedExperience[];
   education: string[];
   skills: string[];
+  parseDebug: ParseDebugInfo;
 }
 
 export class AppError extends Error {

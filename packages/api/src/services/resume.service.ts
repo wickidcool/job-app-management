@@ -34,7 +34,13 @@ import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
-import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
+import {
+  NotFoundError,
+  ResumeDTO,
+  ResumeExportDTO,
+  UploadResumeResult,
+  ParseDebugInfo,
+} from '../types/index.js';
 import {
   isR2Configured,
   isStorageAvailable,
@@ -494,10 +500,18 @@ export async function uploadResume(
   // Try AI parsing first, fall back to heuristic parsing
   let usedAI = false;
   const aiAvailable = isAIParserAvailable();
+  const companiesAddedToCatalog: string[] = [];
+  let aiError: string | undefined;
+
+  const sectionHeadings = parsed.sections.map((s) => s.heading);
+  console.log(
+    `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} aiAvailable=${aiAvailable}`
+  );
 
   if (aiAvailable) {
     try {
       const aiResult = await parseResumeWithAI(rawText);
+      console.log(`[resume] AI result: projects=${aiResult?.projects.length ?? 0}`);
 
       if (aiResult && aiResult.projects.length > 0) {
         usedAI = true;
@@ -505,6 +519,8 @@ export async function uploadResume(
           const slug = toProjectSlug(aiProject.company) || resumeId;
           const project = await getOrCreateProjectBySlug(slug, aiProject.company);
           await addCompanyToCatalog(aiProject.company);
+          companiesAddedToCatalog.push(aiProject.company);
+          console.log(`[resume] AI: added company="${aiProject.company}" slug="${project.slug}"`);
           const projectMarkdown = generateAIProjectMarkdown(aiProject);
           const safeBase = fileName
             .split(/[/\\]/)
@@ -513,20 +529,36 @@ export async function uploadResume(
             .replace(/[^a-zA-Z0-9._-]/g, '_');
           await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
         }
+      } else {
+        console.log('[resume] AI returned 0 projects, falling back to heuristic');
       }
     } catch (err) {
-      console.error('[resume] AI parsing failed:', err instanceof Error ? err.message : err);
+      aiError = err instanceof Error ? err.message : String(err);
+      console.error('[resume] AI parsing failed:', aiError);
       usedAI = false;
     }
+  } else {
+    console.log('[resume] AI parser not available — ANTHROPIC_API_KEY not set as a Cloudflare Workers secret. Use: wrangler secret put ANTHROPIC_API_KEY --env dev');
   }
 
   const experienceEntries = extractExperienceEntries(parsed);
+  console.log(
+    `[resume] Heuristic experience entries: ${experienceEntries.length} — companies: [${experienceEntries.map((e) => e.company).join(', ')}]`
+  );
 
   if (!usedAI) {
+    if (experienceEntries.length === 0) {
+      console.warn(
+        '[resume] No experience entries extracted by heuristic parser. Check resume section headings match: experience|work experience|employment'
+      );
+    }
     for (const entry of experienceEntries) {
       const slug = toProjectSlug(entry.company) || resumeId;
+      console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
       const project = await getOrCreateProjectBySlug(slug, entry.company);
       await addCompanyToCatalog(entry.company);
+      companiesAddedToCatalog.push(entry.company);
+      console.log(`[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`);
       const projectMarkdown = generateProjectMarkdown(entry);
       const safeBase = fileName
         .split(/[/\\]/)
@@ -536,6 +568,10 @@ export async function uploadResume(
       await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
     }
   }
+
+  console.log(
+    `[resume] Upload complete: usedAI=${usedAI} companiesAdded=${companiesAddedToCatalog.length} [${companiesAddedToCatalog.join(', ')}]`
+  );
 
   enqueueChange('resume', resumeId, 'created');
   // Flush immediately to process catalog changes before response.
@@ -552,6 +588,16 @@ export async function uploadResume(
     }
   }
 
+  const parseDebug: ParseDebugInfo = {
+    aiAvailable,
+    usedAI,
+    sectionCount: parsed.sections.length,
+    sectionHeadings,
+    experienceEntryCount: experienceEntries.length,
+    companiesAddedToCatalog,
+    ...(aiError ? { aiError } : {}),
+  };
+
   return {
     resume: toDTO(resume),
     export: exportToDTO(resumeExport),
@@ -563,6 +609,7 @@ export async function uploadResume(
     })),
     education,
     skills,
+    parseDebug,
   };
 }
 
