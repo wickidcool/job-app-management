@@ -182,7 +182,7 @@ jobs:
   deploy-production:
     name: Deploy Production
     needs: [lint-and-test, e2e-tests]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: false  # Disabled — production secrets not yet configured (re-enable when Cloudflare + Supabase prod are provisioned)
     runs-on: ubuntu-latest
     environment: production
     concurrency:
