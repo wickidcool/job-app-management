@@ -114,20 +114,20 @@ export function ResumeManager() {
             {resumes.map((resume) => (
               <div
                 key={resume.id}
-                className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-lg border border-neutral-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow"
               >
-                <div className="flex items-center gap-4">
-                  <div className="text-3xl">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="text-3xl flex-shrink-0">
                     {resume.mimeType === 'application/pdf' ? '📄' : '📝'}
                   </div>
-                  <div>
-                    <h3 className="font-medium text-neutral-900">{resume.fileName}</h3>
+                  <div className="min-w-0">
+                    <h3 className="font-medium text-neutral-900 truncate">{resume.fileName}</h3>
                     <p className="text-sm text-neutral-500">
                       {formatFileSize(resume.fileSize)} • Uploaded {formatDate(resume.uploadedAt)}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 sm:flex-shrink-0">
                   <button
                     onClick={() => handleGenerateDiff(resume.id)}
                     disabled={generateDiff.isPending}
