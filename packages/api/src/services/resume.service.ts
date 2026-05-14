@@ -520,8 +520,9 @@ export async function uploadResume(
     }
   }
 
+  const experienceEntries = extractExperienceEntries(parsed);
+
   if (!usedAI) {
-    const experienceEntries = extractExperienceEntries(parsed);
     for (const entry of experienceEntries) {
       const slug = toProjectSlug(entry.company) || resumeId;
       const project = await getOrCreateProjectBySlug(slug, entry.company);
@@ -541,9 +542,27 @@ export async function uploadResume(
   // The debounced timer won't survive in serverless environments.
   await flush();
 
+  const education: string[] = [];
+  const skills: string[] = [];
+  for (const section of parsed.sections) {
+    if (/education/i.test(section.heading)) {
+      education.push(...section.bullets);
+    } else if (/skills/i.test(section.heading)) {
+      skills.push(...section.bullets);
+    }
+  }
+
   return {
     resume: toDTO(resume),
     export: exportToDTO(resumeExport),
+    experiences: experienceEntries.map((e) => ({
+      company: e.company,
+      role: e.role,
+      period: e.period,
+      bullets: e.bullets,
+    })),
+    education,
+    skills,
   };
 }
 
