@@ -1,3 +1,34 @@
+// Cloudflare Workers lacks canvas DOM APIs that pdfjs-dist references at module level.
+// These stubs satisfy module initialization; they are never invoked during text-only
+// PDF extraction (which uses no canvas rendering).
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const _g = globalThis as any;
+if (typeof _g.DOMMatrix === 'undefined') {
+  _g.DOMMatrix = class DOMMatrix {
+    a = 1;
+    b = 0;
+    c = 0;
+    d = 1;
+    e = 0;
+    f = 0;
+    scaleSelf() {
+      return this;
+    }
+    translateSelf() {
+      return this;
+    }
+  };
+}
+if (typeof _g.ImageData === 'undefined') {
+  _g.ImageData = class ImageData {};
+}
+if (typeof _g.Path2D === 'undefined') {
+  _g.Path2D = class Path2D {
+    constructor(_path?: unknown) {}
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 import { ulid } from 'ulid';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
@@ -11,7 +42,7 @@ import {
   deleteObject,
   buildObjectKey,
 } from './storage.service.js';
-import { enqueueChange } from './change-queue.service.js';
+import { enqueueChange, flush } from './change-queue.service.js';
 import {
   parseResumeWithAI,
   generateAIProjectMarkdown,
@@ -64,11 +95,64 @@ export interface ParsedResume {
 
 export async function extractText(buffer: Buffer, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf') {
-    const { PDFParse } = await import('pdf-parse');
-    const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
-    await parser.destroy();
-    return result.text;
+    // Pre-register the pdfjs worker inline so it doesn't try to spawn a Web Worker.
+    // pdfjs checks globalThis.pdfjsWorker?.WorkerMessageHandler before attempting
+    // to load a worker URL, so this enables its fake-worker (inline) mode.
+    // Use the legacy build — the standard build emits a Node.js environment warning
+    // and fails to extract text in Cloudflare Workers (nodejs_compat mode).
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore — no type declaration for the build artifact
+    const pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).pdfjsWorker = pdfjsWorker;
+
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore — no type declaration for the build artifact
+    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const loadingTask = getDocument({
+      data,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      verbosity: 0,
+    });
+
+    type PdfjsTextItem = { str: string; transform: number[] };
+    const pdf = await loadingTask.promise;
+    const pages: string[] = [];
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      // Group text items by y-coordinate to reconstruct visual lines.
+      // pdfjs returns individual text runs; joining them all with spaces loses
+      // newlines, which breaks section-heading detection in parseResumeText.
+      const byLine = new Map<number, string[]>();
+      const yOrder: number[] = [];
+      for (const item of textContent.items) {
+        if (!('str' in item)) continue;
+        const raw = item as PdfjsTextItem;
+        const str = raw.str;
+        if (!str) continue;
+        const y = Math.round(raw.transform[5]);
+        if (!byLine.has(y)) {
+          byLine.set(y, []);
+          yOrder.push(y);
+        }
+        byLine.get(y)!.push(str);
+      }
+      // PDF y-axis increases bottom-up, so sort descending for top-to-bottom order.
+      yOrder.sort((a, b) => b - a);
+      const pageText = yOrder
+        .map((y) => byLine.get(y)!.join(' ').trim())
+        .filter((line) => line.length > 0)
+        .join('\n');
+      pages.push(pageText);
+      page.cleanup();
+    }
+
+    await pdf.destroy();
+    return pages.join('\n');
   }
 
   if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
@@ -453,6 +537,9 @@ export async function uploadResume(
   }
 
   enqueueChange('resume', resumeId, 'created');
+  // Flush immediately to process catalog changes before response.
+  // The debounced timer won't survive in serverless environments.
+  await flush();
 
   return {
     resume: toDTO(resume),

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
 import { useApplication } from '../hooks/useApplications';
@@ -25,7 +25,7 @@ export function JobFitAnalysis() {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     formState: { errors },
     setError,
     setValue,
@@ -43,8 +43,8 @@ export function JobFitAnalysis() {
     }
   }, [application, setValue]);
 
-  const jobDescriptionText = watch('jobDescriptionText');
-  const jobDescriptionUrl = watch('jobDescriptionUrl');
+  const jobDescriptionText = useWatch({ control, name: 'jobDescriptionText' });
+  const jobDescriptionUrl = useWatch({ control, name: 'jobDescriptionUrl' });
 
   // Character count for text input
   const charCount = jobDescriptionText.length;

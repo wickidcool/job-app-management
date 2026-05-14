@@ -281,13 +281,14 @@ export function OnboardingModal() {
               canProceed={personalInfoCompleted || personalInfoData?.isComplete || false}
               onNext={() => handleCompleteStep(2)}
               onBack={previousStep}
+              formId="personal-info-form"
             >
               <div className="mx-auto max-w-2xl">
                 <PersonalInfoForm
                   personalInfo={personalInfoData?.personalInfo}
                   onSubmit={handlePersonalInfoSubmit}
-                  submitLabel="Continue"
-                  showCancel={false}
+                  formId="personal-info-form"
+                  hideActions
                 />
                 <button
                   type="button"

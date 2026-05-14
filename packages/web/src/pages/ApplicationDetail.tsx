@@ -108,13 +108,15 @@ export function ApplicationDetail() {
       <div className="max-w-4xl mx-auto px-6 py-8">
         {/* Application Header */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex-1">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{application.jobTitle}</h1>
-              <p className="text-xl text-gray-600 mb-4">{application.company}</p>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+                {application.jobTitle}
+              </h1>
+              <p className="text-lg sm:text-xl text-gray-600 mb-4">{application.company}</p>
 
               {/* Status Badge */}
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                 <StatusBadge status={application.status} variant="filled" />
                 <StatusDropdown
                   currentStatus={application.status}
@@ -123,7 +125,7 @@ export function ApplicationDetail() {
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 sm:flex-shrink-0">
               {application.status === 'interview' && (
                 <button
                   onClick={() => navigate(`/applications/${id}/prep`)}

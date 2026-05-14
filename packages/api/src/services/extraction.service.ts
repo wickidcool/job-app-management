@@ -749,7 +749,11 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   const hasNewCompany = changes.some(
     (c) => c.entity === 'company_catalog' && c.action === 'create'
   );
-  const shouldAutoApply = pendingReview.length === 0 && changes.length > 0 && !hasNewCompany;
+  // Resume uploads always auto-apply (companies from resumes are intentional).
+  // Application changes require review when new companies are detected (potential duplicates/typos).
+  const shouldAutoApply =
+    changes.length > 0 &&
+    (event.sourceType === 'resume' || (pendingReview.length === 0 && !hasNewCompany));
   const summary =
     changes.length === 0
       ? 'No changes detected'

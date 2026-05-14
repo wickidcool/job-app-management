@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { useEffect } from 'react';
 import type { PersonalInfo, UpdatePersonalInfoRequest } from '../services/api/types';
 
-const urlSchema = z
+const optionalUrlSchema = z
   .string()
   .url('Must be a valid URL')
   .max(500)
@@ -32,10 +32,14 @@ const personalInfoFormSchema = z.object({
   state: z.string().min(1).max(100).optional().or(z.literal('')),
   postalCode: z.string().min(1).max(20).optional().or(z.literal('')),
   country: z.string().min(1).max(100).optional().or(z.literal('')),
-  linkedinUrl: urlSchema,
-  githubUrl: urlSchema,
-  portfolioUrl: urlSchema,
-  websiteUrl: urlSchema,
+  linkedinUrl: z
+    .string()
+    .min(1, 'LinkedIn URL is required')
+    .url('Must be a valid URL')
+    .max(500, 'URL must be less than 500 characters'),
+  githubUrl: optionalUrlSchema,
+  portfolioUrl: optionalUrlSchema,
+  websiteUrl: optionalUrlSchema,
   professionalSummary: z.string().min(1).max(2000).optional().or(z.literal('')),
   headline: z.string().min(1).max(100).optional().or(z.literal('')),
 });
@@ -48,6 +52,8 @@ export interface PersonalInfoFormProps {
   onCancel?: () => void;
   submitLabel?: string;
   showCancel?: boolean;
+  hideActions?: boolean;
+  formId?: string;
 }
 
 export function PersonalInfoForm({
@@ -56,6 +62,8 @@ export function PersonalInfoForm({
   onCancel,
   submitLabel = 'Save',
   showCancel = false,
+  hideActions = false,
+  formId,
 }: PersonalInfoFormProps) {
   const {
     register,
@@ -130,7 +138,7 @@ export function PersonalInfoForm({
   };
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
+    <form id={formId} onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
       {/* Basic Information */}
       <div>
         <h3 className="mb-4 text-lg font-semibold text-neutral-900">Basic Information</h3>
@@ -317,7 +325,7 @@ export function PersonalInfoForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="linkedinUrl" className="block text-sm font-medium text-neutral-700">
-              LinkedIn URL
+              LinkedIn URL <span className="text-error-600">*</span>
             </label>
             <input
               {...register('linkedinUrl')}
@@ -408,24 +416,26 @@ export function PersonalInfoForm({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex gap-3 border-t border-neutral-200 pt-6">
-        {showCancel && (
+      {!hideActions && (
+        <div className="flex gap-3 border-t border-neutral-200 pt-6">
+          {showCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+            >
+              Cancel
+            </button>
+          )}
           <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+            type="submit"
+            disabled={isSubmitting || !isDirty}
+            className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Cancel
+            {isSubmitting ? 'Saving...' : submitLabel}
           </button>
-        )}
-        <button
-          type="submit"
-          disabled={isSubmitting || !isDirty}
-          className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isSubmitting ? 'Saving...' : submitLabel}
-        </button>
-      </div>
+        </div>
+      )}
     </form>
   );
 }

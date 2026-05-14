@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import type {
   CatalogEntry,
   CoverLetterVariant,
@@ -60,7 +60,7 @@ export function CoverLetterGenerator({
   const {
     register: registerStep1,
     handleSubmit: handleSubmitStep1,
-    watch: watchStep1,
+    control: controlStep1,
     formState: { errors: errorsStep1 },
   } = useForm<Step1FormData>({
     defaultValues: {
@@ -71,7 +71,7 @@ export function CoverLetterGenerator({
     },
   });
 
-  const useFitAnalysisChecked = watchStep1('useFitAnalysis');
+  const useFitAnalysisChecked = useWatch({ control: controlStep1, name: 'useFitAnalysis' });
 
   const handleStep1Submit = (data: Step1FormData) => {
     setStep1Data(data);
