@@ -57,6 +57,9 @@ export class APIClient {
       const data = await response.json();
 
       if (!response.ok) {
+        if (response.status === 401) {
+          window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+        }
         const error = data as APIErrorResponse;
         throw new APIError(
           error.error.code,
