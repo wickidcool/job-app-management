@@ -542,7 +542,7 @@ export async function uploadResume(
         // Separating them so an R2 write failure doesn't prevent catalog updates.
         try {
           const slug = toProjectSlug(aiProject.company) || resumeId;
-          const project = await getOrCreateProjectBySlug(slug, aiProject.company);
+          const project = await getOrCreateProjectBySlug(slug, aiProject.company, userId);
           await addCompanyToCatalog(aiProject.company);
           companiesAddedToCatalog.push(aiProject.company);
           console.log(
@@ -582,7 +582,7 @@ export async function uploadResume(
       const slug = toProjectSlug(entry.company) || resumeId;
       console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
       try {
-        const project = await getOrCreateProjectBySlug(slug, entry.company);
+        const project = await getOrCreateProjectBySlug(slug, entry.company, userId);
         await addCompanyToCatalog(entry.company);
         companiesAddedToCatalog.push(entry.company);
         console.log(
