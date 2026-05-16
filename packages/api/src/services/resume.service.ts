@@ -34,7 +34,13 @@ import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
-import { NotFoundError, ResumeDTO, ResumeExportDTO, UploadResumeResult } from '../types/index.js';
+import {
+  NotFoundError,
+  ResumeDTO,
+  ResumeExportDTO,
+  UploadResumeResult,
+  ParseDebugInfo,
+} from '../types/index.js';
 import {
   isR2Configured,
   isStorageAvailable,
@@ -50,7 +56,7 @@ import {
 } from './ai-parser.service.js';
 import { getOrCreateProjectBySlug } from './project.service.js';
 
-export async function addCompanyToCatalog(companyName: string): Promise<void> {
+export async function addCompanyToCatalog(companyName: string, userId?: string): Promise<void> {
   if (!companyName) return;
   const db = getDb();
   const normalized =
@@ -67,6 +73,7 @@ export async function addCompanyToCatalog(companyName: string): Promise<void> {
       .insert(companyCatalog)
       .values({
         id: ulid(),
+        userId: userId ?? null,
         name: companyName,
         normalizedName: normalized,
         firstSeenAt: new Date(),
@@ -174,12 +181,14 @@ export function parseResumeText(rawText: string): ParsedResume {
   let currentSection: ParsedSection | null = null;
 
   const SECTION_HEADINGS =
-    /^(experience|work experience|employment|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
+    /^(experience|work\s+experience|professional\s+experience|employment\s+history|work\s+history|career\s+history|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
 
   for (const line of lines) {
-    if (SECTION_HEADINGS.test(line) && line.length < 60) {
+    // Normalize internal whitespace before testing — PDFs often produce "PROFESSIONAL  EXPERIENCE"
+    const normalizedLine = line.replace(/\s+/g, ' ');
+    if (SECTION_HEADINGS.test(normalizedLine) && normalizedLine.length < 60) {
       if (currentSection) sections.push(currentSection);
-      currentSection = { heading: line, bullets: [] };
+      currentSection = { heading: normalizedLine, bullets: [] };
     } else if (currentSection) {
       currentSection.bullets.push(line);
     } else {
@@ -494,56 +503,141 @@ export async function uploadResume(
   // Try AI parsing first, fall back to heuristic parsing
   let usedAI = false;
   const aiAvailable = isAIParserAvailable();
+  const companiesAddedToCatalog: string[] = [];
+  let aiError: string | undefined;
+
+  const sectionHeadings = parsed.sections.map((s) => s.heading);
+  const rawLineCount = rawText.split('\n').filter((l) => l.trim().length > 0).length;
+  console.log(
+    `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} lineCount=${rawLineCount} aiAvailable=${aiAvailable}`
+  );
 
   if (aiAvailable) {
+    let aiResult = null;
     try {
-      const aiResult = await parseResumeWithAI(rawText);
-
-      if (aiResult && aiResult.projects.length > 0) {
-        usedAI = true;
-        for (const aiProject of aiResult.projects) {
-          const slug = toProjectSlug(aiProject.company) || resumeId;
-          const project = await getOrCreateProjectBySlug(slug, aiProject.company);
-          await addCompanyToCatalog(aiProject.company);
-          const projectMarkdown = generateAIProjectMarkdown(aiProject);
-          const safeBase = fileName
-            .split(/[/\\]/)
-            .pop()!
-            .replace(/\.[^.]+$/, '')
-            .replace(/[^a-zA-Z0-9._-]/g, '_');
-          await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
-        }
-      }
+      aiResult = await parseResumeWithAI(rawText);
+      console.log(`[resume] AI result: projects=${aiResult?.projects.length ?? 0}`);
     } catch (err) {
-      console.error('[resume] AI parsing failed:', err instanceof Error ? err.message : err);
-      usedAI = false;
+      aiError = err instanceof Error ? err.message : String(err);
+      console.error('[resume] AI parse API call failed:', aiError);
     }
-  }
 
-  if (!usedAI) {
-    const experienceEntries = extractExperienceEntries(parsed);
-    for (const entry of experienceEntries) {
-      const slug = toProjectSlug(entry.company) || resumeId;
-      const project = await getOrCreateProjectBySlug(slug, entry.company);
-      await addCompanyToCatalog(entry.company);
-      const projectMarkdown = generateProjectMarkdown(entry);
+    if (aiResult && aiResult.projects.length > 0) {
       const safeBase = fileName
         .split(/[/\\]/)
         .pop()!
         .replace(/\.[^.]+$/, '')
         .replace(/[^a-zA-Z0-9._-]/g, '_');
-      await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+
+      for (const aiProject of aiResult.projects) {
+        // Catalog write is always attempted — project file write is best-effort.
+        // Separating them so an R2 write failure doesn't prevent catalog updates.
+        try {
+          const slug = toProjectSlug(aiProject.company) || resumeId;
+          const project = await getOrCreateProjectBySlug(slug, aiProject.company, userId);
+          await addCompanyToCatalog(aiProject.company, userId);
+          companiesAddedToCatalog.push(aiProject.company);
+          console.log(
+            `[resume] AI: catalog updated company="${aiProject.company}" slug="${project.slug}"`
+          );
+          const projectMarkdown = generateAIProjectMarkdown(aiProject);
+          await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+        } catch (err) {
+          console.error(
+            `[resume] AI: failed to process company="${aiProject.company}":`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+      usedAI = companiesAddedToCatalog.length > 0;
+    } else if (!aiError) {
+      console.log('[resume] AI returned 0 projects, falling back to heuristic');
+    }
+  } else {
+    console.log(
+      '[resume] AI parser not available — ANTHROPIC_API_KEY not set as Cloudflare Workers secret'
+    );
+  }
+
+  const experienceEntries = extractExperienceEntries(parsed);
+  console.log(
+    `[resume] Heuristic experience entries: ${experienceEntries.length} — companies: [${experienceEntries.map((e) => e.company).join(', ')}]`
+  );
+
+  if (!usedAI) {
+    if (experienceEntries.length === 0) {
+      console.warn(
+        '[resume] No experience entries extracted by heuristic parser. Check resume section headings match: experience|work experience|employment'
+      );
+    }
+    for (const entry of experienceEntries) {
+      const slug = toProjectSlug(entry.company) || resumeId;
+      console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
+      try {
+        const project = await getOrCreateProjectBySlug(slug, entry.company, userId);
+        await addCompanyToCatalog(entry.company, userId);
+        companiesAddedToCatalog.push(entry.company);
+        console.log(
+          `[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`
+        );
+        const projectMarkdown = generateProjectMarkdown(entry);
+        const safeBase = fileName
+          .split(/[/\\]/)
+          .pop()!
+          .replace(/\.[^.]+$/, '')
+          .replace(/[^a-zA-Z0-9._-]/g, '_');
+        await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+      } catch (err) {
+        console.error(
+          `[resume] Heuristic: failed to process company="${entry.company}":`,
+          err instanceof Error ? err.message : err
+        );
+      }
     }
   }
 
-  enqueueChange('resume', resumeId, 'created');
+  console.log(
+    `[resume] Upload complete: usedAI=${usedAI} companiesAdded=${companiesAddedToCatalog.length} [${companiesAddedToCatalog.join(', ')}]`
+  );
+
+  // Pass rawText and userId so extraction.service has full context without re-reading R2.
+  enqueueChange('resume', resumeId, 'created', { rawText, userId: userId ?? null });
   // Flush immediately to process catalog changes before response.
   // The debounced timer won't survive in serverless environments.
   await flush();
 
+  const education: string[] = [];
+  const skills: string[] = [];
+  for (const section of parsed.sections) {
+    if (/education/i.test(section.heading)) {
+      education.push(...section.bullets);
+    } else if (/skills/i.test(section.heading)) {
+      skills.push(...section.bullets);
+    }
+  }
+
+  const parseDebug: ParseDebugInfo = {
+    aiAvailable,
+    usedAI,
+    sectionCount: parsed.sections.length,
+    sectionHeadings,
+    experienceEntryCount: experienceEntries.length,
+    companiesAddedToCatalog,
+    ...(aiError ? { aiError } : {}),
+  };
+
   return {
     resume: toDTO(resume),
     export: exportToDTO(resumeExport),
+    experiences: experienceEntries.map((e) => ({
+      company: e.company,
+      role: e.role,
+      period: e.period,
+      bullets: e.bullets,
+    })),
+    education,
+    skills,
+    parseDebug,
   };
 }
 
