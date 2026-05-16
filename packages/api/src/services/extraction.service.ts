@@ -24,7 +24,8 @@ async function applyChangeToDb(
   change: DiffChange,
   diffId: string,
   triggerSource: string,
-  triggerId: string
+  triggerId: string,
+  userId?: string | null
 ): Promise<void> {
   const data = change.data as Record<string, any>;
   const now = new Date();
@@ -36,6 +37,7 @@ async function applyChangeToDb(
           .insert(companyCatalog)
           .values({
             id: data.id,
+            userId: userId ?? null,
             name: data.name,
             normalizedName: data.normalizedName,
             firstSeenAt: new Date(data.firstSeenAt),
@@ -64,6 +66,7 @@ async function applyChangeToDb(
           .insert(techStackTags)
           .values({
             id: data.id,
+            userId: userId ?? null,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateTechStackCategory(data.category),
@@ -91,6 +94,7 @@ async function applyChangeToDb(
           .insert(jobFitTags)
           .values({
             id: data.id,
+            userId: userId ?? null,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateJobFitCategory(data.category),
@@ -115,6 +119,7 @@ async function applyChangeToDb(
       if (change.action === 'create') {
         await tx.insert(quantifiedBullets).values({
           id: data.id,
+          userId: userId ?? null,
           sourceType: data.sourceType,
           sourceId: data.sourceId,
           rawText: data.rawText,
@@ -137,6 +142,7 @@ async function applyChangeToDb(
           .insert(recurringThemes)
           .values({
             id: data.id,
+            userId: userId ?? null,
             themeSlug: data.themeSlug,
             displayName: data.displayName,
             occurrenceCount: data.occurrenceCount ?? 1,
@@ -163,6 +169,7 @@ async function applyChangeToDb(
 
   await tx.insert(catalogChangeLog).values({
     id: ulid(),
+    userId: userId ?? null,
     entityType: change.entity,
     entityId: String(data.id ?? data.tagSlug ?? data.themeSlug),
     action: change.action as any,
@@ -526,6 +533,7 @@ async function getTextContent(
 export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   const cachedText =
     typeof event.metadata?.rawText === 'string' ? event.metadata.rawText : undefined;
+  const userId = typeof event.metadata?.userId === 'string' ? event.metadata.userId : undefined;
   const text = await getTextContent(event.sourceType, event.sourceId, cachedText);
   if (!text) return;
 
@@ -783,7 +791,7 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   if (shouldAutoApply) {
     await db.transaction(async (tx) => {
       for (const change of changes) {
-        await applyChangeToDb(tx, change, diffId, triggerSource, event.sourceId);
+        await applyChangeToDb(tx, change, diffId, triggerSource, event.sourceId, userId);
       }
     });
   }
@@ -793,6 +801,7 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   await db.insert(catalogDiffs).values({
     id: diffId,
+    userId: userId ?? null,
     triggerSource,
     triggerId: event.sourceId,
     summary,

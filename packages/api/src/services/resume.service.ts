@@ -56,7 +56,7 @@ import {
 } from './ai-parser.service.js';
 import { getOrCreateProjectBySlug } from './project.service.js';
 
-export async function addCompanyToCatalog(companyName: string): Promise<void> {
+export async function addCompanyToCatalog(companyName: string, userId?: string): Promise<void> {
   if (!companyName) return;
   const db = getDb();
   const normalized =
@@ -73,6 +73,7 @@ export async function addCompanyToCatalog(companyName: string): Promise<void> {
       .insert(companyCatalog)
       .values({
         id: ulid(),
+        userId: userId ?? null,
         name: companyName,
         normalizedName: normalized,
         firstSeenAt: new Date(),
@@ -543,7 +544,7 @@ export async function uploadResume(
         try {
           const slug = toProjectSlug(aiProject.company) || resumeId;
           const project = await getOrCreateProjectBySlug(slug, aiProject.company, userId);
-          await addCompanyToCatalog(aiProject.company);
+          await addCompanyToCatalog(aiProject.company, userId);
           companiesAddedToCatalog.push(aiProject.company);
           console.log(
             `[resume] AI: catalog updated company="${aiProject.company}" slug="${project.slug}"`
@@ -583,7 +584,7 @@ export async function uploadResume(
       console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
       try {
         const project = await getOrCreateProjectBySlug(slug, entry.company, userId);
-        await addCompanyToCatalog(entry.company);
+        await addCompanyToCatalog(entry.company, userId);
         companiesAddedToCatalog.push(entry.company);
         console.log(
           `[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`
@@ -608,9 +609,8 @@ export async function uploadResume(
     `[resume] Upload complete: usedAI=${usedAI} companiesAdded=${companiesAddedToCatalog.length} [${companiesAddedToCatalog.join(', ')}]`
   );
 
-  // Pass rawText so extraction.service never needs to re-read the file from R2
-  // (avoids a second pdfjs invocation in Workers which triggers the require-shim warning).
-  enqueueChange('resume', resumeId, 'created', { rawText });
+  // Pass rawText and userId so extraction.service has full context without re-reading R2.
+  enqueueChange('resume', resumeId, 'created', { rawText, userId: userId ?? null });
   // Flush immediately to process catalog changes before response.
   // The debounced timer won't survive in serverless environments.
   await flush();
