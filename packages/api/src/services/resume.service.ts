@@ -507,18 +507,9 @@ export async function uploadResume(
   let aiError: string | undefined;
 
   const sectionHeadings = parsed.sections.map((s) => s.heading);
-  const rawLines = rawText
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  const rawLineCount = rawText.split('\n').filter((l) => l.trim().length > 0).length;
   console.log(
-    `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} lineCount=${rawLines.length} aiAvailable=${aiAvailable}`
-  );
-  console.log(
-    `[resume] First 30 lines of extracted text:\n${rawLines
-      .slice(0, 30)
-      .map((l, i) => `  ${i + 1}: ${l}`)
-      .join('\n')}`
+    `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} lineCount=${rawLineCount} aiAvailable=${aiAvailable}`
   );
 
   if (aiAvailable) {
