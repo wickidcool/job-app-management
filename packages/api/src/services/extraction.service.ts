@@ -578,6 +578,9 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   } else if (event.sourceType === 'resume') {
     const parsed = parseResumeText(text);
     const entries = extractExperienceEntries(parsed);
+    console.log(
+      `[extraction] processCatalogChange: resume=${event.sourceId} sections=${parsed.sections.length} headings=[${parsed.sections.map((s) => s.heading).join(', ')}] experienceEntries=${entries.length}`
+    );
     for (const entry of entries) {
       if (!entry.company) continue;
       const normalized = slugify(entry.company) || 'unspecified';

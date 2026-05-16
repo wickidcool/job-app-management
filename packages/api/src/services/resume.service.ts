@@ -180,12 +180,14 @@ export function parseResumeText(rawText: string): ParsedResume {
   let currentSection: ParsedSection | null = null;
 
   const SECTION_HEADINGS =
-    /^(experience|work experience|professional experience|employment history|work history|career history|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
+    /^(experience|work\s+experience|professional\s+experience|employment\s+history|work\s+history|career\s+history|education|skills|summary|objective|projects|certifications|awards|publications|references)/i;
 
   for (const line of lines) {
-    if (SECTION_HEADINGS.test(line) && line.length < 60) {
+    // Normalize internal whitespace before testing — PDFs often produce "PROFESSIONAL  EXPERIENCE"
+    const normalizedLine = line.replace(/\s+/g, ' ');
+    if (SECTION_HEADINGS.test(normalizedLine) && normalizedLine.length < 60) {
       if (currentSection) sections.push(currentSection);
-      currentSection = { heading: line, bullets: [] };
+      currentSection = { heading: normalizedLine, bullets: [] };
     } else if (currentSection) {
       currentSection.bullets.push(line);
     } else {
@@ -504,8 +506,18 @@ export async function uploadResume(
   let aiError: string | undefined;
 
   const sectionHeadings = parsed.sections.map((s) => s.heading);
+  const rawLines = rawText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
   console.log(
-    `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} aiAvailable=${aiAvailable}`
+    `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} lineCount=${rawLines.length} aiAvailable=${aiAvailable}`
+  );
+  console.log(
+    `[resume] First 30 lines of extracted text:\n${rawLines
+      .slice(0, 30)
+      .map((l, i) => `  ${i + 1}: ${l}`)
+      .join('\n')}`
   );
 
   if (aiAvailable) {
@@ -569,19 +581,26 @@ export async function uploadResume(
     for (const entry of experienceEntries) {
       const slug = toProjectSlug(entry.company) || resumeId;
       console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
-      const project = await getOrCreateProjectBySlug(slug, entry.company);
-      await addCompanyToCatalog(entry.company);
-      companiesAddedToCatalog.push(entry.company);
-      console.log(
-        `[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`
-      );
-      const projectMarkdown = generateProjectMarkdown(entry);
-      const safeBase = fileName
-        .split(/[/\\]/)
-        .pop()!
-        .replace(/\.[^.]+$/, '')
-        .replace(/[^a-zA-Z0-9._-]/g, '_');
-      await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+      try {
+        const project = await getOrCreateProjectBySlug(slug, entry.company);
+        await addCompanyToCatalog(entry.company);
+        companiesAddedToCatalog.push(entry.company);
+        console.log(
+          `[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`
+        );
+        const projectMarkdown = generateProjectMarkdown(entry);
+        const safeBase = fileName
+          .split(/[/\\]/)
+          .pop()!
+          .replace(/\.[^.]+$/, '')
+          .replace(/[^a-zA-Z0-9._-]/g, '_');
+        await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+      } catch (err) {
+        console.error(
+          `[resume] Heuristic: failed to process company="${entry.company}":`,
+          err instanceof Error ? err.message : err
+        );
+      }
     }
   }
 
