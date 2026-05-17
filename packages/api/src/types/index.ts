@@ -122,9 +122,30 @@ export interface ResumeExportDTO {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface ParsedExperience {
+  company: string;
+  role: string;
+  period: string;
+  bullets: string[];
+}
+
+export interface ParseDebugInfo {
+  aiAvailable: boolean;
+  usedAI: boolean;
+  sectionCount: number;
+  sectionHeadings: string[];
+  experienceEntryCount: number;
+  companiesAddedToCatalog: string[];
+  aiError?: string;
+}
+
 export interface UploadResumeResult {
   resume: ResumeDTO;
   export: ResumeExportDTO;
+  experiences: ParsedExperience[];
+  education: string[];
+  skills: string[];
+  parseDebug: ParseDebugInfo;
 }
 
 export class AppError extends Error {
