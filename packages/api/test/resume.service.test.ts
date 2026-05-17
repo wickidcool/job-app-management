@@ -72,9 +72,7 @@ TypeScript, Node.js, PostgreSQL`;
   ])('recognizes "%s" heading keyword', (_keyword, heading) => {
     const text = `${heading}\nAcme Corp\n- Did stuff`;
     const result = parseResumeText(text);
-    const section = result.sections.find((s) =>
-      s.heading.toLowerCase() === heading.toLowerCase()
-    );
+    const section = result.sections.find((s) => s.heading.toLowerCase() === heading.toLowerCase());
     expect(section).toBeDefined();
     expect(section!.bullets.length).toBeGreaterThan(0);
   });

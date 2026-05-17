@@ -45,7 +45,9 @@ const mockExport = {
 const mockUploadResult = {
   resume: mockResume,
   export: mockExport,
-  experiences: [{ company: 'Acme Corp', role: 'Engineer', period: '2022-2024', bullets: ['Built APIs'] }],
+  experiences: [
+    { company: 'Acme Corp', role: 'Engineer', period: '2022-2024', bullets: ['Built APIs'] },
+  ],
   education: ['MIT - BS Computer Science 2018'],
   skills: ['TypeScript', 'Node.js'],
   parseDebug: {
