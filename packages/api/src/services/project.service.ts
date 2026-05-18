@@ -246,10 +246,7 @@ export async function listProjects(_userId?: string): Promise<ProjectMeta[]> {
 
   // Projects are a shared/global resource - entries are unique by slug across all users.
   // Do not filter by userId to ensure all projects are visible.
-  const dbProjects = await db
-    .select()
-    .from(projects)
-    .orderBy(desc(projects.updatedAt));
+  const dbProjects = await db.select().from(projects).orderBy(desc(projects.updatedAt));
 
   const result: ProjectMeta[] = [];
 
