@@ -33,13 +33,14 @@ export interface ListCompaniesOptions {
   cursor?: string;
 }
 
-export async function listCompanies(opts: ListCompaniesOptions = {}, userId?: string) {
+export async function listCompanies(opts: ListCompaniesOptions = {}, _userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
+  // Company catalog is a shared/global resource - entries are unique by normalized_name
+  // across all users. Do not filter by userId to ensure all companies are visible.
   const conditions = [];
-  if (userId) conditions.push(eq(companyCatalog.userId, userId));
   if (!opts.includeDeleted) conditions.push(eq(companyCatalog.isDeleted, false));
   if (opts.search) conditions.push(ilike(companyCatalog.name, `%${opts.search}%`));
 
@@ -117,13 +118,14 @@ export interface ListTagsOptions {
   cursor?: string;
 }
 
-export async function listJobFitTags(opts: ListTagsOptions = {}, userId?: string) {
+export async function listJobFitTags(opts: ListTagsOptions = {}, _userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
+  // Job fit tags are a shared/global resource - entries are unique by tag_slug across all users.
+  // Do not filter by userId to ensure all tags are visible.
   const conditions = [];
-  if (userId) conditions.push(eq(jobFitTags.userId, userId));
   if (opts.category && VALID_JOB_FIT_CATEGORIES.includes(opts.category as JobFitCategory)) {
     conditions.push(eq(jobFitTags.category, opts.category as JobFitCategory));
   }
@@ -232,13 +234,14 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string, _us
   return { mergedTag: toJobFitTagDTO(updated!), mergedCount: sources.length };
 }
 
-export async function listTechStackTags(opts: ListTagsOptions = {}, userId?: string) {
+export async function listTechStackTags(opts: ListTagsOptions = {}, _userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
+  // Tech stack tags are a shared/global resource - entries are unique by tag_slug across all users.
+  // Do not filter by userId to ensure all tags are visible.
   const conditions = [];
-  if (userId) conditions.push(eq(techStackTags.userId, userId));
   if (opts.category && VALID_TECH_STACK_CATEGORIES.includes(opts.category as TechStackCategory)) {
     conditions.push(eq(techStackTags.category, opts.category as TechStackCategory));
   }
@@ -439,13 +442,14 @@ export interface ListThemesOptions {
   cursor?: string;
 }
 
-export async function listThemes(opts: ListThemesOptions = {}, userId?: string) {
+export async function listThemes(opts: ListThemesOptions = {}, _userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
 
+  // Recurring themes are a shared/global resource - entries are unique by theme_slug across all users.
+  // Do not filter by userId to ensure all themes are visible.
   const conditions = [];
-  if (userId) conditions.push(eq(recurringThemes.userId, userId));
   if (opts.coreOnly) conditions.push(eq(recurringThemes.isCoreStrength, true));
   if (!opts.includeHistorical) conditions.push(eq(recurringThemes.isHistorical, false));
 
