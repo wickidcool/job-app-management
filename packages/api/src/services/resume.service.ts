@@ -29,6 +29,7 @@ if (typeof _g.Path2D === 'undefined') {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+import { createHash } from 'node:crypto';
 import { ulid } from 'ulid';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
@@ -89,6 +90,10 @@ const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]);
+
+function computeContentHash(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
 
 export interface ParsedSection {
   heading: string;
@@ -430,6 +435,45 @@ export async function uploadResume(
     throw new Error(`Unsupported file type: ${mimeType}. Only PDF and DOCX are accepted.`);
   }
 
+  const db = getDb();
+  const contentHash = computeContentHash(fileBuffer);
+
+  if (userId) {
+    const [existing] = await db
+      .select()
+      .from(resumes)
+      .where(and(eq(resumes.userId, userId), eq(resumes.contentHash, contentHash)))
+      .limit(1);
+
+    if (existing) {
+      console.log(
+        `[resume] Duplicate detected: file="${fileName}" matches existing resumeId="${existing.id}" for user="${userId}"`
+      );
+      const exports = await db
+        .select()
+        .from(resumeExports)
+        .where(eq(resumeExports.resumeId, existing.id));
+      const exportDto = exports.length > 0 ? exportToDTO(exports[0]) : null;
+
+      return {
+        resume: toDTO(existing),
+        export: exportDto!,
+        experiences: [],
+        education: [],
+        skills: [],
+        parseDebug: {
+          aiAvailable: false,
+          usedAI: false,
+          sectionCount: 0,
+          sectionHeadings: [],
+          experienceEntryCount: 0,
+          companiesAddedToCatalog: [],
+          isDuplicate: true,
+        },
+      };
+    }
+  }
+
   const config = getConfig();
   const resumeId = ulid();
   const ext = mimeType === 'application/pdf' ? '.pdf' : '.docx';
@@ -448,7 +492,6 @@ export async function uploadResume(
     await fs.writeFile(filePath, fileBuffer);
   }
 
-  const db = getDb();
   const [resume] = await db
     .insert(resumes)
     .values({
@@ -458,6 +501,7 @@ export async function uploadResume(
       fileSize: fileBuffer.length,
       mimeType,
       filePath,
+      contentHash,
     })
     .returning();
 

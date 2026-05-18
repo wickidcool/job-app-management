@@ -64,6 +64,7 @@ export const resumes = pgTable('resumes', {
   fileSize: integer('file_size').notNull(),
   mimeType: text('mime_type').notNull(),
   filePath: text('file_path').notNull(),
+  contentHash: text('content_hash'),
   uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
   version: integer('version').notNull().default(1),
 });

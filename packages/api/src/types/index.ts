@@ -137,6 +137,7 @@ export interface ParseDebugInfo {
   experienceEntryCount: number;
   companiesAddedToCatalog: string[];
   aiError?: string;
+  isDuplicate?: boolean;
 }
 
 export interface UploadResumeResult {
