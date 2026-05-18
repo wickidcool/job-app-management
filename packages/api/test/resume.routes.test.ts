@@ -42,6 +42,24 @@ const mockExport = {
   metadata: { sections: [{ heading: 'Experience', bulletCount: 5 }], charCount: 2000 },
 };
 
+const mockUploadResult = {
+  resume: mockResume,
+  export: mockExport,
+  experiences: [
+    { company: 'Acme Corp', role: 'Engineer', period: '2022-2024', bullets: ['Built APIs'] },
+  ],
+  education: ['MIT - BS Computer Science 2018'],
+  skills: ['TypeScript', 'Node.js'],
+  parseDebug: {
+    aiAvailable: false,
+    usedAI: false,
+    sectionCount: 3,
+    sectionHeadings: ['Experience', 'Education', 'Skills'],
+    experienceEntryCount: 1,
+    companiesAddedToCatalog: ['Acme Corp'],
+  },
+};
+
 describe('Resume Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
@@ -52,10 +70,7 @@ describe('Resume Routes', () => {
 
   describe('POST /api/resumes/upload', () => {
     it('returns 201 with resume and export on successful upload', async () => {
-      vi.mocked(resumeService.uploadResume).mockResolvedValue({
-        resume: mockResume,
-        export: mockExport,
-      });
+      vi.mocked(resumeService.uploadResume).mockResolvedValue(mockUploadResult);
 
       const pdfBuffer = Buffer.from('%PDF-1.4 fake pdf content');
       const form = new FormData();
@@ -68,6 +83,31 @@ describe('Resume Routes', () => {
       const body = await res.json();
       expect(body.resume).toBeDefined();
       expect(body.export).toBeDefined();
+    });
+
+    it('returns experiences, education, skills, and parseDebug in the response body', async () => {
+      vi.mocked(resumeService.uploadResume).mockResolvedValue(mockUploadResult);
+
+      const form = new FormData();
+      const blob = new Blob([Buffer.from('%PDF-1.4 test')], { type: 'application/pdf' });
+      form.append('file', blob, 'resume.pdf');
+
+      const res = await app.request('/api/resumes/upload', { method: 'POST', body: form });
+      const body = await res.json();
+
+      expect(Array.isArray(body.experiences)).toBe(true);
+      expect(body.experiences[0]).toMatchObject({ company: 'Acme Corp', role: 'Engineer' });
+
+      expect(Array.isArray(body.education)).toBe(true);
+      expect(body.education).toContain('MIT - BS Computer Science 2018');
+
+      expect(Array.isArray(body.skills)).toBe(true);
+      expect(body.skills).toContain('TypeScript');
+
+      expect(body.parseDebug).toBeDefined();
+      expect(body.parseDebug.sectionCount).toBe(3);
+      expect(Array.isArray(body.parseDebug.sectionHeadings)).toBe(true);
+      expect(body.parseDebug.companiesAddedToCatalog).toContain('Acme Corp');
     });
 
     it('returns 415 for unsupported file type', async () => {

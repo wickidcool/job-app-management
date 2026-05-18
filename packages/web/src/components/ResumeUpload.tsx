@@ -115,10 +115,18 @@ export function ResumeUpload({
 
             setTimeout(() => {
               const response = JSON.parse(xhr.responseText);
+              // API returns { resume: { id, uploadedAt, ... }, experiences: [...], ... }
+              const resumeId = response.resume?.id ?? response.id;
+              const uploadedAt = response.resume?.uploadedAt ?? response.uploadedAt;
+              console.log('[ResumeUpload] Upload response debug:', {
+                resumeId,
+                experienceCount: (response.experiences || []).length,
+                parseDebug: response.parseDebug,
+              });
               const parsed: ParsedResume = {
-                id: response.id,
+                id: resumeId,
                 fileName: file.name,
-                uploadedAt: new Date(response.uploadedAt),
+                uploadedAt: new Date(uploadedAt),
                 parsedExperiences: response.experiences || [],
                 education: response.education || [],
                 skills: response.skills || [],
@@ -127,7 +135,7 @@ export function ResumeUpload({
               setParsedData(parsed);
               console.log('[ResumeUpload] Setting uploadState to complete');
               setUploadState('complete');
-              onUploadComplete(response.id, parsed);
+              onUploadComplete(resumeId, parsed);
             }, remainingTime);
           } else {
             throw new Error(`Upload failed with status ${xhr.status}`);

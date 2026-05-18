@@ -55,6 +55,27 @@ TypeScript, Node.js, PostgreSQL`;
     expect(section).toBeDefined();
     expect(section!.bullets.every((b) => b.length > 0)).toBe(true);
   });
+
+  it('normalizes internal whitespace before heading match — double-space in "PROFESSIONAL  EXPERIENCE"', () => {
+    const text = `PROFESSIONAL  EXPERIENCE\nAcme Corp - Dev 2022-2024\n- Built things`;
+    const result = parseResumeText(text);
+    const section = result.sections.find((s) => /professional\s+experience/i.test(s.heading));
+    expect(section).toBeDefined();
+    expect(section!.bullets).toHaveLength(2);
+  });
+
+  it.each([
+    ['professional experience', 'PROFESSIONAL EXPERIENCE'],
+    ['work history', 'Work History'],
+    ['career history', 'Career History'],
+    ['employment history', 'Employment History'],
+  ])('recognizes "%s" heading keyword', (_keyword, heading) => {
+    const text = `${heading}\nAcme Corp\n- Did stuff`;
+    const result = parseResumeText(text);
+    const section = result.sections.find((s) => s.heading.toLowerCase() === heading.toLowerCase());
+    expect(section).toBeDefined();
+    expect(section!.bullets.length).toBeGreaterThan(0);
+  });
 });
 
 describe('generateStarMarkdown', () => {
@@ -304,6 +325,32 @@ describe('addCompanyToCatalog', () => {
       expect.objectContaining({
         name: '...',
         normalizedName: 'unspecified',
+      })
+    );
+  });
+
+  it('threads userId into the inserted record when provided', async () => {
+    mockWhere.mockResolvedValue([]);
+
+    await addCompanyToCatalog('Acme Corp', 'user-123');
+
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Acme Corp',
+        userId: 'user-123',
+      })
+    );
+  });
+
+  it('inserts userId as null when omitted', async () => {
+    mockWhere.mockResolvedValue([]);
+
+    await addCompanyToCatalog('Acme Corp');
+
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Acme Corp',
+        userId: null,
       })
     );
   });

@@ -241,13 +241,14 @@ export async function getProjectBySlug(slug: string, userId?: string): Promise<P
   };
 }
 
-export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
+export async function listProjects(_userId?: string): Promise<ProjectMeta[]> {
   const db = getDb();
 
+  // Projects are a shared/global resource - entries are unique by slug across all users.
+  // Do not filter by userId to ensure all projects are visible.
   const dbProjects = await db
     .select()
     .from(projects)
-    .where(userId ? eq(projects.userId, userId) : undefined)
     .orderBy(desc(projects.updatedAt));
 
   const result: ProjectMeta[] = [];
