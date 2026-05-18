@@ -9,6 +9,7 @@ import {
   numeric,
   date,
   uuid,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const appStatusEnum = pgEnum('app_status', [
@@ -105,16 +106,22 @@ export const onboardingStatus = pgTable('onboarding_status', {
   version: integer('version').notNull().default(1),
 });
 
-export const projects = pgTable('projects', {
-  id: text('id').primaryKey(),
-  userId: uuid('user_id'),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  description: text('description'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  version: integer('version').notNull().default(1),
-});
+export const projects = pgTable(
+  'projects',
+  {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    description: text('description'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    version: integer('version').notNull().default(1),
+  },
+  (t) => ({
+    userSlugUniq: uniqueIndex('idx_projects_user_slug').on(t.userId, t.slug),
+  })
+);
 
 export type Resume = typeof resumes.$inferSelect;
 export type NewResume = typeof resumes.$inferInsert;
@@ -181,59 +188,77 @@ export const diffStatusEnum = pgEnum('diff_status', [
 ]);
 
 // Catalog tables
-export const companyCatalog = pgTable('company_catalog', {
-  id: text('id').primaryKey(),
-  userId: uuid('user_id'),
-  name: text('name').notNull(),
-  normalizedName: text('normalized_name').notNull().unique(),
-  aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
-  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
-  applicationCount: integer('application_count').notNull().default(0),
-  latestStatus: appStatusEnum('latest_status'),
-  latestAppId: text('latest_app_id').references(() => applications.id, { onDelete: 'set null' }),
-  isDeleted: boolean('is_deleted').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  version: integer('version').notNull().default(1),
-});
+export const companyCatalog = pgTable(
+  'company_catalog',
+  {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    name: text('name').notNull(),
+    normalizedName: text('normalized_name').notNull(),
+    aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    applicationCount: integer('application_count').notNull().default(0),
+    latestStatus: appStatusEnum('latest_status'),
+    latestAppId: text('latest_app_id').references(() => applications.id, { onDelete: 'set null' }),
+    isDeleted: boolean('is_deleted').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    version: integer('version').notNull().default(1),
+  },
+  (t) => ({
+    userNormalizedUniq: uniqueIndex('idx_company_catalog_user_normalized').on(t.userId, t.normalizedName),
+  })
+);
 
-export const jobFitTags = pgTable('job_fit_tags', {
-  id: text('id').primaryKey(),
-  userId: uuid('user_id'),
-  tagSlug: text('tag_slug').notNull().unique(),
-  displayName: text('display_name').notNull(),
-  category: jobFitCategoryEnum('category').notNull().default('uncategorized'),
-  aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
-  sourceIds: jsonb('source_ids').$type<string[]>().notNull().default([]),
-  mentionCount: integer('mention_count').notNull().default(0),
-  needsReview: boolean('needs_review').notNull().default(false),
-  reviewOptions: jsonb('review_options').$type<string[]>(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  version: integer('version').notNull().default(1),
-});
+export const jobFitTags = pgTable(
+  'job_fit_tags',
+  {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    tagSlug: text('tag_slug').notNull(),
+    displayName: text('display_name').notNull(),
+    category: jobFitCategoryEnum('category').notNull().default('uncategorized'),
+    aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
+    sourceIds: jsonb('source_ids').$type<string[]>().notNull().default([]),
+    mentionCount: integer('mention_count').notNull().default(0),
+    needsReview: boolean('needs_review').notNull().default(false),
+    reviewOptions: jsonb('review_options').$type<string[]>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    version: integer('version').notNull().default(1),
+  },
+  (t) => ({
+    userSlugUniq: uniqueIndex('idx_job_fit_tags_user_slug').on(t.userId, t.tagSlug),
+  })
+);
 
-export const techStackTags = pgTable('tech_stack_tags', {
-  id: text('id').primaryKey(),
-  userId: uuid('user_id'),
-  tagSlug: text('tag_slug').notNull().unique(),
-  displayName: text('display_name').notNull(),
-  category: techStackCategoryEnum('category').notNull().default('uncategorized'),
-  aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
-  sourceIds: jsonb('source_ids').$type<string[]>().notNull().default([]),
-  mentionCount: integer('mention_count').notNull().default(0),
-  versionMentioned: text('version_mentioned'),
-  isLegacy: boolean('is_legacy').notNull().default(false),
-  needsReview: boolean('needs_review').notNull().default(false),
-  reviewOptions: jsonb('review_options').$type<string[]>(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  version: integer('version').notNull().default(1),
-});
+export const techStackTags = pgTable(
+  'tech_stack_tags',
+  {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    tagSlug: text('tag_slug').notNull(),
+    displayName: text('display_name').notNull(),
+    category: techStackCategoryEnum('category').notNull().default('uncategorized'),
+    aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
+    sourceIds: jsonb('source_ids').$type<string[]>().notNull().default([]),
+    mentionCount: integer('mention_count').notNull().default(0),
+    versionMentioned: text('version_mentioned'),
+    isLegacy: boolean('is_legacy').notNull().default(false),
+    needsReview: boolean('needs_review').notNull().default(false),
+    reviewOptions: jsonb('review_options').$type<string[]>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    version: integer('version').notNull().default(1),
+  },
+  (t) => ({
+    userSlugUniq: uniqueIndex('idx_tech_stack_tags_user_slug').on(t.userId, t.tagSlug),
+  })
+);
 
 export const quantifiedBullets = pgTable('quantified_bullets', {
   id: text('id').primaryKey(),
-  userId: uuid('user_id'),
+  userId: uuid('user_id').notNull(),
   sourceType: text('source_type').notNull(),
   sourceId: text('source_id').notNull(),
   rawText: text('raw_text').notNull(),
@@ -249,22 +274,28 @@ export const quantifiedBullets = pgTable('quantified_bullets', {
   version: integer('version').notNull().default(1),
 });
 
-export const recurringThemes = pgTable('recurring_themes', {
-  id: text('id').primaryKey(),
-  userId: uuid('user_id'),
-  themeSlug: text('theme_slug').notNull().unique(),
-  displayName: text('display_name').notNull(),
-  aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
-  occurrenceCount: integer('occurrence_count').notNull().default(0),
-  sourceIds: jsonb('source_ids').$type<string[]>().notNull().default([]),
-  exampleExcerpts: jsonb('example_excerpts').$type<string[]>().notNull().default([]),
-  isCoreStrength: boolean('is_core_strength').notNull().default(false),
-  isHistorical: boolean('is_historical').notNull().default(false),
-  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  version: integer('version').notNull().default(1),
-});
+export const recurringThemes = pgTable(
+  'recurring_themes',
+  {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    themeSlug: text('theme_slug').notNull(),
+    displayName: text('display_name').notNull(),
+    aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
+    occurrenceCount: integer('occurrence_count').notNull().default(0),
+    sourceIds: jsonb('source_ids').$type<string[]>().notNull().default([]),
+    exampleExcerpts: jsonb('example_excerpts').$type<string[]>().notNull().default([]),
+    isCoreStrength: boolean('is_core_strength').notNull().default(false),
+    isHistorical: boolean('is_historical').notNull().default(false),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    version: integer('version').notNull().default(1),
+  },
+  (t) => ({
+    userSlugUniq: uniqueIndex('idx_recurring_themes_user_slug').on(t.userId, t.themeSlug),
+  })
+);
 
 export const catalogChangeLog = pgTable('catalog_change_log', {
   id: text('id').primaryKey(),

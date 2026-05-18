@@ -274,24 +274,32 @@ describe('addCompanyToCatalog', () => {
     vi.clearAllMocks();
   });
 
-  it('inserts company into catalog when it does not exist', async () => {
+  it('inserts company into catalog when it does not exist (with userId)', async () => {
     mockWhere.mockResolvedValue([]);
 
-    await addCompanyToCatalog('Acme Corp');
+    await addCompanyToCatalog('Acme Corp', 'user-abc');
 
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'Acme Corp',
         normalizedName: 'acme-corp',
+        userId: 'user-abc',
       })
     );
     expect(mockOnConflictDoNothing).toHaveBeenCalled();
   });
 
-  it('does not insert when company already exists', async () => {
+  it('skips insert when userId is not provided (tenant isolation)', async () => {
+    await addCompanyToCatalog('Acme Corp');
+
+    expect(mockSelectFrom).not.toHaveBeenCalled();
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it('does not insert when company already exists for that user', async () => {
     mockWhere.mockResolvedValue([{ id: 'existing-id', normalizedName: 'acme-corp' }]);
 
-    await addCompanyToCatalog('Acme Corp');
+    await addCompanyToCatalog('Acme Corp', 'user-abc');
 
     expect(mockInsertValues).not.toHaveBeenCalled();
   });
@@ -299,7 +307,7 @@ describe('addCompanyToCatalog', () => {
   it('normalizes company name with special characters', async () => {
     mockWhere.mockResolvedValue([]);
 
-    await addCompanyToCatalog('Foo & Bar, Inc.');
+    await addCompanyToCatalog('Foo & Bar, Inc.', 'user-abc');
 
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -319,7 +327,7 @@ describe('addCompanyToCatalog', () => {
   it('uses "unspecified" slug for all-special-character company names', async () => {
     mockWhere.mockResolvedValue([]);
 
-    await addCompanyToCatalog('...');
+    await addCompanyToCatalog('...', 'user-abc');
 
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -338,19 +346,6 @@ describe('addCompanyToCatalog', () => {
       expect.objectContaining({
         name: 'Acme Corp',
         userId: 'user-123',
-      })
-    );
-  });
-
-  it('inserts userId as null when omitted', async () => {
-    mockWhere.mockResolvedValue([]);
-
-    await addCompanyToCatalog('Acme Corp');
-
-    expect(mockInsertValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'Acme Corp',
-        userId: null,
       })
     );
   });

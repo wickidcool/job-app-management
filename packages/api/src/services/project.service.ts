@@ -125,7 +125,11 @@ export async function createProject(
     );
   }
 
-  const existing = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
+  const existing = await db
+    .select()
+    .from(projects)
+    .where(userId ? and(eq(projects.slug, slug), eq(projects.userId, userId)) : eq(projects.slug, slug))
+    .limit(1);
   if (existing.length > 0) {
     throw new ConflictError('Project with this slug already exists');
   }
@@ -138,12 +142,16 @@ export async function createProject(
     await fs.mkdir(dir, { recursive: true });
   }
 
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to create a project', undefined, 400);
+  }
+
   const id = ulid();
   const [project] = await db
     .insert(projects)
     .values({
       id,
-      userId: userId ?? null,
+      userId,
       name: input.name,
       slug,
       description: input.description || null,
@@ -241,12 +249,14 @@ export async function getProjectBySlug(slug: string, userId?: string): Promise<P
   };
 }
 
-export async function listProjects(_userId?: string): Promise<ProjectMeta[]> {
+export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
   const db = getDb();
 
-  // Projects are a shared/global resource - entries are unique by slug across all users.
-  // Do not filter by userId to ensure all projects are visible.
-  const dbProjects = await db.select().from(projects).orderBy(desc(projects.updatedAt));
+  const dbProjects = await db
+    .select()
+    .from(projects)
+    .where(userId ? eq(projects.userId, userId) : undefined)
+    .orderBy(desc(projects.updatedAt));
 
   const result: ProjectMeta[] = [];
 

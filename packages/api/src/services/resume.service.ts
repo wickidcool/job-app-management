@@ -57,7 +57,7 @@ import {
 import { getOrCreateProjectBySlug } from './project.service.js';
 
 export async function addCompanyToCatalog(companyName: string, userId?: string): Promise<void> {
-  if (!companyName) return;
+  if (!companyName || !userId) return;
   const db = getDb();
   const normalized =
     companyName
@@ -67,13 +67,13 @@ export async function addCompanyToCatalog(companyName: string, userId?: string):
   const [existing] = await db
     .select()
     .from(companyCatalog)
-    .where(eq(companyCatalog.normalizedName, normalized));
+    .where(and(eq(companyCatalog.normalizedName, normalized), eq(companyCatalog.userId, userId)));
   if (!existing) {
     await db
       .insert(companyCatalog)
       .values({
         id: ulid(),
-        userId: userId ?? null,
+        userId,
         name: companyName,
         normalizedName: normalized,
         firstSeenAt: new Date(),
