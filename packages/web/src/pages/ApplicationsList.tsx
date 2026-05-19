@@ -26,7 +26,7 @@ function calculatePipelineStats(applications: Application[]) {
       const daysUntilDue = differenceInDays(dueDate, today);
       if (daysUntilDue < 0) overdue++;
       else if (daysUntilDue === 0) dueToday++;
-      else if (daysUntilDue <= 7) dueSoon++;
+      else if (daysUntilDue <= 3) dueSoon++;
     }
 
     const daysSinceUpdate = differenceInDays(today, new Date(app.updatedAt));
