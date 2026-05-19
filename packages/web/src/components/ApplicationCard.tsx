@@ -2,24 +2,30 @@ import { formatDistanceToNow, differenceInDays, parseISO, startOfDay } from 'dat
 import type { Application, ApplicationStatus } from '../types/application';
 import { useState, useMemo } from 'react';
 
+const TERMINAL_STATUSES = ['offer', 'rejected', 'withdrawn'];
+
 function getUrgencyIndicators(application: Application): {
   isOverdue: boolean;
   isDueSoon: boolean;
   isStale: boolean;
 } {
+  const isTerminal = TERMINAL_STATUSES.includes(application.status);
   const today = startOfDay(new Date());
   let isOverdue = false;
   let isDueSoon = false;
+  let isStale = false;
 
-  if (application.nextActionDue) {
+  if (!isTerminal && application.nextActionDue) {
     const dueDate = startOfDay(parseISO(application.nextActionDue));
     const daysUntilDue = differenceInDays(dueDate, today);
     isOverdue = daysUntilDue < 0;
     isDueSoon = !isOverdue && daysUntilDue <= 3;
   }
 
-  const daysSinceUpdate = differenceInDays(today, new Date(application.updatedAt));
-  const isStale = daysSinceUpdate >= 14;
+  if (!isTerminal) {
+    const daysSinceUpdate = differenceInDays(today, new Date(application.updatedAt));
+    isStale = daysSinceUpdate >= 14;
+  }
 
   return { isOverdue, isDueSoon, isStale };
 }

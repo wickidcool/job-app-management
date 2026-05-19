@@ -150,7 +150,11 @@ export function FilterPanel({
 
       {/* Active Only Toggle */}
       <div className="flex items-center justify-between py-2">
-        <label htmlFor="activeOnly" className="text-sm font-medium text-gray-700">
+        <label
+          htmlFor="activeOnly"
+          className="text-sm font-medium text-gray-700 cursor-pointer"
+          onClick={handleActiveOnlyToggle}
+        >
           Active Only
         </label>
         <button
