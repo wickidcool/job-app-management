@@ -1,28 +1,6 @@
-import { formatDistanceToNow, differenceInDays, parseISO, startOfDay } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import type { Application, ApplicationStatus } from '../types/application';
-import { useState, useMemo } from 'react';
-
-function getUrgencyIndicators(application: Application): {
-  isOverdue: boolean;
-  isDueSoon: boolean;
-  isStale: boolean;
-} {
-  const today = startOfDay(new Date());
-  let isOverdue = false;
-  let isDueSoon = false;
-
-  if (application.nextActionDue) {
-    const dueDate = startOfDay(parseISO(application.nextActionDue));
-    const daysUntilDue = differenceInDays(dueDate, today);
-    isOverdue = daysUntilDue < 0;
-    isDueSoon = !isOverdue && daysUntilDue <= 3;
-  }
-
-  const daysSinceUpdate = differenceInDays(today, new Date(application.updatedAt));
-  const isStale = daysSinceUpdate >= 14;
-
-  return { isOverdue, isDueSoon, isStale };
-}
+import { useState } from 'react';
 
 export interface ApplicationCardProps {
   application: Application;
@@ -46,11 +24,6 @@ export function ApplicationCard({
 }: ApplicationCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-
-  const { isOverdue, isDueSoon, isStale } = useMemo(
-    () => getUrgencyIndicators(application),
-    [application]
-  );
 
   const handleClick = () => {
     onCardClick?.(application.id);
@@ -144,34 +117,6 @@ export function ApplicationCard({
             <div className="mt-2 text-xs text-gray-500">
               <span>📎 Has documents</span>
             </div>
-          )}
-
-          {/* Urgency Indicators */}
-          {(isOverdue || isDueSoon || isStale) && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {isOverdue && (
-                <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
-                  Overdue
-                </span>
-              )}
-              {isDueSoon && (
-                <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-                  Due soon
-                </span>
-              )}
-              {isStale && (
-                <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
-                  Stale
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Next Action */}
-          {application.nextAction && (
-            <p className="mt-1 text-xs text-gray-600 truncate">
-              <span className="font-medium">Next:</span> {application.nextAction}
-            </p>
           )}
 
           {/* Relative Time */}

@@ -6,7 +6,6 @@ export interface FilterOptions {
   status?: ApplicationStatus[];
   company?: string[];
   dateRange?: { start: Date; end: Date };
-  activeOnly?: boolean;
 }
 
 export interface FilterPanelProps {
@@ -54,7 +53,6 @@ export function FilterPanel({
     activeFilters.status || []
   );
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>(activeFilters.company || []);
-  const [activeOnly, setActiveOnly] = useState(activeFilters.activeOnly || false);
 
   const debouncedSearch = useDebounce(searchInput, 300);
 
@@ -92,20 +90,10 @@ export function FilterPanel({
     });
   };
 
-  const handleActiveOnlyToggle = () => {
-    const newActiveOnly = !activeOnly;
-    setActiveOnly(newActiveOnly);
-    onFilterChange({
-      ...activeFilters,
-      activeOnly: newActiveOnly || undefined,
-    });
-  };
-
   const handleClearAll = () => {
     setSearchInput('');
     setSelectedStatuses([]);
     setSelectedCompanies([]);
-    setActiveOnly(false);
     onFilterChange({});
   };
 
@@ -128,7 +116,7 @@ export function FilterPanel({
   };
 
   const hasActiveFilters =
-    searchInput || selectedStatuses.length > 0 || selectedCompanies.length > 0 || activeOnly;
+    searchInput || selectedStatuses.length > 0 || selectedCompanies.length > 0;
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
@@ -147,32 +135,6 @@ export function FilterPanel({
           aria-label="Search applications"
         />
       </div>
-
-      {/* Active Only Toggle */}
-      <div className="flex items-center justify-between py-2">
-        <label htmlFor="activeOnly" className="text-sm font-medium text-gray-700">
-          Active Only
-        </label>
-        <button
-          id="activeOnly"
-          role="switch"
-          aria-checked={activeOnly}
-          onClick={handleActiveOnlyToggle}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-            activeOnly ? 'bg-blue-600' : 'bg-gray-200'
-          }`}
-          style={{ minHeight: '44px', minWidth: '44px' }}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              activeOnly ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
-      </div>
-      <p className="text-xs text-gray-500 -mt-2 mb-2">
-        Hide terminal statuses (Offer, Rejected, Withdrawn)
-      </p>
 
       {/* Status Filter - Touch-optimized */}
       <div>

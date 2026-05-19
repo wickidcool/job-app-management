@@ -12,9 +12,9 @@ export function Reports() {
   const reports: ReportCard[] = [
     {
       title: 'Pipeline',
-      description: 'Kanban board with urgency indicators and status tracking',
+      description: 'Enhanced Kanban view with due dates and stale indicators',
       icon: '📊',
-      path: '/applications',
+      path: '/reports/pipeline',
     },
     {
       title: 'Needs Action',

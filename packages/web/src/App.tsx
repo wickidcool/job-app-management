@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { OnboardingProvider } from './contexts/OnboardingContext';
@@ -23,6 +23,7 @@ import { DialogueCapture } from './pages/DialogueCapture';
 import { CatalogPage } from './pages/CatalogPage';
 import { Settings } from './pages/Settings';
 import { Reports } from './pages/Reports';
+import { ReportsPipeline } from './pages/ReportsPipeline';
 import { ReportsNeedsAction } from './pages/ReportsNeedsAction';
 import { ReportsStale } from './pages/ReportsStale';
 import { ReportsClosedLoop } from './pages/ReportsClosedLoop';
@@ -90,10 +91,7 @@ function App() {
                         <Route path="/applications/:id" element={<ApplicationDetail />} />
                         <Route path="/applications/:id/prep" element={<InterviewPrepPage />} />
                         <Route path="/reports" element={<Reports />} />
-                        <Route
-                          path="/reports/pipeline"
-                          element={<Navigate to="/applications" replace />}
-                        />
+                        <Route path="/reports/pipeline" element={<ReportsPipeline />} />
                         <Route path="/reports/needs-action" element={<ReportsNeedsAction />} />
                         <Route path="/reports/stale" element={<ReportsStale />} />
                         <Route path="/reports/closed-loop" element={<ReportsClosedLoop />} />
