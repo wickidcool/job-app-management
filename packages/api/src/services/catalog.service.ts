@@ -666,7 +666,10 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           .onConflictDoNothing();
       } else if (change.action === 'update') {
         const whereClause = userId
-          ? and(eq(companyCatalog.normalizedName, data.normalizedName), eq(companyCatalog.userId, userId))
+          ? and(
+              eq(companyCatalog.normalizedName, data.normalizedName),
+              eq(companyCatalog.userId, userId)
+            )
           : eq(companyCatalog.normalizedName, data.normalizedName);
         await tx
           .update(companyCatalog)

@@ -207,7 +207,10 @@ export const companyCatalog = pgTable(
     version: integer('version').notNull().default(1),
   },
   (t) => ({
-    userNormalizedUniq: uniqueIndex('idx_company_catalog_user_normalized').on(t.userId, t.normalizedName),
+    userNormalizedUniq: uniqueIndex('idx_company_catalog_user_normalized').on(
+      t.userId,
+      t.normalizedName
+    ),
   })
 );
 

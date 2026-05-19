@@ -128,7 +128,9 @@ export async function createProject(
   const existing = await db
     .select()
     .from(projects)
-    .where(userId ? and(eq(projects.slug, slug), eq(projects.userId, userId)) : eq(projects.slug, slug))
+    .where(
+      userId ? and(eq(projects.slug, slug), eq(projects.userId, userId)) : eq(projects.slug, slug)
+    )
     .limit(1);
   if (existing.length > 0) {
     throw new ConflictError('Project with this slug already exists');
