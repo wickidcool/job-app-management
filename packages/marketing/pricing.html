@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing — Careerpin</title>
+    <meta name="description" content="Careerpin pricing: Free tier with unlimited catalog entries, Pro tier with unlimited variants and AI features, or self-host for free forever.">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+    <!-- Simple header -->
+    <header style="padding: 2rem 0; border-bottom: 1px solid var(--color-border);">
+        <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+            <a href="/" style="font-size: 1.25rem; font-weight: 700; color: var(--color-text);">Careerpin</a>
+            <a href="https://app.careerpin.com" class="btn btn-primary">Sign in</a>
+        </div>
+    </header>
+
+    <section style="padding: 4rem 0;">
+        <div class="container">
+            <h1 style="text-align: center; margin-bottom: 1rem;">Pricing that fits the long arc.</h1>
+            <p style="text-align: center; font-size: 1.125rem; color: var(--color-text-muted); max-width: 600px; margin: 0 auto 3rem;">Choose the tier that works for you. Pause Pro anytime. Keep your data forever.</p>
+
+            <div class="pricing-cards" style="max-width: 1000px; margin: 0 auto;">
+                <div class="pricing-card">
+                    <h3>Free</h3>
+                    <div class="price">$0</div>
+                    <ul class="features-list">
+                        <li>Unlimited catalog entries</li>
+                        <li>3 variant generations per month</li>
+                        <li>Full STAR catalog</li>
+                        <li>Application pipeline (kanban)</li>
+                        <li>Hosted on app.careerpin.com</li>
+                        <li>Export data anytime</li>
+                    </ul>
+                    <a href="https://app.careerpin.com" class="btn btn-outline">Start free →</a>
+                </div>
+
+                <div class="pricing-card" style="border-color: var(--color-primary); position: relative;">
+                    <h3>Pro</h3>
+                    <div class="price">$15<span>/month</span></div>
+                    <ul class="features-list">
+                        <li>Everything in Free, plus:</li>
+                        <li>Unlimited resume variants</li>
+                        <li>AI job-fit analysis</li>
+                        <li>Annual review mode</li>
+                        <li>Cover letter generator</li>
+                        <li>Interview prep notes</li>
+                        <li>Advanced search & filtering</li>
+                        <li>Pause subscription anytime</li>
+                        <li>Resume when you're ready</li>
+                    </ul>
+                    <a href="https://app.careerpin.com" class="btn btn-primary">Try Pro free for 14 days →</a>
+                    <p style="margin-top: 1rem; font-size: 0.875rem; color: var(--color-text-muted);">No credit card required for trial</p>
+                </div>
+
+                <div class="pricing-card">
+                    <h3>Self-host</h3>
+                    <div class="price">Free<span>, forever</span></div>
+                    <ul class="features-list">
+                        <li>Run on your own machine</li>
+                        <li>Same product, your infrastructure</li>
+                        <li>PostgreSQL database (local)</li>
+                        <li>AI features available if you connect your own Claude account</li>
+                        <li>For developers and the privacy-first</li>
+                        <li>Docker-based setup</li>
+                        <li>No telemetry, no account required</li>
+                    </ul>
+                    <a href="/self-host" class="btn btn-outline">Get the install guide →</a>
+                </div>
+            </div>
+
+            <div style="max-width: 800px; margin: 3rem auto 0;">
+                <h2 style="font-size: 1.5rem; margin-bottom: 1.5rem;">FAQ</h2>
+
+                <div class="faq-item">
+                    <h3>Can I switch between plans?</h3>
+                    <p>Yes. Upgrade from Free to Pro anytime. Downgrade or pause Pro from your settings — you'll keep access until the end of your billing period.</p>
+                </div>
+
+                <div class="faq-item">
+                    <h3>What does "pause subscription" mean?</h3>
+                    <p>Most job searches last 60–120 days. When you're not actively searching, pause your Pro subscription. Your catalog stays intact. Resume Pro when you need it again — no data loss, no reactivation fee.</p>
+                </div>
+
+                <div class="faq-item">
+                    <h3>Can I export my data?</h3>
+                    <p>Yes, on all tiers. Your catalog exports to JSON and PDF. Resumes export to PDF and DOCX. You can leave Careerpin anytime with your full history.</p>
+                </div>
+
+                <div class="faq-item">
+                    <h3>Is there a team or enterprise plan?</h3>
+                    <p>Not currently. Careerpin is built for individual career management, not team hiring workflows.</p>
+                </div>
+
+                <div class="faq-item">
+                    <h3>What payment methods do you accept?</h3>
+                    <p>Credit card (Visa, Mastercard, Amex) via Stripe. No annual lock-in — month-to-month only.</p>
+                </div>
+
+                <div class="faq-item">
+                    <h3>How does self-hosting work with AI features?</h3>
+                    <p>Self-hosted Careerpin supports AI features if you connect your own Claude API account. You'll need an Anthropic API key, which you can get from console.anthropic.com. Usage is billed directly by Anthropic at their standard rates.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <h4>Product</h4>
+                    <ul>
+                        <li><a href="/#features">Features</a></li>
+                        <li><a href="/pricing">Pricing</a></li>
+                        <li><a href="/self-host">Self-host</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="/privacy">Privacy</a></li>
+                        <li><a href="https://app.careerpin.com">Sign in</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Company</h4>
+                    <ul>
+                        <li><a href="/about">About</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p>© 2026 Careerpin. Made by <a href="https://wickidcool.com">Wickidcool</a>.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
