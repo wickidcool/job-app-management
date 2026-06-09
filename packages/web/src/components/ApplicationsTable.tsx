@@ -5,6 +5,7 @@ import type { Application, ApplicationStatus } from '../types/application';
 interface ApplicationsTableProps {
   applications: Application[];
   onRowClick?: (id: string) => void;
+  loading?: boolean;
 }
 
 type SortColumn = 'company' | 'jobTitle' | 'status' | 'updatedAt' | 'appliedAt';
@@ -27,7 +28,7 @@ function SortIndicator({
   );
 }
 
-export function ApplicationsTable({ applications, onRowClick }: ApplicationsTableProps) {
+export function ApplicationsTable({ applications, onRowClick, loading }: ApplicationsTableProps) {
   const [sortColumn, setSortColumn] = useState<SortColumn>('updatedAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -106,6 +107,67 @@ export function ApplicationsTable({ applications, onRowClick }: ApplicationsTabl
     return labels[status];
   };
 
+  const getAriaSort = (column: SortColumn): 'ascending' | 'descending' | 'none' => {
+    if (sortColumn !== column) return 'none';
+    return sortDirection === 'asc' ? 'ascending' : 'descending';
+  };
+
+  const handleRowKeyDown = (e: React.KeyboardEvent, id: string) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onRowClick?.(id);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="overflow-x-auto bg-white rounded-lg border border-neutral-200">
+        <table className="min-w-full divide-y divide-neutral-200">
+          <thead className="bg-neutral-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase">
+                Company
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase">
+                Role
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase">
+                Status
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase">
+                Last Status Change
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase">
+                Applied Date
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-neutral-200">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <tr key={i}>
+                <td className="px-6 py-4">
+                  <div className="h-4 bg-neutral-200 rounded animate-pulse w-32" />
+                </td>
+                <td className="px-6 py-4">
+                  <div className="h-4 bg-neutral-200 rounded animate-pulse w-40" />
+                </td>
+                <td className="px-6 py-4">
+                  <div className="h-4 bg-neutral-200 rounded animate-pulse w-20" />
+                </td>
+                <td className="px-6 py-4">
+                  <div className="h-4 bg-neutral-200 rounded animate-pulse w-24" />
+                </td>
+                <td className="px-6 py-4">
+                  <div className="h-4 bg-neutral-200 rounded animate-pulse w-20" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   if (applications.length === 0) {
     return (
       <div className="text-center py-12">
@@ -121,6 +183,7 @@ export function ApplicationsTable({ applications, onRowClick }: ApplicationsTabl
           <tr>
             <th
               scope="col"
+              aria-sort={getAriaSort('company')}
               className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
               onClick={() => handleSort('company')}
             >
@@ -133,6 +196,7 @@ export function ApplicationsTable({ applications, onRowClick }: ApplicationsTabl
             </th>
             <th
               scope="col"
+              aria-sort={getAriaSort('jobTitle')}
               className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
               onClick={() => handleSort('jobTitle')}
             >
@@ -145,6 +209,7 @@ export function ApplicationsTable({ applications, onRowClick }: ApplicationsTabl
             </th>
             <th
               scope="col"
+              aria-sort={getAriaSort('status')}
               className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
               onClick={() => handleSort('status')}
             >
@@ -157,6 +222,7 @@ export function ApplicationsTable({ applications, onRowClick }: ApplicationsTabl
             </th>
             <th
               scope="col"
+              aria-sort={getAriaSort('updatedAt')}
               className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
               onClick={() => handleSort('updatedAt')}
             >
@@ -169,6 +235,7 @@ export function ApplicationsTable({ applications, onRowClick }: ApplicationsTabl
             </th>
             <th
               scope="col"
+              aria-sort={getAriaSort('appliedAt')}
               className="px-6 py-3 text-left text-xs font-bold text-neutral-600 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
               onClick={() => handleSort('appliedAt')}
             >
@@ -185,8 +252,11 @@ export function ApplicationsTable({ applications, onRowClick }: ApplicationsTabl
           {sortedApplications.map((app) => (
             <tr
               key={app.id}
-              className="hover:bg-neutral-50 cursor-pointer"
+              className="hover:bg-neutral-50 cursor-pointer focus:bg-neutral-100 focus:outline-none"
               onClick={() => onRowClick?.(app.id)}
+              onKeyDown={(e) => handleRowKeyDown(e, app.id)}
+              tabIndex={0}
+              role="button"
             >
               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-neutral-900">
                 {app.company}

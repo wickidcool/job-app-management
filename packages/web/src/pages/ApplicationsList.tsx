@@ -222,6 +222,7 @@ export function ApplicationsList() {
         <ApplicationsTable
           applications={applications}
           onRowClick={(id) => navigate(`/applications/${id}`)}
+          loading={isLoading}
         />
       )}
 
