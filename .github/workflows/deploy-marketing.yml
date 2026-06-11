@@ -55,6 +55,43 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
+      - name: Set up DNS for careerpin.app
+        run: |
+          # Zone IDs (fixed — registered 2026-06-11)
+          ZONE="ace9c419c6a5129cf7b8d104528a29e1"
+          upsert() {
+            local type="$1" name="$2" content="$3"
+            local existing
+            existing=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=$type&name=$name" \
+              | jq -r '.result[0].id // empty')
+            local payload
+            payload=$(printf '{"type":"%s","name":"%s","content":"%s","proxied":true,"ttl":1}' \
+              "$type" "$name" "$content")
+            if [ -n "$existing" ]; then
+              echo "Updating $type $name..."
+              curl -sf -X PATCH \
+                "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records/$existing" \
+                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+                -d "$payload" | jq -c '{success, errors: [.errors[].message]}'
+            else
+              echo "Creating $type $name..."
+              curl -sf -X POST \
+                "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records" \
+                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+                -d "$payload" | jq -c '{success, errors: [.errors[].message]}'
+            fi
+          }
+          # Apex CNAME → CF Pages (flattened at root)
+          upsert CNAME careerpin.app careerpin-marketing.pages.dev
+          # Remove www from CF Pages custom domains — redirect worker handles www
+          ACCT="${{ steps.cf-account.outputs.account_id }}"
+          curl -sf -X DELETE \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/careerpin-marketing/domains/www.careerpin.app" \
+            -H "Authorization: Bearer $CF_API_TOKEN" | jq -c '{success}' || true
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
