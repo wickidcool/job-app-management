@@ -57,37 +57,47 @@ jobs:
 
       - name: Set up DNS for careerpin.app
         run: |
-          # Zone IDs (fixed — registered 2026-06-11)
+          set -euo pipefail
           ZONE="ace9c419c6a5129cf7b8d104528a29e1"
-          upsert() {
-            local type="$1" name="$2" content="$3"
-            local existing
-            existing=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
-              "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=$type&name=$name" \
-              | jq -r '.result[0].id // empty')
-            local payload
-            payload=$(printf '{"type":"%s","name":"%s","content":"%s","proxied":true,"ttl":1}' \
-              "$type" "$name" "$content")
-            if [ -n "$existing" ]; then
-              echo "Updating $type $name..."
-              curl -sf -X PATCH \
-                "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records/$existing" \
-                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
-                -d "$payload" | jq -c '{success, errors: [.errors[].message]}'
-            else
-              echo "Creating $type $name..."
-              curl -sf -X POST \
-                "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records" \
-                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
-                -d "$payload" | jq -c '{success, errors: [.errors[].message]}'
+          cf_api() {
+            local method="$1" path="$2" data="${3:-}"
+            local args=(-s -X "$method" "https://api.cloudflare.com/client/v4$path"
+              -H "Authorization: Bearer $CF_API_TOKEN")
+            [ -n "$data" ] && args+=(-H "Content-Type: application/json" -d "$data")
+            local resp
+            resp=$(curl "${args[@]}")
+            local ok
+            ok=$(echo "$resp" | jq -r '.success')
+            if [ "$ok" != "true" ]; then
+              echo "::error::CF API $method $path failed: $(echo "$resp" | jq -r '[.errors[]?.message] | join(", ")')"
+              exit 1
             fi
+            echo "$resp"
           }
-          # Apex CNAME → CF Pages (flattened at root)
-          upsert CNAME careerpin.app careerpin-marketing.pages.dev
+          # Delete any A records at careerpin.app apex (conflict with CNAME)
+          A_IDS=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=careerpin.app" \
+            | jq -r '.result[]?.id // empty')
+          for id in $A_IDS; do
+            echo "Removing conflicting A record $id..."
+            cf_api DELETE "/zones/$ZONE/dns_records/$id" > /dev/null
+          done
+          # Create/update CNAME @ → careerpin-marketing.pages.dev (CF flattens at apex)
+          PAYLOAD='{"type":"CNAME","name":"careerpin.app","content":"careerpin-marketing.pages.dev","proxied":true,"ttl":1}'
+          EXISTING_ID=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=CNAME&name=careerpin.app" \
+            | jq -r '.result[0].id // empty')
+          if [ -n "$EXISTING_ID" ]; then
+            echo "Updating CNAME careerpin.app ($EXISTING_ID)..."
+            cf_api PATCH "/zones/$ZONE/dns_records/$EXISTING_ID" "$PAYLOAD" | jq -c '{success}'
+          else
+            echo "Creating CNAME careerpin.app → careerpin-marketing.pages.dev..."
+            cf_api POST "/zones/$ZONE/dns_records" "$PAYLOAD" | jq -c '{success}'
+          fi
           # Remove www from CF Pages custom domains — redirect worker handles www
-          ACCT="${{ steps.cf-account.outputs.account_id }}"
-          curl -sf -X DELETE \
-            "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/careerpin-marketing/domains/www.careerpin.app" \
+          echo "Removing www.careerpin.app from CF Pages (redirect worker handles www)..."
+          curl -s -X DELETE \
+            "https://api.cloudflare.com/client/v4/accounts/${{ steps.cf-account.outputs.account_id }}/pages/projects/careerpin-marketing/domains/www.careerpin.app" \
             -H "Authorization: Bearer $CF_API_TOKEN" | jq -c '{success}' || true
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
