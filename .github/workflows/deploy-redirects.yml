@@ -89,7 +89,7 @@ jobs:
       - name: Deploy redirect worker via CF API
         run: |
           echo "Uploading worker script..."
-          RESULT=$(curl -sf -X PUT \
+          RESULT=$(curl -s -X PUT \
             "https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/scripts/careerpin-redirects" \
             -H "Authorization: Bearer $CF_API_TOKEN" \
             -F 'metadata={"main_module":"worker.js","bindings":[]};type=application/json' \
@@ -104,20 +104,20 @@ jobs:
           upsert_route() {
             local zone="$1" pattern="$2"
             local existing
-            existing=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
+            existing=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
               "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes" \
               | jq -r --arg p "$pattern" '.result[] | select(.pattern == $p) | .id // empty')
             local payload
             payload=$(printf '{"pattern":"%s","script":"careerpin-redirects"}' "$pattern")
             if [ -n "$existing" ]; then
               echo "Updating route $pattern..."
-              curl -sf -X PUT \
+              curl -s -X PUT \
                 "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes/$existing" \
                 -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
                 -d "$payload" | jq -c '{success, errors: [.errors[]?.message]}'
             else
               echo "Creating route $pattern..."
-              curl -sf -X POST \
+              curl -s -X POST \
                 "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes" \
                 -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
                 -d "$payload" | jq -c '{success, errors: [.errors[]?.message]}'
