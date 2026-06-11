@@ -86,10 +86,49 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
-      - name: Deploy redirect worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
-          accountId: ${{ steps.cf-account.outputs.account_id }}
-          workingDirectory: packages/infra/redirect-worker
-          command: deploy
+      - name: Deploy redirect worker via CF API
+        run: |
+          echo "Uploading worker script..."
+          RESULT=$(curl -sf -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/scripts/careerpin-redirects" \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -F 'metadata={"main_module":"worker.js","bindings":[]};type=application/json' \
+            -F 'worker.js=@worker.js;type=application/javascript+module')
+          echo "$RESULT" | jq -c '{success, errors: [.errors[]?.message]}'
+          if [ "$(echo "$RESULT" | jq -r '.success')" != "true" ]; then
+            ERRS=$(echo "$RESULT" | jq -r '[.errors[]?.message] | join(", ")')
+            echo "::error::Worker upload failed: $ERRS"
+            exit 1
+          fi
+
+          upsert_route() {
+            local zone="$1" pattern="$2"
+            local existing
+            existing=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes" \
+              | jq -r --arg p "$pattern" '.result[] | select(.pattern == $p) | .id // empty')
+            local payload
+            payload=$(printf '{"pattern":"%s","script":"careerpin-redirects"}' "$pattern")
+            if [ -n "$existing" ]; then
+              echo "Updating route $pattern..."
+              curl -sf -X PUT \
+                "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes/$existing" \
+                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+                -d "$payload" | jq -c '{success, errors: [.errors[]?.message]}'
+            else
+              echo "Creating route $pattern..."
+              curl -sf -X POST \
+                "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes" \
+                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+                -d "$payload" | jq -c '{success, errors: [.errors[]?.message]}'
+            fi
+          }
+
+          APP_ZONE="ace9c419c6a5129cf7b8d104528a29e1"
+          IO_ZONE="e31283e2f9ddc738087daaf4698fb88c"
+          upsert_route "$APP_ZONE" "www.careerpin.app/*"
+          upsert_route "$IO_ZONE" "careerpin.io/*"
+          upsert_route "$IO_ZONE" "www.careerpin.io/*"
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          ACCT: ${{ steps.cf-account.outputs.account_id }}
