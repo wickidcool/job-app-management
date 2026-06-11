@@ -16,7 +16,7 @@ jobs:
     name: Deploy Marketing to Cloudflare Pages
     runs-on: ubuntu-latest
     # Gates cleared 2026-06-11: domain registered (WIC-506 done), board approved (WIC-522 approval 35db58de).
-    # CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID must be set in GitHub → Settings → Environments → production.
+    # Secret: CLOUDFLARE_CAREERPIN_API (repo-level, set by board 2026-06-11).
     environment: production
     concurrency:
       group: marketing-deploy
@@ -27,21 +27,16 @@ jobs:
 
       - name: Validate required secrets
         run: |
-          missing=""
-          [ -z "$CF_API_TOKEN" ]   && missing="$missing CLOUDFLARE_API_TOKEN"
-          [ -z "$CF_ACCOUNT_ID" ]  && missing="$missing CLOUDFLARE_ACCOUNT_ID"
-          if [ -n "$missing" ]; then
-            echo "::error::Required secrets not configured:$missing"
-            echo "Set these in GitHub → Settings → Secrets and variables → Environment: production."
+          if [ -z "$CF_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_CAREERPIN_API secret not configured."
+            echo "Set it in GitHub → Settings → Secrets and variables → Actions (repo level)."
             exit 1
           fi
         env:
-          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
           command: pages deploy packages/marketing --project-name=careerpin-marketing --commit-dirty=true
