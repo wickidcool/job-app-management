@@ -1,0 +1,47 @@
+name: Deploy Redirect Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/infra/redirect-worker/**'
+      - '.github/workflows/deploy-redirects.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-redirects:
+    name: Deploy careerpin-redirects worker
+    runs-on: ubuntu-latest
+    # Disabled until: (1) CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID are set in GitHub Secrets,
+    # (2) proxied DNS records exist for www.careerpin.app, careerpin.io, www.careerpin.io (see WIC-522 DNS plan),
+    # (3) board has approved deployment.
+    # Remove `if: false` once all three gates are cleared.
+    if: false
+    defaults:
+      run:
+        working-directory: packages/infra/redirect-worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          missing=""
+          [ -z "$CF_API_TOKEN" ]   && missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -z "$CF_ACCOUNT_ID" ]  && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Required secrets not configured:$missing"
+            echo "Set these in GitHub → Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy redirect worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/infra/redirect-worker
+          command: deploy

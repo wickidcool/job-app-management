@@ -5,10 +5,10 @@ compatibility_date = "2026-06-09"
 # Routes: bind this worker to www.careerpin.app, careerpin.io, and www.careerpin.io.
 # All three 301 → https://careerpin.app (apex).
 # careerpin.com is intentionally NOT a route — it is held by a 2018 squatter and is not owned.
-# (Requires the two domains to be active in the same Cloudflare account.)
-# Uncomment and fill after domains are registered (WIC-506):
-# routes = [
-#   { pattern = "www.careerpin.app/*", zone_name = "careerpin.app" },
-#   { pattern = "careerpin.io/*",      zone_name = "careerpin.io"  },
-#   { pattern = "www.careerpin.io/*",  zone_name = "careerpin.io"  },
-# ]
+# Domains registered 2026-06-11 (WIC-506 done). Each hostname needs a proxied DNS record in its
+# Cloudflare zone before this worker route activates (see WIC-522 DNS plan document).
+routes = [
+  { pattern = "www.careerpin.app/*", zone_name = "careerpin.app" },
+  { pattern = "careerpin.io/*",      zone_name = "careerpin.io"  },
+  { pattern = "www.careerpin.io/*",  zone_name = "careerpin.io"  },
+]
