@@ -8,7 +8,7 @@ compatibility_date = "2026-06-09"
 # Domains registered 2026-06-11 (WIC-506 done). Each hostname needs a proxied DNS record in its
 # Cloudflare zone before this worker route activates (see WIC-522 DNS plan document).
 routes = [
-  { pattern = "www.careerpin.app/*", zone_name = "careerpin.app" },
-  { pattern = "careerpin.io/*",      zone_name = "careerpin.io"  },
-  { pattern = "www.careerpin.io/*",  zone_name = "careerpin.io"  },
+  { pattern = "www.careerpin.app/*", zone_id = "ace9c419c6a5129cf7b8d104528a29e1" },
+  { pattern = "careerpin.io/*",      zone_id = "e31283e2f9ddc738087daaf4698fb88c" },
+  { pattern = "www.careerpin.io/*",  zone_id = "e31283e2f9ddc738087daaf4698fb88c" },
 ]
