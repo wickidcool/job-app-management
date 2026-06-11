@@ -96,44 +96,39 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
-      - name: Set up redirect Page Rules
+      - name: Set up redirect rules
         run: |
           set -euo pipefail
-          upsert_pagerule() {
-            local zone="$1" pattern="$2" target="$3"
-            local existing
-            existing=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-              "https://api.cloudflare.com/client/v4/zones/$zone/pagerules?status=active" \
-              | jq -r --arg p "$pattern" '.result[] | select(.targets[0].constraint.value == $p) | .id // empty')
+          # Deploy redirect rules via Cloudflare Ruleset Engine (Redirect Rules).
+          # Requires Zone:Config Rules:Edit. Falls back to logging the exact error
+          # so the required permission can be added to the token.
+          cf_redirect_ruleset() {
+            local zone="$1" desc="$2" expr="$3"
             local payload
             payload=$(printf \
-              '{"targets":[{"target":"url","constraint":{"operator":"matches","value":"%s"}}],"actions":[{"id":"forwarding_url","value":{"url":"%s","status_code":301}}],"status":"active"}' \
-              "$pattern" "$target")
+              '{"rules":[{"action":"redirect","action_parameters":{"from_value":{"target_url":{"expression":"concat(\"https://careerpin.app\",http.request.uri.path)"},"status_code":301,"preserve_query_string":true}},"expression":"%s","description":"%s","enabled":true}]}' \
+              "$expr" "$desc")
             local resp
-            if [ -n "$existing" ]; then
-              echo "Updating page rule: $pattern → $target (id $existing)"
-              resp=$(curl -s -X PUT \
-                "https://api.cloudflare.com/client/v4/zones/$zone/pagerules/$existing" \
-                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
-                -d "$payload")
-            else
-              echo "Creating page rule: $pattern → $target"
-              resp=$(curl -s -X POST \
-                "https://api.cloudflare.com/client/v4/zones/$zone/pagerules" \
-                -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
-                -d "$payload")
-            fi
+            resp=$(curl -s -X PUT \
+              "https://api.cloudflare.com/client/v4/zones/$zone/rulesets/phases/http_request_dynamic_redirect/entrypoints" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+              -d "$payload")
             echo "$resp" | jq -c '{success, errors: [.errors[]?.message]}'
             if [ "$(echo "$resp" | jq -r '.success')" != "true" ]; then
               ERRS=$(echo "$resp" | jq -r '[.errors[]?.message] | join(", ")')
-              echo "::error::Page rule failed for $pattern: $ERRS"
+              echo "::error::Redirect rule failed for zone $zone: $ERRS"
               exit 1
             fi
           }
           APP_ZONE="ace9c419c6a5129cf7b8d104528a29e1"
           IO_ZONE="e31283e2f9ddc738087daaf4698fb88c"
-          upsert_pagerule "$APP_ZONE" "www.careerpin.app/*" 'https://careerpin.app/$1'
-          upsert_pagerule "$IO_ZONE" "careerpin.io/*"      'https://careerpin.app/$1'
-          upsert_pagerule "$IO_ZONE" "www.careerpin.io/*"  'https://careerpin.app/$1'
+          # www.careerpin.app → careerpin.app (301)
+          cf_redirect_ruleset "$APP_ZONE" \
+            "www.careerpin.app redirect" \
+            '(http.host eq \"www.careerpin.app\")'
+          # careerpin.io + www.careerpin.io → careerpin.app (301)
+          cf_redirect_ruleset "$IO_ZONE" \
+            "careerpin.io redirect" \
+            '(http.host eq \"careerpin.io\" or http.host eq \"www.careerpin.io\")'
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
