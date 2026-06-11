@@ -2,11 +2,13 @@ name = "careerpin-redirects"
 main = "worker.js"
 compatibility_date = "2026-06-09"
 
-# Routes: bind this worker to www.careerpin.com, careerpin.app, and careerpin.io
-# (requires those domains to be active in the same Cloudflare account)
-# Uncomment and fill after domains are registered:
+# Routes: bind this worker to www.careerpin.app, careerpin.io, and www.careerpin.io.
+# All three 301 → https://careerpin.app (apex).
+# careerpin.com is intentionally NOT a route — it is held by a 2018 squatter and is not owned.
+# (Requires the two domains to be active in the same Cloudflare account.)
+# Uncomment and fill after domains are registered (WIC-506):
 # routes = [
-#   { pattern = "www.careerpin.com/*", zone_name = "careerpin.com" },
-#   { pattern = "careerpin.app/*",     zone_name = "careerpin.app" },
-#   { pattern = "careerpin.io/*",      zone_name = "careerpin.io" },
+#   { pattern = "www.careerpin.app/*", zone_name = "careerpin.app" },
+#   { pattern = "careerpin.io/*",      zone_name = "careerpin.io"  },
+#   { pattern = "www.careerpin.io/*",  zone_name = "careerpin.io"  },
 # ]

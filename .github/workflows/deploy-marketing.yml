@@ -15,7 +15,7 @@ jobs:
   deploy-marketing:
     name: Deploy Marketing to Cloudflare Pages
     runs-on: ubuntu-latest
-    # Disabled until: (1) careerpin.com domain is registered, (2) CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+    # Disabled until: (1) careerpin.app domain is registered (see WIC-506), (2) CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
     # are configured in GitHub → Settings → Environments → production, (3) board has approved deployment.
     # Remove `if: false` once all three gates are cleared.
     if: false

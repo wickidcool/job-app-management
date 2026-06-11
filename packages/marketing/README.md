@@ -1,6 +1,6 @@
 # Careerpin Marketing Site
 
-Static HTML/CSS/JS marketing site for `careerpin.com`.
+Static HTML/CSS/JS marketing site for `careerpin.app` (apex). See [Domain Decision](/WIC/issues/WIC-502#document-domain-decision) for the URL split (marketing on `careerpin.app`, hosted product on `app.careerpin.app`). `careerpin.com` is held by a 2018 squatter and is not in scope.
 
 ## Structure
 
@@ -84,7 +84,7 @@ export default {
 
 ### Domain Setup
 
-Point `careerpin.com` to the Cloudflare Pages or Worker deployment. See [Domain Decision](/WIC/issues/WIC-502#document-domain-decision) for full DNS plan.
+Point `careerpin.app` (apex) to the Cloudflare Pages or Worker deployment. See [Domain Decision](/WIC/issues/WIC-502#document-domain-decision) for full DNS plan.
 
 ## SEO Meta Tags
 

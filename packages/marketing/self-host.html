@@ -1,83 +1,102 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Self-host Careerpin — Installation Guide</title>
-    <meta name="description" content="Run Careerpin on your own machine. Docker-based setup, your data stays local, no telemetry.">
+    <meta
+      name="description"
+      content="Run Careerpin on your own machine. Docker-based setup, your data stays local, no telemetry."
+    />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
 
-    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/main.css" />
     <style>
-        pre {
-            background: var(--color-bg-dark);
-            color: #e5e7eb;
-            padding: 1.5rem;
-            border-radius: 0.5rem;
-            overflow-x: auto;
-            margin: 1.5rem 0;
-            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-            font-size: 0.875rem;
-            line-height: 1.6;
-        }
+      pre {
+        background: var(--color-bg-dark);
+        color: #e5e7eb;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        overflow-x: auto;
+        margin: 1.5rem 0;
+        font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+        font-size: 0.875rem;
+        line-height: 1.6;
+      }
 
-        code {
-            background: var(--color-bg-alt);
-            padding: 0.2rem 0.4rem;
-            border-radius: 0.25rem;
-            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-            font-size: 0.875rem;
-        }
+      code {
+        background: var(--color-bg-alt);
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.25rem;
+        font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+        font-size: 0.875rem;
+      }
 
-        pre code {
-            background: transparent;
-            padding: 0;
-        }
+      pre code {
+        background: transparent;
+        padding: 0;
+      }
     </style>
-</head>
-<body>
-    <header style="padding: 2rem 0; border-bottom: 1px solid var(--color-border);">
-        <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
-            <a href="/" style="font-size: 1.25rem; font-weight: 700; color: var(--color-text);">Careerpin</a>
-            <a href="https://app.careerpin.com" class="btn btn-primary">Try hosted version</a>
-        </div>
+  </head>
+  <body>
+    <header style="padding: 2rem 0; border-bottom: 1px solid var(--color-border)">
+      <div
+        class="container"
+        style="display: flex; justify-content: space-between; align-items: center"
+      >
+        <a href="/" style="font-size: 1.25rem; font-weight: 700; color: var(--color-text)"
+          >Careerpin</a
+        >
+        <a href="https://app.careerpin.app" class="btn btn-primary">Try hosted version</a>
+      </div>
     </header>
 
-    <article style="padding: 4rem 0;">
-        <div class="container" style="max-width: 800px;">
-            <h1>Self-host Careerpin</h1>
-            <p style="font-size: 1.125rem; color: var(--color-text-muted); margin-bottom: 3rem;">Run Careerpin on your own machine. Your data stays local. No account required.</p>
+    <article style="padding: 4rem 0">
+      <div class="container" style="max-width: 800px">
+        <h1>Self-host Careerpin</h1>
+        <p style="font-size: 1.125rem; color: var(--color-text-muted); margin-bottom: 3rem">
+          Run Careerpin on your own machine. Your data stays local. No account required.
+        </p>
 
-            <h2>What You Get</h2>
-            <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8;">
-                <li>Full Careerpin product (same code as the hosted version)</li>
-                <li>Your data stays on your machine (PostgreSQL database, local file storage)</li>
-                <li>No telemetry, no phone-home, no tracking</li>
-                <li>AI features available if you provide your own Anthropic API key</li>
-                <li>Free forever</li>
-            </ul>
+        <h2>What You Get</h2>
+        <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8">
+          <li>Full Careerpin product (same code as the hosted version)</li>
+          <li>Your data stays on your machine (PostgreSQL database, local file storage)</li>
+          <li>No telemetry, no phone-home, no tracking</li>
+          <li>AI features available if you provide your own Anthropic API key</li>
+          <li>Free forever</li>
+        </ul>
 
-            <h2>Prerequisites</h2>
-            <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8;">
-                <li><strong>Docker</strong> — Install from <a href="https://www.docker.com/get-started">docker.com</a></li>
-                <li><strong>Docker Compose</strong> — Usually included with Docker Desktop</li>
-                <li><strong>Terminal access</strong> — You'll run a few commands</li>
-                <li><strong>(Optional) Anthropic API key</strong> — For AI features. Get one from <a href="https://console.anthropic.com">console.anthropic.com</a></li>
-            </ul>
+        <h2>Prerequisites</h2>
+        <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8">
+          <li>
+            <strong>Docker</strong> — Install from
+            <a href="https://www.docker.com/get-started">docker.com</a>
+          </li>
+          <li><strong>Docker Compose</strong> — Usually included with Docker Desktop</li>
+          <li><strong>Terminal access</strong> — You'll run a few commands</li>
+          <li>
+            <strong>(Optional) Anthropic API key</strong> — For AI features. Get one from
+            <a href="https://console.anthropic.com">console.anthropic.com</a>
+          </li>
+        </ul>
 
-            <h2>Quick Start</h2>
-            <p>Clone the repository and start the services:</p>
+        <h2>Quick Start</h2>
+        <p>Clone the repository and start the services:</p>
 
-            <pre><code>git clone https://github.com/wickidcool/job-app-management.git
+        <pre><code>git clone https://github.com/wickidcool/job-app-management.git
 cd job-app-management
 cp packages/api/.env.example packages/api/.env</code></pre>
 
-            <p>Edit <code>packages/api/.env</code> and set your configuration:</p>
+        <p>Edit <code>packages/api/.env</code> and set your configuration:</p>
 
-            <pre><code># Required
+        <pre><code># Required
 DATABASE_URL=postgresql://careerpin:careerpin@db:5432/careerpin
 
 # Optional: Enable AI features
@@ -87,121 +106,155 @@ ANTHROPIC_API_KEY=your-api-key-here
 PORT=3000
 HOST=0.0.0.0</code></pre>
 
-            <p>Start Careerpin:</p>
+        <p>Start Careerpin:</p>
 
-            <pre><code>docker compose up -d</code></pre>
+        <pre><code>docker compose up -d</code></pre>
 
-            <p>Run database migrations:</p>
+        <p>Run database migrations:</p>
 
-            <pre><code>docker compose exec api npm run db:migrate</code></pre>
+        <pre><code>docker compose exec api npm run db:migrate</code></pre>
 
-            <p>Open your browser to <code>http://localhost:5173</code></p>
+        <p>Open your browser to <code>http://localhost:5173</code></p>
 
-            <h2>Architecture</h2>
-            <p>Self-hosted Careerpin runs three services:</p>
-            <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8;">
-                <li><strong>PostgreSQL database</strong> — Stores your career catalog, applications, artifacts</li>
-                <li><strong>API server</strong> — Node.js/Fastify backend (port 3000)</li>
-                <li><strong>Frontend</strong> — React SPA served by Vite (port 5173)</li>
-            </ul>
+        <h2>Architecture</h2>
+        <p>Self-hosted Careerpin runs three services:</p>
+        <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8">
+          <li>
+            <strong>PostgreSQL database</strong> — Stores your career catalog, applications,
+            artifacts
+          </li>
+          <li><strong>API server</strong> — Node.js/Fastify backend (port 3000)</li>
+          <li><strong>Frontend</strong> — React SPA served by Vite (port 5173)</li>
+        </ul>
 
-            <p>All data is stored locally in Docker volumes. To back up your data, export the PostgreSQL volume or use Careerpin's built-in export feature.</p>
+        <p>
+          All data is stored locally in Docker volumes. To back up your data, export the PostgreSQL
+          volume or use Careerpin's built-in export feature.
+        </p>
 
-            <h2>AI Features</h2>
-            <p>To enable AI-powered features (resume variants, job-fit analysis), you need an Anthropic API key:</p>
+        <h2>AI Features</h2>
+        <p>
+          To enable AI-powered features (resume variants, job-fit analysis), you need an Anthropic
+          API key:
+        </p>
 
-            <ol style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8;">
-                <li>Sign up at <a href="https://console.anthropic.com">console.anthropic.com</a></li>
-                <li>Create an API key</li>
-                <li>Add it to <code>packages/api/.env</code> as <code>ANTHROPIC_API_KEY=...</code></li>
-                <li>Restart the API service: <code>docker compose restart api</code></li>
-            </ol>
+        <ol style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8">
+          <li>Sign up at <a href="https://console.anthropic.com">console.anthropic.com</a></li>
+          <li>Create an API key</li>
+          <li>Add it to <code>packages/api/.env</code> as <code>ANTHROPIC_API_KEY=...</code></li>
+          <li>Restart the API service: <code>docker compose restart api</code></li>
+        </ol>
 
-            <p><strong>Usage costs:</strong> You'll be billed by Anthropic at their standard rates. Careerpin uses the <code>claude-sonnet-4-6</code> model by default. Typical resume generation costs ~$0.02–0.05 per variant.</p>
+        <p>
+          <strong>Usage costs:</strong> You'll be billed by Anthropic at their standard rates.
+          Careerpin uses the <code>claude-sonnet-4-6</code> model by default. Typical resume
+          generation costs ~$0.02–0.05 per variant.
+        </p>
 
-            <h2>Updates</h2>
-            <p>To update your self-hosted instance to the latest version:</p>
+        <h2>Updates</h2>
+        <p>To update your self-hosted instance to the latest version:</p>
 
-            <pre><code>cd job-app-management
+        <pre><code>cd job-app-management
 git pull origin main
 docker compose down
 docker compose build
 docker compose up -d
 docker compose exec api npm run db:migrate</code></pre>
 
-            <h2>Backup & Data Export</h2>
-            <p>Two options:</p>
+        <h2>Backup & Data Export</h2>
+        <p>Two options:</p>
 
-            <p><strong>1. Built-in export (easiest)</strong></p>
-            <p>Use Careerpin's export feature in Settings. Download your catalog as JSON and your resumes as PDF.</p>
+        <p><strong>1. Built-in export (easiest)</strong></p>
+        <p>
+          Use Careerpin's export feature in Settings. Download your catalog as JSON and your resumes
+          as PDF.
+        </p>
 
-            <p><strong>2. Database backup (complete)</strong></p>
-            <pre><code>docker compose exec db pg_dump -U careerpin careerpin > backup.sql</code></pre>
+        <p><strong>2. Database backup (complete)</strong></p>
+        <pre><code>docker compose exec db pg_dump -U careerpin careerpin > backup.sql</code></pre>
 
-            <p>Restore from backup:</p>
-            <pre><code>cat backup.sql | docker compose exec -T db psql -U careerpin careerpin</code></pre>
+        <p>Restore from backup:</p>
+        <pre><code>cat backup.sql | docker compose exec -T db psql -U careerpin careerpin</code></pre>
 
-            <h2>Troubleshooting</h2>
+        <h2>Troubleshooting</h2>
 
-            <div class="faq-item">
-                <h3>Port 5173 is already in use</h3>
-                <p>Another service is using port 5173. Either stop that service or change Careerpin's frontend port in <code>docker-compose.yml</code>.</p>
-            </div>
-
-            <div class="faq-item">
-                <h3>AI features aren't working</h3>
-                <p>Check that <code>ANTHROPIC_API_KEY</code> is set in <code>packages/api/.env</code> and restart: <code>docker compose restart api</code></p>
-            </div>
-
-            <div class="faq-item">
-                <h3>Database migration fails</h3>
-                <p>Ensure the database is running: <code>docker compose ps</code>. If <code>db</code> is unhealthy, check logs: <code>docker compose logs db</code></p>
-            </div>
-
-            <h2>Support</h2>
-            <p>Self-hosted Careerpin is provided as-is, free and open-source. For setup help:</p>
-            <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8;">
-                <li>Check the <a href="https://github.com/wickidcool/job-app-management">GitHub repository</a> README</li>
-                <li>Open an issue on GitHub</li>
-                <li>Email <a href="mailto:support@careerpin.com">support@careerpin.com</a> (community best-effort)</li>
-            </ul>
-
-            <p>For guaranteed response times and priority support, consider the hosted version at <a href="https://app.careerpin.com">app.careerpin.com</a>.</p>
+        <div class="faq-item">
+          <h3>Port 5173 is already in use</h3>
+          <p>
+            Another service is using port 5173. Either stop that service or change Careerpin's
+            frontend port in <code>docker-compose.yml</code>.
+          </p>
         </div>
+
+        <div class="faq-item">
+          <h3>AI features aren't working</h3>
+          <p>
+            Check that <code>ANTHROPIC_API_KEY</code> is set in <code>packages/api/.env</code> and
+            restart: <code>docker compose restart api</code>
+          </p>
+        </div>
+
+        <div class="faq-item">
+          <h3>Database migration fails</h3>
+          <p>
+            Ensure the database is running: <code>docker compose ps</code>. If <code>db</code> is
+            unhealthy, check logs: <code>docker compose logs db</code>
+          </p>
+        </div>
+
+        <h2>Support</h2>
+        <p>Self-hosted Careerpin is provided as-is, free and open-source. For setup help:</p>
+        <ul style="margin-left: 1.5rem; color: var(--color-text-muted); line-height: 1.8">
+          <li>
+            Check the
+            <a href="https://github.com/wickidcool/job-app-management">GitHub repository</a> README
+          </li>
+          <li>Open an issue on GitHub</li>
+          <li>
+            Email <a href="mailto:support@careerpin.app">support@careerpin.app</a> (community
+            best-effort)
+          </li>
+        </ul>
+
+        <p>
+          For guaranteed response times and priority support, consider the hosted version at
+          <a href="https://app.careerpin.app">app.careerpin.app</a>.
+        </p>
+      </div>
     </article>
 
     <footer class="footer">
-        <div class="container">
-            <div class="footer-grid">
-                <div class="footer-col">
-                    <h4>Product</h4>
-                    <ul>
-                        <li><a href="/#features">Features</a></li>
-                        <li><a href="/pricing">Pricing</a></li>
-                        <li><a href="/self-host">Self-host</a></li>
-                    </ul>
-                </div>
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-col">
+            <h4>Product</h4>
+            <ul>
+              <li><a href="/#features">Features</a></li>
+              <li><a href="/pricing">Pricing</a></li>
+              <li><a href="/self-host">Self-host</a></li>
+            </ul>
+          </div>
 
-                <div class="footer-col">
-                    <h4>Resources</h4>
-                    <ul>
-                        <li><a href="/privacy">Privacy</a></li>
-                        <li><a href="https://app.careerpin.com">Sign in</a></li>
-                    </ul>
-                </div>
+          <div class="footer-col">
+            <h4>Resources</h4>
+            <ul>
+              <li><a href="/privacy">Privacy</a></li>
+              <li><a href="https://app.careerpin.app">Sign in</a></li>
+            </ul>
+          </div>
 
-                <div class="footer-col">
-                    <h4>Company</h4>
-                    <ul>
-                        <li><a href="/about">About</a></li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="footer-bottom">
-                <p>© 2026 Careerpin. Made by <a href="https://wickidcool.com">Wickidcool</a>.</p>
-            </div>
+          <div class="footer-col">
+            <h4>Company</h4>
+            <ul>
+              <li><a href="/about">About</a></li>
+            </ul>
+          </div>
         </div>
+
+        <div class="footer-bottom">
+          <p>© 2026 Careerpin. Made by <a href="https://wickidcool.com">Wickidcool</a>.</p>
+        </div>
+      </div>
     </footer>
-</body>
+  </body>
 </html>

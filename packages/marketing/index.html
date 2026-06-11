@@ -1,356 +1,477 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Careerpin — Remember the career you've actually built</title>
-    <meta name="description" content="A structured catalog of your real accomplishments — for every annual review, every raise, every pivot, and every job search. Hosted or self-host. Built by Wickidcool.">
+    <meta
+      name="description"
+      content="A structured catalog of your real accomplishments — for every annual review, every raise, every pivot, and every job search. Hosted or self-host. Built by Wickidcool."
+    />
 
     <!-- Open Graph -->
-    <meta property="og:title" content="Careerpin — Remember the career you've actually built">
-    <meta property="og:description" content="A structured catalog of your real accomplishments — for every annual review, every raise, every pivot, and every job search.">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://careerpin.com">
+    <meta property="og:title" content="Careerpin — Remember the career you've actually built" />
+    <meta
+      property="og:description"
+      content="A structured catalog of your real accomplishments — for every annual review, every raise, every pivot, and every job search."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://careerpin.app" />
 
     <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
 
-    <link rel="stylesheet" href="/css/main.css">
-</head>
-<body>
+    <link rel="stylesheet" href="/css/main.css" />
+  </head>
+  <body>
     <!-- Hero -->
     <section id="hero" class="hero">
-        <div class="container">
-            <div class="hero-content">
-                <h1>Remember the career you've actually built.</h1>
-                <h2>Careerpin keeps a structured catalog of your real accomplishments — so every review, every raise, every pivot, and every job search starts from your work, not a blank page.</h2>
+      <div class="container">
+        <div class="hero-content">
+          <h1>Remember the career you've actually built.</h1>
+          <h2>
+            Careerpin keeps a structured catalog of your real accomplishments — so every review,
+            every raise, every pivot, and every job search starts from your work, not a blank page.
+          </h2>
 
-                <div class="hero-cta">
-                    <a href="https://app.careerpin.com" class="btn btn-primary">Start free</a>
-                    <a href="#how-it-works" class="btn btn-secondary">See how it works ↓</a>
-                </div>
+          <div class="hero-cta">
+            <a href="https://app.careerpin.app" class="btn btn-primary">Start free</a>
+            <a href="#how-it-works" class="btn btn-secondary">See how it works ↓</a>
+          </div>
 
-                <p class="trust-line">Free to start. No credit card. Use it for the long arc, or just the next search.</p>
-            </div>
-
-            <div class="hero-visual">
-                <div class="catalog-preview">
-                    <div class="catalog-sidebar">
-                        <div class="catalog-item active">
-                            <span class="role-title">Senior Engineer @ TechCo</span>
-                            <span class="date">2022 - Present</span>
-                        </div>
-                        <div class="accomplishment">Microservices migration</div>
-                        <div class="accomplishment">Team leadership</div>
-                        <div class="accomplishment">Performance optimization</div>
-                        <div class="catalog-item">
-                            <span class="role-title">Engineer @ StartupCo</span>
-                            <span class="date">2019 - 2022</span>
-                        </div>
-                    </div>
-                    <div class="catalog-detail">
-                        <h3>Microservices migration</h3>
-                        <div class="star-section">
-                            <strong>Situation:</strong> Monolithic architecture causing deployment bottlenecks
-                        </div>
-                        <div class="star-section">
-                            <strong>Task:</strong> Lead migration to microservices architecture
-                        </div>
-                        <div class="star-section">
-                            <strong>Action:</strong> Designed service boundaries, implemented API gateway, coordinated team rollout
-                        </div>
-                        <div class="star-section">
-                            <strong>Result:</strong> Reduced deployment time by 75%, enabled independent team scaling
-                        </div>
-                        <div class="tags">
-                            <span class="tag">Kubernetes</span>
-                            <span class="tag">Architecture</span>
-                            <span class="tag">Leadership</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+          <p class="trust-line">
+            Free to start. No credit card. Use it for the long arc, or just the next search.
+          </p>
         </div>
+
+        <div class="hero-visual">
+          <div class="catalog-preview">
+            <div class="catalog-sidebar">
+              <div class="catalog-item active">
+                <span class="role-title">Senior Engineer @ TechCo</span>
+                <span class="date">2022 - Present</span>
+              </div>
+              <div class="accomplishment">Microservices migration</div>
+              <div class="accomplishment">Team leadership</div>
+              <div class="accomplishment">Performance optimization</div>
+              <div class="catalog-item">
+                <span class="role-title">Engineer @ StartupCo</span>
+                <span class="date">2019 - 2022</span>
+              </div>
+            </div>
+            <div class="catalog-detail">
+              <h3>Microservices migration</h3>
+              <div class="star-section">
+                <strong>Situation:</strong> Monolithic architecture causing deployment bottlenecks
+              </div>
+              <div class="star-section">
+                <strong>Task:</strong> Lead migration to microservices architecture
+              </div>
+              <div class="star-section">
+                <strong>Action:</strong> Designed service boundaries, implemented API gateway,
+                coordinated team rollout
+              </div>
+              <div class="star-section">
+                <strong>Result:</strong> Reduced deployment time by 75%, enabled independent team
+                scaling
+              </div>
+              <div class="tags">
+                <span class="tag">Kubernetes</span>
+                <span class="tag">Architecture</span>
+                <span class="tag">Leadership</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Problem -->
     <section id="problem" class="problem">
-        <div class="container">
-            <p class="section-eyebrow">If you've ever</p>
+      <div class="container">
+        <p class="section-eyebrow">If you've ever</p>
 
-            <div class="problem-grid">
-                <div class="problem-card">
-                    <h3>Started a career doc in 2019 and watched it drift 18 months out of date</h3>
-                    <p>You meant to keep it current. Then a project shipped, then a re-org happened, then it was 2022. Now you're staring at a stale outline trying to reconstruct what you actually did.</p>
-                </div>
+        <div class="problem-grid">
+          <div class="problem-card">
+            <h3>Started a career doc in 2019 and watched it drift 18 months out of date</h3>
+            <p>
+              You meant to keep it current. Then a project shipped, then a re-org happened, then it
+              was 2022. Now you're staring at a stale outline trying to reconstruct what you
+              actually did.
+            </p>
+          </div>
 
-                <div class="problem-card">
-                    <h3>Had your annual review land three weeks out and your accomplishments scattered across Slack</h3>
-                    <p>The wins are real. They live in DMs, demo recordings, a half-finished doc, and a Slack channel that auto-archives at 90 days. The review document gets written from memory at 11pm.</p>
-                </div>
+          <div class="problem-card">
+            <h3>
+              Had your annual review land three weeks out and your accomplishments scattered across
+              Slack
+            </h3>
+            <p>
+              The wins are real. They live in DMs, demo recordings, a half-finished doc, and a Slack
+              channel that auto-archives at 90 days. The review document gets written from memory at
+              11pm.
+            </p>
+          </div>
 
-                <div class="problem-card">
-                    <h3>Edited the same resume eleven times in one Sunday</h3>
-                    <p>Every job description is slightly different. Tailoring matters. Doing it by hand burns out your weekends — and most people stop tailoring by app #20.</p>
-                </div>
-            </div>
-
-            <p class="problem-closing">Careerpin is built for the moments that matter — and the years in between.</p>
+          <div class="problem-card">
+            <h3>Edited the same resume eleven times in one Sunday</h3>
+            <p>
+              Every job description is slightly different. Tailoring matters. Doing it by hand burns
+              out your weekends — and most people stop tailoring by app #20.
+            </p>
+          </div>
         </div>
+
+        <p class="problem-closing">
+          Careerpin is built for the moments that matter — and the years in between.
+        </p>
+      </div>
     </section>
 
     <!-- How It Works -->
     <section id="how-it-works" class="how-it-works">
-        <div class="container">
-            <h2>Three steps. Then it gets out of your way.</h2>
+      <div class="container">
+        <h2>Three steps. Then it gets out of your way.</h2>
 
-            <div class="steps">
-                <div class="step">
-                    <div class="step-number">1</div>
-                    <h3>Capture once</h3>
-                    <p>Upload a resume, or walk through a short interview. Careerpin breaks every role into structured accomplishments — situation, task, action, result — tagged with the tech and the theme. Your career becomes a library you can search.</p>
-                </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <h3>Capture once</h3>
+            <p>
+              Upload a resume, or walk through a short interview. Careerpin breaks every role into
+              structured accomplishments — situation, task, action, result — tagged with the tech
+              and the theme. Your career becomes a library you can search.
+            </p>
+          </div>
 
-                <div class="step">
-                    <div class="step-number">2</div>
-                    <h3>Keep it current</h3>
-                    <p>Add a win when it happens. The catalog grows with your career — not on the night before your next interview. Five minutes a quarter beats five hours at 11pm.</p>
-                </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <h3>Keep it current</h3>
+            <p>
+              Add a win when it happens. The catalog grows with your career — not on the night
+              before your next interview. Five minutes a quarter beats five hours at 11pm.
+            </p>
+          </div>
 
-                <div class="step">
-                    <div class="step-number">3</div>
-                    <h3>Compose for the moment</h3>
-                    <p>Annual review, salary negotiation, role pivot, job application — Careerpin composes the right version from what you've already done. Pick the format. Choose the emphasis. Export a clean PDF. Real bullets. Real story. Five minutes.</p>
-                </div>
-            </div>
-
-            <p class="steps-note">When you do run a search, every application is logged, every status change is timestamped, every artifact lives in one place.</p>
+          <div class="step">
+            <div class="step-number">3</div>
+            <h3>Compose for the moment</h3>
+            <p>
+              Annual review, salary negotiation, role pivot, job application — Careerpin composes
+              the right version from what you've already done. Pick the format. Choose the emphasis.
+              Export a clean PDF. Real bullets. Real story. Five minutes.
+            </p>
+          </div>
         </div>
+
+        <p class="steps-note">
+          When you do run a search, every application is logged, every status change is timestamped,
+          every artifact lives in one place.
+        </p>
+      </div>
     </section>
 
     <!-- Features -->
     <section id="features" class="features">
-        <div class="container">
-            <h2>Built for the long arc, sharp at the moments that matter.</h2>
+      <div class="container">
+        <h2>Built for the long arc, sharp at the moments that matter.</h2>
 
-            <div class="features-grid">
-                <div class="feature">
-                    <h3>STAR Catalog</h3>
-                    <p class="feature-tagline">Your career, structured once.</p>
-                    <p>Every role decomposed into accomplishments. Every accomplishment tagged with the tech, the theme, the impact. Search it. Reuse it. Grow it over the next ten years of your career, not just this search.</p>
-                </div>
+        <div class="features-grid">
+          <div class="feature">
+            <h3>STAR Catalog</h3>
+            <p class="feature-tagline">Your career, structured once.</p>
+            <p>
+              Every role decomposed into accomplishments. Every accomplishment tagged with the tech,
+              the theme, the impact. Search it. Reuse it. Grow it over the next ten years of your
+              career, not just this search.
+            </p>
+          </div>
 
-                <div class="feature">
-                    <h3>Variant Generator</h3>
-                    <p class="feature-tagline">Compose, don't rewrite.</p>
-                    <p>Pull bullets from your catalog. Pick the format — chronological, functional, hybrid. Choose what to emphasize. Careerpin composes a tailored resume from real material you authored. It never invents what it doesn't know.</p>
-                </div>
+          <div class="feature">
+            <h3>Variant Generator</h3>
+            <p class="feature-tagline">Compose, don't rewrite.</p>
+            <p>
+              Pull bullets from your catalog. Pick the format — chronological, functional, hybrid.
+              Choose what to emphasize. Careerpin composes a tailored resume from real material you
+              authored. It never invents what it doesn't know.
+            </p>
+          </div>
 
-                <div class="feature">
-                    <h3>Annual Review Mode</h3>
-                    <p class="feature-tagline">The review document that writes itself when your catalog is in shape.</p>
-                    <p>Pull the last 12 months of accomplishments by tag, by theme, by impact. Export a structured doc you can hand to your manager — or use as the starting point for your own self-assessment.</p>
-                </div>
+          <div class="feature">
+            <h3>Annual Review Mode</h3>
+            <p class="feature-tagline">
+              The review document that writes itself when your catalog is in shape.
+            </p>
+            <p>
+              Pull the last 12 months of accomplishments by tag, by theme, by impact. Export a
+              structured doc you can hand to your manager — or use as the starting point for your
+              own self-assessment.
+            </p>
+          </div>
 
-                <div class="feature">
-                    <h3>Application Pipeline</h3>
-                    <p class="feature-tagline">When the moment comes.</p>
-                    <p>Drag-drop kanban. Saved → applied → phone screen → interview → offer. Every transition timestamped. Filter by company, status, date. Your search has a heartbeat when you need one.</p>
-                </div>
+          <div class="feature">
+            <h3>Application Pipeline</h3>
+            <p class="feature-tagline">When the moment comes.</p>
+            <p>
+              Drag-drop kanban. Saved → applied → phone screen → interview → offer. Every transition
+              timestamped. Filter by company, status, date. Your search has a heartbeat when you
+              need one.
+            </p>
+          </div>
 
-                <div class="feature">
-                    <h3>Cover Letter & Artifact Linking</h3>
-                    <p class="feature-tagline">Every artifact, in its place.</p>
-                    <p>Link cover letters and notes to applications, accomplishments, or roles. See exactly which version went where. No more "which file did I send?" moments at 11pm.</p>
-                </div>
+          <div class="feature">
+            <h3>Cover Letter & Artifact Linking</h3>
+            <p class="feature-tagline">Every artifact, in its place.</p>
+            <p>
+              Link cover letters and notes to applications, accomplishments, or roles. See exactly
+              which version went where. No more "which file did I send?" moments at 11pm.
+            </p>
+          </div>
 
-                <div class="feature">
-                    <h3>Real AI, narrow scope</h3>
-                    <p class="feature-tagline">Powered by Claude. Constrained on purpose.</p>
-                    <p>Careerpin uses AI to match the moment to your real story — never to invent accomplishments you didn't have. The AI is a librarian, not a ghostwriter.</p>
-                </div>
-            </div>
+          <div class="feature">
+            <h3>Real AI, narrow scope</h3>
+            <p class="feature-tagline">Powered by Claude. Constrained on purpose.</p>
+            <p>
+              Careerpin uses AI to match the moment to your real story — never to invent
+              accomplishments you didn't have. The AI is a librarian, not a ghostwriter.
+            </p>
+          </div>
         </div>
+      </div>
     </section>
 
     <!-- Trust -->
     <section id="trust" class="trust">
-        <div class="container">
-            <h2>Your career data is yours for as long as your career lasts.</h2>
+      <div class="container">
+        <h2>Your career data is yours for as long as your career lasts.</h2>
 
-            <div class="trust-content">
-                <p>Use the hosted version at app.careerpin.com for the fast path — your data lives in our encrypted database, never sold, never used to train models.</p>
+        <div class="trust-content">
+          <p>
+            Use the hosted version at app.careerpin.app for the fast path — your data lives in our
+            encrypted database, never sold, never used to train models.
+          </p>
 
-                <p>Or run Careerpin on your own machine. Same product, same features. Your career history, your salary expectations, your rejection reasons, your inner narrative — all stay on your hard drive. No cloud. No telemetry. No account required.</p>
+          <p>
+            Or run Careerpin on your own machine. Same product, same features. Your career history,
+            your salary expectations, your rejection reasons, your inner narrative — all stay on
+            your hard drive. No cloud. No telemetry. No account required.
+          </p>
 
-                <p>Either way, your data exports as plain text and PDFs whenever you want. We're not in the business of holding your story hostage. Decade-long careers shouldn't live in vendor lock-in.</p>
+          <p>
+            Either way, your data exports as plain text and PDFs whenever you want. We're not in the
+            business of holding your story hostage. Decade-long careers shouldn't live in vendor
+            lock-in.
+          </p>
 
-                <div class="trust-links">
-                    <a href="/privacy">Read our privacy approach →</a>
-                    <span>·</span>
-                    <a href="/self-host">Self-host Careerpin →</a>
-                </div>
-            </div>
+          <div class="trust-links">
+            <a href="/privacy">Read our privacy approach →</a>
+            <span>·</span>
+            <a href="/self-host">Self-host Careerpin →</a>
+          </div>
         </div>
+      </div>
     </section>
 
     <!-- Pricing Teaser -->
     <section id="pricing-teaser" class="pricing-teaser">
-        <div class="container">
-            <h2>Pricing that fits the long arc.</h2>
+      <div class="container">
+        <h2>Pricing that fits the long arc.</h2>
 
-            <div class="pricing-cards">
-                <div class="pricing-card">
-                    <h3>Free</h3>
-                    <div class="price">$0</div>
-                    <ul class="features-list">
-                        <li>Unlimited catalog entries</li>
-                        <li>3 variant generations per month</li>
-                        <li>Full STAR catalog</li>
-                        <li>Hosted, on app.careerpin.com</li>
-                    </ul>
-                    <a href="https://app.careerpin.com" class="btn btn-outline">Start free →</a>
-                </div>
+        <div class="pricing-cards">
+          <div class="pricing-card">
+            <h3>Free</h3>
+            <div class="price">$0</div>
+            <ul class="features-list">
+              <li>Unlimited catalog entries</li>
+              <li>3 variant generations per month</li>
+              <li>Full STAR catalog</li>
+              <li>Hosted, on app.careerpin.app</li>
+            </ul>
+            <a href="https://app.careerpin.app" class="btn btn-outline">Start free →</a>
+          </div>
 
-                <div class="pricing-card">
-                    <h3>Pro</h3>
-                    <div class="price">$15<span>/month</span></div>
-                    <ul class="features-list">
-                        <li>Unlimited variants</li>
-                        <li>AI job-fit analysis</li>
-                        <li>Annual review mode</li>
-                        <li>Cover letter linking</li>
-                        <li>Pause when you're not actively searching</li>
-                    </ul>
-                    <a href="https://app.careerpin.com" class="btn btn-primary">Try Pro free for 14 days →</a>
-                </div>
+          <div class="pricing-card">
+            <h3>Pro</h3>
+            <div class="price">$15<span>/month</span></div>
+            <ul class="features-list">
+              <li>Unlimited variants</li>
+              <li>AI job-fit analysis</li>
+              <li>Annual review mode</li>
+              <li>Cover letter linking</li>
+              <li>Pause when you're not actively searching</li>
+            </ul>
+            <a href="https://app.careerpin.app" class="btn btn-primary"
+              >Try Pro free for 14 days →</a
+            >
+          </div>
 
-                <div class="pricing-card">
-                    <h3>Self-host</h3>
-                    <div class="price">Free<span>, forever</span></div>
-                    <ul class="features-list">
-                        <li>Run on your own machine</li>
-                        <li>Same product, your infrastructure</li>
-                        <li>AI features available if you connect your own Claude account</li>
-                        <li>For developers and the privacy-first</li>
-                    </ul>
-                    <a href="/self-host" class="btn btn-outline">Get the install guide →</a>
-                </div>
-            </div>
-
-            <p class="pricing-note">Careerpin Pro is built for the long arc — but most active job searches last 60–120 days. Pause anytime, resume when you need it. No annual lock-in.</p>
+          <div class="pricing-card">
+            <h3>Self-host</h3>
+            <div class="price">Free<span>, forever</span></div>
+            <ul class="features-list">
+              <li>Run on your own machine</li>
+              <li>Same product, your infrastructure</li>
+              <li>AI features available if you connect your own Claude account</li>
+              <li>For developers and the privacy-first</li>
+            </ul>
+            <a href="/self-host" class="btn btn-outline">Get the install guide →</a>
+          </div>
         </div>
+
+        <p class="pricing-note">
+          Careerpin Pro is built for the long arc — but most active job searches last 60–120 days.
+          Pause anytime, resume when you need it. No annual lock-in.
+        </p>
+      </div>
     </section>
 
     <!-- Built For -->
     <section id="built-for" class="built-for">
-        <div class="container">
-            <h2>Built for careers that matter.</h2>
+      <div class="container">
+        <h2>Built for careers that matter.</h2>
 
-            <div class="audience-grid">
-                <div class="audience-card">
-                    <h3>For mid-career engineers</h3>
-                    <p>You've done five roles in twelve years. You have stories. Careerpin makes them findable, reusable, and tailorable — for the next review, the next raise, the next search.</p>
-                </div>
+        <div class="audience-grid">
+          <div class="audience-card">
+            <h3>For mid-career engineers</h3>
+            <p>
+              You've done five roles in twelve years. You have stories. Careerpin makes them
+              findable, reusable, and tailorable — for the next review, the next raise, the next
+              search.
+            </p>
+          </div>
 
-                <div class="audience-card">
-                    <h3>For people running an annual review</h3>
-                    <p>Pull the last twelve months by theme. Export a clean doc. Walk in with your work on paper instead of in your head.</p>
-                </div>
+          <div class="audience-card">
+            <h3>For people running an annual review</h3>
+            <p>
+              Pull the last twelve months by theme. Export a clean doc. Walk in with your work on
+              paper instead of in your head.
+            </p>
+          </div>
 
-                <div class="audience-card">
-                    <h3>For people running a serious search</h3>
-                    <p>Pipeline, status history, dashboard, prep notes. Every application logged. Every artifact in one place. Built for searches that matter.</p>
-                </div>
-            </div>
+          <div class="audience-card">
+            <h3>For people running a serious search</h3>
+            <p>
+              Pipeline, status history, dashboard, prep notes. Every application logged. Every
+              artifact in one place. Built for searches that matter.
+            </p>
+          </div>
         </div>
+      </div>
     </section>
 
     <!-- FAQ -->
     <section id="faq" class="faq">
-        <div class="container">
-            <h2>Questions people actually ask.</h2>
+      <div class="container">
+        <h2>Questions people actually ask.</h2>
 
-            <div class="faq-list">
-                <div class="faq-item">
-                    <h3>Why isn't this just a fancier LinkedIn?</h3>
-                    <p>LinkedIn is a profile you put on display. Careerpin is the catalog underneath — the structured record of what you actually did, with the tech, the theme, the impact, the artifacts. It composes the right LinkedIn entries, resumes, review docs, and cover letters from your real material. LinkedIn is the marketing layer; Careerpin is the source of truth.</p>
-                </div>
+        <div class="faq-list">
+          <div class="faq-item">
+            <h3>Why isn't this just a fancier LinkedIn?</h3>
+            <p>
+              LinkedIn is a profile you put on display. Careerpin is the catalog underneath — the
+              structured record of what you actually did, with the tech, the theme, the impact, the
+              artifacts. It composes the right LinkedIn entries, resumes, review docs, and cover
+              letters from your real material. LinkedIn is the marketing layer; Careerpin is the
+              source of truth.
+            </p>
+          </div>
 
-                <div class="faq-item">
-                    <h3>Will AI hallucinate things on my resume?</h3>
-                    <p>No. Careerpin is built around a "no content invention" rule. The AI helps you match the moment to material you authored — it never generates accomplishments. Every bullet on your tailored resume came from your own catalog.</p>
-                </div>
+          <div class="faq-item">
+            <h3>Will AI hallucinate things on my resume?</h3>
+            <p>
+              No. Careerpin is built around a "no content invention" rule. The AI helps you match
+              the moment to material you authored — it never generates accomplishments. Every bullet
+              on your tailored resume came from your own catalog.
+            </p>
+          </div>
 
-                <div class="faq-item">
-                    <h3>Is this another AI resume builder?</h3>
-                    <p>No, it's the opposite. AI resume builders rewrite your resume from a job description and trust you not to notice when they make things up. Careerpin holds the structured record of what you actually did, and composes the right version of that record for the moment. The AI is constrained on purpose.</p>
-                </div>
+          <div class="faq-item">
+            <h3>Is this another AI resume builder?</h3>
+            <p>
+              No, it's the opposite. AI resume builders rewrite your resume from a job description
+              and trust you not to notice when they make things up. Careerpin holds the structured
+              record of what you actually did, and composes the right version of that record for the
+              moment. The AI is constrained on purpose.
+            </p>
+          </div>
 
-                <div class="faq-item">
-                    <h3>Where is my data stored?</h3>
-                    <p>On hosted Careerpin (app.careerpin.com), your data lives in our encrypted database. We don't sell it, share it, or use it to train models. On self-hosted Careerpin, your data lives on your own machine. Either way, export and delete are one click.</p>
-                </div>
+          <div class="faq-item">
+            <h3>Where is my data stored?</h3>
+            <p>
+              On hosted Careerpin (app.careerpin.app), your data lives in our encrypted database. We
+              don't sell it, share it, or use it to train models. On self-hosted Careerpin, your
+              data lives on your own machine. Either way, export and delete are one click.
+            </p>
+          </div>
 
-                <div class="faq-item">
-                    <h3>Do I need to be technical to use it?</h3>
-                    <p>No, if you use the hosted version at app.careerpin.com — sign up and go. Yes-ish, if you self-host — you'll need Docker and a terminal. Most people pick hosted.</p>
-                </div>
+          <div class="faq-item">
+            <h3>Do I need to be technical to use it?</h3>
+            <p>
+              No, if you use the hosted version at app.careerpin.app — sign up and go. Yes-ish, if
+              you self-host — you'll need Docker and a terminal. Most people pick hosted.
+            </p>
+          </div>
 
-                <div class="faq-item">
-                    <h3>Can I cancel?</h3>
-                    <p>Anytime, from your settings. You keep your data. You can come back later when you're searching again — your catalog will be waiting.</p>
-                </div>
-            </div>
+          <div class="faq-item">
+            <h3>Can I cancel?</h3>
+            <p>
+              Anytime, from your settings. You keep your data. You can come back later when you're
+              searching again — your catalog will be waiting.
+            </p>
+          </div>
         </div>
+      </div>
     </section>
 
     <!-- Closing CTA -->
     <section id="cta" class="closing-cta">
-        <div class="container">
-            <h2>Your career is a forty-year project.</h2>
-            <p>Treat it like one.</p>
-            <a href="https://app.careerpin.com" class="btn btn-primary btn-large">Start free</a>
-        </div>
+      <div class="container">
+        <h2>Your career is a forty-year project.</h2>
+        <p>Treat it like one.</p>
+        <a href="https://app.careerpin.app" class="btn btn-primary btn-large">Start free</a>
+      </div>
     </section>
 
     <!-- Footer -->
     <footer class="footer">
-        <div class="container">
-            <div class="footer-grid">
-                <div class="footer-col">
-                    <h4>Product</h4>
-                    <ul>
-                        <li><a href="#features">Features</a></li>
-                        <li><a href="/pricing">Pricing</a></li>
-                        <li><a href="/self-host">Self-host</a></li>
-                    </ul>
-                </div>
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-col">
+            <h4>Product</h4>
+            <ul>
+              <li><a href="#features">Features</a></li>
+              <li><a href="/pricing">Pricing</a></li>
+              <li><a href="/self-host">Self-host</a></li>
+            </ul>
+          </div>
 
-                <div class="footer-col">
-                    <h4>Resources</h4>
-                    <ul>
-                        <li><a href="/privacy">Privacy</a></li>
-                        <li><a href="https://app.careerpin.com">Sign in</a></li>
-                    </ul>
-                </div>
+          <div class="footer-col">
+            <h4>Resources</h4>
+            <ul>
+              <li><a href="/privacy">Privacy</a></li>
+              <li><a href="https://app.careerpin.app">Sign in</a></li>
+            </ul>
+          </div>
 
-                <div class="footer-col">
-                    <h4>Company</h4>
-                    <ul>
-                        <li><a href="/about">About</a></li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="footer-bottom">
-                <p>© 2026 Careerpin. Made by <a href="https://wickidcool.com">Wickidcool</a>.</p>
-            </div>
+          <div class="footer-col">
+            <h4>Company</h4>
+            <ul>
+              <li><a href="/about">About</a></li>
+            </ul>
+          </div>
         </div>
+
+        <div class="footer-bottom">
+          <p>© 2026 Careerpin. Made by <a href="https://wickidcool.com">Wickidcool</a>.</p>
+        </div>
+      </div>
     </footer>
 
     <script src="/js/main.js"></script>
-</body>
+  </body>
 </html>
