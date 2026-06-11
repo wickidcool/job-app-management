@@ -12,11 +12,8 @@ jobs:
   deploy-redirects:
     name: Deploy careerpin-redirects worker
     runs-on: ubuntu-latest
-    # Disabled until: (1) CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID are set in GitHub Secrets,
-    # (2) proxied DNS records exist for www.careerpin.app, careerpin.io, www.careerpin.io (see WIC-522 DNS plan),
-    # (3) board has approved deployment.
-    # Remove `if: false` once all three gates are cleared.
-    if: false
+    # Gates cleared 2026-06-11: DNS records live, board approved (WIC-522 approval 35db58de).
+    # CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID must be set in GitHub → Settings → Secrets → Actions.
     defaults:
       run:
         working-directory: packages/infra/redirect-worker
