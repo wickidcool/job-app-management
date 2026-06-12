@@ -55,10 +55,12 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
-      - name: Set up DNS for careerpin.app
+      - name: Set up DNS for all careerpin domains
         run: |
           set -euo pipefail
-          ZONE="ace9c419c6a5129cf7b8d104528a29e1"
+          APP_ZONE="ace9c419c6a5129cf7b8d104528a29e1"
+          IO_ZONE="e31283e2f9ddc738087daaf4698fb88c"
+
           cf_api() {
             local method="$1" path="$2" data="${3:-}"
             local args=(-s -X "$method" "https://api.cloudflare.com/client/v4$path"
@@ -74,31 +76,39 @@ jobs:
             fi
             echo "$resp"
           }
-          # Delete any A records at careerpin.app apex (conflict with CNAME)
-          A_IDS=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=careerpin.app" \
-            | jq -r '.result[]?.id // empty')
-          for id in $A_IDS; do
-            echo "Removing conflicting A record $id..."
-            cf_api DELETE "/zones/$ZONE/dns_records/$id" > /dev/null
-          done
-          # Create/update CNAME @ → careerpin-marketing.pages.dev (CF flattens at apex)
-          PAYLOAD='{"type":"CNAME","name":"careerpin.app","content":"careerpin-marketing.pages.dev","proxied":true,"ttl":1}'
-          EXISTING_ID=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=CNAME&name=careerpin.app" \
-            | jq -r '.result[0].id // empty')
-          if [ -n "$EXISTING_ID" ]; then
-            echo "Updating CNAME careerpin.app ($EXISTING_ID)..."
-            cf_api PATCH "/zones/$ZONE/dns_records/$EXISTING_ID" "$PAYLOAD" | jq -c '{success}'
-          else
-            echo "Creating CNAME careerpin.app → careerpin-marketing.pages.dev..."
-            cf_api POST "/zones/$ZONE/dns_records" "$PAYLOAD" | jq -c '{success}'
-          fi
-          # Remove www from CF Pages custom domains — redirect worker handles www
-          echo "Removing www.careerpin.app from CF Pages (redirect worker handles www)..."
-          curl -s -X DELETE \
-            "https://api.cloudflare.com/client/v4/accounts/${{ steps.cf-account.outputs.account_id }}/pages/projects/careerpin-marketing/domains/www.careerpin.app" \
-            -H "Authorization: Bearer $CF_API_TOKEN" | jq -c '{success}' || true
+
+          cname_upsert() {
+            local zone="$1" name="$2" content="$3"
+            # Remove conflicting A records
+            local a_ids
+            a_ids=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/zones/$zone/dns_records?type=A&name=$name" \
+              | jq -r '.result[]?.id // empty')
+            for id in $a_ids; do
+              echo "Removing A record $id at $name..."
+              cf_api DELETE "/zones/$zone/dns_records/$id" > /dev/null
+            done
+            local payload
+            payload=$(printf '{"type":"CNAME","name":"%s","content":"%s","proxied":true,"ttl":1}' "$name" "$content")
+            local existing_id
+            existing_id=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/zones/$zone/dns_records?type=CNAME&name=$name" \
+              | jq -r '.result[0].id // empty')
+            if [ -n "$existing_id" ]; then
+              echo "Updating CNAME $name ($existing_id)..."
+              cf_api PATCH "/zones/$zone/dns_records/$existing_id" "$payload" | jq -c '{success}'
+            else
+              echo "Creating CNAME $name → $content..."
+              cf_api POST "/zones/$zone/dns_records" "$payload" | jq -c '{success}'
+            fi
+          }
+
+          # careerpin.app apex → marketing site
+          cname_upsert "$APP_ZONE" "careerpin.app" "careerpin-marketing.pages.dev"
+          # Redirect surfaces → same marketing project (handled via _redirects in the site)
+          cname_upsert "$APP_ZONE" "www.careerpin.app" "careerpin-marketing.pages.dev"
+          cname_upsert "$IO_ZONE" "careerpin.io" "careerpin-marketing.pages.dev"
+          cname_upsert "$IO_ZONE" "www.careerpin.io" "careerpin-marketing.pages.dev"
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
@@ -139,3 +149,32 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.cf-account.outputs.account_id }}
+
+      - name: Add redirect custom domains to Pages project
+        run: |
+          set -euo pipefail
+          add_domain() {
+            local domain="$1"
+            echo "Adding custom domain: $domain"
+            resp=$(curl -s -X POST \
+              "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/careerpin-marketing/domains" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"name\":\"$domain\"}")
+            if [ "$(echo "$resp" | jq -r '.success')" = "true" ]; then
+              echo "$domain: added ok"
+            else
+              local msg
+              msg=$(echo "$resp" | jq -r '[.errors[]?.message] | join(", ")')
+              if echo "$msg" | grep -qi "already\|exists"; then
+                echo "$domain: already configured (ok)"
+              else
+                echo "::warning::Custom domain $domain: $msg"
+              fi
+            fi
+          }
+          add_domain "www.careerpin.app"
+          add_domain "careerpin.io"
+          add_domain "www.careerpin.io"
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          ACCT: ${{ steps.cf-account.outputs.account_id }}
