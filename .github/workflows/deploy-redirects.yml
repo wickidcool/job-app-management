@@ -1,3 +1,4 @@
+# Trigger: re-run after token permissions update (WIC-522)
 name: Deploy Redirect Worker
 
 on:
