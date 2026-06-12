@@ -1,4 +1,5 @@
 name: Deploy Redirect Worker
+# Triggered after token update 2026-06-12 (WIC-522)
 
 on:
   push:
