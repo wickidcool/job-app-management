@@ -1,5 +1,4 @@
 name: Deploy Redirect Worker
-# Triggered after token update 2026-06-12 (WIC-522)
 
 on:
   push:
@@ -97,50 +96,10 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
-      - name: Set up redirect rules via Bulk Redirects
-        run: |
-          set -euo pipefail
-          # Bulk Redirects is account-level (Account:Bulk URL Redirects:Edit),
-          # separate permission from Workers/Page Rules/Ruleset Engine.
-          LIST_RESP=$(curl -s -X POST \
-            "https://api.cloudflare.com/client/v4/accounts/$ACCT/rules/lists" \
-            -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
-            -d '{"name":"careerpin-redirects","kind":"redirect","description":"www/io → careerpin.app"}')
-          echo "$LIST_RESP" | jq -c '{success, errors: [.errors[]?.message]}'
-          if [ "$(echo "$LIST_RESP" | jq -r '.success')" != "true" ]; then
-            ERRS=$(echo "$LIST_RESP" | jq -r '[.errors[]?.message] | join(", ")')
-            echo "::error::Bulk redirect list creation failed: $ERRS"
-            exit 1
-          fi
-          LIST_ID=$(echo "$LIST_RESP" | jq -r '.result.id')
-          echo "Created list: $LIST_ID"
-
-          ITEMS_RESP=$(curl -s -X POST \
-            "https://api.cloudflare.com/client/v4/accounts/$ACCT/rules/lists/$LIST_ID/items" \
-            -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
-            -d '[
-              {"redirect":{"source_url":"www.careerpin.app/","target_url":"https://careerpin.app/","status_code":301,"include_subpaths":true,"preserve_path_suffix":true,"preserve_query_string":true}},
-              {"redirect":{"source_url":"careerpin.io/","target_url":"https://careerpin.app/","status_code":301,"include_subpaths":true,"preserve_path_suffix":true,"preserve_query_string":true}},
-              {"redirect":{"source_url":"www.careerpin.io/","target_url":"https://careerpin.app/","status_code":301,"include_subpaths":true,"preserve_path_suffix":true,"preserve_query_string":true}}
-            ]')
-          echo "$ITEMS_RESP" | jq -c '{success, errors: [.errors[]?.message]}'
-          if [ "$(echo "$ITEMS_RESP" | jq -r '.success')" != "true" ]; then
-            ERRS=$(echo "$ITEMS_RESP" | jq -r '[.errors[]?.message] | join(", ")')
-            echo "::error::Bulk redirect items failed: $ERRS"
-            exit 1
-          fi
-
-          RULE_RESP=$(curl -s -X POST \
-            "https://api.cloudflare.com/client/v4/accounts/$ACCT/bulk_redirects/rules" \
-            -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
-            -d "{\"name\":\"careerpin-redirects\",\"enabled\":true,\"action_parameters\":{\"from_list\":{\"name\":\"careerpin-redirects\",\"key\":\"http.request.full_uri\"}}}")
-          echo "$RULE_RESP" | jq -c '{success, errors: [.errors[]?.message]}'
-          if [ "$(echo "$RULE_RESP" | jq -r '.success')" != "true" ]; then
-            ERRS=$(echo "$RULE_RESP" | jq -r '[.errors[]?.message] | join(", ")')
-            echo "::error::Bulk redirect rule creation failed: $ERRS"
-            exit 1
-          fi
-          echo "Bulk redirects configured successfully."
-        env:
-          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
-          ACCT: ${{ steps.cf-account.outputs.account_id }}
+      - name: Deploy redirect worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          accountId: ${{ steps.cf-account.outputs.account_id }}
+          workingDirectory: packages/infra/redirect-worker
+          command: deploy
