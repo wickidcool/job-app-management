@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { differenceInDays, parseISO, startOfDay } from 'date-fns';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
+import { ApplicationsTable } from '../components/ApplicationsTable';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
@@ -10,6 +11,9 @@ import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplica
 import type { Application, ApplicationStatus } from '../types/application';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
+
+type ViewMode = 'kanban' | 'table';
+const VIEW_MODE_STORAGE_KEY = 'applications-view-mode';
 
 function calculatePipelineStats(applications: Application[]) {
   const today = startOfDay(new Date());
@@ -40,6 +44,17 @@ export function ApplicationsList() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<FilterOptions>({});
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+
+  // Load view mode from localStorage or default to kanban
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    return stored === 'table' || stored === 'kanban' ? stored : 'kanban';
+  });
+
+  // Persist view mode to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+  }, [viewMode]);
 
   // Convert FilterOptions to API filter format
   const apiFilters = useMemo(
@@ -111,6 +126,32 @@ export function ApplicationsList() {
 
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
+
+        {/* View mode toggle */}
+        <div className="flex items-center gap-2 bg-white border border-neutral-300 rounded-md p-1">
+          <button
+            onClick={() => setViewMode('kanban')}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+              viewMode === 'kanban'
+                ? 'bg-blue-600 text-white'
+                : 'text-neutral-700 hover:bg-neutral-100'
+            }`}
+            aria-pressed={viewMode === 'kanban'}
+          >
+            Kanban
+          </button>
+          <button
+            onClick={() => setViewMode('table')}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+              viewMode === 'table'
+                ? 'bg-blue-600 text-white'
+                : 'text-neutral-700 hover:bg-neutral-100'
+            }`}
+            aria-pressed={viewMode === 'table'}
+          >
+            Table
+          </button>
+        </div>
       </div>
 
       {/* Pipeline Stats Summary */}
@@ -169,13 +210,21 @@ export function ApplicationsList() {
         )}
       </div>
 
-      <KanbanBoard
-        applications={applications}
-        onStatusChange={handleStatusChange}
-        onCardClick={(id) => navigate(`/applications/${id}`)}
-        onEdit={(id) => navigate(`/applications/${id}`)}
-        loading={isLoading}
-      />
+      {viewMode === 'kanban' ? (
+        <KanbanBoard
+          applications={applications}
+          onStatusChange={handleStatusChange}
+          onCardClick={(id) => navigate(`/applications/${id}`)}
+          onEdit={(id) => navigate(`/applications/${id}`)}
+          loading={isLoading}
+        />
+      ) : (
+        <ApplicationsTable
+          applications={applications}
+          onRowClick={(id) => navigate(`/applications/${id}`)}
+          loading={isLoading}
+        />
+      )}
 
       <FloatingActionButton
         onClick={() => navigate('/applications/new')}
