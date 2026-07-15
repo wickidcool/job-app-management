@@ -227,9 +227,17 @@ jobs:
       - name: Run database migrations
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
         run: |
-          # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
-          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          # If SUPABASE_DATABASE_URL was misconfigured as the Supabase HTTP API URL (https://),
+          # reconstruct a direct PostgreSQL connection URL from the project ref + password.
+          if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
+            PROJECT_REF=$(echo "$SUPABASE_DATABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+            DATABASE_URL="postgresql://postgres:${SUPABASE_DATABASE_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres"
+          else
+            # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
+            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          fi
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
 
@@ -241,11 +249,19 @@ jobs:
 
       - name: Prepare DATABASE_URL (transaction pooler port 6543)
         run: |
-          # Workers must use transaction pooler (port 6543); SUPABASE_DATABASE_URL uses session pooler (5432)
-          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          # If SUPABASE_DATABASE_URL was misconfigured as the Supabase HTTP API URL (https://),
+          # reconstruct a direct PostgreSQL connection URL from the project ref + password.
+          if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
+            PROJECT_REF=$(echo "$SUPABASE_DATABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+            DATABASE_URL="postgresql://postgres:${SUPABASE_DATABASE_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres"
+          else
+            # Workers must use transaction pooler (port 6543); SUPABASE_DATABASE_URL uses session pooler (5432)
+            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          fi
           echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
 
       - name: Ensure production R2 bucket exists
         run: npx wrangler r2 bucket create jobtrail-documents || true
