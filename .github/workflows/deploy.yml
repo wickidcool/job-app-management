@@ -185,7 +185,7 @@ jobs:
   deploy-production:
     name: Deploy Production
     needs: [lint-and-test, e2e-tests]
-    if: false  # Disabled — production secrets not yet configured (re-enable when Cloudflare + Supabase prod are provisioned)
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -211,8 +211,7 @@ jobs:
           [ -z "$SUPABASE_ANON_KEY" ]    && missing="$missing SUPABASE_ANON_KEY"
           [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
           [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
-          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_API_TOKEN"
-          [ -z "$CF_ACCOUNT_ID" ]        && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_CAREERPIN_API(repo-secret)"
           if [ -n "$missing" ]; then
             echo "::error::Required secrets/vars not configured:$missing"
             echo "Set these in GitHub → Settings → Secrets and variables (repo or 'production' environment)."
@@ -223,8 +222,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
       - name: Run database migrations
         env:
@@ -241,17 +239,23 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
+      - name: Prepare DATABASE_URL (transaction pooler port 6543)
+        run: |
+          # Workers must use transaction pooler (port 6543); SUPABASE_DATABASE_URL uses session pooler (5432)
+          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
       - name: Ensure production R2 bucket exists
         run: npx wrangler r2 bucket create jobtrail-documents || true
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
 
       - name: Deploy to Cloudflare Workers (Production)
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
           command: deploy
           secrets: |
             ANTHROPIC_API_KEY
@@ -260,9 +264,9 @@ jobs:
             SUPABASE_JWT_SECRET
             DATABASE_URL
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          # DATABASE_URL set to port-6543 transaction pooler URL by the preceding step
