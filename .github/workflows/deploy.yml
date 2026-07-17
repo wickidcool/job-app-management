@@ -240,9 +240,13 @@ jobs:
             PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
             REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
             DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@aws-0-${REGION}.pooler.supabase.com:6543/postgres"
-          else
-            # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
+          elif [[ "$SUPABASE_DATABASE_URL" == *"pooler.supabase.com:5432"* ]]; then
+            # Session pooler URL — upgrade to transaction pooler (session pooler rejects GitHub Actions auth)
             DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            # Direct DB URL (db.PROJECT.supabase.co:5432) or transaction pooler URL — use as-is.
+            # GitHub Actions runners have IPv6, so the direct DB is reachable even though it has no A record.
+            DATABASE_URL="$SUPABASE_DATABASE_URL"
           fi
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
@@ -263,9 +267,13 @@ jobs:
             PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
             REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
             DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@aws-0-${REGION}.pooler.supabase.com:6543/postgres"
-          else
-            # Workers must use transaction pooler (port 6543); SUPABASE_DATABASE_URL uses session pooler (5432)
+          elif [[ "$SUPABASE_DATABASE_URL" == *"pooler.supabase.com:5432"* ]]; then
+            # Session pooler URL — upgrade to transaction pooler (Workers need short-lived tx connections)
             DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            # Direct DB URL or transaction pooler URL — use as-is.
+            # Direct DB (db.PROJECT.supabase.co:5432) works from Cloudflare Workers via IPv6.
+            DATABASE_URL="$SUPABASE_DATABASE_URL"
           fi
           echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
         env:
