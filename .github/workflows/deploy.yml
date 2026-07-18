@@ -230,16 +230,13 @@ jobs:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
           SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
         run: |
-          # Permanent fix: set SUPABASE_DATABASE_URL to the full PostgreSQL transaction-pooler URL
-          # from Supabase dashboard → Settings → Database → Connection string → Transaction pooler.
-          # SUPABASE_DATABASE_URL is still the https:// REST URL, so reconstruct from known parts.
-          # Use SUPABASE_POOLER_REGION variable (default: us-east-1) to set the correct region.
-          # Find the correct region in Supabase dashboard → Settings → Database → Connection string.
           if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
             PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
             REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
-            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@aws-0-${REGION}.pooler.supabase.com:6543/postgres"
+            PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
           else
             # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
             DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
@@ -255,14 +252,11 @@ jobs:
 
       - name: Prepare DATABASE_URL (transaction pooler port 6543)
         run: |
-          # Permanent fix: set SUPABASE_DATABASE_URL to the full PostgreSQL transaction-pooler URL
-          # from Supabase dashboard → Settings → Database → Connection string → Transaction pooler.
-          # SUPABASE_DATABASE_URL is still the https:// REST URL, so reconstruct from known parts.
-          # Use SUPABASE_POOLER_REGION variable (default: us-east-1) to set the correct region.
           if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
             PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
             REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
-            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@aws-0-${REGION}.pooler.supabase.com:6543/postgres"
+            PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
           else
             # Workers must use transaction pooler (port 6543); SUPABASE_DATABASE_URL uses session pooler (5432)
             DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
@@ -273,6 +267,7 @@ jobs:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
           SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
 
       - name: Ensure production R2 bucket exists
         run: npx wrangler r2 bucket create jobtrail-documents || true
