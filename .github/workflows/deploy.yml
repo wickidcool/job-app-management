@@ -238,18 +238,20 @@ jobs:
           # Use SUPABASE_POOLER_REGION variable (default: us-east-1) to set the correct region.
           # Use SUPABASE_POOLER_PREFIX variable (default: aws-1) to set the correct pooler prefix.
           # Find the correct region/prefix in Supabase dashboard → Settings → Database → Connection string.
-          if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
-            PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
-            REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
-            PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
-            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
-          elif [[ "$SUPABASE_DATABASE_URL" == *"pooler.supabase.com:5432"* ]]; then
-            # Session pooler URL — upgrade to transaction pooler (session pooler rejects GitHub Actions auth)
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+          if [ -n "$SUPABASE_DATABASE_PASSWORD" ]; then
+            # Primary path: reconstruct from parts so a malformed/placeholder SUPABASE_DATABASE_URL
+            # cannot break URL parsing. URL-encode the password so special characters are safe.
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "$SUPABASE_DATABASE_URL" == postgresql://* ]]; then
+            # Fallback: a full Postgres URL was provided directly — normalize to the transaction pooler port.
             DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
           else
-            # Direct DB URL (db.PROJECT.supabase.co:5432) or transaction pooler URL — use as-is.
-            # GitHub Actions runners have IPv6, so the direct DB is reachable even though it has no A record.
-            DATABASE_URL="$SUPABASE_DATABASE_URL"
+            echo "::error::No usable Supabase DB credentials — set SUPABASE_DATABASE_PASSWORD (production env secret) or a postgresql:// SUPABASE_DATABASE_URL"
+            exit 1
           fi
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
@@ -267,18 +269,20 @@ jobs:
           # SUPABASE_DATABASE_URL is still the https:// REST URL, so reconstruct from known parts.
           # Use SUPABASE_POOLER_REGION variable (default: us-east-1) to set the correct region.
           # Use SUPABASE_POOLER_PREFIX variable (default: aws-1) to set the correct pooler prefix.
-          if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
-            PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
-            REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
-            PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
-            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
-          elif [[ "$SUPABASE_DATABASE_URL" == *"pooler.supabase.com:5432"* ]]; then
-            # Session pooler URL — upgrade to transaction pooler (Workers need short-lived tx connections)
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+          if [ -n "$SUPABASE_DATABASE_PASSWORD" ]; then
+            # Primary path: reconstruct from parts so a malformed/placeholder SUPABASE_DATABASE_URL
+            # cannot break URL parsing. URL-encode the password so special characters are safe.
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "$SUPABASE_DATABASE_URL" == postgresql://* ]]; then
+            # Fallback: a full Postgres URL was provided directly — normalize to the transaction pooler port.
             DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
           else
-            # Direct DB URL or transaction pooler URL — use as-is.
-            # Direct DB (db.PROJECT.supabase.co:5432) works from Cloudflare Workers via IPv6.
-            DATABASE_URL="$SUPABASE_DATABASE_URL"
+            echo "::error::No usable Supabase DB credentials — set SUPABASE_DATABASE_PASSWORD (production env secret) or a postgresql:// SUPABASE_DATABASE_URL"
+            exit 1
           fi
           echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
         env:
