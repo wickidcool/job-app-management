@@ -128,6 +128,11 @@ jobs:
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
+          # SUPABASE_DATABASE_URL must be a direct postgresql:// connection string. (WIC-633)
+          if [[ "$SUPABASE_DATABASE_URL" != postgresql://* ]]; then
+            echo "::error::SUPABASE_DATABASE_URL must be a postgresql:// connection string, got '${SUPABASE_DATABASE_URL%%://*}://...'. Set the 'dev' environment 'SUPABASE_DATABASE_URL' secret to the transaction-pooler URL: postgresql://postgres.<project-ref>:<password>@<prefix>-<region>.pooler.supabase.com:6543/postgres"
+            exit 1
+          fi
           # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
           DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
           export DATABASE_URL
@@ -226,21 +231,19 @@ jobs:
 
       - name: Run database migrations
         env:
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
-          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
-          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
         run: |
-          if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
-            PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
-            REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
-            PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
-            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
-          else
-            # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
-            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          # SUPABASE_DATABASE_URL must be a direct postgresql:// connection string for the
+          # canonical database project. Do NOT derive the pooler host from SUPABASE_URL:
+          # SUPABASE_URL can point at a different (or deleted) project than the database, and
+          # deriving from it silently produces a wrong connection string that fails with
+          # "tenant/user ... not found". Fail fast with an actionable error instead. (WIC-633)
+          if [[ "$SUPABASE_DATABASE_URL" != postgresql://* ]]; then
+            echo "::error::SUPABASE_DATABASE_URL must be a postgresql:// connection string for the canonical database project, got '${SUPABASE_DATABASE_URL%%://*}://...'. Set the production 'SUPABASE_DATABASE_URL' secret to the transaction-pooler URL: postgresql://postgres.<project-ref>:<password>@<prefix>-<region>.pooler.supabase.com:6543/postgres"
+            exit 1
           fi
+          # Ensure transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
+          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
 
@@ -252,22 +255,17 @@ jobs:
 
       - name: Prepare DATABASE_URL (transaction pooler port 6543)
         run: |
-          if [[ "$SUPABASE_DATABASE_URL" == https://* ]]; then
-            PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
-            REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
-            PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
-            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DATABASE_PASSWORD}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
-          else
-            # Workers must use transaction pooler (port 6543); SUPABASE_DATABASE_URL uses session pooler (5432)
-            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          # See "Run database migrations" above: require a direct postgresql:// string; never
+          # derive from SUPABASE_URL (may point at a different/deleted project). (WIC-633)
+          if [[ "$SUPABASE_DATABASE_URL" != postgresql://* ]]; then
+            echo "::error::SUPABASE_DATABASE_URL must be a postgresql:// connection string for the canonical database project, got '${SUPABASE_DATABASE_URL%%://*}://...'. Set the production 'SUPABASE_DATABASE_URL' secret to the transaction-pooler URL: postgresql://postgres.<project-ref>:<password>@<prefix>-<region>.pooler.supabase.com:6543/postgres"
+            exit 1
           fi
+          # Workers must use transaction pooler (port 6543); session pooler (5432) rejects auth
+          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
           echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
         env:
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
-          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
-          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
 
       - name: Ensure production R2 bucket exists
         run: npx wrangler r2 bucket create jobtrail-documents || true
