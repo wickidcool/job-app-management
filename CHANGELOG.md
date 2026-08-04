@@ -34,7 +34,7 @@ The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoi
 - **Route-level user isolation** — every endpoint scopes queries to the authenticated `user_id`; `NOT NULL` enforced with per-user indexes (WIC-213, WIC-196; migrations `0011`, `0017`)
 - **Row-Level Security** policies on Supabase (`supabase/migrations/0001_rls_user_isolation.sql`)
 - Removed unauthenticated `/api/resumes/test-api-key` debug endpoint (WIC-216); removed a PII-leaking raw-text upload log
-- Auto-logout on `401` responses; auth UI implemented with Supabase (WIC-199)
+- Auto-logout on `401` responses (WIC-280); auth UI implemented with Supabase (WIC-199)
 - See `docs/AUTHENTICATION.md` and `ADR-003-multi-user-auth`.
 
 ### Added — Onboarding wizard & Personal Information (2026-05-08 → 2026-05-12)
