@@ -1,11 +1,15 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { ResumeExportList } from '../components/ResumeExportList';
 import type { ResumeExport, ExportFormat } from '../types/resume';
+import { track } from '../services/analytics';
 
 export function ResumeExports() {
   const navigate = useNavigate();
+  // resumeId is present when arriving via /resumes/:resumeId/exports; the flat
+  // /resumes/exports route leaves it undefined until export data is wired.
+  const { resumeId } = useParams<{ resumeId?: string }>();
 
   const breadcrumbTrail = [
     { label: 'Dashboard', href: '/', icon: '🏠' },
@@ -17,6 +21,11 @@ export function ResumeExports() {
   const exports: ResumeExport[] = [];
 
   const handlePreview = (exportId: string) => {
+    track('export_viewed', {
+      resume_id: resumeId ?? '',
+      export_id: exportId,
+      export_type: 'star_markdown',
+    });
     console.log('Preview export:', exportId);
     // TODO: Open preview modal or navigate to export detail
   };

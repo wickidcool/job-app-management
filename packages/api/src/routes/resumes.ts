@@ -47,7 +47,16 @@ export const resumesRoutes = new Hono<AppEnv>()
     }
 
     const buffer = Buffer.from(arrayBuffer);
-    const result = await uploadResume(buffer, file.name, mimeType, c.get('userId') ?? undefined);
+    // Session id is propagated from the client for analytics correlation
+    // (baseline §5 — session IDs span client and API). Optional; null when absent.
+    const sessionId = c.req.header('x-session-id') ?? null;
+    const result = await uploadResume(
+      buffer,
+      file.name,
+      mimeType,
+      c.get('userId') ?? undefined,
+      sessionId
+    );
     return c.json(result, 201);
   })
   .get('/resumes/:id/download-url', async (c) => {
