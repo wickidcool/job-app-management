@@ -493,6 +493,7 @@ export async function uploadResume(
             sections_detected: dupSections.length,
             bullets_total: dupSections.reduce((sum, s) => sum + (s.bulletCount ?? 0), 0),
             extracted_char_count: dupMeta.charCount ?? 0,
+            is_duplicate: true,
           },
           sessionId
         );
@@ -602,6 +603,7 @@ export async function uploadResume(
         sections_detected: parsed.sections.length,
         bullets_total: sectionSummary.reduce((sum, s) => sum + s.bulletCount, 0),
         extracted_char_count: rawText.length,
+        is_duplicate: false,
       },
       sessionId
     );

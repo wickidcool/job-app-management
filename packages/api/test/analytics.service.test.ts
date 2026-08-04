@@ -74,6 +74,28 @@ describe('analytics.service track()', () => {
     expect(payload.properties.resume_id).toBe('r9');
   });
 
+  it('carries the is_duplicate flag through to the captured event (WIC-817)', async () => {
+    // Duplicate-content uploads still emit `resume_upload_completed` (funnel/completion
+    // KPIs must not undercount) but carry `is_duplicate: true` so timing percentiles can
+    // filter them out. Verify the flag survives the sink round-trip in both states.
+    setEnv({
+      ANALYTICS_SINK: 'posthog',
+      POSTHOG_API_KEY: 'phc_test',
+      POSTHOG_HOST: 'https://ph.example.com',
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200 }));
+
+    await track('resume_upload_completed', { resume_id: 'dup', is_duplicate: true }, 'sess-d');
+    await track('resume_upload_completed', { resume_id: 'new', is_duplicate: false }, 'sess-n');
+
+    const first = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    const second = JSON.parse((fetchSpy.mock.calls[1][1] as RequestInit).body as string);
+    expect(first.properties.is_duplicate).toBe(true);
+    expect(second.properties.is_duplicate).toBe(false);
+  });
+
   it('never throws even when the underlying sink fails', async () => {
     setEnv({
       ANALYTICS_SINK: 'posthog',

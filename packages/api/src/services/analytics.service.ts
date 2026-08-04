@@ -49,6 +49,13 @@ export interface ResumeUploadCompletedProps {
   sections_detected: number;
   bullets_total: number;
   extracted_char_count: number;
+  /**
+   * True when the upload short-circuited on duplicate content (content-hash match)
+   * rather than running the full extract→parse→export pipeline. Timing KPIs (Avg /
+   * P95 Processing Time, baseline §2.1) filter `is_duplicate = false`; funnel /
+   * completion KPIs keep all rows. See WIC-817.
+   */
+  is_duplicate: boolean;
 }
 
 export interface ResumeUploadFailedProps {

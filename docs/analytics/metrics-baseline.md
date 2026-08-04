@@ -95,6 +95,7 @@ Fired on successful server response (upload + parse + export all done).
 | `sections_detected` | number | Number of parsed sections |
 | `bullets_total` | number | Total bullet count across all sections |
 | `extracted_char_count` | number | Raw text character count |
+| `is_duplicate` | boolean | `true` when the upload short-circuited on duplicate content (content-hash match) instead of running the full extract→parse→export pipeline. Filter `is_duplicate = false` for the Avg / P95 Processing Time KPIs (§2.1); keep all rows for funnel / completion KPIs. |
 
 #### `resume_upload_failed`
 Fired when the upload or server-side processing returns an error.
