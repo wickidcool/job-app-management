@@ -69,8 +69,15 @@ interface AnalyticsEvent {
   event: ClientAnalyticsEventName;
   /** ISO-8601 timestamp of when the event occurred. */
   timestamp: string;
-  /** Per-browser-session identifier. */
+  /** Per-browser-session identifier. Always sent as the `session_id` property. */
   sessionId: string;
+  /**
+   * Identity the event is attributed to: the authenticated `userId` once
+   * `identify()` has run, otherwise the anonymous `sessionId`. Maps to PostHog's
+   * `distinct_id`, so post-login events stitch to the real user while pre-login
+   * events stay session-scoped (and later alias onto the user via `identify()`).
+   */
+  distinctId: string;
   properties: Record<string, unknown>;
 }
 
@@ -78,6 +85,12 @@ interface AnalyticsEvent {
 interface AnalyticsSink {
   readonly name: string;
   capture(event: AnalyticsEvent): Promise<void> | void;
+  /**
+   * Alias the anonymous session (`anonId`) onto an authenticated `userId` so the
+   * user's pre-login events merge into their identified profile. Optional — sinks
+   * without an identity model (noop/console) may omit it.
+   */
+  identify?(userId: string, anonId: string): Promise<void> | void;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +134,21 @@ export function getSessionId(): string {
   return randomId();
 }
 
+/**
+ * Replaces the persisted session id with a fresh one. Called on `reset()` (logout)
+ * so a subsequent, different user on a shared browser starts from a new anonymous
+ * identity and their pre-login events can't alias onto the previous user.
+ */
+function rotateSessionId(): void {
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem(SESSION_STORAGE_KEY, randomId());
+    }
+  } catch {
+    /* sessionStorage can throw in private-mode / sandboxed contexts */
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Sinks
 // ---------------------------------------------------------------------------
@@ -144,11 +172,13 @@ const consoleSink: AnalyticsSink = {
 };
 
 /**
- * Sends events to PostHog's `/capture` HTTP endpoint. `session_id` is mapped to
- * PostHog's `distinct_id` so per-session funnels/retention work out of the box;
- * the raw `session_id` is also kept as a property. Uses `keepalive` so events
- * fired during navigation still flush. Failures are swallowed — analytics must
- * never break the app.
+ * Sends events to PostHog's `/capture` HTTP endpoint. `distinct_id` is the
+ * event's resolved identity — the authenticated `userId` once `identify()` has
+ * run, otherwise the anonymous `session_id`, which is also always kept as a
+ * property for session-level analysis. `identify()` emits a `$identify` event
+ * that aliases the anonymous session onto the user so pre- and post-login events
+ * stitch into one person. Uses `keepalive` so events fired during navigation
+ * still flush. Failures are swallowed — analytics must never break the app.
  */
 function createPostHogSink(apiKey: string, host: string): AnalyticsSink {
   const endpoint = `${host.replace(/\/$/, '')}/capture/`;
@@ -164,7 +194,7 @@ function createPostHogSink(apiKey: string, host: string): AnalyticsSink {
             api_key: apiKey,
             event: event.event,
             timestamp: event.timestamp,
-            distinct_id: event.sessionId,
+            distinct_id: event.distinctId,
             properties: {
               ...event.properties,
               session_id: event.sessionId,
@@ -182,14 +212,59 @@ function createPostHogSink(apiKey: string, host: string): AnalyticsSink {
         );
       }
     },
+    async identify(userId, anonId) {
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            api_key: apiKey,
+            event: '$identify',
+            timestamp: new Date().toISOString(),
+            distinct_id: userId,
+            // `$anon_distinct_id` is PostHog's alias key: it merges the prior
+            // anonymous person (`anonId`) into the identified user.
+            properties: {
+              $anon_distinct_id: anonId,
+              session_id: anonId,
+              $lib: 'wic-web',
+            },
+          }),
+        });
+        if (!res.ok) {
+          console.error(`[analytics] posthog identify failed: HTTP ${res.status}`);
+        }
+      } catch (err) {
+        console.error(
+          '[analytics] posthog identify error:',
+          err instanceof Error ? err.message : err
+        );
+      }
+    },
   };
 }
 
 let _sink: AnalyticsSink | null = null;
 
-/** Resets the memoized sink. Test-only. */
+// ---------------------------------------------------------------------------
+// Identity — once a user authenticates, `identify()` records their `userId` so
+// subsequent events are attributed to the user (`distinct_id = userId`) rather
+// than the anonymous session, and a one-time `$identify` alias stitches the
+// pre-login session events onto that user. `reset()` (logout) clears it.
+// ---------------------------------------------------------------------------
+
+let _identifiedUserId: string | null = null;
+
+/** Resolves the `distinct_id` for an event: the user id if identified, else the session id. */
+function resolveDistinctId(sessionId: string): string {
+  return _identifiedUserId ?? sessionId;
+}
+
+/** Resets the memoized sink and identity. Test-only. */
 export function _resetAnalyticsSink(): void {
   _sink = null;
+  _identifiedUserId = null;
 }
 
 function envValue(key: string): string | undefined {
@@ -249,9 +324,43 @@ export function track<E extends ClientAnalyticsEventName>(
       event,
       timestamp: new Date().toISOString(),
       sessionId,
+      distinctId: resolveDistinctId(sessionId),
       properties: { session_id: sessionId, ...properties },
     });
   } catch (err) {
     console.error('[analytics] track failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * Associate the current browser with an authenticated user. Call on login and on
+ * session-restore (token-backed app boot / refresh). Records `userId` so later
+ * events attribute to the user, and emits a one-time `$identify` that aliases the
+ * anonymous pre-login session onto them. Idempotent per user — re-identifying the
+ * same `userId` (e.g. every restore) is a no-op. Never throws.
+ */
+export function identify(userId: string): void {
+  try {
+    if (!userId || userId === _identifiedUserId) return;
+    const anonId = getSessionId();
+    _identifiedUserId = userId;
+    void resolveSink().identify?.(userId, anonId);
+  } catch (err) {
+    console.error('[analytics] identify failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * Clear the identified user (call on logout). Subsequent events revert to the
+ * anonymous session id, and the session id is rotated so a different user on a
+ * shared browser can't have their pre-login events aliased onto the prior user.
+ * Never throws.
+ */
+export function reset(): void {
+  try {
+    _identifiedUserId = null;
+    rotateSessionId();
+  } catch (err) {
+    console.error('[analytics] reset failed:', err instanceof Error ? err.message : err);
   }
 }

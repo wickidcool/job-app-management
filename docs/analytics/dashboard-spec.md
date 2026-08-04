@@ -20,16 +20,18 @@ All 9 event names + property schemas match `metrics-baseline.md` §3.1–3.3 exa
 provider-agnostic, defaults to `noop`, `track()` never throws. **Sign-off confirmed at code level**
 (supersedes my earlier doc-only sign-off on WIC-814, which had a "please confirm code matches" caveat).
 
-**PostHog identity mapping (as coded):** `distinct_id = session_id` for every event
-(`createPostHogSink`), with raw `session_id` also kept as a property. This is the single most
-important fact for the dashboards below — see §4 gap 2.
+**PostHog identity mapping (as coded, updated WIC-822):** `distinct_id = userId` for authenticated
+events, falling back to `session_id` for anonymous/pre-login events (`createPostHogSink`), with raw
+`session_id` always kept as a property. The client calls `identify(userId)` on login/session-restore
+so pre-auth session events alias onto the user. This stable per-user identity is what makes Dashboard C
+(§3) computable — see §4 gap 2 (now resolved).
 
 ---
 
 ## 1. Dashboard A — Upload Health (fully computable at launch)
 
-All events here are session/event-scoped, so `distinct_id = session_id` is fine. These insights
-work correctly the moment events flow.
+These are event/session-scoped counts and funnels, so they work correctly regardless of whether
+`distinct_id` resolves to `userId` or `session_id` — they compute the moment events flow.
 
 | #   | KPI (§2.1/§2.2)            | PostHog insight         | Definition                                                                                                                                                                                 |
 | --- | -------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -69,17 +71,18 @@ WHERE event = 'resume_upload_completed'
 
 ---
 
-## 3. Dashboard C — Retention & Repeat Usage (⚠ gated on gap-2)
+## 3. Dashboard C — Retention & Repeat Usage (✅ gap-2 resolved — live once events flow)
 
-These are the §2.3 **user-level** KPIs. They are **NOT computable while `distinct_id = session_id`**,
-because a returning user on a new browser session is a brand-new "person" to PostHog. Listed here so
-they light up the moment gap-2 (user identity) lands.
+These are the §2.3 **user-level** KPIs. As of WIC-822 authed events set `distinct_id = userId`
+(server) and the client calls `identify(userId)` on login, so a returning user on a new browser
+session resolves to the same PostHog "person". These KPIs are computable the moment events flow to
+prod (gated only on WIC-821 prod sink flip, same as A/B).
 
-| #   | KPI (§2.3)                                     | PostHog insight                                            | Blocker                                                             |
-| --- | ---------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| C1  | Return Upload Rate (≥2 resumes / 30d per user) | Retention (event `resume_upload_completed`, 30-day window) | Needs stable per-user `distinct_id`.                                |
-| C2  | Uploads per Active User (weekly)               | Trends (total completed / unique users, 7d)                | "Unique users" = unique `distinct_id`; wrong while that is session. |
-| C3  | New vs returning uploaders                     | Trends (breakdown by first-seen)                           | Same.                                                               |
+| #   | KPI (§2.3)                                     | PostHog insight                                            | Status                                                    |
+| --- | ---------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------- |
+| C1  | Return Upload Rate (≥2 resumes / 30d per user) | Retention (event `resume_upload_completed`, 30-day window) | ✅ Live — stable per-user `distinct_id` (WIC-822).        |
+| C2  | Uploads per Active User (weekly)               | Trends (total completed / unique users, 7d)                | ✅ Live — "unique users" = unique per-user `distinct_id`. |
+| C3  | New vs returning uploaders                     | Trends (breakdown by first-seen)                           | ✅ Live.                                                  |
 
 ---
 
@@ -101,18 +104,22 @@ The fix is to make duplicates _filterable_:
 - Set `is_duplicate: true` at the duplicate callsite (~line 484), `false` at the normal callsite (~line 593).
 - Dashboards then filter `is_duplicate = false` for timing (A4) and keep all rows for funnels.
 
-### Gap 2 — session-only `distinct_id` blocks user-level retention KPIs (design decision)
+### Gap 2 — session-only `distinct_id` blocks user-level retention KPIs (✅ RESOLVED, WIC-822)
 
-`createPostHogSink` sets `distinct_id = session_id`. `uploadResume(...)` already receives `userId`.
-The §2.3 retention KPIs (C1–C3) require a stable per-user identity. Recommended pattern:
+**Was:** `createPostHogSink` set `distinct_id = session_id` for every event, so the §2.3 retention
+KPIs (C1–C3) were not computable — every session looked like a new person.
 
-- Server events: use `userId` as `distinct_id` when authenticated (keep `session_id` as a property).
-- Client: call PostHog `identify(userId)` on login so client-side session events alias onto the user.
-- This stitches the funnel across client→server for a logged-in user and unlocks retention.
+**Fixed as coded (WIC-822):**
 
-Trade-off: mixing per-session and per-user `distinct_id` in one funnel breaks it, so this must be
-done consistently across both halves — hence a follow-on, not a one-liner. Upload-health and
-engagement dashboards (A/B) are unaffected and ship first.
+- Server events (`analytics.service.ts` + authed `resume.service.ts` callsites): `track()` takes an
+  optional `userId`; when present it becomes `distinct_id` (falling back to `session_id` for
+  anonymous flows). `session_id` is always retained as an event property.
+- Client (`analytics.ts` + `AuthContext.tsx`): calls PostHog `identify(userId)` on
+  login/session-restore and `reset()` on logout, so pre-auth session events alias onto the user.
+- Net effect: the funnel stitches across client→server for a logged-in user and Dashboard C is live.
+
+Applied consistently across both halves (server distinct_id + client identify), so the per-session /
+per-user mix does not break funnels. Upload-health and engagement dashboards (A/B) were unaffected.
 
 ---
 
@@ -123,4 +130,4 @@ engagement dashboards (A/B) are unaffected and ship first.
 3. Prod wiring: `ANALYTICS_SINK=posthog` + `POSTHOG_API_KEY`/`POSTHOG_HOST` (waits on the
    SUPABASE_DATABASE_URL / WIC-633 prod-DB incident).
 4. Verify with `ANALYTICS_SINK=console` in staging first — confirm all 9 events fire with §3 props.
-5. Build Dashboards A & B, wire §4 threshold alerts. Dashboard C after gap-2.
+5. Build Dashboards A & B, wire §4 threshold alerts. Dashboard C now ships alongside (gap-2 resolved, WIC-822).
