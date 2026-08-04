@@ -37,6 +37,18 @@ The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoi
 - Auto-logout on `401` responses (WIC-280); auth UI implemented with Supabase (WIC-199)
 - See `docs/AUTHENTICATION.md` and `ADR-003-multi-user-auth`.
 
+### Observability — Product analytics instrumentation & event taxonomy (2026-08-04)
+
+The resume-upload and export flows are now instrumented against the KPIs in `docs/analytics/metrics-baseline.md`, feeding the PostHog dashboards spec'd in `docs/analytics/dashboard-spec.md` (WIC-814, WIC-815, WIC-817, WIC-822).
+
+- **Server-side capture** (`packages/api/src/services/analytics.service.ts`) — a pluggable sink selected by `ANALYTICS_SINK` (`noop` default | `console` | `posthog`); the PostHog sink posts to the `/capture` HTTP endpoint, which works from Cloudflare Workers over `fetch`. A failed capture never throws or breaks the request path.
+- **User attribution** — `distinct_id` resolves to the authenticated `userId` for signed-in events, falling back to `session_id` (then `anonymous`) so user-level retention KPIs are attributed correctly (WIC-822).
+- **Event taxonomy:**
+  - Server (`@wic/api`): `resume_upload_started`, `resume_upload_completed` (carries an `is_duplicate` boolean so P95 processing-time and funnel KPIs can exclude re-uploads — WIC-817), `resume_upload_failed`.
+  - Client (`@wic/web`, `packages/web/src/services/analytics.ts`): `resume_upload_started`, `resume_upload_validation_failed`, `resume_upload_cta_clicked`, `resume_manager_viewed`, `resume_exports_link_clicked`, `export_viewed`.
+- **Config** — `ANALYTICS_SINK` + `POSTHOG_API_KEY` / `POSTHOG_HOST` on the Worker; `VITE_ANALYTICS_SINK` + `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` on the web build (see each package's `.env.example`).
+- Coverage: `packages/api/test/analytics.service.test.ts`. See `docs/analytics/metrics-baseline.md` and `docs/analytics/dashboard-spec.md`.
+
 ### Added — Onboarding wizard & Personal Information (2026-05-08 → 2026-05-12)
 
 - **Onboarding flow**: guided multi-step wizard (resume upload → personal info → app overview) with step-state persistence (WIC-237, WIC-242, WIC-244; migrations `0012`, `0015`; `docs/design/ONBOARDING_FLOW.md`)
