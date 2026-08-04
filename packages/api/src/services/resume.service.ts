@@ -450,7 +450,8 @@ export async function uploadResume(
   await track(
     'resume_upload_submitted',
     { session_id: sessionId ?? null, file_type: fileType, file_size_bytes: fileBuffer.length },
-    sessionId
+    sessionId,
+    userId
   );
 
   try {
@@ -495,7 +496,8 @@ export async function uploadResume(
             extracted_char_count: dupMeta.charCount ?? 0,
             is_duplicate: true,
           },
-          sessionId
+          sessionId,
+          userId
         );
 
         return {
@@ -605,7 +607,8 @@ export async function uploadResume(
         extracted_char_count: rawText.length,
         is_duplicate: false,
       },
-      sessionId
+      sessionId,
+      userId
     );
 
     // Generate per-company/project markdown files under data/projects/{projectSlug}/
@@ -761,7 +764,8 @@ export async function uploadResume(
         error_code: errorCode,
         error_stage: errorStage,
       },
-      sessionId
+      sessionId,
+      userId
     );
     throw err;
   }
