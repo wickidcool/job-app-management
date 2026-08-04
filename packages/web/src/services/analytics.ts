@@ -137,7 +137,6 @@ const noopSink: AnalyticsSink = {
 const consoleSink: AnalyticsSink = {
   name: 'console',
   capture(event) {
-     
     console.log(
       `[analytics] ${event.event} session=${event.sessionId} ${JSON.stringify(event.properties)}`
     );
@@ -174,11 +173,9 @@ function createPostHogSink(apiKey: string, host: string): AnalyticsSink {
           }),
         });
         if (!res.ok) {
-           
           console.error(`[analytics] posthog capture failed: HTTP ${res.status}`);
         }
       } catch (err) {
-         
         console.error(
           '[analytics] posthog capture error:',
           err instanceof Error ? err.message : err
@@ -218,7 +215,6 @@ function resolveSink(): AnalyticsSink {
       if (apiKey) {
         _sink = createPostHogSink(apiKey, host);
       } else {
-         
         console.warn(
           '[analytics] VITE_ANALYTICS_SINK=posthog but VITE_POSTHOG_KEY is unset — using noop'
         );
@@ -256,7 +252,6 @@ export function track<E extends ClientAnalyticsEventName>(
       properties: { session_id: sessionId, ...properties },
     });
   } catch (err) {
-     
     console.error('[analytics] track failed:', err instanceof Error ? err.message : err);
   }
 }
