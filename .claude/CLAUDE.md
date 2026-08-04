@@ -1,40 +1,42 @@
 # Job Application Manager
 
-Local-first, single-user job application tracking app. No cloud dependencies — runs entirely on the user's machine.
+Multi-user job application tracking app running on **Cloudflare Workers + Supabase + R2**, deployed to production at [careerpin.app](https://careerpin.app). A single Hono Worker serves the `/api/*` routes and the built React SPA; the same code also runs on Node.js for local dev.
 
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 3, TanStack Query 5, React Router 7, React Hook Form, Radix UI, @dnd-kit
-- **Backend**: Node.js, Fastify 4, TypeScript, Drizzle ORM
-- **Database**: PostgreSQL 15 (Docker), migrations via drizzle-kit
-- **Testing**: Vitest (backend), V8 coverage
-- **Tooling**: npm workspaces monorepo, Prettier, ESLint
+- **Backend**: Hono 4 on Cloudflare Workers (Node.js fallback via `@hono/node-server`), TypeScript, Drizzle ORM
+- **Database**: Supabase PostgreSQL, reached from the Worker through a Cloudflare Hyperdrive connection pool; migrations via drizzle-kit
+- **Storage**: Cloudflare R2 (`jobtrail-documents`) for resumes/cover letters, S3-compatible presigned URLs via the AWS SDK
+- **Auth**: Supabase Auth (multi-user); JWTs verified server-side with `jose`
+- **AI**: Anthropic Claude (`@anthropic-ai/sdk`); PDF/DOCX extraction via `pdfjs-dist`, `mammoth`, `docx`
+- **Testing**: Vitest (backend unit), Playwright (E2E)
+- **Tooling**: npm workspaces monorepo, Prettier, ESLint, Wrangler
 
 ## Monorepo Layout
 
 ```
 packages/
-  api/          @wic/api  — Fastify REST API (port 3000)
+  api/          @wic/api  — Hono backend (Workers + Node)
     src/
-      index.ts            Server entry point
-      app.ts              Fastify app setup (CORS, error handler, routes)
-      config.ts           Environment config (dotenv)
+      worker.ts           Cloudflare Worker entry (fetch handler, Hyperdrive retry)
+      index.ts            Node.js entry (@hono/node-server) for local dev
+      app.ts              Hono app builder (CORS, error handler, route mounting)
+      config.ts           Environment config
       db/
-        client.ts         Drizzle/PostgreSQL connection
+        context.ts        Per-request env/db context (runWithEnv)
+        client.ts         Drizzle connection
+        hyperdrive.ts     Hyperdrive connection + timeout detection
         schema.ts         Drizzle ORM table definitions
-        migrate.ts        Migration runner
-        migrations/       SQL migration files (0001, 0002, ...)
-      routes/
-        applications.ts   /api/applications CRUD + status transitions
-        cover-letters.ts  /api/cover-letters filesystem listing
-        dashboard.ts      /api/dashboard stats aggregation
-        resumes.ts        /api/resumes upload + export endpoints
-      services/
-        application.service.ts   App CRUD, status changes with transactions
-        dashboard.service.ts     Stats aggregation queries
-        resume.service.ts        PDF/DOCX parsing, STAR markdown generation
-        status.service.ts        Valid status transitions map
+        migrate.ts        Migration runner (reads DATABASE_URL)
+      middleware/
+        auth.ts           Hono JWT auth middleware (jose)
+      routes/             applications, auth, catalog, cover-letters, dashboard,
+                          dialogue, interview-preps, onboarding, personal-info,
+                          projects, reports, resume-variants, resumes
+      services/           Business logic (accept env/db per request — Workers are stateless)
       types/
+        env.ts            Env interface (bindings) + Hono variables
         index.ts          DTOs, error classes (AppError, NotFoundError, etc.)
 
   web/          @wic/web  — React SPA (Vite dev server port 5173)
@@ -43,56 +45,78 @@ packages/
       App.tsx             Root component, React Router setup
       components/         UI components (ApplicationCard, KanbanBoard, ResumeUpload, etc.)
       pages/              Route pages (Dashboard, ApplicationsList, ApplicationDetail, etc.)
-      hooks/              TanStack Query hooks (useApplications, useDashboard, useResumes)
-      services/api/       HTTP client layer (apiClient.ts + per-resource services)
+      hooks/              TanStack Query hooks
+      services/api/       HTTP client layer (Authorization: Bearer token)
       types/              Frontend type definitions
 
+  marketing/    Static marketing site (careerpin.app landing/pricing)
+  infra/        Redirect Worker / Pages config
+
+wrangler.jsonc            Worker config: assets (SPA), R2, Hyperdrive, preview env
 docs/
-  architecture/           ARCHITECTURE.md, API_CONTRACTS.md, DATA_MODEL.md, ADRs
+  architecture/           CLOUDFLARE_WORKERS_ARCHITECTURE.md, API_CONTRACTS.md, DATA_MODEL.md, CI_CD.md, ADRs
+  AUTHENTICATION.md       Supabase auth
   design/                 DESIGN_SYSTEM.md, COMPONENT_SPECS.md, USER_FLOWS.md, WIREFRAMES.md
 ```
+
+## Runtime & Bindings
+
+The Worker uses **Cloudflare bindings** instead of `process.env`. Because Workers are stateless, the database client and env are created per-request (`runWithEnv` in `db/context.ts`) rather than as a global singleton. Bindings are declared in `wrangler.jsonc` and typed in `src/types/env.ts`:
+
+| Binding | Purpose |
+|---|---|
+| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`) |
+| `R2_BUCKET` | Document storage bucket (`jobtrail-documents`) |
 
 ## Key Commands
 
 ```bash
-docker compose up -d          # Start PostgreSQL
 npm install                   # Install all workspace deps
-npm run db:migrate            # Run database migrations
-npm run dev:api               # Start API server (localhost:3000)
-npm run dev                   # Start frontend dev server (localhost:5173)
+npm run dev                   # Frontend dev server (localhost:5173)
+npm run dev:worker            # API as a Worker via wrangler dev (R2/Hyperdrive emulation)
+npm run dev:api               # API on Node.js via tsx (localhost:3000) — faster iteration
 npm run build                 # Build all packages
+npm run typecheck             # tsc -b web + api --noEmit
 npm run lint                  # Lint all packages
-npm run test                  # Run tests (backend only currently)
+npm run test                  # Vitest unit tests
+npm run test:e2e              # Playwright E2E tests
 npm run format                # Prettier format
+npm run db:migrate            # Run database migrations (reads DATABASE_URL)
 npm run db:push               # Push schema changes directly (dev only)
 ```
 
 ## Architecture Decisions
 
-- **ES modules** throughout (`"type": "module"` in both packages)
-- **ULIDs** for all primary keys (via `ulid` package)
-- **Optimistic locking** — all mutable records have a `version` column; updates require the current version
-- **Status transitions** are validated server-side via `VALID_TRANSITIONS` map in `status.service.ts`
-- **Status changes** use database transactions with row-level locking
+- **Edge-native, stateless**: DB client + env are per-request; no global singletons (`runWithEnv`)
+- **Hono over Fastify** for Workers compatibility (`ADR-006-hono-framework-workers`)
+- **Hyperdrive** pools the Supabase Postgres connection at the edge; the fetch handler retries on Hyperdrive connection timeouts
+- **R2 storage** for documents, keyed `{userId}/{type}/{filename}`; presigned URLs via AWS SDK (`ADR-004-cloudflare-r2-storage`)
+- **Multi-user auth**: when `SUPABASE_JWT_SECRET` is set, all `/api/*` routes require a valid JWT (`userId` from the `sub` claim); unset → auth bypassed for single-user/local (`ADR-003-multi-user-auth`)
+- **ES modules** throughout (`"type": "module"`)
+- **ULIDs** for primary keys (via `ulid`)
+- **Optimistic locking** — mutable records have a `version` column; updates require the current version
+- **Status transitions** validated server-side via `VALID_TRANSITIONS` in `status.service.ts`, using DB transactions
 - **Cursor-based pagination** (base64url-encoded offset) on list endpoints
 - **Zod** for request validation on all API routes
-- **Local filesystem storage** for resumes and cover letters under `DATA_DIR` (default `./data`)
-- **Vite proxy** forwards `/api` requests to the Fastify backend during development
+- The single Worker serves the SPA: `wrangler.jsonc` `assets` binding with `not_found_handling: "single-page-application"` for React Router deep links
 
 ## Database
 
-PostgreSQL with Drizzle ORM. Tables:
+Supabase PostgreSQL with Drizzle ORM. Core tables:
 
 | Table | Purpose |
 |---|---|
-| `applications` | Job applications with status, company, job title, etc. |
+| `applications` | Job applications (status, company, job title, per-user) |
 | `status_history` | Audit trail of status changes per application |
-| `resumes` | Uploaded resume metadata (file stored on disk) |
-| `resume_exports` | Generated STAR-format markdown exports |
+| `resumes` / `resume_variants` / `resume_exports` | Uploaded resumes, tailored variants, generated exports |
+| `cover_letters` / `outreach_messages` | Cover letters and outreach drafts |
+| `personal_info` / `quantified_bullets` | Candidate profile + reusable achievement bullets |
+| `interview_preps` / `interview_prep_stories` / `prep_question_story_links` | Interview prep, STAR stories, question links |
+| `catalog_diffs` / `catalog_change_log` / `wikilink_registry` | Content catalog change tracking + wikilinks |
+| `onboarding_status` | Per-user onboarding progress |
 
 Status enum: `saved → applied → phone_screen → interview → offer | rejected | withdrawn`
-
-Terminal statuses: `offer`, `rejected`, `withdrawn` (no further transitions).
+(most non-terminal states may also go directly to `rejected`/`withdrawn`). Terminal statuses: `offer`, `rejected`, `withdrawn`.
 
 ## Naming Conventions
 
@@ -103,15 +127,15 @@ Terminal statuses: `offer`, `rejected`, `withdrawn` (no further transitions).
 
 ## Environment Variables
 
-Required in `packages/api/.env` (see `.env.example`):
+Local dev secrets: copy `.dev.vars.example` → `.dev.vars` (loaded by `wrangler dev`). Production: `wrangler secret put`. Binding/var names are typed in `packages/api/src/types/env.ts`.
 
-| Variable | Default | Description |
+| Variable | Scope | Description |
 |---|---|---|
-| `PORT` | 3000 | API server port |
-| `HOST` | 127.0.0.1 | Bind address |
-| `NODE_ENV` | development | Environment |
-| `DATABASE_URL` | — | PostgreSQL connection string (required) |
-| `DATA_DIR` | ./data | Local file storage directory |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_JWT_SECRET` | Worker | Supabase auth; JWT secret gates `/api/*` |
+| `ANTHROPIC_API_KEY` | Worker | Claude API; AI features disabled when unset |
+| `NODE_ENV` | Worker | Set in `wrangler.jsonc` |
+| `DATABASE_URL` | Migrations only | Supabase pooler URL for `db:migrate` (Worker uses `HYPERDRIVE` instead) |
+| `VITE_API_BASE_URL` | Web build | API base; defaults to `/api` (same-origin) |
 
 ## Design System
 
@@ -123,4 +147,4 @@ Tailwind config defines custom tokens:
 ## Testing
 
 - Backend: `vitest` with V8 coverage. Tests in `packages/api/test/`.
-- Frontend: No test suite configured yet.
+- E2E: Playwright (`npm run test:e2e`), configured in `playwright.config.ts`.
