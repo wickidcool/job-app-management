@@ -8,6 +8,16 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`).
 
+### Added — Analytics instrumentation & event taxonomy (2026-08-04)
+
+Product-analytics instrumentation for the resume upload/manager/export flows, wired behind a provider-agnostic wrapper. **Emits nothing until a sink is explicitly configured** — both wrappers default to a no-op, so production stays dark until `ANALYTICS_SINK=posthog` is set (tracked separately; the PostHog production flip is not part of this change).
+
+- **Canonical 9-event taxonomy** (`resume_upload_started`, `_validation_failed`, `_submitted`, `_completed`, `_failed`, `_cta_clicked`, `resume_manager_viewed`, `resume_exports_link_clicked`, `export_viewed`) with typed property schemas. The server owns the three `submitted / completed / failed` events; the client owns the other six. Event names and property shapes are defined by the board-approved `docs/analytics/metrics-baseline.md` §3.
+- **Server wrapper** `packages/api/src/services/analytics.service.ts` — pluggable `AnalyticsSink` (`noop` / `console` / `posthog`), PostHog delivery via the `/capture` HTTP endpoint (Workers-compatible `fetch`, no SDK). Sinks never throw, so analytics can't break the request path (WIC-814).
+- **Client wrapper** `packages/web/src/services/analytics.ts` — mirrors the server wrapper; a per-browser `session_id` (persisted in `sessionStorage`) is stamped on every client event and sent as the `X-Session-Id` header on uploads so client + server events correlate into one funnel (WIC-815).
+- **Configuration** — server: `ANALYTICS_SINK` (default `noop`), `POSTHOG_API_KEY`, `POSTHOG_HOST` (default `https://us.i.posthog.com`); client: `VITE_ANALYTICS_SINK`, `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST`.
+- See `docs/analytics/metrics-baseline.md` (event taxonomy + KPI definitions) and `docs/analytics/dashboard-spec.md`.
+
 ### Infrastructure — Cloud migration to Cloudflare Workers + Supabase (2026-05-05)
 
 The application moved from a local-first Fastify/PostgreSQL stack to a serverless production deployment.
@@ -87,6 +97,7 @@ A normalized, queryable knowledge base of professional attributes automatically 
 #### Features
 
 **Catalog API** (`/api/catalog/*`)
+
 - `GET/POST /catalog/diffs` — list and generate extraction diffs
 - `GET /catalog/diffs/:id` — retrieve full diff with changes and review items
 - `POST /catalog/diffs/:id/apply` — approve all, reject all, or make partial decisions
@@ -98,6 +109,7 @@ A normalized, queryable knowledge base of professional attributes automatically 
 - `GET /catalog/themes` — browse recurring career themes, with core-strength promotion at 3+ occurrences
 
 **Extraction engine** (`extraction.service.ts`)
+
 - Detects 60+ known technologies with aliases and legacy flags (e.g. jQuery, CoffeeScript)
 - Extracts 14 job-fit signal patterns across role, industry, seniority, and work style
 - Identifies 9 recurring career theme patterns
@@ -106,6 +118,7 @@ A normalized, queryable knowledge base of professional attributes automatically 
 - Flags ambiguous values (`PM`, fuzzy matches) as `ReviewItem` entries for human resolution
 
 **Diff Review UI** (`/catalog` route)
+
 - Tab-based Catalog browse page: Pending Diffs, Companies, Tech Stack, Job Fit, Quantified Bullets, Themes
 - `DiffReviewModal` — approve all, reject all, or selectively apply individual changes
 - `AmbiguityResolver` — radio-button UI for resolving ambiguous tags, fuzzy matches, and unresolved wikilinks
@@ -115,16 +128,16 @@ A normalized, queryable knowledge base of professional attributes automatically 
 
 New tables added via migration `0004_catalog_schema.sql`:
 
-| Table | Purpose |
-|-------|---------|
-| `company_catalog` | Deduplicated company index with application counts |
-| `tech_stack_tags` | Technology skill tags with category and legacy flags |
-| `job_fit_tags` | Role/industry/seniority signal tags |
+| Table                | Purpose                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `company_catalog`    | Deduplicated company index with application counts       |
+| `tech_stack_tags`    | Technology skill tags with category and legacy flags     |
+| `job_fit_tags`       | Role/industry/seniority signal tags                      |
 | `quantified_bullets` | Extracted metric achievements with impact classification |
-| `recurring_themes` | Career themes with core-strength promotion |
-| `catalog_diffs` | Pending change diffs with 7-day expiry |
-| `catalog_change_log` | Immutable audit trail of all catalog mutations |
-| `wikilink_registry` | Resolved `[[wikilink]]` → catalog entity mappings |
+| `recurring_themes`   | Career themes with core-strength promotion               |
+| `catalog_diffs`      | Pending change diffs with 7-day expiry                   |
+| `catalog_change_log` | Immutable audit trail of all catalog mutations           |
+| `wikilink_registry`  | Resolved `[[wikilink]]` → catalog entity mappings        |
 
 New enum types: `job_fit_category`, `tech_stack_category`, `metric_type`, `impact_category`, `change_action`, `diff_status`
 
