@@ -13,6 +13,15 @@ export interface Config {
   r2AccessKeyId: string | null;
   r2SecretAccessKey: string | null;
   r2Bucket: string | null;
+  analyticsSink: 'noop' | 'console' | 'posthog';
+  posthogApiKey: string | null;
+  posthogHost: string;
+}
+
+function normalizeAnalyticsSink(raw: string | undefined): Config['analyticsSink'] {
+  const value = raw?.trim().toLowerCase();
+  if (value === 'posthog' || value === 'console' || value === 'noop') return value;
+  return 'noop';
 }
 
 let _config: Config | null = null;
@@ -42,6 +51,9 @@ export function getConfig(): Config {
       r2AccessKeyId: process.env.R2_ACCESS_KEY_ID ?? null,
       r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? null,
       r2Bucket: process.env.R2_BUCKET ?? null,
+      analyticsSink: normalizeAnalyticsSink(process.env.ANALYTICS_SINK),
+      posthogApiKey: process.env.POSTHOG_API_KEY?.trim() || null,
+      posthogHost: process.env.POSTHOG_HOST?.trim() || 'https://us.i.posthog.com',
     };
   }
   return _config;

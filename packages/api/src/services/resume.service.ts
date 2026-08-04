@@ -56,6 +56,9 @@ import {
   isAIParserAvailable,
 } from './ai-parser.service.js';
 import { getOrCreateProjectBySlug } from './project.service.js';
+import { track } from './analytics.service.js';
+
+type ErrorStage = 'upload' | 'extraction' | 'parsing' | 'export_generation';
 
 export async function addCompanyToCatalog(companyName: string, userId?: string): Promise<void> {
   if (!companyName || !userId) return;
@@ -429,260 +432,337 @@ export async function uploadResume(
   fileBuffer: Buffer,
   fileName: string,
   mimeType: string,
-  userId?: string
+  userId?: string,
+  sessionId?: string | null
 ): Promise<UploadResumeResult> {
   if (!ALLOWED_MIME_TYPES.has(mimeType)) {
     throw new Error(`Unsupported file type: ${mimeType}. Only PDF and DOCX are accepted.`);
   }
 
-  const db = getDb();
-  const contentHash = computeContentHash(fileBuffer);
+  // Analytics: server-side event taxonomy (WIC-814, metrics-baseline.md §3.1).
+  // `processing_time_ms` is measured from buffer receipt to export write completion.
+  const startTime = Date.now();
+  const fileType: 'pdf' | 'docx' = mimeType === 'application/pdf' ? 'pdf' : 'docx';
+  // `errorStage` tracks pipeline progress so `resume_upload_failed` can report where
+  // a failure occurred; it advances as each stage begins.
+  let errorStage: ErrorStage = 'upload';
 
-  if (userId) {
-    const [existing] = await db
-      .select()
-      .from(resumes)
-      .where(and(eq(resumes.userId, userId), eq(resumes.contentHash, contentHash)))
-      .limit(1);
+  await track(
+    'resume_upload_submitted',
+    { session_id: sessionId ?? null, file_type: fileType, file_size_bytes: fileBuffer.length },
+    sessionId
+  );
 
-    if (existing) {
-      console.log(
-        `[resume] Duplicate detected: file="${fileName}" matches existing resumeId="${existing.id}" for user="${userId}"`
-      );
-      const exports = await db
+  try {
+    const db = getDb();
+    const contentHash = computeContentHash(fileBuffer);
+
+    if (userId) {
+      const [existing] = await db
         .select()
-        .from(resumeExports)
-        .where(eq(resumeExports.resumeId, existing.id));
-      const exportDto = exports.length > 0 ? exportToDTO(exports[0]) : null;
+        .from(resumes)
+        .where(and(eq(resumes.userId, userId), eq(resumes.contentHash, contentHash)))
+        .limit(1);
 
-      return {
-        resume: toDTO(existing),
-        export: exportDto!,
-        experiences: [],
-        education: [],
-        skills: [],
-        parseDebug: {
-          aiAvailable: false,
-          usedAI: false,
-          sectionCount: 0,
-          sectionHeadings: [],
-          experienceEntryCount: 0,
-          companiesAddedToCatalog: [],
-          isDuplicate: true,
-        },
-      };
-    }
-  }
-
-  const config = getConfig();
-  const resumeId = ulid();
-  const ext = mimeType === 'application/pdf' ? '.pdf' : '.docx';
-  const storedFileName = `${resumeId}${ext}`;
-
-  let filePath: string;
-  if (isStorageAvailable()) {
-    filePath = buildObjectKey(userId ?? null, 'resumes', storedFileName);
-    await uploadObject(filePath, fileBuffer, mimeType);
-  } else {
-    const { promises: fs } = await import('node:fs');
-    const path = await import('node:path');
-    const resumeDir = path.join(config.dataDir, 'resumes');
-    await fs.mkdir(resumeDir, { recursive: true });
-    filePath = path.join(resumeDir, storedFileName);
-    await fs.writeFile(filePath, fileBuffer);
-  }
-
-  const [resume] = await db
-    .insert(resumes)
-    .values({
-      id: resumeId,
-      userId: userId ?? null,
-      fileName,
-      fileSize: fileBuffer.length,
-      mimeType,
-      filePath,
-      contentHash,
-    })
-    .returning();
-
-  // Parse and generate STAR export
-  const rawText = await extractText(fileBuffer, mimeType);
-  const parsed = parseResumeText(rawText);
-  const starMarkdown = generateStarMarkdown(parsed, fileName);
-
-  const exportId = ulid();
-  const exportFileName = `${exportId}_star.md`;
-
-  let exportPath: string;
-  if (isStorageAvailable()) {
-    exportPath = buildObjectKey(userId ?? null, 'resume-exports', exportFileName);
-    await uploadObject(exportPath, Buffer.from(starMarkdown, 'utf-8'), 'text/markdown');
-  } else {
-    const { promises: fs } = await import('node:fs');
-    const path = await import('node:path');
-    const resumeDir = path.join(config.dataDir, 'resumes');
-    exportPath = path.join(resumeDir, exportFileName);
-    await fs.writeFile(exportPath, starMarkdown, 'utf-8');
-  }
-
-  const sectionSummary = parsed.sections.map((s) => ({
-    heading: s.heading,
-    bulletCount: s.bullets.length,
-  }));
-
-  const [resumeExport] = await db
-    .insert(resumeExports)
-    .values({
-      id: exportId,
-      userId: userId ?? null,
-      resumeId,
-      exportType: 'star_markdown',
-      filePath: exportPath,
-      metadata: { sections: sectionSummary, charCount: rawText.length },
-    })
-    .returning();
-
-  // Generate per-company/project markdown files under data/projects/{projectSlug}/
-  // Projects are created as independent entities in the database
-  // Try AI parsing first, fall back to heuristic parsing
-  let usedAI = false;
-  const aiAvailable = isAIParserAvailable();
-  const companiesAddedToCatalog: string[] = [];
-  let aiError: string | undefined;
-
-  const sectionHeadings = parsed.sections.map((s) => s.heading);
-  const rawLineCount = rawText.split('\n').filter((l) => l.trim().length > 0).length;
-  console.log(
-    `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} lineCount=${rawLineCount} aiAvailable=${aiAvailable}`
-  );
-
-  if (aiAvailable) {
-    let aiResult = null;
-    try {
-      aiResult = await parseResumeWithAI(rawText);
-      console.log(`[resume] AI result: projects=${aiResult?.projects.length ?? 0}`);
-    } catch (err) {
-      aiError = err instanceof Error ? err.message : String(err);
-      console.error('[resume] AI parse API call failed:', aiError);
-    }
-
-    if (aiResult && aiResult.projects.length > 0) {
-      const safeBase = fileName
-        .split(/[/\\]/)
-        .pop()!
-        .replace(/\.[^.]+$/, '')
-        .replace(/[^a-zA-Z0-9._-]/g, '_');
-
-      for (const aiProject of aiResult.projects) {
-        // Catalog write is always attempted — project file write is best-effort.
-        // Separating them so an R2 write failure doesn't prevent catalog updates.
-        try {
-          const slug = toProjectSlug(aiProject.company) || resumeId;
-          const project = await getOrCreateProjectBySlug(slug, aiProject.company, userId);
-          await addCompanyToCatalog(aiProject.company, userId);
-          companiesAddedToCatalog.push(aiProject.company);
-          console.log(
-            `[resume] AI: catalog updated company="${aiProject.company}" slug="${project.slug}"`
-          );
-          const projectMarkdown = generateAIProjectMarkdown(aiProject);
-          await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
-        } catch (err) {
-          console.error(
-            `[resume] AI: failed to process company="${aiProject.company}":`,
-            err instanceof Error ? err.message : err
-          );
-        }
-      }
-      usedAI = companiesAddedToCatalog.length > 0;
-    } else if (!aiError) {
-      console.log('[resume] AI returned 0 projects, falling back to heuristic');
-    }
-  } else {
-    console.log(
-      '[resume] AI parser not available — ANTHROPIC_API_KEY not set as Cloudflare Workers secret'
-    );
-  }
-
-  const experienceEntries = extractExperienceEntries(parsed);
-  console.log(
-    `[resume] Heuristic experience entries: ${experienceEntries.length} — companies: [${experienceEntries.map((e) => e.company).join(', ')}]`
-  );
-
-  if (!usedAI) {
-    if (experienceEntries.length === 0) {
-      console.warn(
-        '[resume] No experience entries extracted by heuristic parser. Check resume section headings match: experience|work experience|employment'
-      );
-    }
-    for (const entry of experienceEntries) {
-      const slug = toProjectSlug(entry.company) || resumeId;
-      console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
-      try {
-        const project = await getOrCreateProjectBySlug(slug, entry.company, userId);
-        await addCompanyToCatalog(entry.company, userId);
-        companiesAddedToCatalog.push(entry.company);
+      if (existing) {
         console.log(
-          `[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`
+          `[resume] Duplicate detected: file="${fileName}" matches existing resumeId="${existing.id}" for user="${userId}"`
         );
-        const projectMarkdown = generateProjectMarkdown(entry);
+        const exports = await db
+          .select()
+          .from(resumeExports)
+          .where(eq(resumeExports.resumeId, existing.id));
+        const exportDto = exports.length > 0 ? exportToDTO(exports[0]) : null;
+
+        // The upload funnel still "completes" for a duplicate — emit so funnel/completion
+        // KPIs are not undercounted. Section/char metrics are read from stored export metadata.
+        const dupMeta = (exportDto?.metadata ?? {}) as {
+          sections?: Array<{ bulletCount?: number }>;
+          charCount?: number;
+        };
+        const dupSections = dupMeta.sections ?? [];
+        await track(
+          'resume_upload_completed',
+          {
+            session_id: sessionId ?? null,
+            resume_id: existing.id,
+            export_id: exportDto?.id ?? '',
+            file_type: fileType,
+            file_size_bytes: fileBuffer.length,
+            processing_time_ms: Date.now() - startTime,
+            sections_detected: dupSections.length,
+            bullets_total: dupSections.reduce((sum, s) => sum + (s.bulletCount ?? 0), 0),
+            extracted_char_count: dupMeta.charCount ?? 0,
+          },
+          sessionId
+        );
+
+        return {
+          resume: toDTO(existing),
+          export: exportDto!,
+          experiences: [],
+          education: [],
+          skills: [],
+          parseDebug: {
+            aiAvailable: false,
+            usedAI: false,
+            sectionCount: 0,
+            sectionHeadings: [],
+            experienceEntryCount: 0,
+            companiesAddedToCatalog: [],
+            isDuplicate: true,
+          },
+        };
+      }
+    }
+
+    const config = getConfig();
+    const resumeId = ulid();
+    const ext = mimeType === 'application/pdf' ? '.pdf' : '.docx';
+    const storedFileName = `${resumeId}${ext}`;
+
+    let filePath: string;
+    if (isStorageAvailable()) {
+      filePath = buildObjectKey(userId ?? null, 'resumes', storedFileName);
+      await uploadObject(filePath, fileBuffer, mimeType);
+    } else {
+      const { promises: fs } = await import('node:fs');
+      const path = await import('node:path');
+      const resumeDir = path.join(config.dataDir, 'resumes');
+      await fs.mkdir(resumeDir, { recursive: true });
+      filePath = path.join(resumeDir, storedFileName);
+      await fs.writeFile(filePath, fileBuffer);
+    }
+
+    const [resume] = await db
+      .insert(resumes)
+      .values({
+        id: resumeId,
+        userId: userId ?? null,
+        fileName,
+        fileSize: fileBuffer.length,
+        mimeType,
+        filePath,
+        contentHash,
+      })
+      .returning();
+
+    // Parse and generate STAR export
+    errorStage = 'extraction';
+    const rawText = await extractText(fileBuffer, mimeType);
+    errorStage = 'parsing';
+    const parsed = parseResumeText(rawText);
+    errorStage = 'export_generation';
+    const starMarkdown = generateStarMarkdown(parsed, fileName);
+
+    const exportId = ulid();
+    const exportFileName = `${exportId}_star.md`;
+
+    let exportPath: string;
+    if (isStorageAvailable()) {
+      exportPath = buildObjectKey(userId ?? null, 'resume-exports', exportFileName);
+      await uploadObject(exportPath, Buffer.from(starMarkdown, 'utf-8'), 'text/markdown');
+    } else {
+      const { promises: fs } = await import('node:fs');
+      const path = await import('node:path');
+      const resumeDir = path.join(config.dataDir, 'resumes');
+      exportPath = path.join(resumeDir, exportFileName);
+      await fs.writeFile(exportPath, starMarkdown, 'utf-8');
+    }
+
+    const sectionSummary = parsed.sections.map((s) => ({
+      heading: s.heading,
+      bulletCount: s.bullets.length,
+    }));
+
+    const [resumeExport] = await db
+      .insert(resumeExports)
+      .values({
+        id: exportId,
+        userId: userId ?? null,
+        resumeId,
+        exportType: 'star_markdown',
+        filePath: exportPath,
+        metadata: { sections: sectionSummary, charCount: rawText.length },
+      })
+      .returning();
+
+    // Analytics: upload + parse + export all succeeded. Emitted here so
+    // `processing_time_ms` reflects the receipt→export-write window (baseline §5).
+    // The downstream AI/project generation is best-effort and excluded from this timing.
+    await track(
+      'resume_upload_completed',
+      {
+        session_id: sessionId ?? null,
+        resume_id: resumeId,
+        export_id: exportId,
+        file_type: fileType,
+        file_size_bytes: fileBuffer.length,
+        processing_time_ms: Date.now() - startTime,
+        sections_detected: parsed.sections.length,
+        bullets_total: sectionSummary.reduce((sum, s) => sum + s.bulletCount, 0),
+        extracted_char_count: rawText.length,
+      },
+      sessionId
+    );
+
+    // Generate per-company/project markdown files under data/projects/{projectSlug}/
+    // Projects are created as independent entities in the database
+    // Try AI parsing first, fall back to heuristic parsing
+    let usedAI = false;
+    const aiAvailable = isAIParserAvailable();
+    const companiesAddedToCatalog: string[] = [];
+    let aiError: string | undefined;
+
+    const sectionHeadings = parsed.sections.map((s) => s.heading);
+    const rawLineCount = rawText.split('\n').filter((l) => l.trim().length > 0).length;
+    console.log(
+      `[resume] Upload: file="${fileName}" sections=${parsed.sections.length} headings=[${sectionHeadings.join(', ')}] rawTextLen=${rawText.length} lineCount=${rawLineCount} aiAvailable=${aiAvailable}`
+    );
+
+    if (aiAvailable) {
+      let aiResult = null;
+      try {
+        aiResult = await parseResumeWithAI(rawText);
+        console.log(`[resume] AI result: projects=${aiResult?.projects.length ?? 0}`);
+      } catch (err) {
+        aiError = err instanceof Error ? err.message : String(err);
+        console.error('[resume] AI parse API call failed:', aiError);
+      }
+
+      if (aiResult && aiResult.projects.length > 0) {
         const safeBase = fileName
           .split(/[/\\]/)
           .pop()!
           .replace(/\.[^.]+$/, '')
           .replace(/[^a-zA-Z0-9._-]/g, '_');
-        await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
-      } catch (err) {
-        console.error(
-          `[resume] Heuristic: failed to process company="${entry.company}":`,
-          err instanceof Error ? err.message : err
+
+        for (const aiProject of aiResult.projects) {
+          // Catalog write is always attempted — project file write is best-effort.
+          // Separating them so an R2 write failure doesn't prevent catalog updates.
+          try {
+            const slug = toProjectSlug(aiProject.company) || resumeId;
+            const project = await getOrCreateProjectBySlug(slug, aiProject.company, userId);
+            await addCompanyToCatalog(aiProject.company, userId);
+            companiesAddedToCatalog.push(aiProject.company);
+            console.log(
+              `[resume] AI: catalog updated company="${aiProject.company}" slug="${project.slug}"`
+            );
+            const projectMarkdown = generateAIProjectMarkdown(aiProject);
+            await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+          } catch (err) {
+            console.error(
+              `[resume] AI: failed to process company="${aiProject.company}":`,
+              err instanceof Error ? err.message : err
+            );
+          }
+        }
+        usedAI = companiesAddedToCatalog.length > 0;
+      } else if (!aiError) {
+        console.log('[resume] AI returned 0 projects, falling back to heuristic');
+      }
+    } else {
+      console.log(
+        '[resume] AI parser not available — ANTHROPIC_API_KEY not set as Cloudflare Workers secret'
+      );
+    }
+
+    const experienceEntries = extractExperienceEntries(parsed);
+    console.log(
+      `[resume] Heuristic experience entries: ${experienceEntries.length} — companies: [${experienceEntries.map((e) => e.company).join(', ')}]`
+    );
+
+    if (!usedAI) {
+      if (experienceEntries.length === 0) {
+        console.warn(
+          '[resume] No experience entries extracted by heuristic parser. Check resume section headings match: experience|work experience|employment'
         );
       }
+      for (const entry of experienceEntries) {
+        const slug = toProjectSlug(entry.company) || resumeId;
+        console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
+        try {
+          const project = await getOrCreateProjectBySlug(slug, entry.company, userId);
+          await addCompanyToCatalog(entry.company, userId);
+          companiesAddedToCatalog.push(entry.company);
+          console.log(
+            `[resume] Heuristic: catalog updated for company="${entry.company}" projectId="${project.id}"`
+          );
+          const projectMarkdown = generateProjectMarkdown(entry);
+          const safeBase = fileName
+            .split(/[/\\]/)
+            .pop()!
+            .replace(/\.[^.]+$/, '')
+            .replace(/[^a-zA-Z0-9._-]/g, '_');
+          await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+        } catch (err) {
+          console.error(
+            `[resume] Heuristic: failed to process company="${entry.company}":`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
     }
-  }
 
-  console.log(
-    `[resume] Upload complete: usedAI=${usedAI} companiesAdded=${companiesAddedToCatalog.length} [${companiesAddedToCatalog.join(', ')}]`
-  );
+    console.log(
+      `[resume] Upload complete: usedAI=${usedAI} companiesAdded=${companiesAddedToCatalog.length} [${companiesAddedToCatalog.join(', ')}]`
+    );
 
-  // Pass rawText and userId so extraction.service has full context without re-reading R2.
-  enqueueChange('resume', resumeId, 'created', { rawText, userId: userId ?? null });
-  // Flush immediately to process catalog changes before response.
-  // The debounced timer won't survive in serverless environments.
-  await flush();
+    // Pass rawText and userId so extraction.service has full context without re-reading R2.
+    enqueueChange('resume', resumeId, 'created', { rawText, userId: userId ?? null });
+    // Flush immediately to process catalog changes before response.
+    // The debounced timer won't survive in serverless environments.
+    await flush();
 
-  const education: string[] = [];
-  const skills: string[] = [];
-  for (const section of parsed.sections) {
-    if (/education/i.test(section.heading)) {
-      education.push(...section.bullets);
-    } else if (/skills/i.test(section.heading)) {
-      skills.push(...section.bullets);
+    const education: string[] = [];
+    const skills: string[] = [];
+    for (const section of parsed.sections) {
+      if (/education/i.test(section.heading)) {
+        education.push(...section.bullets);
+      } else if (/skills/i.test(section.heading)) {
+        skills.push(...section.bullets);
+      }
     }
+
+    const parseDebug: ParseDebugInfo = {
+      aiAvailable,
+      usedAI,
+      sectionCount: parsed.sections.length,
+      sectionHeadings,
+      experienceEntryCount: experienceEntries.length,
+      companiesAddedToCatalog,
+      ...(aiError ? { aiError } : {}),
+    };
+
+    return {
+      resume: toDTO(resume),
+      export: exportToDTO(resumeExport),
+      experiences: experienceEntries.map((e) => ({
+        company: e.company,
+        role: e.role,
+        period: e.period,
+        bullets: e.bullets,
+      })),
+      education,
+      skills,
+      parseDebug,
+    };
+  } catch (err) {
+    // Analytics: emit failure with the stage reached, then re-raise so callers
+    // and the route error handler behave exactly as before instrumentation.
+    const errorCode = err instanceof Error ? err.message : String(err);
+    await track(
+      'resume_upload_failed',
+      {
+        session_id: sessionId ?? null,
+        file_type: fileType,
+        error_code: errorCode,
+        error_stage: errorStage,
+      },
+      sessionId
+    );
+    throw err;
   }
-
-  const parseDebug: ParseDebugInfo = {
-    aiAvailable,
-    usedAI,
-    sectionCount: parsed.sections.length,
-    sectionHeadings,
-    experienceEntryCount: experienceEntries.length,
-    companiesAddedToCatalog,
-    ...(aiError ? { aiError } : {}),
-  };
-
-  return {
-    resume: toDTO(resume),
-    export: exportToDTO(resumeExport),
-    experiences: experienceEntries.map((e) => ({
-      company: e.company,
-      role: e.role,
-      period: e.period,
-      bullets: e.bullets,
-    })),
-    education,
-    skills,
-    parseDebug,
-  };
 }
 
 export async function listResumes(userId?: string): Promise<ResumeDTO[]> {

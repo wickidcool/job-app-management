@@ -187,7 +187,29 @@ The following thresholds are suggested for initial launch. They should be revisi
 
 ## 6. Open Questions
 
-- [ ] What analytics provider will be used? (e.g., Segment, Mixpanel, PostHog, custom pipeline)
-- [ ] Should `resume_id` be hashed/anonymized in analytics events?
+- [x] What analytics provider will be used? → **PostHog** (decided in WIC-814; see §7).
+- [ ] Should `resume_id` be hashed/anonymized in analytics events? (Deferred — currently sent raw; the wrapper is the single chokepoint if hashing is later required.)
 - [ ] Are application-status transitions (`saved → applied → interview → offer`) in scope for this baseline or a follow-on doc?
-- [ ] Who owns the dashboard/alerting setup once events are flowing?
+- [ ] Who owns the dashboard/alerting setup once events are flowing? (Data Analyst owns dashboards per WIC-814.)
+
+---
+
+## 7. Instrumentation Status (WIC-814)
+
+**Chosen sink: PostHog.** Rationale: its HTTP capture API works from Cloudflare
+Workers over `fetch` (no Node-only SDK), and its funnels/retention/trends map
+directly onto the KPIs in §2. It is swappable via a thin wrapper, so the decision
+is reversible without touching callsites.
+
+- **Wrapper:** `packages/api/src/services/analytics.service.ts` — `track(event, props, sessionId)`.
+  Sink selected by `ANALYTICS_SINK` env var (`noop` default | `console` | `posthog`);
+  PostHog needs `POSTHOG_API_KEY` (+ optional `POSTHOG_HOST`). `track()` never throws.
+- **Server-side events (done, this ticket):** `resume_upload_submitted`,
+  `resume_upload_completed`, `resume_upload_failed` — emitted from `resume.service.ts`.
+  `session_id` is propagated from the client via the `X-Session-Id` request header.
+- **Client-side events (6):** delegated to Frontend Developer (child issue of WIC-814).
+- **Prop naming note:** the completed event's raw-text length property is
+  `extracted_char_count` (matching §3.1), not `extracted_text_length`. Dashboards
+  should key on the §3 names.
+- **Default is `noop`** so nothing emits until prod is deliberately wired
+  (`ANALYTICS_SINK=posthog`), per the "build now, emit when prod is live" sequencing.
