@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ParsedResume, UploadState, UploadProgress } from '../types/resume';
 import { apiClient } from '../services/api';
+import { track, getSessionId } from '../services/analytics';
 
 interface ResumeUploadProps {
   onUploadComplete: (resumeId: string, parsedData: ParsedResume) => void;
@@ -156,6 +157,10 @@ export function ResumeUpload({
         if (token) {
           xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }
+        // Correlate this client upload with the server-side
+        // resume_upload_submitted/completed/failed events (WIC-814): the backend
+        // reads X-Session-Id and stamps it onto those events.
+        xhr.setRequestHeader('X-Session-Id', getSessionId());
         xhr.send(formData);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Upload failed';
@@ -171,6 +176,16 @@ export function ResumeUpload({
     (file: File) => {
       const validationError = validateFile(file);
       if (validationError) {
+        // Classify the rejection reason for analytics: size is checked first in
+        // validateFile, so an over-limit file reports size_exceeded regardless of
+        // its type; everything else that fails is an unsupported type.
+        const maxBytes = maxFileSizeMB * 1024 * 1024;
+        const errorType = file.size > maxBytes ? 'size_exceeded' : 'invalid_type';
+        track('resume_upload_validation_failed', {
+          error_type: errorType,
+          file_mime_type: file.type,
+          file_size_bytes: file.size,
+        });
         setErrorMessage(validationError);
         setUploadState('error');
         return;
@@ -178,7 +193,7 @@ export function ResumeUpload({
 
       uploadFile(file);
     },
-    [validateFile, uploadFile]
+    [validateFile, uploadFile, maxFileSizeMB]
   );
 
   const handleDrop = useCallback(
@@ -189,6 +204,7 @@ export function ResumeUpload({
 
       const files = e.dataTransfer.files;
       if (files && files[0]) {
+        track('resume_upload_started', { source: 'drag_drop' });
         handleFileSelect(files[0]);
       }
     },
@@ -215,6 +231,7 @@ export function ResumeUpload({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (files && files[0]) {
+        track('resume_upload_started', { source: 'file_picker' });
         handleFileSelect(files[0]);
       }
     },
@@ -233,10 +250,19 @@ export function ResumeUpload({
   }, []);
 
   const handleUploadNew = useCallback(() => {
+    if (parsedData) {
+      track('resume_upload_cta_clicked', { resume_id: parsedData.id, cta: 'upload_new' });
+    }
     setParsedData(null);
     setUploadState('empty');
     setFileName('');
-  }, []);
+  }, [parsedData]);
+
+  const handleViewDetails = useCallback(() => {
+    if (parsedData) {
+      track('resume_upload_cta_clicked', { resume_id: parsedData.id, cta: 'view_details' });
+    }
+  }, [parsedData]);
 
   const formatFileSize = (bytes: number): string => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -346,7 +372,10 @@ export function ResumeUpload({
           </div>
 
           <div className="flex gap-3">
-            <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
+            <button
+              onClick={handleViewDetails}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            >
               View Details
             </button>
             <button

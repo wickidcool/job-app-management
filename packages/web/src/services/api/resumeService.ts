@@ -1,5 +1,6 @@
 import type { APIClient } from './apiClient';
 import type { APIResume, ListResumesResponse } from './types';
+import { getSessionId } from '../analytics';
 
 export interface Resume {
   id: string;
@@ -41,7 +42,10 @@ export class ResumeService {
       method: 'POST',
       body: formData,
       headers: {
-        // Don't set Content-Type - let browser set it with multipart boundary
+        // Don't set Content-Type - let browser set it with multipart boundary.
+        // Correlate this upload with the server-side resume_upload_* events
+        // (WIC-814): the backend reads X-Session-Id and stamps it onto them.
+        'X-Session-Id': getSessionId(),
       },
     });
     return transformAPIResume(response);

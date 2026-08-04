@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { track } from '../services/analytics';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { EmptyState } from '../components/EmptyState';
@@ -38,6 +39,16 @@ export function ResumeManager() {
   ];
 
   const hasResumes = resumes && resumes.length > 0;
+
+  // Fire resume_manager_viewed once per mount, after the resume list has loaded
+  // so resume_count reflects the real count shown.
+  const viewedTracked = useRef(false);
+  useEffect(() => {
+    if (!isLoading && !error && resumes && !viewedTracked.current) {
+      viewedTracked.current = true;
+      track('resume_manager_viewed', { resume_count: resumes.length });
+    }
+  }, [isLoading, error, resumes]);
 
   const handleDeleteClick = (id: string, fileName: string) => {
     setResumeToDelete({ id, fileName });
@@ -138,6 +149,12 @@ export function ResumeManager() {
                   </button>
                   <Link
                     to={`/resumes/${resume.id}/exports`}
+                    onClick={() =>
+                      track('resume_exports_link_clicked', {
+                        resume_id: resume.id,
+                        resume_file_type: resume.mimeType === 'application/pdf' ? 'pdf' : 'docx',
+                      })
+                    }
                     className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors"
                   >
                     View Exports
