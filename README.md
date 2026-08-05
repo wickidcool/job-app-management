@@ -58,6 +58,7 @@ supabase/         # Supabase project config
 - **ORM:** Drizzle (PostgreSQL / Supabase via Hyperdrive)
 - **Storage:** Cloudflare R2 (S3-compatible)
 - **Auth:** Supabase JWT verification (`jose`)
+- **Analytics:** Provider-agnostic event wrapper (`noop` / `console` / `posthog`); emits nothing until `ANALYTICS_SINK` is configured
 - **Language:** TypeScript
 
 ## Getting Started
@@ -139,6 +140,7 @@ Production secrets are set with `wrangler secret put`; non-secret vars live in `
 - [Cloudflare Workers Architecture](docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md)
 - [Authentication (Supabase)](docs/AUTHENTICATION.md)
 - [API Contracts](docs/architecture/API_CONTRACTS.md) · [Data Model](docs/architecture/DATA_MODEL.md)
+- [Analytics — Event Taxonomy & KPIs](docs/analytics/metrics-baseline.md) · [Dashboard Spec](docs/analytics/dashboard-spec.md)
 - [Self-Hosting](docs/SELF_HOST.md)
 - ADRs: [ADR-004 (R2 storage)](docs/architecture/adr/ADR-004-cloudflare-r2-storage.md) · [ADR-006 (Hono)](docs/architecture/adr/ADR-006-hono-framework-workers.md) · [ADR-003 (multi-user auth)](docs/architecture/adr/ADR-003-multi-user-auth.md)
 
