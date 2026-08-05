@@ -39,10 +39,10 @@ The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoi
 
 ### Observability — Product analytics instrumentation & event taxonomy (2026-08-04)
 
-The resume-upload and export flows are now instrumented against the KPIs in `docs/analytics/metrics-baseline.md`, feeding the PostHog dashboards spec'd in `docs/analytics/dashboard-spec.md` (WIC-814, WIC-815, WIC-817, WIC-822).
+The resume-upload and export flows are now instrumented against the KPIs in `docs/analytics/metrics-baseline.md`, feeding the PostHog dashboards spec'd in `docs/analytics/dashboard-spec.md` (WIC-814, WIC-815, WIC-817).
 
 - **Server-side capture** (`packages/api/src/services/analytics.service.ts`) — a pluggable sink selected by `ANALYTICS_SINK` (`noop` default | `console` | `posthog`); the PostHog sink posts to the `/capture` HTTP endpoint, which works from Cloudflare Workers over `fetch`. A failed capture never throws or breaks the request path.
-- **User attribution** — `distinct_id` resolves to the authenticated `userId` for signed-in events, falling back to `session_id` (then `anonymous`) so user-level retention KPIs are attributed correctly (WIC-822).
+- **Attribution** — every event maps `distinct_id = session_id` (falling back to `anonymous`), with the raw `session_id` also kept as an event property, so per-session funnels and retention work out of the box. User-level retention KPIs need a stable per-user `distinct_id`; attributing authenticated events to `userId` (plus a client `identify()` on login) is a tracked follow-up — see "Gap 2" in `docs/analytics/dashboard-spec.md` (WIC-822, not yet merged).
 - **Event taxonomy:**
   - Server (`@wic/api`): `resume_upload_started`, `resume_upload_completed` (carries an `is_duplicate` boolean so P95 processing-time and funnel KPIs can exclude re-uploads — WIC-817), `resume_upload_failed`.
   - Client (`@wic/web`, `packages/web/src/services/analytics.ts`): `resume_upload_started`, `resume_upload_validation_failed`, `resume_upload_cta_clicked`, `resume_manager_viewed`, `resume_exports_link_clicked`, `export_viewed`.
