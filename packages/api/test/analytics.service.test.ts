@@ -74,6 +74,43 @@ describe('analytics.service track()', () => {
     expect(payload.properties.resume_id).toBe('r9');
   });
 
+  it('uses userId as distinct_id while keeping session_id as a property (WIC-822)', async () => {
+    // Authed flows pass a userId so PostHog attributes the event to the user rather
+    // than the browser session — this is what makes user-level retention KPIs (§2.3)
+    // computable. session_id must still ride along as a property for session analysis.
+    setEnv({
+      ANALYTICS_SINK: 'posthog',
+      POSTHOG_API_KEY: 'phc_test',
+      POSTHOG_HOST: 'https://ph.example.com',
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200 }));
+
+    await track('resume_upload_completed', { resume_id: 'r1' }, 'sess-1', 'user-42');
+
+    const payload = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    expect(payload.distinct_id).toBe('user-42');
+    expect(payload.properties.session_id).toBe('sess-1');
+  });
+
+  it('falls back to session_id as distinct_id when no userId is given (anonymous flow)', async () => {
+    setEnv({
+      ANALYTICS_SINK: 'posthog',
+      POSTHOG_API_KEY: 'phc_test',
+      POSTHOG_HOST: 'https://ph.example.com',
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200 }));
+
+    // No 4th arg → pre-login/anonymous: identity stays session-scoped.
+    await track('resume_upload_submitted', { file_type: 'pdf' }, 'sess-anon');
+
+    const payload = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    expect(payload.distinct_id).toBe('sess-anon');
+  });
+
   it('carries the is_duplicate flag through to the captured event (WIC-817)', async () => {
     // Duplicate-content uploads still emit `resume_upload_completed` (funnel/completion
     // KPIs must not undercount) but carry `is_duplicate: true` so timing percentiles can

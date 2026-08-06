@@ -71,6 +71,13 @@ export interface AnalyticsEvent {
   timestamp: string;
   /** Per-browser-session identifier propagated from the client (may be null). */
   sessionId: string | null;
+  /**
+   * Authenticated user id, when the emitting request has one (WIC-822). When set it
+   * becomes PostHog's `distinct_id` so user-level retention KPIs (baseline §2.3:
+   * Return Upload Rate, Uploads / Active User) resolve; anonymous events fall back to
+   * `sessionId`. The raw `session_id` is always retained as an event property.
+   */
+  userId: string | null;
   properties: Record<string, unknown>;
 }
 
@@ -93,18 +100,20 @@ const consoleSink: AnalyticsSink = {
   name: 'console',
   capture(event) {
     console.log(
-      `[analytics] ${event.event} session=${event.sessionId ?? 'none'} ${JSON.stringify(
-        event.properties
-      )}`
+      `[analytics] ${event.event} user=${event.userId ?? 'none'} session=${
+        event.sessionId ?? 'none'
+      } ${JSON.stringify(event.properties)}`
     );
   },
 };
 
 /**
- * Sends events to PostHog's `/capture` HTTP endpoint. `session_id` is mapped to
- * PostHog's `distinct_id` so per-session funnels/retention work out of the box;
- * the raw `session_id` is also kept as a property. Failures are swallowed —
- * analytics must never break the request path.
+ * Sends events to PostHog's `/capture` HTTP endpoint. `distinct_id` resolves to the
+ * authenticated `userId` when present, else the `session_id`, so user-level retention
+ * KPIs work for authed flows while anonymous (pre-login) events stay session-scoped
+ * and later alias onto the user via the client `identify()` call (WIC-822). The raw
+ * `session_id` is always kept as a property for session-level analysis. Failures are
+ * swallowed — analytics must never break the request path.
  */
 function createPostHogSink(apiKey: string, host: string): AnalyticsSink {
   const endpoint = `${host.replace(/\/$/, '')}/capture/`;
@@ -119,7 +128,7 @@ function createPostHogSink(apiKey: string, host: string): AnalyticsSink {
             api_key: apiKey,
             event: event.event,
             timestamp: event.timestamp,
-            distinct_id: event.sessionId ?? 'anonymous',
+            distinct_id: event.userId ?? event.sessionId ?? 'anonymous',
             properties: {
               ...event.properties,
               session_id: event.sessionId,
@@ -176,11 +185,16 @@ function resolveSink(): AnalyticsSink {
 /**
  * Emit an analytics event. Never throws and never rejects — a failed capture is
  * logged and swallowed so instrumentation can never break the request it observes.
+ *
+ * Pass `userId` for authenticated flows so the event is attributed to the user
+ * (PostHog `distinct_id`) rather than the browser session (WIC-822). When omitted or
+ * null the event stays session-scoped, matching pre-auth behavior.
  */
 export async function track(
   event: AnalyticsEventName,
   properties: Record<string, unknown>,
-  sessionId?: string | null
+  sessionId?: string | null,
+  userId?: string | null
 ): Promise<void> {
   try {
     const sink = resolveSink();
@@ -188,6 +202,7 @@ export async function track(
       event,
       timestamp: new Date().toISOString(),
       sessionId: sessionId ?? null,
+      userId: userId ?? null,
       properties,
     });
   } catch (err) {
