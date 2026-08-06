@@ -42,7 +42,7 @@ The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoi
 The resume-upload and export flows are now instrumented against the KPIs in `docs/analytics/metrics-baseline.md`, feeding the PostHog dashboards spec'd in `docs/analytics/dashboard-spec.md` (WIC-814, WIC-815, WIC-817).
 
 - **Server-side capture** (`packages/api/src/services/analytics.service.ts`) — a pluggable sink selected by `ANALYTICS_SINK` (`noop` default | `console` | `posthog`); the PostHog sink posts to the `/capture` HTTP endpoint, which works from Cloudflare Workers over `fetch`. A failed capture never throws or breaks the request path.
-- **Attribution** — every event maps `distinct_id = session_id` (falling back to `anonymous`), with the raw `session_id` also kept as an event property, so per-session funnels and retention work out of the box. User-level retention KPIs need a stable per-user `distinct_id`; attributing authenticated events to `userId` (plus a client `identify()` on login) is a tracked follow-up — see "Gap 2" in `docs/analytics/dashboard-spec.md` (WIC-822, not yet merged).
+- **Attribution** — authenticated events now attribute to the user: `distinct_id = userId ?? session_id ?? anonymous` (WIC-822, merged). The raw `session_id` is still retained as an event property, so per-session funnels keep working and pre-login events remain session-scoped. This closes the server-side half of "Gap 2" in `docs/analytics/dashboard-spec.md`; two follow-ups remain before user-level retention KPIs (Dashboard C) fully light up: a client `identify(userId)` alias so pre-login events fold into the user identity (WIC-825), and the prod PostHog sink flip (WIC-821). Until those land, authed (`userId`) and pre-login (`sessionId`) events are two separate PostHog identities.
 - **Event taxonomy:**
   - Server (`@wic/api`): `resume_upload_started`, `resume_upload_completed` (carries an `is_duplicate` boolean so P95 processing-time and funnel KPIs can exclude re-uploads — WIC-817), `resume_upload_failed`.
   - Client (`@wic/web`, `packages/web/src/services/analytics.ts`): `resume_upload_started`, `resume_upload_validation_failed`, `resume_upload_cta_clicked`, `resume_manager_viewed`, `resume_exports_link_clicked`, `export_viewed`.
@@ -99,6 +99,7 @@ A normalized, queryable knowledge base of professional attributes automatically 
 #### Features
 
 **Catalog API** (`/api/catalog/*`)
+
 - `GET/POST /catalog/diffs` — list and generate extraction diffs
 - `GET /catalog/diffs/:id` — retrieve full diff with changes and review items
 - `POST /catalog/diffs/:id/apply` — approve all, reject all, or make partial decisions
@@ -110,6 +111,7 @@ A normalized, queryable knowledge base of professional attributes automatically 
 - `GET /catalog/themes` — browse recurring career themes, with core-strength promotion at 3+ occurrences
 
 **Extraction engine** (`extraction.service.ts`)
+
 - Detects 60+ known technologies with aliases and legacy flags (e.g. jQuery, CoffeeScript)
 - Extracts 14 job-fit signal patterns across role, industry, seniority, and work style
 - Identifies 9 recurring career theme patterns
@@ -118,6 +120,7 @@ A normalized, queryable knowledge base of professional attributes automatically 
 - Flags ambiguous values (`PM`, fuzzy matches) as `ReviewItem` entries for human resolution
 
 **Diff Review UI** (`/catalog` route)
+
 - Tab-based Catalog browse page: Pending Diffs, Companies, Tech Stack, Job Fit, Quantified Bullets, Themes
 - `DiffReviewModal` — approve all, reject all, or selectively apply individual changes
 - `AmbiguityResolver` — radio-button UI for resolving ambiguous tags, fuzzy matches, and unresolved wikilinks
@@ -127,16 +130,16 @@ A normalized, queryable knowledge base of professional attributes automatically 
 
 New tables added via migration `0004_catalog_schema.sql`:
 
-| Table | Purpose |
-|-------|---------|
-| `company_catalog` | Deduplicated company index with application counts |
-| `tech_stack_tags` | Technology skill tags with category and legacy flags |
-| `job_fit_tags` | Role/industry/seniority signal tags |
+| Table                | Purpose                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `company_catalog`    | Deduplicated company index with application counts       |
+| `tech_stack_tags`    | Technology skill tags with category and legacy flags     |
+| `job_fit_tags`       | Role/industry/seniority signal tags                      |
 | `quantified_bullets` | Extracted metric achievements with impact classification |
-| `recurring_themes` | Career themes with core-strength promotion |
-| `catalog_diffs` | Pending change diffs with 7-day expiry |
-| `catalog_change_log` | Immutable audit trail of all catalog mutations |
-| `wikilink_registry` | Resolved `[[wikilink]]` → catalog entity mappings |
+| `recurring_themes`   | Career themes with core-strength promotion               |
+| `catalog_diffs`      | Pending change diffs with 7-day expiry                   |
+| `catalog_change_log` | Immutable audit trail of all catalog mutations           |
+| `wikilink_registry`  | Resolved `[[wikilink]]` → catalog entity mappings        |
 
 New enum types: `job_fit_category`, `tech_stack_category`, `metric_type`, `impact_category`, `change_action`, `diff_status`
 
