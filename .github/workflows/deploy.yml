@@ -308,6 +308,9 @@ jobs:
             SUPABASE_ANON_KEY
             SUPABASE_JWT_SECRET
             DATABASE_URL
+            ANALYTICS_SINK
+            POSTHOG_API_KEY
+            POSTHOG_HOST
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -315,3 +318,11 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           # DATABASE_URL set to port-6543 transaction pooler URL by the preceding step
+          # Analytics sink (WIC-821). Config-driven flip: set the `production` env
+          # variables ANALYTICS_SINK=posthog + POSTHOG_HOST and the POSTHOG_API_KEY
+          # secret, then redeploy. Until those are set these resolve to empty and the
+          # API's config normalizes ANALYTICS_SINK -> `noop` (no key -> noop fallback),
+          # so shipping this plumbing is behavior-neutral until the flip is deliberate.
+          ANALYTICS_SINK: ${{ vars.ANALYTICS_SINK }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
