@@ -2,6 +2,12 @@
 
 This document describes the environment configuration and secrets management strategy for the cloud deployment.
 
+> **Canonical credential inventory:** owner, least-privilege scopes, rotation cadence, and
+> next-review date per credential live in the [Credential Registry](./CREDENTIAL_REGISTRY.md)
+> (ADR-0001 Pillar 4). Which source wins when copies disagree is defined in the
+> [Credential Precedence & Provenance Contract](./CREDENTIAL_PRECEDENCE.md) (Pillar 2). This
+> document covers *where each variable lives per environment*.
+
 ## Environment Overview
 
 | Environment | Purpose | Database | Auth |
