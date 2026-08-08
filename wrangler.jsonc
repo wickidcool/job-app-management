@@ -1,54 +1,56 @@
 {
-	"name": "jobtrail",
-	// Entry point created by WIC-222 (Hono migration)
-	"main": "packages/api/src/worker.ts",
-	"compatibility_date": "2026-05-05",
-	// nodejs_compat enables Node.js built-ins (crypto, stream, etc.) needed by drizzle-orm and dependencies
-	"compatibility_flags": [
-		"nodejs_compat"
-	],
-	// Static frontend assets — served by the Worker for any path without a matching API route.
-	// not_found_handling: "single-page-application" serves index.html when no static file matches
-	// and the Worker returns 404, enabling React Router client-side navigation on direct URL access.
-	"assets": {
-		"directory": "./packages/web/dist",
-		"not_found_handling": "single-page-application"
-	},
-	// R2: object storage for resume files and cover letters
-	// Setup: wrangler r2 bucket create jobtrail-documents
-	"r2_buckets": [
-		{
-			"binding": "R2_BUCKET",
-			"bucket_name": "jobtrail-documents"
-		}
-	],
-	// Non-secret environment variables (secrets go in .dev.vars locally or via `wrangler secret put` for prod)
-	"vars": {
-		"NODE_ENV": "production"
-	},
-	"observability": {
-		"enabled": true
-	},
-	// Preview environment — used by PR preview deployments (wrangler deploy --env preview)
-	"env": {
-		"preview": {
-			"name": "jobtrail-preview",
-			"vars": {
-				"NODE_ENV": "development"
-			},
-			"hyperdrive": [
-				{
-					"binding": "HYPERDRIVE",
-					"id": "374db58fe1014823a9e54ba393125676",
-					"localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
-				}
-			],
-			"r2_buckets": [
-				{
-					"binding": "R2_BUCKET",
-					"bucket_name": "jobtrail-documents-dev"
-				}
-			]
-		}
-	}
+  "name": "jobtrail",
+  // Entry point created by WIC-222 (Hono migration)
+  "main": "packages/api/src/worker.ts",
+  "compatibility_date": "2026-05-05",
+  // nodejs_compat enables Node.js built-ins (crypto, stream, etc.) needed by drizzle-orm and dependencies
+  "compatibility_flags": ["nodejs_compat"],
+  // Static frontend assets served alongside the Worker.
+  // run_worker_first: ["/api/*"] makes the Worker (Hono API) handle every /api/* request first;
+  // without it the asset layer intercepts /api/* — serving index.html to GETs and 405ing other
+  // methods — so the API is shadowed and never reaches the Worker (WIC-564).
+  // not_found_handling: "single-page-application" still serves index.html for any non-API path
+  // with no matching static file, enabling React Router deep links on direct URL access.
+  "assets": {
+    "directory": "./packages/web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  // R2: object storage for resume files and cover letters
+  // Setup: wrangler r2 bucket create jobtrail-documents
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "jobtrail-documents",
+    },
+  ],
+  // Non-secret environment variables (secrets go in .dev.vars locally or via `wrangler secret put` for prod)
+  "vars": {
+    "NODE_ENV": "production",
+  },
+  "observability": {
+    "enabled": true,
+  },
+  // Preview environment — used by PR preview deployments (wrangler deploy --env preview)
+  "env": {
+    "preview": {
+      "name": "jobtrail-preview",
+      "vars": {
+        "NODE_ENV": "development",
+      },
+      "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE",
+          "id": "374db58fe1014823a9e54ba393125676",
+          "localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "R2_BUCKET",
+          "bucket_name": "jobtrail-documents-dev",
+        },
+      ],
+    },
+  },
 }
