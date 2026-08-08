@@ -124,6 +124,16 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # ADR-0001 Pillar 1 (WIC-878): authenticated pings, not just presence checks.
+      # Catches a dead/mis-scoped Cloudflare token or stale Supabase creds loudly here
+      # instead of deep in the deploy/migration as an opaque 401/403.
+      - name: Credential preflight (authenticated)
+        run: npm run -w @wic/api preflight -- cloudflare supabase
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+
       - name: Run database migrations
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -243,6 +253,16 @@ jobs:
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # ADR-0001 Pillar 1 (WIC-878): authenticated pings, not just presence checks.
+      # Catches a dead/mis-scoped Cloudflare token or stale Supabase creds loudly here
+      # instead of deep in the deploy/migration as an opaque 401/403.
+      - name: Credential preflight (authenticated)
+        run: npm run -w @wic/api preflight -- cloudflare supabase
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
       - name: Run database migrations
         env:
