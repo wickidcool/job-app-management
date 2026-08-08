@@ -13,6 +13,7 @@
     "build:web": "npm run build --workspace=@wic/web",
     "build:api": "npm run build --workspace=@wic/api",
     "lint": "npm run lint --workspaces --if-present",
+    "scan:secrets": "npm run scan:secrets --workspace=@wic/api",
     "typecheck": "tsc -b packages/web packages/api --noEmit",
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write \"packages/**/*.{ts,tsx,css,md}\"",

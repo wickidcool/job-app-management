@@ -25,6 +25,19 @@ The application moved from a local-first Fastify/PostgreSQL stack to a serverles
 - Preview deploys run DB migrations and E2E tests; production DB migrations run over the Supabase transaction pooler (WIC-564)
 - Hardened `SUPABASE_DATABASE_URL` handling — fail fast on non-PostgreSQL URLs, configurable pooler region (WIC-633, WIC-638)
 
+### Security — Secret-material CI lint (ADR-0001 Pillar 3, 2026-08-08)
+
+- **Secret scanner:** new `npm run scan:secrets` CI step fails the build when secret-shaped
+  material (API keys, tokens, PEM private keys) appears in a committed **non-secret field** —
+  binding names, resource names, labels, or any tracked file. Cheap insurance against a repeat
+  of the WIC-751 leak, where an Anthropic key rode in as a Worker binding name (WIC-879).
+- Prefix/shape patterns for `ghp_`, `github_pat_`, `sk-ant-`, `AIza`, AWS/Slack/Twilio/Cloudflare
+  tokens, plus a conservative high-entropy heuristic on config/manifest files only (ignores
+  ids/SHAs/URLs to stay low false-positive). Findings point at `file:line:col` + field and are
+  redacted — the scanner never echoes the raw secret.
+- False positives handled via inline `secret-scan:allow` pragma or `.github/secret-scan-allowlist.json`.
+  See `docs/architecture/secret-scan.md`. Pure core in `packages/api/src/lib/secret-scan.ts` (14 unit tests).
+
 ### Security — Multi-user authentication & tenant isolation (2026-04-30 → 2026-05-05)
 
 The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoints require a valid JWT.

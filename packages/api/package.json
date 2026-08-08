@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "preflight": "tsx src/preflight.ts",
+    "scan:secrets": "tsx src/secret-scan.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
