@@ -1,0 +1,27 @@
+{
+	"name": "jobtrail",
+	"main": "packages/api/src/worker.ts",
+	"compatibility_date": "2026-05-05",
+	"compatibility_flags": ["nodejs_compat"],
+	"r2_buckets": [
+		{
+			"binding": "R2_BUCKET",
+			"bucket_name": "jobtrail-documents"
+		}
+	],
+	"vars": {
+		"NODE_ENV": "production"
+	},
+	"env": {
+		"preview": {
+			"name": "jobtrail-preview",
+			"hyperdrive": [
+				{
+					"binding": "HYPERDRIVE",
+					"id": "374db58fe1014823a9e54ba393125676",
+					"localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
+				}
+			]
+		}
+	}
+}

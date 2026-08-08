@@ -1,0 +1,20 @@
+{
+	"name": "jobtrail",
+	"main": "packages/api/src/worker.ts",
+	"compatibility_date": "2026-05-05",
+	"vars": {
+		"NODE_ENV": "production"
+	},
+	"env": {
+		"preview": {
+			"name": "jobtrail-preview",
+			"r2_buckets": [
+				{
+					"//": "WIC-751-style leak: a real key smuggled in as a binding name.",
+					"binding": "sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGG",
+					"bucket_name": "jobtrail-documents-dev"
+				}
+			]
+		}
+	}
+}

@@ -29,6 +29,14 @@ jobs:
       - name: Run linter
         run: npm run lint
 
+      # ADR-0001 Pillar 3 (WIC-879): fail the build if secret-shaped material
+      # (API keys, tokens, private keys) appears in a committed non-secret field
+      # — binding names, resource names, labels, or any tracked file. Secrets
+      # belong only in the secret store / injected env. Allowlist false positives
+      # in .github/secret-scan-allowlist.json.
+      - name: Scan for leaked secret material
+        run: npm run scan:secrets
+
       - name: Run type check
         run: npm run typecheck
 
