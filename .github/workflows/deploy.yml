@@ -126,10 +126,30 @@ jobs:
 
       - name: Run database migrations
         env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
         run: |
-          # Use transaction pooler (port 6543) — session pooler (5432) rejects auth from GitHub Actions
-          DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          # Mirror the production migration step: reconstruct the transaction-pooler URL
+          # from SUPABASE_DATABASE_PASSWORD + parts, so a stale/placeholder SUPABASE_DATABASE_URL
+          # cannot break auth. Falls back to a directly-provided postgresql:// URL (port 6543).
+          # PROJECT_REF is derived from the https:// REST SUPABASE_URL var.
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+          if [ -n "$SUPABASE_DATABASE_PASSWORD" ]; then
+            # Primary path: reconstruct from parts. URL-encode the password so special chars are safe.
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "$SUPABASE_DATABASE_URL" == postgresql://* ]]; then
+            # Fallback: a full Postgres URL was provided directly — normalize to transaction pooler port.
+            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            echo "::error::No usable Supabase DB credentials — set SUPABASE_DATABASE_PASSWORD (dev env secret) or a postgresql:// SUPABASE_DATABASE_URL"
+            exit 1
+          fi
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
 
@@ -211,7 +231,7 @@ jobs:
           [ -z "$SUPABASE_ANON_KEY" ]    && missing="$missing SUPABASE_ANON_KEY"
           [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
           [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
-          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_CAREERPIN_API(repo-secret)"
+          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_API_TOKEN(production-env)"
           if [ -n "$missing" ]; then
             echo "::error::Required secrets/vars not configured:$missing"
             echo "Set these in GitHub → Settings → Secrets and variables (repo or 'production' environment)."
@@ -222,7 +242,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Run database migrations
         env:
@@ -295,12 +315,15 @@ jobs:
       - name: Ensure production R2 bucket exists
         run: npx wrangler r2 bucket create jobtrail-documents || true
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Account-scoped tokens can't enumerate /memberships; pin the account so wrangler skips that lookup.
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare Workers (Production)
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
           secrets: |
             ANTHROPIC_API_KEY
@@ -312,7 +335,9 @@ jobs:
             POSTHOG_API_KEY
             POSTHOG_HOST
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Account-scoped tokens can't enumerate /memberships; pin the account so `wrangler secret bulk` skips that lookup.
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
