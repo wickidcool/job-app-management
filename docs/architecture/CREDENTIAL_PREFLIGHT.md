@@ -28,8 +28,8 @@ the network). Per provider it runs one cheap authenticated call:
 | github     | `GITHUB_TOKEN` / stored `gh`               | `GET api.github.com/user` with the token; else `gh auth status`  |
 | anthropic  | `ANTHROPIC_API_KEY`                        | `GET api.anthropic.com/v1/models`                                |
 | gemini     | `GEMINI_API_KEY` / `GOOGLE_API_KEY`        | `GET generativelanguage.googleapis.com/v1beta/models`            |
-| cloudflare | `CLOUDFLARE_API_TOKEN`                     | `GET api.cloudflare.com/client/v4/user/tokens/verify`            |
-| supabase   | `SUPABASE_URL` + `SUPABASE_ANON_KEY`       | `GET {SUPABASE_URL}/rest/v1/` with the anon key                  |
+| cloudflare | `CLOUDFLARE_API_TOKEN` (+ `CLOUDFLARE_ACCOUNT_ID`) | account-scoped `GET /accounts/{id}/tokens/verify` when an account id is set, else user-scoped `GET /user/tokens/verify` (see below) |
+| supabase   | `SUPABASE_URL` + `SUPABASE_ANON_KEY`       | `GET {SUPABASE_URL}/auth/v1/settings` with the anon/publishable key (see below) |
 | twilio     | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | `GET api.twilio.com/2010-04-01/Accounts/{SID}.json` (basic auth) |
 
 Each check returns a structured result and is printed as one greppable line:
@@ -42,6 +42,41 @@ CREDENTIAL_PRECHECK_SKIP provider=twilio reason=not-configured detail="..."
 
 **No secret values are ever logged** — only the env-var _name_, the provider, and HTTP
 status codes.
+
+### The Cloudflare account-scoped-token trap (WIC-903)
+
+The user-scoped `GET /user/tokens/verify` endpoint returns **401 code 1000 ("Invalid API
+Token")** for an **account-scoped, least-privilege** Workers+R2 deploy token — which is
+exactly the _correct_ token to use in CI. The naive user-endpoint check therefore produced a
+deploy-blocking **false positive** on the first live production run (WIC-878), even though the
+same token deployed Workers and created the R2 bucket green in the same run.
+
+The check now encodes **"never punish a least-privilege token"**:
+
+- When `CLOUDFLARE_ACCOUNT_ID` is set (the CI/prod case) it verifies against the
+  **account-scoped** `GET /accounts/{id}/tokens/verify` endpoint — the right one for such
+  tokens. It returns HTTP 200 with `result.status` = `active | disabled | expired`; a
+  `disabled`/`expired` token is a hard fail (`token-inactive`), a `401/403` means the token
+  is revoked or scoped to a different account (hard fail `unauthorized`).
+- When no account id is known it falls back to the user endpoint, but a `401/403` there is
+  **advisory** (`skipped`, reason `advisory-unverified`) rather than a hard fail — a
+  least-privilege token legitimately 401s there. Set `CLOUDFLARE_ACCOUNT_ID` for a definitive
+  verdict.
+
+### The Supabase publishable-key trap (WIC-903)
+
+The check pings **`GET {SUPABASE_URL}/auth/v1/settings`** (GoTrue), _not_ the PostgREST root
+`GET /rest/v1/`. Under Supabase's current API-key format, the `/rest/v1/` root introspection
+endpoint accepts **only secret keys** — a valid new-style **publishable** key
+(`sb_publishable_…`) is rejected there with **401 "Secret API key required"**, false-failing a
+_correct_ key exactly like the least-privilege Cloudflare token did. `/auth/v1/settings`
+validates the key without demanding secret-key privileges and returns a clean **200** for a
+valid publishable/anon key, **401** for a bad or missing one. A deleted/paused/renamed project
+(WIC-863/868 class) still surfaces as a network/DNS error and blames `SUPABASE_URL`.
+
+> Corollary (WIC-902): the value stored as prod `SUPABASE_ANON_KEY` must be the **publishable**
+> key, never an `sb_secret_…` key. A secret key is RLS-bypassing and must never ship in the SPA
+> bundle or be used as the client anon key.
 
 ### The GitHub env-precedence trap (ADR-0001 Pillar 2)
 
@@ -74,10 +109,13 @@ npm run -w @wic/api preflight -- all                   # every provider
   its _configured_ providers (github if `GITHUB_TOKEN` set, anthropic, supabase) and refuses
   to start on failure. Unconfigured providers are skipped, so local dev without keys is
   unaffected. Opt out with `PREFLIGHT_ON_BOOT=false`.
-- **CI** (`.github/workflows/deploy.yml`): a "Credential preflight (authenticated)" step in
-  both the preview and production deploy jobs runs `preflight -- cloudflare supabase` before
-  migrations/deploy — upgrading the previous **presence-only** (`-z`) checks to real
-  authenticated pings.
+- **CI** (`.github/workflows/deploy.yml`): a "Credential preflight (authenticated, advisory)"
+  step in both the preview and production deploy jobs runs `preflight -- cloudflare supabase`
+  before migrations/deploy — upgrading the previous **presence-only** (`-z`) checks to real
+  authenticated pings. It passes `CLOUDFLARE_ACCOUNT_ID` so the CF check uses the
+  account-scoped endpoint (WIC-903). It is **advisory-first** (`continue-on-error: true`): a
+  failure is surfaced in the logs but does not block the deploy. Flip it to a hard gate (drop
+  `continue-on-error`) once it has run green across live dev/prod runs with no false positives.
 
 ### Fleet agent harness
 
