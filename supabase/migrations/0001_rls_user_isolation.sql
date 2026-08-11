@@ -1,3 +1,13 @@
+-- ⚠️ DEPRECATED / DO NOT APPLY (WIC-905).
+-- Superseded by 0002_rls_current_schema.sql. This file is STALE against the
+-- current schema: it references dropped tables (projects, company_catalog,
+-- job_fit_tags, tech_stack_tags, recurring_themes) — so applying it now ERRORS on
+-- the first ALTER TABLE — and it MISSES current tables personal_info and
+-- onboarding_status. It was also never wired into the deploy pipeline (the drizzle
+-- migrator only runs packages/api/src/db/migrations), so it likely never reached
+-- prod. Use 0002 (idempotent, existence-guarded, schema-accurate) instead.
+-- Kept for history only.
+--
 -- Supabase-specific migration: Row-Level Security for user data isolation.
 -- Applied via Supabase CLI or GitHub Actions deploy step.
 -- Requires: auth.users table (provided by Supabase Auth).

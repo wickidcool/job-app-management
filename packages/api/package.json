@@ -11,6 +11,8 @@
     "preflight": "tsx src/preflight.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
+    "db:rls": "node scripts/apply-rls.mjs",
+    "db:rls:verify": "node scripts/verify-rls.mjs",
     "db:push": "drizzle-kit push",
     "test": "vitest run",
     "test:watch": "vitest",

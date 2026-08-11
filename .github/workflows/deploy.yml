@@ -162,6 +162,10 @@ jobs:
           fi
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
+          # WIC-905: apply idempotent RLS + role grants, then fail the deploy if any
+          # user-scoped table is not RLS-enforced (defense-in-depth for the publishable key).
+          npm run db:rls --workspace=@wic/api
+          npm run db:rls:verify --workspace=@wic/api
 
       - name: Build for preview
         run: npm run build
@@ -295,6 +299,10 @@ jobs:
           fi
           export DATABASE_URL
           npm run db:migrate --workspace=@wic/api
+          # WIC-905: apply idempotent RLS + role grants, then fail the deploy if any
+          # user-scoped table is not RLS-enforced (defense-in-depth for the publishable key).
+          npm run db:rls --workspace=@wic/api
+          npm run db:rls:verify --workspace=@wic/api
 
       - name: Build for production
         run: npm run build
