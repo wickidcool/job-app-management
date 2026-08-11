@@ -1,7 +1,15 @@
 -- WIC-905: Idempotent, schema-accurate Row-Level Security for jobtrail.
--- Supersedes 0001_rls_user_isolation.sql (which is STALE: it references dropped
--- tables — projects, company_catalog, job_fit_tags, tech_stack_tags,
--- recurring_themes — and MISSES current tables personal_info + onboarding_status).
+-- Supersedes 0001_rls_user_isolation.sql (which enumerated tables by hand, missed
+-- personal_info + onboarding_status, and never revoked anon table grants).
+--
+-- Coverage is DERIVED DYNAMICALLY: every base table in `public` that has a
+-- `user_id` column is user-scoped and gets RLS + own-row policies + anon revoke.
+-- This is fail-closed by construction — a newly added user-scoped table is picked
+-- up automatically, so the set can never silently drift below the real schema
+-- (the failure mode that shipped in the first cut of this migration, which
+-- hard-coded 16 tables and omitted projects, company_catalog, job_fit_tags,
+-- tech_stack_tags, recurring_themes). The verifier (scripts/verify-rls.mjs)
+-- derives the same set independently and fails the deploy on any gap.
 --
 -- Why this exists (WIC-902 context): prod GitHub var SUPABASE_ANON_KEY was swapped
 -- from an RLS-bypassing sb_secret_ (service_role) key to a browser-safe
@@ -11,9 +19,8 @@
 -- key can be reachable, any direct PostgREST call (/rest/v1/<table>) must NOT leak
 -- data. This migration guarantees that.
 --
--- Safe to run repeatedly. Existence-guarded (skips tables not present) so it never
--- errors on a schema that has drifted. Requires the Supabase-managed auth schema
--- (auth.uid()); a no-op-ish failure on plain local Postgres is expected there.
+-- Safe to run repeatedly. Requires the Supabase-managed auth schema (auth.uid());
+-- a no-op-ish failure on plain local Postgres is expected there.
 --
 -- Applied by: packages/api/scripts/apply-rls.mjs (npm run db:rls --workspace=@wic/api),
 -- invoked from the deploy workflow's "Run database migrations" step.
@@ -21,31 +28,24 @@
 DO $$
 DECLARE
   t text;
-  tables text[] := ARRAY[
-    'applications',
-    'status_history',
-    'resumes',
-    'resume_exports',
-    'resume_variants',
-    'cover_letters',
-    'outreach_messages',
-    'catalog_change_log',
-    'catalog_diffs',
-    'wikilink_registry',
-    'quantified_bullets',
-    'interview_preps',
-    'interview_prep_stories',
-    'prep_question_story_links',
-    'personal_info',
-    'onboarding_status'
-  ];
+  n int := 0;
 BEGIN
-  FOREACH t IN ARRAY tables LOOP
-    -- Skip tables that don't exist in this database (schema drift / partial deploys).
-    IF to_regclass(format('public.%I', t)) IS NULL THEN
-      RAISE NOTICE 'RLS: skipping missing table %', t;
-      CONTINUE;
-    END IF;
+  FOR t IN
+    SELECT c.relname
+    FROM pg_class c
+    JOIN pg_namespace ns ON ns.oid = c.relnamespace
+    WHERE ns.nspname = 'public'
+      AND c.relkind = 'r'
+      AND EXISTS (
+        SELECT 1 FROM pg_attribute a
+        WHERE a.attrelid = c.oid
+          AND a.attname = 'user_id'
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+      )
+    ORDER BY c.relname
+  LOOP
+    n := n + 1;
 
     -- 1. Enable RLS (idempotent — no error if already enabled).
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
@@ -76,5 +76,15 @@ BEGIN
     --    authenticated keeps CRUD, but RLS still limits it to the caller's own rows.
     EXECUTE format('REVOKE ALL ON public.%I FROM anon', t);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', t);
+
+    RAISE NOTICE 'RLS: secured public.%', t;
   END LOOP;
+
+  -- Fail-closed guard: a healthy jobtrail schema has many user-scoped tables. If we
+  -- found none, discovery is broken (wrong DB / schema) — do not report silent success.
+  IF n = 0 THEN
+    RAISE EXCEPTION 'RLS: no user-scoped tables (public.* with a user_id column) found — refusing to report success';
+  END IF;
+
+  RAISE NOTICE 'RLS: secured % user-scoped table(s)', n;
 END $$;
