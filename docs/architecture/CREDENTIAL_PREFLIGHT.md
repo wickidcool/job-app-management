@@ -5,7 +5,9 @@ ping per configured provider before doing real work, so a bad credential fails *
 and greppably at boot** — naming the exact env var and provider — instead of failing deep
 in a run as an opaque 401/403.
 
-Origin: ADR-0001 (WIC-874), approved GO by CTO on WIC-877. Implemented in WIC-878.
+Origin: [ADR-0001](./adr/ADR-0001-fleet-secrets-credential-management.md) (WIC-874),
+approved GO by CTO on WIC-877. This preflight is **Pillar 1** of that four-pillar standard;
+implemented in WIC-878.
 
 ## Why
 
