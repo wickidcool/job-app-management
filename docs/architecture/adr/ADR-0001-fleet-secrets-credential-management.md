@@ -70,11 +70,11 @@ Adopt a lightweight fleet secrets standard with **four pillars**:
 Delegated to DevOps-owned child issues (execution and review owned by DevOps; this ADR only
 records the decision):
 
-| Pillar        | Child   | Scope                                                            | Status                                          |
-| ------------- | ------- | ---------------------------------------------------------------- | ----------------------------------------------- |
-| Pillar 1      | WIC-878 | Boot-time credential validation helper + harness/CI wiring       | Helper shipped (PR #54, merged); card in review |
-| Pillar 3      | WIC-879 | CI lint for secret material in non-secret fields                 | In review                                       |
-| Pillars 2 & 4 | WIC-880 | Precedence/provenance contract + ownership/scope/expiry registry | In review                                       |
+| Pillar        | Child   | Scope                                                            | Status                                                                                                        |
+| ------------- | ------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Pillar 1      | WIC-878 | Boot-time credential validation helper + harness/CI wiring       | Helper shipped (PR #54, merged); probes hardened for scoped tokens/publishable keys (WIC-903, PR #59, merged) |
+| Pillar 3      | WIC-879 | CI lint for secret material in non-secret fields                 | In review                                                                                                     |
+| Pillars 2 & 4 | WIC-880 | Precedence/provenance contract + ownership/scope/expiry registry | In review                                                                                                     |
 
 ## Implementation
 
@@ -82,7 +82,11 @@ records the decision):
   **authenticated** ping per configured provider at API boot and in both CI deploy jobs,
   printing greppable `CREDENTIAL_PRECHECK_{OK,SKIP,FAIL}` lines that name the offending env
   var and provider without ever logging a secret value. It encodes the Pillar 2
-  "unset beats invalid" contract for the `GITHUB_TOKEN` env-shadow trap. See
+  "unset beats invalid" contract for the `GITHUB_TOKEN` env-shadow trap. WIC-903 hardened
+  the Cloudflare and Supabase probes so a valid least-privilege token / new-style
+  publishable key is no longer false-failed (account-scoped `GET /accounts/{id}/tokens/verify`
+  for CF; GoTrue `GET /auth/v1/settings` for Supabase), and the CI step was re-adopted
+  advisory-first (`continue-on-error`) pending a green-run window before it becomes a hard gate. See
   **[`docs/architecture/CREDENTIAL_PREFLIGHT.md`](../CREDENTIAL_PREFLIGHT.md)** for the full
   helper reference, provider table, and run instructions.
 - **Pillars 2, 3, and 4** land with WIC-879 / WIC-880; this record will be updated as those
@@ -93,6 +97,7 @@ records the decision):
 - WIC-874 — ADR-0001 proposal (this decision).
 - WIC-877 — CTO go/no-go; board answered `adopt_all` (all four pillars).
 - WIC-878 — Pillar 1 rollout: boot-time credential validation helper (PR #54).
+- WIC-903 — Pillar 1 hardening: account-scoped CF / GoTrue Supabase probes + advisory-first CI re-adoption (PR #59, per WIC-910 EM directive).
 - WIC-879 — Pillar 3 rollout: CI secret-in-config lint.
 - WIC-880 — Pillars 2 & 4 rollout: precedence/provenance contract + credential registry.
 - `docs/architecture/CREDENTIAL_PREFLIGHT.md` — Pillar 1 implementation reference.
