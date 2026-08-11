@@ -16,6 +16,15 @@ Product analytics is now **live in production**. The event sink was flipped from
 - **Client sink flipped** — the production SPA build now bakes in `VITE_ANALYTICS_SINK=posthog` (plus `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST`), so the 6 client events (`resume_upload_started`, `resume_upload_validation_failed`, `resume_upload_cta_clicked`, `resume_manager_viewed`, `resume_exports_link_clicked`, `export_viewed`) began capturing on the 2026-08-11 production deploy (WIC-899, PR #50). Preview builds remain `noop`.
 - **Dashboards** — Dashboards A (Upload Health) and B (Export/Engagement) in `docs/analytics/dashboard-spec.md` are now fully computable from live data. Dashboard C (user-level retention) still awaits the client `identify(userId)` alias (WIC-825); until it lands, authenticated (`userId`) and pre-login (`sessionId`) events remain separate PostHog identities.
 
+### Reliability — Boot-time credential preflight (2026-08-11)
+
+Credentials are now validated at boot instead of failing deep in a run. A reusable, dependency-injected helper runs one cheap **authenticated** ping per configured provider and prints a structured, greppable result (`CREDENTIAL_PRECHECK_{OK,SKIP,FAIL} provider=… var=… reason=…`), naming the exact env var and provider on failure — no secret values are ever logged (WIC-878, PR #54; ADR-0001 Pillar 1).
+
+- **Providers checked** — `github`, `anthropic`, `gemini`, `cloudflare`, `supabase`, `twilio`. `env`/`fetch`/`exec` are injected, so every path is unit-tested without the network (`packages/api/src/lib/credential-preflight.ts`).
+- **GitHub env-precedence trap** — a present-but-invalid `GITHUB_TOKEN` is a hard failure even when the stored `gh` credential is valid, because env `GITHUB_TOKEN` shadows it (ADR-0001 Pillar 2, "unset beats invalid").
+- **Wired into boot + CI** — runs on API server boot (opt out via `PREFLIGHT_ON_BOOT=false`) and in both CI deploy jobs, upgrading the presence-only (`-z`) checks to real authenticated pings. CLI entry: `npm run -w @wic/api preflight`.
+- See `docs/architecture/CREDENTIAL_PREFLIGHT.md`.
+
 ### Infrastructure — Cloud migration to Cloudflare Workers + Supabase (2026-05-05)
 
 The application moved from a local-first Fastify/PostgreSQL stack to a serverless production deployment.
