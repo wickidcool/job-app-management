@@ -24,7 +24,14 @@
 	],
 	// Non-secret environment variables (secrets go in .dev.vars locally or via `wrangler secret put` for prod)
 	"vars": {
-		"NODE_ENV": "production"
+		"NODE_ENV": "production",
+		// Analytics sink (WIC-821): route the 9 instrumented events to PostHog.
+		// These are non-secret config, so they live here rather than in the CI secrets
+		// block. The only secret is POSTHOG_API_KEY, injected by deploy.yml from the
+		// GitHub `production` environment. If that key is ever unset, config.ts +
+		// analytics.service.ts fall back to the noop sink with a warning.
+		"ANALYTICS_SINK": "posthog",
+		"POSTHOG_HOST": "https://us.i.posthog.com"
 	},
 	"observability": {
 		"enabled": true
