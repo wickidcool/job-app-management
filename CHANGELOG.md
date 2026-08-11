@@ -25,6 +25,15 @@ Credentials are now validated at boot instead of failing deep in a run. A reusab
 - **Wired into boot + CI** — runs on API server boot (opt out via `PREFLIGHT_ON_BOOT=false`) and in both CI deploy jobs, upgrading the presence-only (`-z`) checks to real authenticated pings. CLI entry: `npm run -w @wic/api preflight`.
 - See `docs/architecture/CREDENTIAL_PREFLIGHT.md`.
 
+### Fixed — Hardened credential-preflight Cloudflare & Supabase probes (2026-08-11)
+
+The Pillar-1 preflight (above) false-failed two _valid_ least-privilege credentials on the first live production run, blocking the deploy. Both probes were hardened — per the WIC-910 EM directive the fix is to **harden** the check, not remove it — so a correctly-scoped token/key is no longer punished (WIC-903, PR #59, merged `191865c`).
+
+- **Cloudflare probe — account-scoped token trap.** The check pinged the user-scoped `GET /user/tokens/verify`, which returns `401` (code 1000 "Invalid API Token") for an **account-scoped, least-privilege** Workers+R2 deploy token — the correct CI token. The probe now verifies against the **account-scoped** `GET /accounts/{id}/tokens/verify` when `CLOUDFLARE_ACCOUNT_ID` is set (HTTP 200 → parse `result.status`: `active` = ok, `disabled`/`expired` = fail `token-inactive`; `401`/`403` = fail `unauthorized`). With no account id it falls back to the user endpoint but treats a `401`/`403` there as **advisory** (`SKIP`, reason `advisory-unverified`) rather than a hard fail.
+- **Supabase probe — publishable-key trap.** The check pinged the PostgREST root `GET /rest/v1/`, which under Supabase's current API-key format accepts only **secret** keys — a valid new-style **publishable** key (`sb_publishable_…`) is rejected there with `401` "Secret API key required". The probe now pings GoTrue `GET {SUPABASE_URL}/auth/v1/settings`, which validates both legacy anon JWTs and new publishable keys (clean `200`/`401`); a deleted/paused project still surfaces as a network/DNS error against `SUPABASE_URL`.
+- **CI — advisory-first re-adoption.** The `preflight -- cloudflare supabase` step was re-added to both preview and production deploy jobs as **advisory** (`continue-on-error: true`) and now passes `CLOUDFLARE_ACCOUNT_ID` so the CF check uses the account-scoped endpoint. To be flipped to a hard gate once green across live dev/prod runs.
+- See the "account-scoped-token trap" and "publishable-key trap" sections of `docs/architecture/CREDENTIAL_PREFLIGHT.md`.
+
 ### Infrastructure — Cloud migration to Cloudflare Workers + Supabase (2026-05-05)
 
 The application moved from a local-first Fastify/PostgreSQL stack to a serverless production deployment.
