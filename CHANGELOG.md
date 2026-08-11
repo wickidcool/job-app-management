@@ -6,7 +6,15 @@ All notable changes to the Job Application Manager are documented here.
 
 ## [Unreleased]
 
-> **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`).
+> **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
+
+### Observability — Production analytics go-live (2026-08-11)
+
+Product analytics is now **live in production**. The event sink was flipped from `noop` to **PostHog** on both tiers, so all 9 resume/export events instrumented under WIC-814 (documented in the section below) are now capturing real user data.
+
+- **Server sink flipped** — the production Worker now runs `ANALYTICS_SINK=posthog` with `POSTHOG_API_KEY` / `POSTHOG_HOST` supplied from the GitHub `production` environment. The 3 server events (`resume_upload_started`, `resume_upload_completed`, `resume_upload_failed`) began capturing on the 2026-08-11 production deploy (WIC-821, PR #46).
+- **Client sink flipped** — the production SPA build now bakes in `VITE_ANALYTICS_SINK=posthog` (plus `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST`), so the 6 client events (`resume_upload_started`, `resume_upload_validation_failed`, `resume_upload_cta_clicked`, `resume_manager_viewed`, `resume_exports_link_clicked`, `export_viewed`) began capturing on the 2026-08-11 production deploy (WIC-899, PR #50). Preview builds remain `noop`.
+- **Dashboards** — Dashboards A (Upload Health) and B (Export/Engagement) in `docs/analytics/dashboard-spec.md` are now fully computable from live data. Dashboard C (user-level retention) still awaits the client `identify(userId)` alias (WIC-825); until it lands, authenticated (`userId`) and pre-login (`sessionId`) events remain separate PostHog identities.
 
 ### Infrastructure — Cloud migration to Cloudflare Workers + Supabase (2026-05-05)
 
