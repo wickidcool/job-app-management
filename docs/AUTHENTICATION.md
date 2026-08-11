@@ -157,6 +157,8 @@ To test authentication locally:
 
 2. **Configure secrets and variables**
 
+   > **⚠️ Use the publishable/anon key for `*_ANON_KEY`, never the secret key.** Supabase issues a **publishable/anon key** (`sb_publishable_…`, or a legacy `eyJ…` anon JWT — browser-safe, respects RLS) and a **secret/service_role key** (`sb_secret_…`, or a legacy `eyJ…` service_role JWT — bypasses RLS). Every `SUPABASE_ANON_KEY` / `VITE_SUPABASE_ANON_KEY` value below must be the **publishable/anon** key. The `VITE_` build-time value is baked into the public SPA bundle, so a `sb_secret_…` value there is readable by anyone and bypasses row-level security. The secret key belongs only in `SUPABASE_SERVICE_KEY`, server-side. See `docs/architecture/CLOUD_ENV_SECRETS.md` for the full key-type reference.
+
    **Backend (Worker)** — set as Worker secrets with `wrangler secret put` (or in CI):
 
    ```bash
