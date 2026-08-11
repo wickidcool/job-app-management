@@ -124,6 +124,39 @@ async function ping(deps: PreflightDeps, url: string, init: RequestInit): Promis
   }
 }
 
+type PingBodyResult = { status: number; ok: boolean; body: unknown } | { error: string };
+
+/**
+ * Like `ping`, but best-effort parses the JSON response body. Only used where the
+ * status code alone is not enough — e.g. Cloudflare's token-verify endpoints return
+ * HTTP 200 for a disabled/expired token and encode validity in `result.status`.
+ * Never logs the body; callers only read specific non-secret fields.
+ */
+async function pingWithBody(
+  deps: PreflightDeps,
+  url: string,
+  init: RequestInit
+): Promise<PingBodyResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const res = await deps.fetch(url, { ...init, signal: controller.signal });
+    const text = await res.text().catch(() => '');
+    let body: unknown;
+    try {
+      body = text ? JSON.parse(text) : undefined;
+    } catch {
+      body = undefined;
+    }
+    return { status: res.status, ok: res.ok, body };
+  } catch (err) {
+    const name = err instanceof Error ? err.name : 'unknown';
+    return { error: name === 'AbortError' ? 'timeout' : name };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** 200 → ok; 401/403 → unauthorized; anything else → unexpected-status. */
 function interpret(
   provider: ProviderId,
@@ -262,14 +295,115 @@ async function checkGemini(deps: PreflightDeps, required: boolean): Promise<Chec
   return interpret('gemini', 'GEMINI_API_KEY', result, 'generativelanguage.googleapis.com');
 }
 
+/** Pulls `result.status` (active|disabled|expired) out of a CF token-verify body. */
+function cfTokenStatus(body: unknown): string | undefined {
+  if (body && typeof body === 'object') {
+    const result = (body as { result?: unknown }).result;
+    if (result && typeof result === 'object') {
+      const status = (result as { status?: unknown }).status;
+      if (typeof status === 'string') return status;
+    }
+  }
+  return undefined;
+}
+
 async function checkCloudflare(deps: PreflightDeps, required: boolean): Promise<CheckResult> {
   const token = deps.env.CLOUDFLARE_API_TOKEN?.trim();
   if (!token) return notConfigured('cloudflare', 'CLOUDFLARE_API_TOKEN', required);
-  // Canonical token self-verify endpoint; catches dead/revoked tokens (WIC-869 class).
-  const result = await ping(deps, 'https://api.cloudflare.com/client/v4/user/tokens/verify', {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  const accountId = deps.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  const auth = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const host = 'api.cloudflare.com';
+
+  // WIC-903: the user-scoped /user/tokens/verify endpoint returns 401 (code 1000,
+  // "Invalid API Token") for an account-scoped, least-privilege Workers+R2 deploy
+  // token — which is exactly the correct token to use in CI. So when an account id
+  // is known, verify against the *account-scoped* endpoint, which is the right one
+  // for such tokens and returns HTTP 200 with result.status = active|disabled|expired.
+  if (accountId) {
+    const res = await pingWithBody(
+      deps,
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/tokens/verify`,
+      { headers: auth }
+    );
+    if ('error' in res) {
+      return fail(
+        'cloudflare',
+        'CLOUDFLARE_API_TOKEN',
+        'network-error',
+        `Could not reach ${host} to validate CLOUDFLARE_API_TOKEN (${res.error}).`
+      );
+    }
+    if (res.status === 200) {
+      const status = cfTokenStatus(res.body);
+      if (status && status !== 'active') {
+        return fail(
+          'cloudflare',
+          'CLOUDFLARE_API_TOKEN',
+          'token-inactive',
+          `CLOUDFLARE_API_TOKEN is ${status} per the ${host} account token-verify endpoint.`
+        );
+      }
+      return ok(
+        'cloudflare',
+        'CLOUDFLARE_API_TOKEN',
+        `CLOUDFLARE_API_TOKEN verified against the ${host} account-scoped token-verify endpoint ` +
+          `(HTTP 200${status ? `, status=${status}` : ''}).`
+      );
+    }
+    if (res.status === 401 || res.status === 403) {
+      return fail(
+        'cloudflare',
+        'CLOUDFLARE_API_TOKEN',
+        'unauthorized',
+        `CLOUDFLARE_API_TOKEN was rejected by the ${host} account-scoped token-verify endpoint ` +
+          `(HTTP ${res.status}) — the token is revoked or not scoped to CLOUDFLARE_ACCOUNT_ID.`
+      );
+    }
+    return fail(
+      'cloudflare',
+      'CLOUDFLARE_API_TOKEN',
+      'unexpected-status',
+      `${host} returned HTTP ${res.status} while validating CLOUDFLARE_API_TOKEN.`
+    );
+  }
+
+  // No account id: fall back to the user-scoped verify. A least-privilege,
+  // account-scoped token legitimately 401s here (WIC-903), so a 401/403 is
+  // ADVISORY (skipped), never a hard fail — we must not punish a valid
+  // least-privilege token. Set CLOUDFLARE_ACCOUNT_ID for a definitive check.
+  const res = await ping(deps, 'https://api.cloudflare.com/client/v4/user/tokens/verify', {
+    headers: auth,
   });
-  return interpret('cloudflare', 'CLOUDFLARE_API_TOKEN', result, 'api.cloudflare.com');
+  if ('error' in res) {
+    return fail(
+      'cloudflare',
+      'CLOUDFLARE_API_TOKEN',
+      'network-error',
+      `Could not reach ${host} to validate CLOUDFLARE_API_TOKEN (${res.error}).`
+    );
+  }
+  if (res.status === 200) {
+    return ok(
+      'cloudflare',
+      'CLOUDFLARE_API_TOKEN',
+      `CLOUDFLARE_API_TOKEN verified against the ${host} user token-verify endpoint (HTTP 200).`
+    );
+  }
+  if (res.status === 401 || res.status === 403) {
+    return skip(
+      'cloudflare',
+      'advisory-unverified',
+      `CLOUDFLARE_API_TOKEN could not be verified via the user-scoped endpoint (HTTP ${res.status}); ` +
+        `this is expected for an account-scoped least-privilege token. ` +
+        `Set CLOUDFLARE_ACCOUNT_ID for a definitive account-scoped check.`
+    );
+  }
+  return fail(
+    'cloudflare',
+    'CLOUDFLARE_API_TOKEN',
+    'unexpected-status',
+    `${host} returned HTTP ${res.status} while validating CLOUDFLARE_API_TOKEN.`
+  );
 }
 
 async function checkSupabase(deps: PreflightDeps, required: boolean): Promise<CheckResult> {
@@ -278,10 +412,19 @@ async function checkSupabase(deps: PreflightDeps, required: boolean): Promise<Ch
   if (!url) return notConfigured('supabase', 'SUPABASE_URL', required);
   if (!anon) return notConfigured('supabase', 'SUPABASE_ANON_KEY', required);
   const base = url.replace(/\/+$/, '');
-  // PostgREST root: 200 with a valid anon key, 401 with a bad one. A deleted/renamed
-  // project (WIC-863/868 class) surfaces as a DNS/network error rather than 401.
-  const result = await ping(deps, `${base}/rest/v1/`, {
-    headers: { apikey: anon, Authorization: `Bearer ${anon}`, Accept: 'application/json' },
+  // GoTrue /auth/v1/settings: 200 with a valid publishable/anon key, 401 with a bad
+  // one or none. A deleted/renamed project (WIC-863/868 class) surfaces as a
+  // DNS/network error rather than 401.
+  //
+  // WIC-903: the PostgREST root (`/rest/v1/`) is NOT a safe probe for the current
+  // Supabase API-key format. New-style publishable keys (`sb_publishable_…`) are
+  // rejected there with HTTP 401 "Secret API key required" — only secret keys may
+  // hit the root introspection endpoint — so a *valid* publishable key false-fails
+  // exactly like the least-privilege Cloudflare token did. `/auth/v1/settings`
+  // validates the key without demanding secret-key privileges and returns a clean
+  // 200/401 for both legacy anon JWTs and new publishable keys.
+  const result = await ping(deps, `${base}/auth/v1/settings`, {
+    headers: { apikey: anon, Accept: 'application/json' },
   });
   if ('error' in result) {
     return fail(
@@ -292,7 +435,7 @@ async function checkSupabase(deps: PreflightDeps, required: boolean): Promise<Ch
         `the project may be paused, renamed, or deleted.`
     );
   }
-  return interpret('supabase', 'SUPABASE_ANON_KEY', result, 'the Supabase REST endpoint');
+  return interpret('supabase', 'SUPABASE_ANON_KEY', result, 'the Supabase auth endpoint');
 }
 
 async function checkTwilio(deps: PreflightDeps, required: boolean): Promise<CheckResult> {

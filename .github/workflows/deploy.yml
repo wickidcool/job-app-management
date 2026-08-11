@@ -127,10 +127,18 @@ jobs:
       # ADR-0001 Pillar 1 (WIC-878): authenticated pings, not just presence checks.
       # Catches a dead/mis-scoped Cloudflare token or stale Supabase creds loudly here
       # instead of deep in the deploy/migration as an opaque 401/403.
-      - name: Credential preflight (authenticated)
+      # WIC-903: re-adopted advisory-first (continue-on-error) after hardening the
+      # Cloudflare probe. CLOUDFLARE_ACCOUNT_ID is passed so the CF check hits the
+      # account-scoped token-verify endpoint — a least-privilege, account-scoped
+      # Workers+R2 deploy token (the correct CI token) 401s on the user-scoped one.
+      # Advisory until we confirm no false positives on the real dev/prod tokens; flip
+      # to a hard gate (drop continue-on-error) once green in live runs.
+      - name: Credential preflight (authenticated, advisory)
+        continue-on-error: true
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
@@ -261,10 +269,18 @@ jobs:
       # ADR-0001 Pillar 1 (WIC-878): authenticated pings, not just presence checks.
       # Catches a dead/mis-scoped Cloudflare token or stale Supabase creds loudly here
       # instead of deep in the deploy/migration as an opaque 401/403.
-      - name: Credential preflight (authenticated)
+      # WIC-903: re-adopted advisory-first (continue-on-error) after hardening the
+      # Cloudflare probe. CLOUDFLARE_ACCOUNT_ID is passed so the CF check hits the
+      # account-scoped token-verify endpoint — a least-privilege, account-scoped
+      # Workers+R2 deploy token (the correct CI token) 401s on the user-scoped one.
+      # Advisory until we confirm no false positives on the real dev/prod tokens; flip
+      # to a hard gate (drop continue-on-error) once green in live runs.
+      - name: Credential preflight (authenticated, advisory)
+        continue-on-error: true
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
