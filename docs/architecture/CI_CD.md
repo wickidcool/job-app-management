@@ -5,6 +5,7 @@ This document describes the GitHub Actions CI/CD pipeline for the Job Applicatio
 ## Overview
 
 The pipeline runs on:
+
 - **Push to `main`**: Full lint/test/build, database migrations, and production deployment
 - **Pull requests to `main`**: Full lint/test/build and preview deployment
 
@@ -17,6 +18,7 @@ The pipeline runs on:
 ### 1. Lint & Test
 
 Runs on all pushes and PRs:
+
 - Checkout code
 - Setup Node.js 20 with npm cache
 - Install dependencies (`npm ci`)
@@ -28,6 +30,7 @@ Runs on all pushes and PRs:
 ### 2. Deploy Preview (PRs only)
 
 Creates a preview deployment for each PR:
+
 - Builds with preview environment variables
 - Deploys to Cloudflare Pages on a branch-specific URL
 - Posts the preview URL as a PR comment
@@ -35,6 +38,7 @@ Creates a preview deployment for each PR:
 ### 3. Deploy Production (main branch only)
 
 Deploys to production with safeguards:
+
 - Uses the `production` GitHub environment (requires approval if configured)
 - Concurrency group prevents parallel production deploys
 - Runs database migrations before deployment
@@ -46,18 +50,20 @@ Configure these in GitHub repository settings under Settings > Secrets and varia
 
 ### Repository Secrets
 
-| Secret | Description | How to obtain |
-|--------|-------------|---------------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Pages edit permission | [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) > Create Token > Edit Cloudflare Pages |
-| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID | Cloudflare Dashboard > Account Home > right sidebar |
-| `SUPABASE_DATABASE_URL` | PostgreSQL connection string (pooler) | Supabase Dashboard > Project Settings > Database > Connection string (use Pooler mode) |
+| Secret                  | Description                                     | How to obtain                                                                                                 |
+| ----------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Cloudflare API token with Pages edit permission | [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) > Create Token > Edit Cloudflare Pages |
+| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID                      | Cloudflare Dashboard > Account Home > right sidebar                                                           |
+| `SUPABASE_DATABASE_URL` | PostgreSQL connection string (pooler)           | Supabase Dashboard > Project Settings > Database > Connection string (use Pooler mode)                        |
 
 ### Repository Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `SUPABASE_URL` | Supabase project URL | `https://xxxx.supabase.co` |
-| `SUPABASE_ANON_KEY` | Supabase anonymous/public key | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
+| Variable            | Description                                                                                                                                                                                                                                          | Example                    |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `SUPABASE_URL`      | Supabase project URL                                                                                                                                                                                                                                 | `https://xxxx.supabase.co` |
+| `SUPABASE_ANON_KEY` | Supabase **publishable/anon** key — passed to the build as `VITE_SUPABASE_ANON_KEY` and baked into the public SPA bundle, so it **must** be the browser-safe key (`sb_publishable_…`, or a legacy `eyJ…` anon JWT), **never** a `sb_secret_…` value. | `sb_publishable_…`         |
+
+> ⚠️ Because this variable is compiled into the client bundle, treat a `sb_secret_…` value here as a security incident (RLS-bypassing key exposed publicly). See `docs/architecture/CLOUD_ENV_SECRETS.md`.
 
 ### Environment Setup
 
@@ -84,6 +90,7 @@ wrangler pages project create jobapp
 ```
 
 Or create via the Cloudflare Dashboard:
+
 1. Go to Workers & Pages
 2. Create application > Pages
 3. Connect to Git (select this repository)
@@ -92,10 +99,10 @@ Or create via the Cloudflare Dashboard:
 
 ## Deployment URLs
 
-| Environment | URL |
-|-------------|-----|
-| Production | `https://jobapp.pages.dev` (or custom domain) |
-| Preview | `https://{branch}.jobapp.pages.dev` |
+| Environment | URL                                           |
+| ----------- | --------------------------------------------- |
+| Production  | `https://jobapp.pages.dev` (or custom domain) |
+| Preview     | `https://{branch}.jobapp.pages.dev`           |
 
 ## Rollback Procedure
 
@@ -141,12 +148,14 @@ git push origin hotfix/<previous-commit-sha>
 Database migrations run forward-only. To rollback schema changes:
 
 1. Create a new down migration:
+
    ```bash
    cd packages/api
    npx drizzle-kit generate --name rollback-<feature>
    ```
 
 2. Apply the rollback migration:
+
    ```bash
    npm run db:migrate --workspace=@wic/api
    ```

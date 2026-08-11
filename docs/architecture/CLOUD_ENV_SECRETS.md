@@ -4,49 +4,57 @@ This document describes the environment configuration and secrets management str
 
 ## Environment Overview
 
-| Environment | Purpose | Database | Auth |
-|-------------|---------|----------|------|
+| Environment           | Purpose                       | Database                          | Auth           |
+| --------------------- | ----------------------------- | --------------------------------- | -------------- |
 | **Local Development** | Individual developer machines | Docker PostgreSQL or Supabase CLI | Supabase local |
-| **Preview** | PR review deployments | Supabase (preview branch) | Supabase |
-| **Production** | Live user-facing deployment | Supabase (production) | Supabase |
+| **Preview**           | PR review deployments         | Supabase (preview branch)         | Supabase       |
+| **Production**        | Live user-facing deployment   | Supabase (production)             | Supabase       |
 
 ## Environment Variables
+
+> **⚠️ Supabase key type matters — never ship the secret key to the browser.**
+> Supabase's current API keys come in two forms, and picking the wrong one is a security incident, not a style choice:
+>
+> - **Publishable / anon key** — `sb_publishable_…` (current scheme) or a legacy `eyJ…` **anon** JWT. Browser-safe and **respects Row-Level Security (RLS)**. Every `*_ANON_KEY` variable below — including the `VITE_`-prefixed, build-time ones that are baked into the public SPA bundle — must hold **this** key.
+> - **Secret / service key** — `sb_secret_…` (current scheme) or a legacy `eyJ…` **service_role** JWT. **Bypasses RLS.** Server-side only; store it as `SUPABASE_SERVICE_KEY` and only ever as a secret (Wrangler secret / CF secret). **Never** place it in a `VITE_*` variable, any `*_ANON_KEY` variable, or a non-secret GitHub Actions **variable** — those all end up readable in the client bundle or build logs, and a `sb_secret_` value there lets anyone read it and bypass RLS on the database.
+>
+> Rule of thumb: if a value flows into the client bundle (any `VITE_*`) it must be `sb_publishable_…` / anon. If it begins `sb_secret_`, it belongs only in `SUPABASE_SERVICE_KEY` as a secret.
 
 ### Frontend (Vite)
 
 All frontend env vars must be prefixed with `VITE_` to be exposed to the client bundle.
 
-| Variable | Local | Preview | Production | Sensitive |
-|----------|-------|---------|------------|-----------|
-| `VITE_SUPABASE_URL` | `.env.local` | CF Pages env | CF Pages env | No |
-| `VITE_SUPABASE_ANON_KEY` | `.env.local` | CF Pages env | CF Pages env | No |
-| `VITE_API_URL` | `http://localhost:3000` | (same origin) | (same origin) | No |
+| Variable                 | Local                   | Preview       | Production    | Sensitive                                                                   |
+| ------------------------ | ----------------------- | ------------- | ------------- | --------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`      | `.env.local`            | CF Pages env  | CF Pages env  | No                                                                          |
+| `VITE_SUPABASE_ANON_KEY` | `.env.local`            | CF Pages env  | CF Pages env  | No — **publishable/anon key only** (see callout above); never `sb_secret_…` |
+| `VITE_API_URL`           | `http://localhost:3000` | (same origin) | (same origin) | No                                                                          |
 
 ### Backend / Pages Functions
 
-| Variable | Local | Preview | Production | Sensitive |
-|----------|-------|---------|------------|-----------|
-| `DATABASE_URL` | `.env.local` | CF secret | CF secret | **Yes** |
-| `SUPABASE_URL` | `.env.local` | CF env | CF env | No |
-| `SUPABASE_ANON_KEY` | `.env.local` | CF env | CF env | No |
-| `SUPABASE_SERVICE_KEY` | `.env.local` | CF secret | CF secret | **Yes** |
-| `SUPABASE_JWT_SECRET` | `.env.local` | CF secret | CF secret | **Yes** |
-| `R2_ACCESS_KEY_ID` | `.env.local` | CF secret | CF secret | **Yes** |
-| `R2_SECRET_ACCESS_KEY` | `.env.local` | CF secret | CF secret | **Yes** |
-| `R2_BUCKET_NAME` | `.env.local` | CF env | CF env | No |
+| Variable               | Local        | Preview   | Production | Sensitive                                                              |
+| ---------------------- | ------------ | --------- | ---------- | ---------------------------------------------------------------------- |
+| `DATABASE_URL`         | `.env.local` | CF secret | CF secret  | **Yes**                                                                |
+| `SUPABASE_URL`         | `.env.local` | CF env    | CF env     | No                                                                     |
+| `SUPABASE_ANON_KEY`    | `.env.local` | CF env    | CF env     | No — **publishable/anon key only**; never `sb_secret_…`                |
+| `SUPABASE_SERVICE_KEY` | `.env.local` | CF secret | CF secret  | **Yes** — this is the `sb_secret_…` / service_role key (RLS-bypassing) |
+| `SUPABASE_JWT_SECRET`  | `.env.local` | CF secret | CF secret  | **Yes**                                                                |
+| `R2_ACCESS_KEY_ID`     | `.env.local` | CF secret | CF secret  | **Yes**                                                                |
+| `R2_SECRET_ACCESS_KEY` | `.env.local` | CF secret | CF secret  | **Yes**                                                                |
+| `R2_BUCKET_NAME`       | `.env.local` | CF env    | CF env     | No                                                                     |
 
 ### CI/CD (GitHub Actions)
 
-| Secret | Purpose |
-|--------|---------|
-| `CLOUDFLARE_API_TOKEN` | Deploy to Cloudflare Pages |
+| Secret                  | Purpose                       |
+| ----------------------- | ----------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Deploy to Cloudflare Pages    |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier |
-| `SUPABASE_DATABASE_URL` | Run migrations in CI |
+| `SUPABASE_DATABASE_URL` | Run migrations in CI          |
 
-| Variable (non-secret) | Purpose |
-|-----------------------|---------|
-| `SUPABASE_URL` | Build-time Supabase URL |
-| `SUPABASE_ANON_KEY` | Build-time anon key |
+| Variable (non-secret) | Purpose                                                                                                                                                                                                                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`        | Build-time Supabase URL                                                                                                                                                                                                                                                                 |
+| `SUPABASE_ANON_KEY`   | Build-time anon key — **must be the `sb_publishable_…` / anon key**. This var is read by `deploy.yml` and passed to the build as `VITE_SUPABASE_ANON_KEY`, so its value is baked into the public SPA bundle. A `sb_secret_…` value here exposes the RLS-bypassing key to every visitor. |
 
 ## Local Development Setup
 
@@ -64,6 +72,7 @@ npx supabase start
 ```
 
 The Supabase CLI starts:
+
 - PostgreSQL on `localhost:54322`
 - Auth API on `localhost:54321`
 - Storage API on `localhost:54321`
@@ -126,13 +135,13 @@ wrangler pages secret list --project-name=jobapp
 
 Dashboard path: **Pages > jobapp > Settings > Environment variables**
 
-| Variable | Value |
-|----------|-------|
-| `VITE_SUPABASE_URL` | `https://xxx.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | `eyJ...` |
-| `SUPABASE_URL` | `https://xxx.supabase.co` |
-| `SUPABASE_ANON_KEY` | `eyJ...` |
-| `R2_BUCKET_NAME` | `jobapp-files` |
+| Variable                 | Value                     |
+| ------------------------ | ------------------------- |
+| `VITE_SUPABASE_URL`      | `https://xxx.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | `eyJ...`                  |
+| `SUPABASE_URL`           | `https://xxx.supabase.co` |
+| `SUPABASE_ANON_KEY`      | `eyJ...`                  |
+| `R2_BUCKET_NAME`         | `jobapp-files`            |
 
 ### Secrets (Sensitive)
 
@@ -197,6 +206,7 @@ gh variable set SUPABASE_ANON_KEY --body "eyJ..."
 ### Environment Protection (Production)
 
 Configure the `production` environment with:
+
 - Required reviewers (optional)
 - Wait timer before deploy (optional)
 - Branch restrictions (main only)
@@ -217,9 +227,9 @@ Path: **Settings > Environments > production**
    - Configure OAuth providers (Google, GitHub)
    - Set redirect URLs for each environment
 
-3. **API Keys**
-   - `anon` key: Client-side, respects RLS
-   - `service_role` key: Server-side, bypasses RLS (keep secret)
+3. **API Keys** (Supabase Dashboard > Settings > API)
+   - **Publishable / anon key** (`sb_publishable_…`, or legacy `eyJ…` anon JWT): Client-side, respects RLS → goes in `*_ANON_KEY` / `VITE_SUPABASE_ANON_KEY`
+   - **Secret / service_role key** (`sb_secret_…`, or legacy `eyJ…` service_role JWT): Server-side, **bypasses RLS** → goes in `SUPABASE_SERVICE_KEY` only, always as a secret. Never expose it to the client.
    - JWT secret: For manual token validation
 
 ### Auth Redirect URLs
@@ -242,13 +252,13 @@ https://app.yourdomain.com/auth/callback
 
 ### Rotation Procedures
 
-| Secret | Rotation Frequency | Procedure |
-|--------|-------------------|-----------|
-| `SUPABASE_SERVICE_KEY` | If compromised | Regenerate in Supabase Dashboard, update CF secret |
-| `SUPABASE_JWT_SECRET` | If compromised | Regenerate in Supabase, update CF secret |
-| `R2_ACCESS_KEY_ID` | Annually or if compromised | Create new R2 token, update secrets, revoke old |
-| `DATABASE_URL` | If password compromised | Reset password in Supabase, update connection string |
-| `CLOUDFLARE_API_TOKEN` | Annually | Create new token, update GH secret, revoke old |
+| Secret                 | Rotation Frequency         | Procedure                                            |
+| ---------------------- | -------------------------- | ---------------------------------------------------- |
+| `SUPABASE_SERVICE_KEY` | If compromised             | Regenerate in Supabase Dashboard, update CF secret   |
+| `SUPABASE_JWT_SECRET`  | If compromised             | Regenerate in Supabase, update CF secret             |
+| `R2_ACCESS_KEY_ID`     | Annually or if compromised | Create new R2 token, update secrets, revoke old      |
+| `DATABASE_URL`         | If password compromised    | Reset password in Supabase, update connection string |
+| `CLOUDFLARE_API_TOKEN` | Annually                   | Create new token, update GH secret, revoke old       |
 
 ### Post-Rotation Steps
 
@@ -260,7 +270,7 @@ https://app.yourdomain.com/auth/callback
 ## Security Best Practices
 
 1. **Never commit secrets** - Use `.env.local` files (gitignored)
-2. **Principle of least privilege** - Use `anon` key client-side, `service_role` server-side only
+2. **Principle of least privilege** - Use the publishable/`anon` key (`sb_publishable_…`) client-side, the `service_role`/secret key (`sb_secret_…`) server-side only. A `sb_secret_…` value must never reach a `VITE_*` var, an `*_ANON_KEY` var, or a non-secret GitHub Actions variable — anything baked into the client bundle is publicly readable and bypasses RLS.
 3. **Rotate compromised secrets immediately** - Don't wait for scheduled rotation
 4. **Use environment-specific values** - Never share secrets between preview and production
 5. **Audit access** - Review who has access to Cloudflare, GitHub, and Supabase dashboards
