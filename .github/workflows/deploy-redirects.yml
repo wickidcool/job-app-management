@@ -1,8 +1,0 @@
-# Redirect deploy — superseded by deploy-marketing.yml (WIC-522)
-#
-# Redirect logic (_redirects file) is now part of the careerpin-marketing Pages project.
-# www.careerpin.app, careerpin.io, and www.careerpin.io are custom domains on that project.
-# This file is kept as a tombstone; the workflow has no active jobs.
-name: Deploy Redirect Pages (retired)
-on:
-  workflow_dispatch:
