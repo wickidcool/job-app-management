@@ -281,6 +281,14 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          # Client-side analytics sink (WIC-899). Bakes the PostHog client sink into
+          # the SPA bundle so the 6 WIC-814 client events emit in prod. Mirrors the
+          # server sink flipped in WIC-821; the phc_ ingest key is a public,
+          # browser-safe write key (that's how PostHog client capture works).
+          # Fails closed: an unset VITE_POSTHOG_KEY normalizes to the noop sink.
+          VITE_ANALYTICS_SINK: posthog
+          VITE_POSTHOG_HOST: https://us.i.posthog.com
+          VITE_POSTHOG_KEY: ${{ secrets.POSTHOG_API_KEY }}
 
       - name: Prepare DATABASE_URL (transaction pooler port 6543)
         run: |
