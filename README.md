@@ -47,6 +47,7 @@ supabase/         # Supabase project config
 ```
 
 ### Frontend (`@wic/web`)
+
 - **Framework:** React 19 + React Router 7
 - **Build Tool:** Vite
 - **Styling:** Tailwind CSS 3, Radix UI, `@dnd-kit`
@@ -54,11 +55,12 @@ supabase/         # Supabase project config
 - **Forms:** React Hook Form + Zod
 
 ### Backend (`@wic/api`)
+
 - **Framework:** Hono 4 (Cloudflare Workers; Node via `@hono/node-server`)
 - **ORM:** Drizzle (PostgreSQL / Supabase via Hyperdrive)
 - **Storage:** Cloudflare R2 (S3-compatible)
 - **Auth:** Supabase JWT verification (`jose`)
-- **Analytics:** Provider-agnostic event wrapper (`noop` / `console` / `posthog`); emits nothing until `ANALYTICS_SINK` is configured
+- **Analytics:** Provider-agnostic event wrapper (`noop` / `console` / `posthog`); live in production — the server sink runs `ANALYTICS_SINK=posthog` and captures to PostHog (WIC-821), `noop` by default elsewhere
 - **Language:** TypeScript
 
 ## Getting Started
@@ -109,20 +111,20 @@ npm run db:migrate
 
 ## Available Scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start the frontend dev server (Vite, port 5173) |
-| `npm run dev:api` | Run the API on Node.js via `tsx` (port 3000) |
-| `npm run dev:worker` | Run the API as a Cloudflare Worker via `wrangler dev` |
-| `npm run build` | Build all packages |
-| `npm run build:web` / `build:api` | Build a single package |
-| `npm run typecheck` | Type-check web + api (`tsc -b --noEmit`) |
-| `npm run lint` | Lint all packages |
-| `npm run test` | Run unit tests (Vitest) across packages |
-| `npm run test:e2e` | Run Playwright E2E tests |
-| `npm run format` | Format with Prettier |
-| `npm run db:migrate` | Run database migrations |
-| `npm run db:push` | Push schema changes directly (dev only) |
+| Command                           | Description                                           |
+| --------------------------------- | ----------------------------------------------------- |
+| `npm run dev`                     | Start the frontend dev server (Vite, port 5173)       |
+| `npm run dev:api`                 | Run the API on Node.js via `tsx` (port 3000)          |
+| `npm run dev:worker`              | Run the API as a Cloudflare Worker via `wrangler dev` |
+| `npm run build`                   | Build all packages                                    |
+| `npm run build:web` / `build:api` | Build a single package                                |
+| `npm run typecheck`               | Type-check web + api (`tsc -b --noEmit`)              |
+| `npm run lint`                    | Lint all packages                                     |
+| `npm run test`                    | Run unit tests (Vitest) across packages               |
+| `npm run test:e2e`                | Run Playwright E2E tests                              |
+| `npm run format`                  | Format with Prettier                                  |
+| `npm run db:migrate`              | Run database migrations                               |
+| `npm run db:push`                 | Push schema changes directly (dev only)               |
 
 Run a script in one package: `npm run <script> --workspace=@wic/web` (or `@wic/api`).
 

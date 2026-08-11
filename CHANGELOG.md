@@ -37,12 +37,21 @@ The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoi
 - Auto-logout on `401` responses (WIC-280); auth UI implemented with Supabase (WIC-199)
 - See `docs/AUTHENTICATION.md` and `ADR-003-multi-user-auth`.
 
+### Observability — Product analytics live in production (2026-08-11)
+
+Analytics moved from **instrumented-but-inactive** to **live**: the production sink was flipped to PostHog and server-side events now capture.
+
+- **Server sink flipped to PostHog** — the production Worker deploy now sets `ANALYTICS_SINK=posthog` with `POSTHOG_API_KEY` / `POSTHOG_HOST` injected from the GitHub `production` environment (WIC-821, #46). The server events (`resume_upload_started` / `resume_upload_completed` / `resume_upload_failed`) now capture to the production PostHog project; previously the wrapper defaulted to `noop` and emitted nothing.
+- **Client sink** — the web build's `VITE_ANALYTICS_SINK=posthog` wiring for the six client events is rolling out (WIC-899). The client `identify(userId)` alias on login/session-restore already merged (WIC-825), so authenticated and pre-login events fold into a single PostHog identity once the client sink is live.
+- **Provisioning** — the standalone "provision PostHog project + write key" card (WIC-838) was cancelled; the PostHog project and write key were delivered directly into the `production` environment secret `POSTHOG_API_KEY`, folding provisioning into the WIC-821 flip.
+- Live event-capture acceptance is verified by QA in WIC-889.
+
 ### Observability — Product analytics instrumentation & event taxonomy (2026-08-04)
 
 The resume-upload and export flows are now instrumented against the KPIs in `docs/analytics/metrics-baseline.md`, feeding the PostHog dashboards spec'd in `docs/analytics/dashboard-spec.md` (WIC-814, WIC-815, WIC-817).
 
 - **Server-side capture** (`packages/api/src/services/analytics.service.ts`) — a pluggable sink selected by `ANALYTICS_SINK` (`noop` default | `console` | `posthog`); the PostHog sink posts to the `/capture` HTTP endpoint, which works from Cloudflare Workers over `fetch`. A failed capture never throws or breaks the request path.
-- **Attribution** — authenticated events now attribute to the user: `distinct_id = userId ?? session_id ?? anonymous` (WIC-822, merged). The raw `session_id` is still retained as an event property, so per-session funnels keep working and pre-login events remain session-scoped. This closes the server-side half of "Gap 2" in `docs/analytics/dashboard-spec.md`; two follow-ups remain before user-level retention KPIs (Dashboard C) fully light up: a client `identify(userId)` alias so pre-login events fold into the user identity (WIC-825), and the prod PostHog sink flip (WIC-821). Until those land, authed (`userId`) and pre-login (`sessionId`) events are two separate PostHog identities.
+- **Attribution** — authenticated events now attribute to the user: `distinct_id = userId ?? session_id ?? anonymous` (WIC-822, merged). The raw `session_id` is still retained as an event property, so per-session funnels keep working and pre-login events remain session-scoped. This closes the server-side half of "Gap 2" in `docs/analytics/dashboard-spec.md`. Both former follow-ups have since landed — the client `identify(userId)` alias that folds pre-login events into the user identity (WIC-825), and the prod PostHog sink flip (WIC-821, 2026-08-11; see the go-live entry above) — so authed (`userId`) and pre-login (`sessionId`) events now resolve to a single PostHog identity for user-level retention KPIs (Dashboard C).
 - **Event taxonomy:**
   - Server (`@wic/api`): `resume_upload_started`, `resume_upload_completed` (carries an `is_duplicate` boolean so P95 processing-time and funnel KPIs can exclude re-uploads — WIC-817), `resume_upload_failed`.
   - Client (`@wic/web`, `packages/web/src/services/analytics.ts`): `resume_upload_started`, `resume_upload_validation_failed`, `resume_upload_cta_clicked`, `resume_manager_viewed`, `resume_exports_link_clicked`, `export_viewed`.

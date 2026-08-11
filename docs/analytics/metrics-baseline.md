@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Date:** 2026-04-19  
-**Status:** Instrumentation shipped — resume-upload & export event taxonomy is live in code (WIC-814/815/817, merged 2026-08-04; `packages/api/src/services/analytics.service.ts`, `packages/web/src/services/analytics.ts`). Production capture is inactive until DevOps sets `ANALYTICS_SINK=posthog` + PostHog creds (WIC-821).
+**Status:** Instrumentation shipped — resume-upload & export event taxonomy is live in code (WIC-814/815/817, merged 2026-08-04; `packages/api/src/services/analytics.service.ts`, `packages/web/src/services/analytics.ts`). Production capture is **live as of 2026-08-11**: the prod Worker runs `ANALYTICS_SINK=posthog` with PostHog creds (WIC-821), so server events capture to the production PostHog project; the client sink is rolling out (WIC-899).
 
 ---
 
@@ -221,5 +221,5 @@ is reversible without touching callsites.
 - **Prop naming note:** the completed event's raw-text length property is
   `extracted_char_count` (matching §3.1), not `extracted_text_length`. Dashboards
   should key on the §3 names.
-- **Default is `noop`** so nothing emits until prod is deliberately wired
-  (`ANALYTICS_SINK=posthog`), per the "build now, emit when prod is live" sequencing.
+- **Default is `noop`** so nothing emits outside production; production was deliberately wired to
+  `ANALYTICS_SINK=posthog` on 2026-08-11 (WIC-821), per the "build now, emit when prod is live" sequencing.

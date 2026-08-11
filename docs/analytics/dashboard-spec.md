@@ -3,7 +3,7 @@
 **Version:** 1.0
 **Date:** 2026-08-04
 **Owner:** Data Analyst (WIC-814 dashboards)
-**Status:** Ready-to-apply. Build the moment events flow (prod `ANALYTICS_SINK=posthog`).
+**Status:** Live — the prod sink was flipped to `ANALYTICS_SINK=posthog` on 2026-08-11 (WIC-821), so server events are capturing. Build/verify the insights below against live data; QA acceptance of live capture is tracked in WIC-889.
 **Depends on:** taxonomy on branch `wic-814-analytics-instrumentation` (validated below), PR merge (e7b65048), prod sink flip.
 
 This is the deploy-ready mapping from the 9-event taxonomy (`metrics-baseline.md` §3) to
@@ -130,7 +130,7 @@ unaffected. C1 (server `resume_upload_completed` retention) is computable now; C
 
 1. PR e7b65048 merged (server + client, one branch).
 2. Gap-1 fix in before merge (cheap, unblocks A4). Gap-2 server half merged (WIC-822); client `identify` alias (WIC-825) is the remaining follow-on for full Dashboard C.
-3. Prod wiring: `ANALYTICS_SINK=posthog` + `POSTHOG_API_KEY`/`POSTHOG_HOST` (waits on the
-   SUPABASE_DATABASE_URL / WIC-633 prod-DB incident).
+3. Prod wiring: `ANALYTICS_SINK=posthog` + `POSTHOG_API_KEY`/`POSTHOG_HOST` — **done 2026-08-11**
+   (WIC-821, #46; the SUPABASE_DATABASE_URL / WIC-633 prod-DB prerequisite resolved 2026-08-07). Client sink (`VITE_ANALYTICS_SINK=posthog`) rolling out via WIC-899.
 4. Verify with `ANALYTICS_SINK=console` in staging first — confirm all 9 events fire with §3 props.
 5. Build Dashboards A & B, wire §4 threshold alerts. Dashboard C after gap-2.
