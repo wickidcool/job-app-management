@@ -412,10 +412,19 @@ async function checkSupabase(deps: PreflightDeps, required: boolean): Promise<Ch
   if (!url) return notConfigured('supabase', 'SUPABASE_URL', required);
   if (!anon) return notConfigured('supabase', 'SUPABASE_ANON_KEY', required);
   const base = url.replace(/\/+$/, '');
-  // PostgREST root: 200 with a valid anon key, 401 with a bad one. A deleted/renamed
-  // project (WIC-863/868 class) surfaces as a DNS/network error rather than 401.
-  const result = await ping(deps, `${base}/rest/v1/`, {
-    headers: { apikey: anon, Authorization: `Bearer ${anon}`, Accept: 'application/json' },
+  // GoTrue /auth/v1/settings: 200 with a valid publishable/anon key, 401 with a bad
+  // one or none. A deleted/renamed project (WIC-863/868 class) surfaces as a
+  // DNS/network error rather than 401.
+  //
+  // WIC-903: the PostgREST root (`/rest/v1/`) is NOT a safe probe for the current
+  // Supabase API-key format. New-style publishable keys (`sb_publishable_…`) are
+  // rejected there with HTTP 401 "Secret API key required" — only secret keys may
+  // hit the root introspection endpoint — so a *valid* publishable key false-fails
+  // exactly like the least-privilege Cloudflare token did. `/auth/v1/settings`
+  // validates the key without demanding secret-key privileges and returns a clean
+  // 200/401 for both legacy anon JWTs and new publishable keys.
+  const result = await ping(deps, `${base}/auth/v1/settings`, {
+    headers: { apikey: anon, Accept: 'application/json' },
   });
   if ('error' in result) {
     return fail(
@@ -426,7 +435,7 @@ async function checkSupabase(deps: PreflightDeps, required: boolean): Promise<Ch
         `the project may be paused, renamed, or deleted.`
     );
   }
-  return interpret('supabase', 'SUPABASE_ANON_KEY', result, 'the Supabase REST endpoint');
+  return interpret('supabase', 'SUPABASE_ANON_KEY', result, 'the Supabase auth endpoint');
 }
 
 async function checkTwilio(deps: PreflightDeps, required: boolean): Promise<CheckResult> {

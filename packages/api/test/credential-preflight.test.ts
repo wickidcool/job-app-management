@@ -216,6 +216,31 @@ describe('credential-preflight', () => {
       expect(res.var).toBe('SUPABASE_ANON_KEY');
     });
 
+    it('supabase: probes /auth/v1/settings, NOT the /rest/v1/ root (WIC-903)', async () => {
+      // New-style publishable keys (`sb_publishable_…`) are rejected by the PostgREST
+      // root with 401 "Secret API key required"; a valid one 200s against GoTrue's
+      // /auth/v1/settings. Probing the wrong endpoint false-fails a good key.
+      const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        // Mirror real Supabase: root 401s a publishable key, settings 200s it.
+        const status = url.includes('/auth/v1/settings') ? 200 : 401;
+        return { status, ok: status < 300, text: async () => '' } as Response;
+      }) as unknown as typeof fetch;
+      const d = deps({
+        env: {
+          SUPABASE_URL: 'https://p.supabase.co',
+          SUPABASE_ANON_KEY: 'sb_publishable_valid',
+        },
+        fetch: fetchSpy,
+      });
+      const res = await checkOne('supabase', d);
+      expect(res.outcome).toBe('ok');
+      const calledUrl = (fetchSpy as unknown as { mock: { calls: unknown[][] } }).mock
+        .calls[0][0] as string;
+      expect(calledUrl).toContain('/auth/v1/settings');
+      expect(calledUrl).not.toContain('/rest/v1/');
+    });
+
     it('twilio: ok with valid basic auth', async () => {
       const d = deps({
         env: { TWILIO_ACCOUNT_SID: 'ACxxxx', TWILIO_AUTH_TOKEN: 'tok' },

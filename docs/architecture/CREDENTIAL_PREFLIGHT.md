@@ -27,7 +27,7 @@ the network). Per provider it runs one cheap authenticated call:
 | anthropic  | `ANTHROPIC_API_KEY`                        | `GET api.anthropic.com/v1/models`                                |
 | gemini     | `GEMINI_API_KEY` / `GOOGLE_API_KEY`        | `GET generativelanguage.googleapis.com/v1beta/models`            |
 | cloudflare | `CLOUDFLARE_API_TOKEN` (+ `CLOUDFLARE_ACCOUNT_ID`) | account-scoped `GET /accounts/{id}/tokens/verify` when an account id is set, else user-scoped `GET /user/tokens/verify` (see below) |
-| supabase   | `SUPABASE_URL` + `SUPABASE_ANON_KEY`       | `GET {SUPABASE_URL}/rest/v1/` with the anon key                  |
+| supabase   | `SUPABASE_URL` + `SUPABASE_ANON_KEY`       | `GET {SUPABASE_URL}/auth/v1/settings` with the anon/publishable key (see below) |
 | twilio     | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` | `GET api.twilio.com/2010-04-01/Accounts/{SID}.json` (basic auth) |
 
 Each check returns a structured result and is printed as one greppable line:
@@ -60,6 +60,21 @@ The check now encodes **"never punish a least-privilege token"**:
   **advisory** (`skipped`, reason `advisory-unverified`) rather than a hard fail — a
   least-privilege token legitimately 401s there. Set `CLOUDFLARE_ACCOUNT_ID` for a definitive
   verdict.
+
+### The Supabase publishable-key trap (WIC-903)
+
+The check pings **`GET {SUPABASE_URL}/auth/v1/settings`** (GoTrue), _not_ the PostgREST root
+`GET /rest/v1/`. Under Supabase's current API-key format, the `/rest/v1/` root introspection
+endpoint accepts **only secret keys** — a valid new-style **publishable** key
+(`sb_publishable_…`) is rejected there with **401 "Secret API key required"**, false-failing a
+_correct_ key exactly like the least-privilege Cloudflare token did. `/auth/v1/settings`
+validates the key without demanding secret-key privileges and returns a clean **200** for a
+valid publishable/anon key, **401** for a bad or missing one. A deleted/paused/renamed project
+(WIC-863/868 class) still surfaces as a network/DNS error and blames `SUPABASE_URL`.
+
+> Corollary (WIC-902): the value stored as prod `SUPABASE_ANON_KEY` must be the **publishable**
+> key, never an `sb_secret_…` key. A secret key is RLS-bypassing and must never ship in the SPA
+> bundle or be used as the client anon key.
 
 ### The GitHub env-precedence trap (ADR-0001 Pillar 2)
 
