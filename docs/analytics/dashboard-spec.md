@@ -3,7 +3,7 @@
 **Version:** 1.0
 **Date:** 2026-08-04
 **Owner:** Data Analyst (WIC-814 dashboards)
-**Status:** Ready-to-apply. Build the moment events flow (prod `ANALYTICS_SINK=posthog`).
+**Status:** **Live as of 2026-08-11** — prod `ANALYTICS_SINK=posthog` is deployed on both server (WIC-821) and client (WIC-899) tiers, so all 9 events are now capturing to PostHog. Dashboards A & B are computable now; Dashboard C awaits the client `identify(userId)` alias (WIC-825).
 **Depends on:** taxonomy on branch `wic-814-analytics-instrumentation` (validated below), PR merge (e7b65048), prod sink flip.
 
 This is the deploy-ready mapping from the 9-event taxonomy (`metrics-baseline.md` §3) to
