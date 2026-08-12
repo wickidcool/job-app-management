@@ -34,6 +34,15 @@ The Pillar-1 preflight (above) false-failed two _valid_ least-privilege credenti
 - **CI — advisory-first re-adoption.** The `preflight -- cloudflare supabase` step was re-added to both preview and production deploy jobs as **advisory** (`continue-on-error: true`) and now passes `CLOUDFLARE_ACCOUNT_ID` so the CF check uses the account-scoped endpoint. To be flipped to a hard gate once green across live dev/prod runs.
 - See the "account-scoped-token trap" and "publishable-key trap" sections of `docs/architecture/CREDENTIAL_PREFLIGHT.md`.
 
+### Security — Row-Level Security enforced & verified in the deploy pipeline (2026-08-11)
+
+Production RLS is now **applied and fail-closed verified on every deploy**, closing the gap that WIC-902's publishable-key swap opened. When the prod `SUPABASE_ANON_KEY` moved from an RLS-bypassing `sb_secret_` key to a browser-safe `sb_publishable_` (anon) key, any direct PostgREST call to the project had to stop leaking data — which only holds if RLS is actually enforced in prod. It was not guaranteed: the original RLS SQL (`0001`) was stale and was **never wired into the deploy pipeline** (the drizzle migrator only runs `packages/api/src/db/migrations`) (WIC-905, PR #56, merged `b463b44`).
+
+- **Current-schema RLS migration** — `supabase/migrations/0002_rls_current_schema.sql` is idempotent and existence-guarded: `ENABLE ROW LEVEL SECURITY`, own-row policies scoped `TO authenticated` (`auth.uid() = user_id`), and `REVOKE ALL` from `anon` on every user-scoped table. `0001_rls_user_isolation.sql` is marked deprecated / do-not-apply.
+- **Coverage derived from the schema, not a hand list** — a code-review catch (WIC-914) found the first cut hard-coded 16 tables and omitted 5 live user-scoped ones (`projects`, `company_catalog`, `job_fit_tags`, `tech_stack_tags`, `recurring_themes`). The migration and verifier now derive the table set dynamically from `user_id` columns — **21 tables total**.
+- **Fail-closed verification** — `apply-rls.mjs` / `verify-rls.mjs` (`npm run db:rls` / `db:rls:verify`) apply the policies then fail the build if any user-scoped table lacks RLS or still grants `anon` access. `deploy.yml` runs apply + verify right after `db:migrate` on both preview and production, so a redeploy self-verifies and cannot ship an unsecured DB. `supabase/verify-rls.sql` is a read-only status report for the Supabase dashboard.
+- **App runtime is unaffected** — the Worker reaches Postgres as the `postgres` owner role (via Hyperdrive), which bypasses RLS, and the SPA calls `/api`, never Supabase directly. Verified end-to-end against local Postgres: pre-fix `anon` reads all rows; post-fix `anon` is denied and an authenticated caller sees only its own row.
+
 ### Infrastructure — Cloud migration to Cloudflare Workers + Supabase (2026-05-05)
 
 The application moved from a local-first Fastify/PostgreSQL stack to a serverless production deployment.
@@ -79,7 +88,7 @@ The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoi
 - **Supabase JWT auth middleware**, backend-only (no frontend Supabase SDK) (WIC-197, WIC-193)
 - **ES256 / JWKS verification** — verify Supabase JWTs against the project JWKS, not just the shared secret (WIC-233)
 - **Route-level user isolation** — every endpoint scopes queries to the authenticated `user_id`; `NOT NULL` enforced with per-user indexes (WIC-213, WIC-196; migrations `0011`, `0017`)
-- **Row-Level Security** policies on Supabase (`supabase/migrations/0001_rls_user_isolation.sql`)
+- **Row-Level Security** policies on Supabase (originally `supabase/migrations/0001_rls_user_isolation.sql`; superseded and now enforced in the deploy pipeline by `0002_rls_current_schema.sql` — see the RLS enforcement entry above, WIC-905)
 - Removed unauthenticated `/api/resumes/test-api-key` debug endpoint (WIC-216); removed a PII-leaking raw-text upload log
 - Auto-logout on `401` responses (WIC-280); auth UI implemented with Supabase (WIC-199)
 - See `docs/AUTHENTICATION.md` and `ADR-003-multi-user-auth`.
