@@ -19,7 +19,5 @@ CREATE TABLE IF NOT EXISTS personal_info (
 
 CREATE INDEX IF NOT EXISTS idx_personal_info_user_id ON personal_info(user_id);
 
--- Journal entry
-INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-VALUES ('0013_personal_info', EXTRACT(EPOCH FROM NOW()) * 1000)
-ON CONFLICT (hash) DO NOTHING;
+-- NOTE: manual __drizzle_migrations self-record removed — drizzle migrate()
+-- records this file itself, and the ON CONFLICT (hash) form errors under CI. (WIC-930)

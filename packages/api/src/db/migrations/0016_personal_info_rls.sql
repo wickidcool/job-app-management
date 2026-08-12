@@ -29,7 +29,5 @@ CREATE POLICY personal_info_isolation ON personal_info
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
--- Journal entry
-INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-VALUES ('0016_personal_info_rls', EXTRACT(EPOCH FROM NOW()) * 1000)
-ON CONFLICT (hash) DO NOTHING;
+-- NOTE: manual __drizzle_migrations self-record removed — drizzle migrate()
+-- records this file itself, and the ON CONFLICT (hash) form errors under CI. (WIC-930)

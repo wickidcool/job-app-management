@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS onboarding_status (
 -- Create index on user_id for fast lookups
 CREATE INDEX IF NOT EXISTS idx_onboarding_status_user_id ON onboarding_status(user_id);
 
--- Journal entry
-INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-VALUES ('0012_onboarding_status', EXTRACT(EPOCH FROM NOW()) * 1000)
-ON CONFLICT (hash) DO NOTHING;
+-- NOTE: drizzle migrate() records this migration in drizzle.__drizzle_migrations
+-- itself. The previous manual "INSERT ... ON CONFLICT (hash)" self-record was a
+-- no-op under out-of-band application and errors under CI (the table has no
+-- unique constraint on hash); removed so CI's migrate() can run this file. (WIC-930)

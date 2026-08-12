@@ -78,6 +78,55 @@
       "when": 1777587858000,
       "tag": "0011_add_user_id_multi_tenancy",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777591458000,
+      "tag": "0012_onboarding_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1777595058000,
+      "tag": "0013_personal_info",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1777598658000,
+      "tag": "0014_fix_personal_info_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1777602258000,
+      "tag": "0015_onboarding_personal_info_step",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777605858000,
+      "tag": "0016_personal_info_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777609458000,
+      "tag": "0017_enforce_userid_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777613058000,
+      "tag": "0018_resume_content_hash",
+      "breakpoints": true
     }
   ]
 }
