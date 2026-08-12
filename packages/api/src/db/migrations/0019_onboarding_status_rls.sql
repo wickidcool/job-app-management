@@ -38,7 +38,15 @@ CREATE POLICY onboarding_status_isolation ON onboarding_status
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
--- Journal entry
+-- Journal entry.
+-- NOTE: drizzle's __drizzle_migrations table has no UNIQUE constraint on `hash`
+-- (columns are id SERIAL PK, hash text, created_at bigint), so `ON CONFLICT (hash)`
+-- errors with "there is no unique or exclusion constraint matching the ON CONFLICT
+-- specification" and — in the Supabase SQL editor's single implicit transaction —
+-- rolls back the RLS statements above. Use a NOT EXISTS guard for idempotency instead.
 INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-VALUES ('0019_onboarding_status_rls', EXTRACT(EPOCH FROM NOW()) * 1000)
-ON CONFLICT (hash) DO NOTHING;
+SELECT '0019_onboarding_status_rls', EXTRACT(EPOCH FROM NOW()) * 1000
+WHERE NOT EXISTS (
+  SELECT 1 FROM drizzle.__drizzle_migrations
+  WHERE hash = '0019_onboarding_status_rls'
+);
