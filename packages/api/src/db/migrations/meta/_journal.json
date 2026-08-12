@@ -127,6 +127,13 @@
       "when": 1777613058000,
       "tag": "0018_resume_content_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777616658000,
+      "tag": "0019_onboarding_status_rls",
+      "breakpoints": true
     }
   ]
 }
