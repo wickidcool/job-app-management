@@ -73,8 +73,8 @@ records the decision):
 | Pillar        | Child   | Scope                                                            | Status                                                                                                        |
 | ------------- | ------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | Pillar 1      | WIC-878 | Boot-time credential validation helper + harness/CI wiring       | Helper shipped (PR #54, merged); probes hardened for scoped tokens/publishable keys (WIC-903, PR #59, merged) |
-| Pillar 3      | WIC-879 | CI lint for secret material in non-secret fields                 | In review                                                                                                     |
-| Pillars 2 & 4 | WIC-880 | Precedence/provenance contract + ownership/scope/expiry registry | In review                                                                                                     |
+| Pillar 3      | WIC-879 | CI lint for secret material in non-secret fields                 | Shipped (PR #62, merged)                                                                                      |
+| Pillars 2 & 4 | WIC-880 | Precedence/provenance contract + ownership/scope/expiry registry | Shipped (PR #63, merged)                                                                                      |
 
 ## Implementation
 
@@ -89,8 +89,19 @@ records the decision):
   advisory-first (`continue-on-error`) pending a green-run window before it becomes a hard gate. See
   **[`docs/architecture/CREDENTIAL_PREFLIGHT.md`](../CREDENTIAL_PREFLIGHT.md)** for the full
   helper reference, provider table, and run instructions.
-- **Pillars 2, 3, and 4** land with WIC-879 / WIC-880; this record will be updated as those
-  merge.
+- **Pillar 3** is live: a `npm run scan:secrets` CI step (wired into `deploy.yml`) fails the
+  build when secret-shaped material lands in a committed non-secret field — binding/resource
+  names, labels, or any tracked file — the exact WIC-751 leak shape. Findings are redacted and
+  point at `file:line:col` plus the offending field; low-false-positive by construction, with an
+  inline `secret-scan:allow` pragma / `.github/secret-scan-allowlist.json` allowlist. See
+  **[`docs/architecture/secret-scan.md`](../secret-scan.md)** (WIC-879, PR #62).
+- **Pillars 2 & 4** are live (doc-only): the precedence/provenance contract in
+  **[`CREDENTIAL_PRECEDENCE.md`](../CREDENTIAL_PRECEDENCE.md)** (one authoritative source per
+  credential; `unset` beats `invalid`; no placeholders) and the metadata-only inventory in
+  **[`CREDENTIAL_REGISTRY.md`](../CREDENTIAL_REGISTRY.md)** (owner, least-privilege scopes,
+  rotation cadence, next-review date, and authoritative source per credential; seeded for the
+  four ADR-named providers plus incident-history/emerging ones). No secret values are stored;
+  both are covered by the Pillar 3 scan (WIC-880, PR #63).
 
 ## References
 
@@ -98,8 +109,11 @@ records the decision):
 - WIC-877 — CTO go/no-go; board answered `adopt_all` (all four pillars).
 - WIC-878 — Pillar 1 rollout: boot-time credential validation helper (PR #54).
 - WIC-903 — Pillar 1 hardening: account-scoped CF / GoTrue Supabase probes + advisory-first CI re-adoption (PR #59, per WIC-910 EM directive).
-- WIC-879 — Pillar 3 rollout: CI secret-in-config lint.
-- WIC-880 — Pillars 2 & 4 rollout: precedence/provenance contract + credential registry.
+- WIC-879 — Pillar 3 rollout: CI secret-in-config lint (PR #62, merged).
+- WIC-880 — Pillars 2 & 4 rollout: precedence/provenance contract + credential registry (PR #63, merged).
 - `docs/architecture/CREDENTIAL_PREFLIGHT.md` — Pillar 1 implementation reference.
+- `docs/architecture/secret-scan.md` — Pillar 3 implementation reference.
+- `docs/architecture/CREDENTIAL_PRECEDENCE.md` — Pillar 2 precedence/provenance contract.
+- `docs/architecture/CREDENTIAL_REGISTRY.md` — Pillar 4 credential registry.
 - Incident lineage: WIC-751 (Anthropic key leak), WIC-863 / WIC-868 (Supabase stale creds),
   WIC-869 (Cloudflare token scope), WIC-840 / 852 / 855 / 856 / 857 / 860 (GitHub env-shadow).

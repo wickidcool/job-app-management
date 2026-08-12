@@ -64,6 +64,14 @@ The application moved from a local-first Fastify/PostgreSQL stack to a serverles
 - False positives handled via inline `secret-scan:allow` pragma or `.github/secret-scan-allowlist.json`.
   See `docs/architecture/secret-scan.md`. Pure core in `packages/api/src/lib/secret-scan.ts` (14 unit tests).
 
+### Security — Credential precedence contract & registry (ADR-0001 Pillars 2 & 4, 2026-08-08)
+
+Two canonical, **metadata-only** docs now govern how the fleet resolves and tracks every credential — the doc half of ADR-0001. No secret values are stored; both files are committed and covered by the Pillar 3 secret-scan (WIC-880, PR #63).
+
+- **Precedence & provenance contract (Pillar 2)** — `docs/architecture/CREDENTIAL_PRECEDENCE.md` names one **authoritative source** per credential and a defined precedence order for its derived copies. Three rules: (1) one authoritative source, all other locations are derived copies reconciled _to_ it; (2) **`unset` beats `invalid`** — an absent source falls through, but a present-but-invalid one is a hard failure, never silently overridden (the WIC-855/859 GitHub env-shadow class); (3) no secret is ever set to a placeholder value. The executable half of this contract already ships in the Pillar 1 preflight's `GITHUB_TOKEN` env-shadow check.
+- **Credential registry (Pillar 4)** — `docs/architecture/CREDENTIAL_REGISTRY.md` is the canonical inventory: one row per credential with owner, least-privilege required scopes, rotation cadence, next-review/expiry date, and authoritative source. Seeded for the four ADR-named providers (GitHub, Cloudflare, Supabase, Anthropic) plus incident-history providers (Gemini, Twilio) and emerging (PostHog). The scope column is the provisioning checklist that catches the WIC-869 Cloudflare mis-scope class; every row carries a review date so stale/mispointed creds (WIC-863/868 Supabase) surface on schedule.
+- Both are linked from ADR-0001 and cross-linked with `docs/architecture/CLOUD_ENV_SECRETS.md` (env-var locations per environment).
+
 ### Security — Multi-user authentication & tenant isolation (2026-04-30 → 2026-05-05)
 
 The app became multi-tenant. When Supabase env vars are set, all `/api/*` endpoints require a valid JWT.
