@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { identify, reset } from '../services/analytics';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 const TOKEN_KEY = 'auth_token';
@@ -35,6 +36,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         setToken(authToken);
         localStorage.setItem(TOKEN_KEY, authToken);
+        // Session-restore: alias the anonymous session onto the authed user so
+        // pre-auth events stitch to their profile (WIC-825 / WIC-822 GAP-2).
+        identify(data.user.id);
       } else {
         localStorage.removeItem(TOKEN_KEY);
         setUser(null);
@@ -70,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(TOKEN_KEY);
       setToken(null);
       setUser(null);
+      reset();
     };
     window.addEventListener('auth:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
@@ -91,6 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(TOKEN_KEY, data.token);
     setToken(data.token);
     setUser(data.user);
+    // Login: alias the anonymous pre-login session onto the authed user.
+    identify(data.user.id);
   };
 
   const register = async (email: string, password: string) => {
@@ -110,6 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(TOKEN_KEY, data.token);
       setToken(data.token);
       setUser(data.user);
+      // Registration that returns a session (no email confirmation): identify now.
+      identify(data.user.id);
       return { requiresConfirmation: false };
     }
 
@@ -127,6 +136,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    // Logout: drop the identity and rotate the anon session so a next user on a
+    // shared browser doesn't alias onto this one.
+    reset();
   };
 
   const value = {
