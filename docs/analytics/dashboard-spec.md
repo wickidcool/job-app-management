@@ -3,7 +3,7 @@
 **Version:** 1.0
 **Date:** 2026-08-04
 **Owner:** Data Analyst (WIC-814 dashboards)
-**Status:** **Live as of 2026-08-11** — prod `ANALYTICS_SINK=posthog` is deployed on both server (WIC-821) and client (WIC-899) tiers, so all 9 events are now capturing to PostHog. Dashboards A & B are computable now; Dashboard C awaits the client `identify(userId)` alias (WIC-825).
+**Status:** **Live as of 2026-08-11** — prod `ANALYTICS_SINK=posthog` is deployed on both server (WIC-821) and client (WIC-899) tiers, so all 9 events are now capturing to PostHog. Dashboards A & B were computable at launch; the client `identify(userId)` alias then shipped (WIC-825, PR #72, 2026-08-13), so **Dashboard C is now fully computable** too — all three dashboards are live.
 **Depends on:** taxonomy on branch `wic-814-analytics-instrumentation` (validated below), PR merge (e7b65048), prod sink flip.
 
 This is the deploy-ready mapping from the 9-event taxonomy (`metrics-baseline.md` §3) to
@@ -23,8 +23,9 @@ provider-agnostic, defaults to `noop`, `track()` never throws. **Sign-off confir
 **PostHog identity mapping (as coded, WIC-822 merged):** `distinct_id = userId ?? session_id ?? anonymous`
 (`createPostHogSink`) — authenticated server events attribute to the user, pre-login events fall back to
 `session_id`; raw `session_id` is always kept as a property. This is the single most important fact for
-the dashboards below. The server-side half of gap 2 is now closed; the client `identify(userId)` alias
-(WIC-825) is still open, so pre-login and authed events remain two identities until it lands — see §4 gap 2.
+the dashboards below. Both halves of gap 2 are now closed: the server-side attribution (WIC-822) and the
+client `identify(userId)` alias (WIC-825, PR #72), so pre-login and authed events now resolve to one
+identity — see §4 gap 2.
 
 ---
 
@@ -72,21 +73,21 @@ WHERE event = 'resume_upload_completed'
 
 ---
 
-## 3. Dashboard C — Retention & Repeat Usage (⚠ partially unblocked; client alias still pending)
+## 3. Dashboard C — Retention & Repeat Usage (✅ fully unblocked)
 
-These are the §2.3 **user-level** KPIs. The server-side half of gap-2 (WIC-822) is now merged, so
-authenticated **server** events (`resume_upload_*`) already carry `distinct_id = userId` and are
-user-scoped. They are **still not fully computable** until the client `identify(userId)` alias (WIC-825)
-lands: client-side session events (`resume_manager_viewed`, `export_viewed`, CTA clicks) remain keyed on
-`session_id`, so a returning user on a new browser session is still a brand-new "person" to PostHog for
-those events, and client→server funnels don't stitch. C1 (built purely on the server `resume_upload_completed`
-event) is computable now; C2/C3 that mix in client events wait on WIC-825.
+These are the §2.3 **user-level** KPIs. Both halves of gap-2 are now merged: the server-side attribution
+(WIC-822) and the client `identify(userId)` alias (WIC-825, PR #72). Authenticated **server** events
+(`resume_upload_*`) carry `distinct_id = userId`, and on login the SPA emits a `$identify` event whose
+`$anon_distinct_id` alias folds pre-login `session_id` events (`resume_manager_viewed`, `export_viewed`,
+CTA clicks) onto the authenticated user, with `reset()` clearing identity on logout. A returning user on
+a new browser session now resolves to the same PostHog person, and client→server funnels stitch. **All
+of C1–C3 are computable.**
 
-| #   | KPI (§2.3)                                     | PostHog insight                                            | Blocker                                                                                                    |
-| --- | ---------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| C1  | Return Upload Rate (≥2 resumes / 30d per user) | Retention (event `resume_upload_completed`, 30-day window) | ✅ Unblocked — server event now keys on `userId`.                                                          |
-| C2  | Uploads per Active User (weekly)               | Trends (total completed / unique users, 7d)                | Server side ready; "unique users" is accurate for authed uploads. Client alias (WIC-825) for full picture. |
-| C3  | New vs returning uploaders                     | Trends (breakdown by first-seen)                           | Needs client `identify(userId)` alias (WIC-825) so pre-login sessions fold into the user.                  |
+| #   | KPI (§2.3)                                     | PostHog insight                                            | Status                                                                                          |
+| --- | ---------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| C1  | Return Upload Rate (≥2 resumes / 30d per user) | Retention (event `resume_upload_completed`, 30-day window) | ✅ Computable — server event keys on `userId`.                                                  |
+| C2  | Uploads per Active User (weekly)               | Trends (total completed / unique users, 7d)                | ✅ Computable — client `identify()` (WIC-825) stitches sessions, so "unique users" is accurate. |
+| C3  | New vs returning uploaders                     | Trends (breakdown by first-seen)                           | ✅ Computable — client `identify()` (WIC-825) folds pre-login sessions into the user.           |
 
 ---
 
@@ -108,29 +109,29 @@ The fix is to make duplicates _filterable_:
 - Set `is_duplicate: true` at the duplicate callsite (~line 484), `false` at the normal callsite (~line 593).
 - Dashboards then filter `is_duplicate = false` for timing (A4) and keep all rows for funnels.
 
-### Gap 2 — user-level retention KPIs (server half ✅ merged WIC-822; client alias WIC-825 open)
+### Gap 2 — user-level retention KPIs (✅ both halves merged: server WIC-822, client WIC-825)
 
 **Server half — DONE (WIC-822, merged `d9fe98e`).** `createPostHogSink` now sets
 `distinct_id = userId ?? session_id ?? anonymous`, keeping `session_id` as a property. Authenticated
 server events (`resume_upload_*`) are user-scoped.
 
-**Client half — still open (WIC-825).** Call PostHog `identify(userId)` on login so client-side
-session events (`resume_manager_viewed`, `export_viewed`, CTA clicks) alias onto the user. Until this
-lands, pre-login/client events and authed server events are two separate PostHog identities, so
-client→server funnels for a logged-in user don't stitch and any C-dashboard KPI that mixes client
-events is incomplete.
+**Client half — DONE (WIC-825, PR #72, merged `2b1f4a7`).** `AuthContext` calls
+`identify(userId)` on login/registration and `reset()` on logout (`packages/web/src/services/analytics.ts`).
+`identify()` emits a PostHog `$identify` event whose `$anon_distinct_id` alias merges the prior anonymous
+session person into the identified user, so client-side session events (`resume_manager_viewed`,
+`export_viewed`, CTA clicks) fold onto the user and client→server funnels for a logged-in user stitch.
 
-Trade-off: mixing per-session and per-user `distinct_id` in one funnel breaks it, so both halves must
-be consistent — hence a follow-on, not a one-liner. Upload-health and engagement dashboards (A/B) are
-unaffected. C1 (server `resume_upload_completed` retention) is computable now; C2/C3 wait on WIC-825.
+Trade-off (historical): mixing per-session and per-user `distinct_id` in one funnel breaks it, so both
+halves had to be consistent — hence a follow-on rather than a one-liner. Both are now merged, so all of
+C1–C3 are computable. Upload-health and engagement dashboards (A/B) were unaffected throughout.
 
 ---
 
 ## 5. Rollout sequence
 
 1. PR e7b65048 merged (server + client, one branch).
-2. Gap-1 fix in before merge (cheap, unblocks A4). Gap-2 server half merged (WIC-822); client `identify` alias (WIC-825) is the remaining follow-on for full Dashboard C.
+2. Gap-1 fix in before merge (cheap, unblocks A4). Gap-2 both halves now merged — server (WIC-822) and client `identify` alias (WIC-825, PR #72) — so full Dashboard C is unblocked.
 3. Prod wiring: `ANALYTICS_SINK=posthog` + `POSTHOG_API_KEY`/`POSTHOG_HOST` (waits on the
    SUPABASE_DATABASE_URL / WIC-633 prod-DB incident).
 4. Verify with `ANALYTICS_SINK=console` in staging first — confirm all 9 events fire with §3 props.
-5. Build Dashboards A & B, wire §4 threshold alerts. Dashboard C after gap-2.
+5. Build Dashboards A & B, wire §4 threshold alerts. Gap-2 is now closed (WIC-822 + WIC-825), so Dashboard C can be built alongside them.
