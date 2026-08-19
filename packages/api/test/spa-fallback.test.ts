@@ -62,7 +62,18 @@ const CLIENT_ROUTES = [
   '/resumes/exports',
   '/reports/pipeline',
   '/settings',
+  '/projects',
+  '/projects/new/dialogue',
+  '/projects/acme-corp-engineer',
 ];
+
+// A browser navigating (address bar, refresh, followed link) sends these. Requests in
+// the suite that omit them stand in for subresource fetches and non-browser clients.
+const NAVIGATION = {
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+};
 
 describe('SPA fallback (WIC-1004)', () => {
   const originalEnv = process.env;
@@ -136,6 +147,86 @@ describe('SPA fallback (WIC-1004)', () => {
 
     expect(res.status).toBe(404);
     expect(res.headers.get('Content-Type') ?? '').not.toContain('text/html');
+  });
+
+  // /projects/:projectId/files/:fileName is a real React Router route and dialogue
+  // capture names the file `${company}-${role}.md`, so a legitimate deep link ends in an
+  // extension. Refusing it on the extension alone reinstates the exact WIC-1004 P1 —
+  // refresh on a project file page returns a plaintext 404 — for that whole route.
+  const PROJECT_FILE = '/projects/acme-corp-engineer/files/acme-corp-engineer.md';
+
+  it.each([
+    [PROJECT_FILE, 'a generated dialogue file'],
+    ['/projects/acme-corp/files/notes.v2.md', 'a name with more than one dot'],
+    ['/projects/acme-corp/files/design.png', 'an asset-shaped file name under a route'],
+  ])('serves the shell when a browser navigates to %s (%s)', async (path) => {
+    const app = buildApp();
+    const res = await app.fetch(
+      new Request(`https://app.careerpin.app${path}`, { headers: NAVIGATION }),
+      { ASSETS: makeAssets(ASSET_FILES) }
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    await expect(res.text()).resolves.toContain('<html');
+  });
+
+  it('serves the shell for a project-file deep link when not_found_handling has drifted', async () => {
+    const app = buildApp();
+    const res = await app.fetch(
+      new Request(`https://app.careerpin.app${PROJECT_FILE}`, { headers: NAVIGATION }),
+      { ASSETS: makeAssets(ASSET_FILES, false) }
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toContain('<html');
+  });
+
+  // The navigation exemption must not become a hole in the defect-#1 fix: the same path
+  // requested as a subresource is still a miss and must still 404.
+  it.each([
+    ['script', 'the shell asking for a stale bundle'],
+    ['style', 'a stylesheet fetch'],
+    ['image', 'an <img> fetch'],
+  ])('still 404s a missing file fetched as Sec-Fetch-Dest: %s (%s)', async (dest) => {
+    const app = buildApp();
+    const res = await app.fetch(
+      new Request('https://app.careerpin.app/assets/index-STALE.js', {
+        headers: { Accept: '*/*', 'Sec-Fetch-Dest': dest, 'Sec-Fetch-Mode': 'cors' },
+      }),
+      { ASSETS: makeAssets(ASSET_FILES) }
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('Content-Type') ?? '').not.toContain('text/html');
+  });
+
+  // A browser that predates Sec-Fetch-* still identifies a navigation by Accept.
+  it('serves the shell for a project-file deep link with only an Accept header', async () => {
+    const app = buildApp();
+    const res = await app.fetch(
+      new Request(`https://app.careerpin.app${PROJECT_FILE}`, {
+        headers: { Accept: 'text/html,application/xhtml+xml' },
+      }),
+      { ASSETS: makeAssets(ASSET_FILES) }
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toContain('<html');
+  });
+
+  // Sec-Fetch-* wins over Accept when both are present, so a subresource fetch that
+  // happens to advertise text/html cannot talk its way past the guard.
+  it('404s a missing file whose Accept says html but whose Sec-Fetch-Dest says script', async () => {
+    const app = buildApp();
+    const res = await app.fetch(
+      new Request('https://app.careerpin.app/assets/index-STALE.js', {
+        headers: { Accept: 'text/html', 'Sec-Fetch-Dest': 'script', 'Sec-Fetch-Mode': 'cors' },
+      }),
+      { ASSETS: makeAssets(ASSET_FILES) }
+    );
+
+    expect(res.status).toBe(404);
   });
 
   it('404s a missing file request when not_found_handling has drifted off SPA mode', async () => {
