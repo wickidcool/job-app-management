@@ -124,7 +124,9 @@ describe('SPA fallback (WIC-1004)', () => {
     async (path) => {
       const app = buildApp();
       const assets = makeAssets(ASSET_FILES);
-      const res = await app.fetch(new Request(`https://app.careerpin.app${path}`), { ASSETS: assets });
+      const res = await app.fetch(new Request(`https://app.careerpin.app${path}`), {
+        ASSETS: assets,
+      });
 
       expect(res.headers.get('Content-Type')).toContain('application/json');
       expect(assets.fetch).not.toHaveBeenCalled();
