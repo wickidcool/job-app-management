@@ -9,12 +9,12 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
  * revision is a one-hunk diff that cannot disturb spacing or structure.
  */
 const COPY = {
-  eyebrow: 'Error 404',
-  heading: "We couldn't find that page",
-  body: "The link may be out of date, or the address may have a typo. Nothing you tracked has been lost — it's just not at this address.",
+  eyebrow: '404',
+  heading: "That page couldn't be found",
+  body: "The link may be out of date, or the address may have a typo. Everything you've saved is safe.",
   primaryAction: 'Go to dashboard',
   backAction: 'Go back',
-  pathLabel: 'Requested path:',
+  pathLabel: 'Address you tried:',
 } as const;
 
 /** Longest path we will render before eliding the middle. */
