@@ -1,34 +1,83 @@
-# ADR-0001 Addendum A — Layer 1 config. Extends gitleaks' default rules; add
-# fleet-specific high-signal value patterns here. Kept minimal on purpose: Layer 2
-# (tools/secrets-access-lint) covers the prose-only access-recipe class that
+# ADR-0001 Addendum A — gitleaks config for job-app-management.
+#
+# This file is used by TWO controls with different scopes, and the difference matters:
+#
+#   * Layer 0 (`secret-history-audit.yml`) — full history, weekly, with a redacted
+#     `.gitleaks-baseline.json`. Corpus-derived suppression belongs THERE: a baseline is
+#     fingerprint-scoped and so cannot suppress a finding written tomorrow.
+#   * Layer 1 (`content-policy.yml`) — `--no-git`, i.e. the CURRENT TREE only, on every
+#     push/PR. It carries no baseline, so tree-scoped exemptions have to live here.
+#
+# Layer 2 (`tools/secrets-access-lint`) covers the prose-only access-recipe class that
 # entropy/regex value-scanning cannot see.
 #
-# Scope note: the content-policy workflow runs this with `--no-git`, i.e. against the
-# CURRENT TREE, not 433 commits of history. Full-history remediation for this repo is
-# a separate, still-open workstream (WIC-1076); gating merges on it would leave the
-# required check permanently red. Layer 2 is diff-scoped for the same reason.
+# Provenance of each block below is called out inline: rules marked FLEET are copied
+# verbatim from `wickidcool/ai-build-tool/.gitleaks.toml` and must not be edited here —
+# change the fleet source and re-propagate. Blocks marked REPO-LOCAL are deliberately
+# not fleet candidates (Rev 6.2 §A.2.2).
 title = "job-app-management content-policy (ADR-0001 Addendum A)"
 
 [extend]
 useDefault = true
 
+# ---------------------------------------------------------------------------
+# FLEET rules — keep byte-identical to ai-build-tool/.gitleaks.toml.
+# ---------------------------------------------------------------------------
+
+# WIC-1070: a Google OAuth *refresh* token sat in public git history from 2020.
+# GitHub's scanner flags it (google_oauth_refresh_token); gitleaks' default set does NOT.
+# Refresh tokens are the long-lived half of the credential pair, so this is the one that matters.
+[[rules]]
+id = "google-oauth-refresh-token"
+description = "Google OAuth refresh token"
+regex = '''1//0[A-Za-z0-9_\-]{30,}'''
+keywords = ["1//0"]
+[rules.allowlist]
+regexTarget = "match"
+regexes = ['''1//0[0]{30,}''']   # all-zero placeholders used in docs/fixtures
+
+# Google OAuth access token. Default set only catches these incidentally via
+# generic-api-key, which needs an adjacent keyword and so is not reliable.
+[[rules]]
+id = "google-oauth-access-token"
+description = "Google OAuth access token"
+regex = '''ya29\.[A-Za-z0-9_\-]{20,}'''
+keywords = ["ya29."]
+
+# WIC-1130 / Rev 6.2 §A.2 — DB/broker connection string carrying an embedded credential
+# in the userinfo form. gitleaks' 222-rule default set has no rule for this class, and
+# the only two schemes it names (`mysql`, `mongodb`) appear as *stopwords* inside
+# `generic-api-key`'s allowlist, which makes detection strictly worse. `generic-api-key`
+# does fire on the libpq `password=` form and on `?password=`; it misses
+# `scheme://user:pass@host` because that form presents the credential with no adjacent
+# keyword — and that is exactly the form Supabase hands you under "Connection string".
+#
+# Allowlist is STRUCTURAL ONLY (Rev 6.2 §A.2.2): every entry exempts on the SHAPE of the
+# match — an unresolved interpolation token or a placeholder cannot be a credential
+# value. No corpus-derived entries; those go in the Layer 0 baseline or, for the
+# tree-scoped Layer 1 gate only, in the REPO-LOCAL allowlists at the foot of this file.
+#
+# Validated 2026-08-19 against real gitleaks 8.28.0 (Go RE2, the version both Layer 0 and
+# Layer 1 pin): 8 positive / 9 negative fixtures, 17/17.
 [[rules]]
 id = "pc-db-connection-string"
-description = "Postgres/DB connection string with embedded credentials"
-regex = '''(?i)postgres(?:ql)?://[^:\s]+:[^@\s]+@[^/\s]+'''
+description = "Database/broker connection string with an embedded credential (userinfo form)"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|mssql|sqlserver|clickhouse|cockroachdb|snowflake)://[^:@/\s"'<>]{1,64}:[^@/\s"'<>]{1,256}@[^/\s"'<>]+'''
+keywords = ["://"]
 tags = ["adr-0001", "db-credential"]
 
-  # Verified 2026-08-19 against the current tree: every in-repo match is either a
-  # template interpolation or a documented placeholder password, never a live value.
   [rules.allowlist]
-  description = "Template interpolation and placeholder passwords, never real values"
   regexTarget = "match"
-  regexes = [
-    # `${VAR}` / `${{ secrets.X }}` — resolved at run time, no value in the repo.
-    '''postgres(?:ql)?://[^\s]*\$\{''',
-    # Documented placeholder passwords (.env.example, docs, local docker-compose).
-    '''(?i)://[^:\s/]+:(?:yourpassword|your[-_]password|password|passwd|changeme|postgres|careerpin|secret|example|<[^>@\s]+>|\[[^\]@\s]+\])@''',
-  ]
+  regexes = ['''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{8,}|redacted|your[-_]?password|changeme|placeholder)[^@\s]*@''']
+
+# ---------------------------------------------------------------------------
+# REPO-LOCAL allowlists — NOT fleet candidates.
+#
+# These are corpus-derived: they were verified against THIS repo's tree on 2026-08-19.
+# Rev 6.2 §A.2.2 forbids shipping corpus-derived suppression to 13 repos of history,
+# because an allowlist also exempts matches that do not exist yet. They are safe here
+# only because Layer 1 is tree-scoped and re-verified on every push.
+# ---------------------------------------------------------------------------
 
 # Verified 2026-08-19: the only `generic-api-key` hits in the current tree are a
 # truncated JWT *header* used as documentation ("eyJ...JWT9...", which decodes to the
@@ -44,6 +93,44 @@ regexes = [
   '''eyJ[A-Za-z0-9_-]{8,}\.\.\.''',
   # docs/analytics fixture: `"_key": "A6_avg_sections_detected"` is a metric id.
   '''"_key"\s*:\s*"[A-Za-z0-9_]+"''',
+]
+
+# Documentation-shaped connection strings in this repo's tree. Enumerated as the three
+# concrete placeholder SHAPES that occur here, and confined to docs/ plus the one CLI
+# help string, rather than as the previous version's broad dictionary-word class — that
+# version exempted ANY connection string whose password was `password`/`postgres`/
+# `secret`/`careerpin` anywhere in the repo, which would have silently exempted a real
+# credential that happened to collide.
+#
+# Sites covered (re-verify if this list changes):
+#   packages/api/src/db/migrate.ts     — `DATABASE_URL=…` example in an error message
+#   docs/architecture/CLOUD_ENV_SECRETS.md — `wrangler … secret put` walkthrough
+#   docs/SELF_HOST.md                  — the generic `scheme://user:password@host:port/db` form
+[[allowlists]]
+description = "REPO-LOCAL: documentation placeholder connection strings"
+regexTarget = "match"
+condition = "AND"
+paths = [
+  '''(^|/)docs/''',
+  '''(^|/)packages/api/src/db/migrate\.ts$''',
+]
+regexes = [
+  # SCREAMING_SNAKE metavariable in the password position — `:PASSWORD@`, `:DB_PASS@`.
+  '''://[^@\s]*:[A-Z][A-Z0-9_]{2,}@''',
+  # The literal words a generic-form example uses in place of a value.
+  '''(?i)://(?:user|username|postgres(?:\.[a-z]+)?|<[^>@\s]+>)?:(?:password|passwd|pass|secret|dbpass)@''',
+]
+
+# Local-development connection strings. The exemption is anchored to the HOST, not to
+# the password: `localhost`, a loopback literal, or a docker-compose service alias is not
+# a routable endpoint, so the credential beside it is a local-only value by construction.
+# Sites: wrangler.jsonc + its clean-scan fixture (`localConnectionString`),
+# drizzle.config.ts (dev fallback), .dev.vars.example, packages/marketing/self-host.html.
+[[allowlists]]
+description = "REPO-LOCAL: local-development connection strings (non-routable hosts only)"
+regexTarget = "match"
+regexes = [
+  '''(?i)://[^@\s]+@(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0|host\.docker\.internal|db|postgres|supabase_db[^@\s/:]*)(?::\d+)?(?:/|$)''',
 ]
 
 [[allowlists]]
