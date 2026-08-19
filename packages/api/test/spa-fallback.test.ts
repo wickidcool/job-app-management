@@ -87,6 +87,9 @@ const PARAM_SAMPLES: Record<string, string> = {
   id: '01HZX',
   projectId: 'acme-corp-engineer',
   fileName: 'acme-corp-engineer.md',
+  // Declared by PR #87 (/resumes/:resumeId/exports). #88 merges last, so the sample
+  // lands ahead of the param; an unused entry is inert (no reverse assertion).
+  resumeId: '01HZX',
 };
 
 const DECLARED_PARAMS = [
