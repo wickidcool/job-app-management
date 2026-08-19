@@ -61,8 +61,8 @@ test.describe('NotFound catch-all route', () => {
   test('renders the 404 page for an unmatched in-app path', async ({ page }) => {
     await page.goto('/this-route-does-not-exist');
 
-    await expect(page.getByRole('heading', { name: /couldn't find that page/i })).toBeVisible();
-    await expect(page.getByText('Error 404')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeVisible();
+    await expect(page.getByText('404', { exact: true })).toBeVisible();
   });
 
   test('names the path that was not found', async ({ page }) => {
@@ -79,14 +79,14 @@ test.describe('NotFound catch-all route', () => {
 
     await page.getByRole('link', { name: /go to dashboard/i }).click();
     await expect(page).toHaveURL('/');
-    await expect(page.getByRole('heading', { name: /couldn't find that page/i })).toBeHidden();
+    await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeHidden();
   });
 
   test('does not swallow a real route', async ({ page }) => {
     await page.goto('/applications');
 
     await expect(page.getByRole('heading', { name: 'Applications' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /couldn't find that page/i })).toBeHidden();
+    await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeHidden();
   });
 
   test('unauthenticated unmatched paths still redirect to login', async ({ page }) => {
