@@ -1,0 +1,24 @@
+# Addendum A Rev 5 — fleet rule extension.
+# Extends the gitleaks default rule set; does NOT replace it.
+[extend]
+useDefault = true
+
+# WIC-1070: a Google OAuth *refresh* token sat in public git history from 2020.
+# GitHub's scanner flags it (google_oauth_refresh_token); gitleaks' default set does NOT.
+# Refresh tokens are the long-lived half of the credential pair, so this is the one that matters.
+[[rules]]
+id = "google-oauth-refresh-token"
+description = "Google OAuth refresh token"
+regex = '''1//0[A-Za-z0-9_\-]{30,}'''
+keywords = ["1//0"]
+[rules.allowlist]
+regexTarget = "match"
+regexes = ['''1//0[0]{30,}''']   # all-zero placeholders used in docs/fixtures
+
+# Google OAuth access token. Default set only catches these incidentally via
+# generic-api-key, which needs an adjacent keyword and so is not reliable.
+[[rules]]
+id = "google-oauth-access-token"
+description = "Google OAuth access token"
+regex = '''ya29\.[A-Za-z0-9_\-]{20,}'''
+keywords = ["ya29."]
