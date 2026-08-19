@@ -3863,12 +3863,12 @@ interface CompanyFact {
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ SENIOR ENGINEER INTERVIEW                               │ │
+│ │ Senior Engineer interview                               │ │
 │ │ TechCorp | May 1, 2026 at 2:00 PM                       │ │
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ TOP STORIES                                             │ │
+│ │ Top stories                                             │ │
 │ │ 1. React Migration (Leadership, 95%)                    │ │
 │ │    "Led migration of legacy app, 40% perf gain..."     │ │
 │ │ 2. CI/CD Pipeline (Technical, 92%)                      │ │
@@ -3877,7 +3877,7 @@ interface CompanyFact {
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ KEY QUESTIONS & ANSWERS                                 │ │
+│ │ Key questions & answers                                 │ │
 │ │ Q: Tell me about handling conflict...                   │ │
 │ │ A: Use "Mediated Design Dispute" story                  │ │
 │ │ [2 more...]                                             │ │
@@ -3889,11 +3889,11 @@ interface CompanyFact {
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ COMPANY FACTS TO MENTION                                │ │
+│ │ Company facts to mention                                │ │
 │ │ ★ "Recent Series B, expanding to Europe"                │ │
 │ │ ★ "Tech blog on scalability impressed me"               │ │
 │ │                                                         │ │
-│ │ QUESTIONS TO ASK                                        │ │
+│ │ Questions to ask                                        │ │
 │ │ ? "How does the team approach technical debt?"          │ │
 │ │ ? "What does success look like in 90 days?"             │ │
 │ └─────────────────────────────────────────────────────────┘ │
