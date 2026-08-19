@@ -48,23 +48,43 @@ function makeAssets(files: Record<string, string>, spaFallback = true) {
 
 const ASSET_FILES = { '/index.html': SHELL, '/assets/index-abc.js': 'console.log(1)' };
 
-// Every path-based React Router route a user can land on directly (App.tsx).
+// Every path-based React Router route a user can land on directly (App.tsx). This list
+// is the load-bearing assertion of the suite: it stayed green through the WIC-1020
+// fold-in only because it omitted /projects/:projectId/files/:fileName, the one route
+// whose URLs carry an extension. Keep it exhaustive against App.tsx — a route missing
+// here is a deep link nothing tests.
 const CLIENT_ROUTES = [
   '/',
   '/login',
   '/dashboard',
   '/applications',
   '/applications/new',
+  '/applications/01HZX',
   '/applications/01HZX/prep',
   '/catalog',
   '/cover-letters/new',
   '/cover-letters/01HZX',
-  '/resumes/exports',
+  '/job-fit-analysis',
+  '/outreach/new',
+  '/reports',
   '/reports/pipeline',
+  '/reports/needs-action',
+  '/reports/stale',
+  '/reports/closed-loop',
+  '/reports/by-fit-tier',
+  '/resumes',
+  '/resumes/upload',
+  '/resumes/exports',
+  '/resume-variants',
+  '/resume-variants/new',
+  '/resume-variants/01HZX',
   '/settings',
   '/projects',
   '/projects/new/dialogue',
   '/projects/acme-corp-engineer',
+  // The route the extension heuristic swallowed. Requested with no navigation headers
+  // on purpose — a deep link must not depend on Sec-Fetch-*/Accept to reach the shell.
+  '/projects/acme-corp-engineer/files/acme-corp-engineer.md',
 ];
 
 // A browser navigating (address bar, refresh, followed link) sends these. Requests in

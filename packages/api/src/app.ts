@@ -20,11 +20,18 @@ import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
 import { isHyperdriveTimeout } from './db/hyperdrive.js';
 
-// A last path segment containing a dot usually means the caller wants a file
-// (/assets/x-abc.js, /favicon.ico) rather than a client-side route. It is only a hint:
-// /projects/:projectId/files/:fileName resolves to a real deep link ending in .md,
-// so this must never be the sole reason to refuse the shell — see isNavigation.
-const FILE_REQUEST = /\/[^/]+\.[^/]+$/;
+/**
+ * Extensions the asset pipeline actually serves. A dotted path outside this set is a
+ * client route, not a file request.
+ *
+ * Matching *any* dot is wider than the deploy-skew defect needs, and that extra width is
+ * what swallowed /projects/:projectId/files/:fileName — project.service.ts rejects a
+ * fileName that does not end in .md, so every URL that route can produce carries a dot.
+ * .md is deliberately absent here; .txt/.json are safe because toSlug() collapses
+ * [^a-z0-9]+ to '-', so only the filename segment of that route can carry one.
+ */
+const FILE_REQUEST =
+  /\.(?:js|mjs|cjs|css|map|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|otf|eot|json|txt|xml|webmanifest|wasm)$/i;
 
 /**
  * Paths the build owns outright. Vite emits every hashed bundle under /assets/, and
@@ -132,24 +139,24 @@ export function buildApp() {
     const headers = c.req.raw.headers;
     let res = await assets.fetch(new Request(url, { method: 'GET', headers }));
 
-    // A subresource fetch for a path whose last segment carries an extension is asking
-    // for a file, not a React Router route — the asset router already tried it and
-    // missed. Handing it the shell would answer 200 to a request that failed: a stale
-    // hashed bundle still referenced by a cached index.html would blank the page on the
-    // browser's module MIME check instead of failing cleanly, and would never surface as
-    // a 404 in monitoring. A navigation is excluded because a deep link is allowed to end
-    // in an extension (/projects/:projectId/files/:fileName) and must still get the shell.
-    // Two independent reasons to refuse: the path belongs to the build (never a route,
-    // so headers are irrelevant), or it looks like a file and the request is a
-    // subresource fetch rather than a navigation.
+    // A subresource fetch for a path ending in a served extension is asking for a file,
+    // not a React Router route — the asset router already tried it and missed. Handing it
+    // the shell would answer 200 to a request that failed: a stale hashed bundle still
+    // referenced by a cached index.html would blank the page on the browser's module MIME
+    // check instead of failing cleanly, and would never surface as a 404 in monitoring.
+    // Two independent reasons to refuse: the path belongs to the build (never a route, so
+    // headers are irrelevant), or its extension is one the pipeline serves and the request
+    // is a subresource fetch rather than a navigation. A navigating client is exempt from
+    // the second because an .html-serving extension can still front a route.
     const refuseShell =
       isBuildOwnedPath(url.pathname) || (FILE_REQUEST.test(url.pathname) && !isNavigation(headers));
     if (refuseShell) {
       // Under SPA handling a miss comes back as the shell with 200, so a status check
       // alone cannot see it — an HTML answer to a non-HTML file request is that miss.
-      const servedShell =
-        (res.headers.get('Content-Type') ?? '').includes('text/html') &&
-        !url.pathname.endsWith('.html');
+      // No .html exemption is needed: .html is not in FILE_REQUEST, and the build emits
+      // no .html under the paths isBuildOwnedPath claims, so nothing that legitimately
+      // answers text/html reaches here.
+      const servedShell = (res.headers.get('Content-Type') ?? '').includes('text/html');
       return res.status === 404 || servedShell ? c.text('Not Found', 404) : res;
     }
 
