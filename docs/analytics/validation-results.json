@@ -1,0 +1,87 @@
+{
+  "A1_upload_success_rate": {
+    "ok": true,
+    "columns": ["submitted", "completed", "success_rate_pct"],
+    "rows": [[1, 1, 100.0]]
+  },
+  "A2_validation_error_rate": {
+    "ok": true,
+    "columns": ["started", "validation_failed", "validation_error_rate_pct"],
+    "rows": [[0, 0, null]]
+  },
+  "A3_upload_funnel_by_source": {
+    "ok": true,
+    "columns": ["source", "s1_started", "s2_submitted", "s3_completed", "overall_conversion_pct"],
+    "rows": [[null, 0, 1, 1, null]]
+  },
+  "A4_processing_time": {
+    "ok": true,
+    "columns": ["n_real_uploads", "avg_ms", "p95_ms"],
+    "rows": [[1, 1873.0, 1873.0]]
+  },
+  "A5_parse_success_rate": {
+    "ok": true,
+    "columns": ["completed", "parsed_ok", "parse_success_rate_pct"],
+    "rows": [[1, 1, 100.0]]
+  },
+  "A6_avg_sections_detected": {
+    "ok": true,
+    "columns": ["avg_sections_detected"],
+    "rows": [[4.0]]
+  },
+  "A7_avg_bullets_per_section": {
+    "ok": true,
+    "columns": ["avg_bullets", "avg_sections", "bullets_per_section"],
+    "rows": [[17.0, 4.0, 4.25]]
+  },
+  "A8_avg_extracted_char_count": {
+    "ok": true,
+    "columns": ["avg_extracted_char_count"],
+    "rows": [[3120.0]]
+  },
+  "A9_failure_breakdown": {
+    "ok": true,
+    "columns": ["error_stage", "error_code", "failures"],
+    "rows": [["extraction", "SMOKE_WIC996_synthetic_failure", 1]]
+  },
+  "B1_export_view_rate": {
+    "ok": true,
+    "columns": ["completed_sessions", "export_viewed_sessions", "export_view_rate_pct"],
+    "rows": [[1, 0, 0.0]]
+  },
+  "B2_resume_manager_visit_rate": {
+    "ok": true,
+    "columns": ["total_sessions", "manager_sessions", "manager_visit_rate_pct"],
+    "rows": [[2, 0, 0.0]]
+  },
+  "B3_exports_link_ctr": {
+    "ok": true,
+    "columns": ["resume_file_type", "clicks"],
+    "rows": []
+  },
+  "B4_post_upload_cta_split": {
+    "ok": true,
+    "columns": ["cta", "clicks", "pct_of_clicks"],
+    "rows": []
+  },
+  "B5_export_generation_rate": {
+    "ok": true,
+    "columns": ["completed", "with_export_id", "export_generation_rate_pct"],
+    "rows": [[1, 1, 100.0]]
+  },
+  "C1_return_upload_rate_30d": {
+    "ok": true,
+    "columns": ["uploaders_30d", "returning_uploaders", "return_upload_rate_pct"],
+    "rows": [[1, 0, 0.0]]
+  },
+  "C2_uploads_per_active_user_7d": {
+    "ok": true,
+    "columns": ["total_completed", "active_users", "uploads_per_active_user"],
+    "rows": [[1, 1, 1.0]]
+  },
+  "C3_new_vs_returning_uploaders": {
+    "ok": true,
+    "columns": ["cohort", "uploaders"],
+    "rows": [["new", 1]]
+  }
+}
