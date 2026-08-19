@@ -76,6 +76,12 @@ This design system provides a consistent visual language and reusable tokens for
   --color-info-100: #cffafe;
   --color-info-500: #06b6d4;     /* Saved status */
   --color-info-700: #0e7490;
+
+  /* Caution (Orange) */
+  --color-caution-50: #fff7ed;
+  --color-caution-100: #ffedd5;
+  --color-caution-500: #f97316;  /* Phone-screen status */
+  --color-caution-700: #c2410c;
 }
 ```
 
@@ -86,13 +92,62 @@ This design system provides a consistent visual language and reusable tokens for
   /* Application Status Colors */
   --status-saved: var(--color-info-500);          /* Blue */
   --status-applied: var(--color-warning-500);     /* Yellow */
-  --status-phone-screen: #f97316;                 /* Orange */
+  --status-phone-screen: var(--color-caution-500); /* Orange */
   --status-interview: #a855f7;                    /* Purple */
   --status-offer: var(--color-success-500);       /* Green */
   --status-rejected: var(--color-error-500);      /* Red */
   --status-withdrawn: var(--color-neutral-400);   /* Gray */
 }
 ```
+
+### Gap Severity Scale
+
+The canonical, and only, colour scale for the `GapSeverity` field (`critical` / `moderate` /
+`minor`). Decided in WIC-1146; supersedes the three ad-hoc ramps previously inlined in
+`JobFitAnalysis` and `GapMitigationPanel`.
+
+> **Colour is never the sole carrier of severity.** A red→orange→yellow ramp is not
+> distinguishable under colour-vision deficiency — at a uniform `-700` step, `moderate` and
+> `minor` simulate to `#7a7a00` and `#797900` under deuteranopia, a separation of 1.01:1. The
+> steps below are tuned to recover what ordering this hue range permits (worst case 1.41:1 across
+> the three dichromacies), but the **text label is mandatory at every render site** and does the
+> actual work (WCAG 1.4.1). Do not add a swatch, dot, chip, or emoji as an additional colour-only
+> mark — emoji in particular cannot be tokenised, since the platform font owns their hue.
+
+```css
+:root {
+  /* critical — highest severity */
+  --gap-severity-critical-surface: var(--color-error-50);   /* #fef2f2 */
+  --gap-severity-critical-mark: #7f1d1d;                    /* border / graphical mark */
+  --gap-severity-critical-text: var(--color-error-700);     /* #b91c1c */
+
+  /* moderate */
+  --gap-severity-moderate-surface: var(--color-caution-50); /* #fff7ed */
+  --gap-severity-moderate-mark: var(--color-caution-700);   /* #c2410c */
+  --gap-severity-moderate-text: var(--color-caution-700);   /* #c2410c */
+
+  /* minor — lowest severity, but still a gap: never green */
+  --gap-severity-minor-surface: #fffbeb;                    /* amber-50 */
+  --gap-severity-minor-mark: #d97706;                       /* amber-600 */
+  --gap-severity-minor-text: #b45309;                       /* amber-700 */
+}
+```
+
+`minor` is **amber, not yellow**: yellow-700 is the value that collapses against `moderate` under
+deuteranopia, and yellow-500 is 1.92:1 on white — below the 3:1 non-text bar.
+
+**Roles.** `surface` tints the card. `mark` is for the left border and any non-text graphical
+indicator; it meets 3:1 (WCAG 1.4.11). `text` is for the severity label; it meets 4.5:1 (WCAG
+1.4.3). Verified against both `#ffffff` and the level's own `surface`:
+
+| Level | mark vs white | mark vs surface | text vs white | text vs surface |
+|---|---|---|---|---|
+| `critical` | 10.02:1 | 9.16:1 | 6.47:1 | 5.91:1 |
+| `moderate` | 5.18:1 | 4.88:1 | 5.18:1 | 4.88:1 |
+| `minor` | 3.19:1 | 3.07:1 | 5.02:1 | 4.84:1 |
+
+**Never use `success` / green for any severity level.** Every gap is a shortfall; a low-severity
+gap is still a gap, and green reads as "resolved".
 
 ### Background & Surface Colors
 
@@ -514,6 +569,12 @@ module.exports = {
           withdrawn: '#9ca3af',
         }
       },
+      // Gap severity (WIC-1146) needs no custom colors — the scale maps onto
+      // stock Tailwind shades. Consume it via the shared GAP_SEVERITY map, not
+      // by writing these classes inline:
+      //   critical -> bg-red-50    border-red-900    text-red-700
+      //   moderate -> bg-orange-50 border-orange-700 text-orange-700
+      //   minor    -> bg-amber-50  border-amber-600  text-amber-700
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
