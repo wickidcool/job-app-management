@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 
 import appSource from '../App.tsx?raw';
 import { EmptyState } from '../components/EmptyState';
+import { CommandPaletteProvider, useCommandPalette } from '../contexts/CommandPaletteContext';
 import { NotFound } from './NotFound';
 
 /**
@@ -30,14 +31,21 @@ function Landed() {
  *
  * The default `initialEntries` is a single unmatched path, so the page renders as it
  * would on a cold deep-link; pass a longer list to exercise a different arrival.
+ *
+ * `CommandPaletteProvider` is required, not incidental: the page's search button
+ * reads the palette from it and the hook throws without it. No `RouteMatchProvider`
+ * — reporting the unmatched route is a no-op outside one, and the nav consumers that
+ * care are covered in components/navigation-active-state.test.tsx.
  */
 function renderNotFound(initialEntries: string[] = ['/no-such-page']) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
-      <Routes>
-        <Route path="/" element={<Landed />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <CommandPaletteProvider>
+        <Routes>
+          <Route path="/" element={<Landed />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </CommandPaletteProvider>
     </MemoryRouter>
   );
 }
@@ -125,13 +133,23 @@ describe('NotFound', () => {
    * exact gate this replaces.
    *
    * Each half also asserts the action row as a whole. "No second action" is worth
-   * nothing if the first one went missing too, and counting controls rather than
-   * querying for /go back/i means a reintroduced secondary action fails here whatever
-   * it ends up being called.
+   * nothing if the first one went missing too, and enumerating the controls rather
+   * than querying for /go back/i means a reintroduced *back* action fails here
+   * whatever it ends up being called.
+   *
+   * WIC-1053 added the "Search applications" button, so this no longer asserts zero
+   * buttons — it names the one that is allowed. §2.1's objection was to reversing the
+   * navigation (back returns you to the page holding the stale link, which is a
+   * loop); a search that moves forward is not that, and on touch it is the only
+   * recovery besides the dashboard link, since the Ctrl+K hint is `sm:`-only.
    */
-  function expectExactlyOneAction() {
+  function expectNoBackAction() {
     expect(screen.queryByRole('button', { name: /go back/i })).not.toBeInTheDocument();
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryByRole('link', { name: /go back/i })).not.toBeInTheDocument();
+
+    const buttons = screen.queryAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName('Search applications');
 
     const actions = screen.getAllByRole('link');
     expect(actions).toHaveLength(1);
@@ -142,7 +160,7 @@ describe('NotFound', () => {
   it('offers no "Go back" on a cold deep-link', () => {
     renderNotFound();
 
-    expectExactlyOneAction();
+    expectNoBackAction();
   });
 
   it('offers no "Go back" after an in-app navigation to a dead link either', async () => {
@@ -159,17 +177,62 @@ describe('NotFound', () => {
 
     render(
       <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route path="/" element={<GoNowhere />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <CommandPaletteProvider>
+          <Routes>
+            <Route path="/" element={<GoNowhere />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </CommandPaletteProvider>
       </MemoryRouter>
     );
 
     await user.click(screen.getByRole('button', { name: 'Follow a dead link' }));
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/couldn't be found/i);
-    expectExactlyOneAction();
+    expectNoBackAction();
+  });
+
+  /**
+   * WIC-1053 item 2 — the touch user's search affordance.
+   *
+   * The e2e spec drives this end to end against the real palette, but e2e does not
+   * run in CI (WIC-1085), so the wiring is pinned here too. A probe stands in for
+   * `CommandPalette` because the palette itself pulls in the applications query.
+   */
+  it('opens the command palette from the search button', async () => {
+    const user = userEvent.setup();
+
+    function PaletteProbe() {
+      const { open } = useCommandPalette();
+      return <span data-testid="palette-state">{open ? 'open' : 'closed'}</span>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/no-such-page']}>
+        <CommandPaletteProvider>
+          <NotFound />
+          <PaletteProbe />
+        </CommandPaletteProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('palette-state')).toHaveTextContent('closed');
+
+    await user.click(screen.getByRole('button', { name: 'Search applications' }));
+
+    expect(screen.getByTestId('palette-state')).toHaveTextContent('open');
+  });
+
+  // The button has to render at every breakpoint, unlike the Ctrl+K hint beside it —
+  // a phone has no Ctrl+K, which is the whole reason the button exists. jsdom applies
+  // no media queries, so this checks the class list rather than computed style: a
+  // `hidden sm:block` on the button would reproduce exactly the gap being closed.
+  it('does not hide the search button on touch layouts', () => {
+    renderNotFound();
+
+    const searchButton = screen.getByRole('button', { name: 'Search applications' });
+    expect(searchButton.className).not.toContain('hidden');
+    expect(searchButton.className).not.toMatch(/\bsm:/);
   });
 });
 

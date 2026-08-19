@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useReportRouteUnmatched } from '../contexts/RouteMatchContext';
+import { useCommandPalette } from '../contexts/CommandPaletteContext';
 
 /**
  * Copy strings for the 404 page.
@@ -16,6 +18,7 @@ const COPY = {
   // and a completed-onboarding click are opposite signals and must stay tellable
   // apart in analytics and in role+name test selectors. "Back" frames recovery.
   primaryAction: 'Back to dashboard',
+  searchAction: 'Search applications',
   pathLabel: 'Address you tried:',
 } as const;
 
@@ -42,6 +45,12 @@ function elidePath(path: string): string {
 export function NotFound() {
   const location = useLocation();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const { openPalette } = useCommandPalette();
+
+  // Tell the navigation chrome that this path matched nothing, so it stops marking
+  // a tab (and an `aria-current="page"`) as the page you are on while this page
+  // says the page was not found. The router is the only thing that knows.
+  useReportRouteUnmatched();
 
   // Move focus to the heading so screen-reader and keyboard users are told
   // the navigation landed somewhere unexpected instead of silently staying put.
@@ -89,14 +98,19 @@ export function NotFound() {
         <p className="mt-3 max-w-md text-body text-neutral-600">{COPY.body}</p>
 
         {/*
-          Single action by design (§2.1, decided in WIC-1105) — a secondary
-          `navigate(-1)` either returns the user to the page holding the dead
-          link or ejects them out of the app, so there is no arrival path on
-          which it is the best affordance. The wrapper survives the removal
-          only to carry `mt-8`; the row's flex/gap classes went with the
-          second child, and a lone flex item is centred by the parent either way.
+          Exactly one *primary* action, and no `navigate(-1)`: §2.1 (decided in
+          WIC-1105) objected to a back affordance because the dominant arrival is a
+          click on a stale link elsewhere, so "back" returns the user to the page
+          holding it — a loop. That objection is about reversing the navigation, and
+          it still stands.
+
+          The search button is not that. It moves the user forward, and it exists
+          because the keyboard hint below is `sm:`-only by necessity — there is no
+          Ctrl+K on a phone — which left touch users with a single affordance on the
+          one screen where "I know the company, the URL is just stale" is the common
+          case (WIC-1053). Secondary styling keeps the primary action dominant.
         */}
-        <div className="mt-8">
+        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-lg bg-primary-600 px-6 py-3
@@ -106,9 +120,25 @@ export function NotFound() {
           >
             {COPY.primaryAction}
           </Link>
+
+          <button
+            type="button"
+            onClick={openPalette}
+            className="inline-flex items-center justify-center rounded-lg border border-neutral-300
+                     bg-white px-6 py-3 font-medium text-neutral-700 transition-colors duration-200
+                     hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500
+                     focus:ring-offset-2"
+          >
+            {COPY.searchAction}
+          </button>
         </div>
 
-        {/* Keyboard hint only — hidden on touch layouts where there is no shortcut. */}
+        {/*
+          The same control as the button above, by keyboard. Hidden on touch layouts,
+          where the shortcut does not exist and printing it would be a dead
+          instruction — which is exactly why the button has to render at every
+          breakpoint rather than only below `sm`.
+        */}
         <p className="mt-8 hidden text-body-sm text-neutral-600 sm:block">
           Looking for something specific? Press{' '}
           <kbd className="rounded border border-neutral-300 bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-700">

@@ -82,6 +82,53 @@ test.describe('NotFound catch-all route', () => {
     await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeHidden();
   });
 
+  test('no nav item claims to be the current page (WIC-1053)', async ({ page }) => {
+    // `/reports/typo` matched no route, but the nav decides active state with a
+    // `startsWith` prefix match, so it used to mark Reports as the page you are on —
+    // `aria-current="page"` telling a screen-reader user they are on Reports at the
+    // same moment the focused heading tells them the page was not found.
+    await page.goto('/reports/typo');
+
+    await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeVisible();
+    await expect(page.locator('[aria-current="page"]')).toHaveCount(0);
+  });
+
+  test('a real nested route does still mark its nav item current', async ({ page }) => {
+    // Negative control for the test above: suppressing `aria-current` everywhere
+    // would pass it just as well, and would be a regression of its own.
+    await page.goto('/reports/stale');
+
+    await expect(page.locator('[aria-current="page"]')).not.toHaveCount(0);
+  });
+
+  test('offers a visible search affordance, not only the Ctrl+K hint', async ({ page }) => {
+    // The hint is `sm:`-only because there is no Ctrl+K on a phone, which left touch
+    // users with the dashboard link as their only way out. The button must therefore
+    // render at every breakpoint — checked here at a phone viewport.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/nope');
+
+    const searchButton = page.getByRole('button', { name: 'Search applications' });
+    await expect(searchButton).toBeVisible();
+
+    await searchButton.click();
+    await expect(
+      page.getByPlaceholder('Search applications, companies, or statuses...')
+    ).toBeVisible();
+  });
+
+  test('the Ctrl+K hint still opens the same palette', async ({ page }) => {
+    // The palette's state moved out of `App` into a context so the button above could
+    // reach it; the keyboard path has to survive that move.
+    await page.goto('/nope');
+
+    await page.keyboard.press('ControlOrMeta+k');
+
+    await expect(
+      page.getByPlaceholder('Search applications, companies, or statuses...')
+    ).toBeVisible();
+  });
+
   test('does not swallow a real route', async ({ page }) => {
     await page.goto('/applications');
 
