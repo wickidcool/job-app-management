@@ -20,6 +20,10 @@ import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
 import { isHyperdriveTimeout } from './db/hyperdrive.js';
 
+// A last path segment containing a dot means the caller wants a file (/assets/x-abc.js,
+// /favicon.ico), not a client-side route — no React Router path in App.tsx has one.
+const FILE_REQUEST = /\/[^/]+\.[^/]+$/;
+
 export function buildApp() {
   const app = new Hono<AppEnv>();
 
@@ -88,6 +92,21 @@ export function buildApp() {
     // retry the shell explicitly so the fallback holds even if that setting drifts.
     const headers = c.req.raw.headers;
     let res = await assets.fetch(new Request(url, { method: 'GET', headers }));
+
+    // A path whose last segment carries an extension is asking for a file, not a React
+    // Router route — the asset router already tried it and missed. Handing it the shell
+    // would answer 200 to a request that failed: a stale hashed bundle still referenced
+    // by a cached index.html would blank the page on the browser's module MIME check
+    // instead of failing cleanly, and would never surface as a 404 in monitoring.
+    if (FILE_REQUEST.test(url.pathname)) {
+      // Under SPA handling a miss comes back as the shell with 200, so a status check
+      // alone cannot see it — an HTML answer to a non-HTML file request is that miss.
+      const servedShell =
+        (res.headers.get('Content-Type') ?? '').includes('text/html') &&
+        !url.pathname.endsWith('.html');
+      return res.status === 404 || servedShell ? c.text('Not Found', 404) : res;
+    }
+
     if (res.status === 404) {
       res = await assets.fetch(
         new Request(new URL('/index.html', url), { method: 'GET', headers })

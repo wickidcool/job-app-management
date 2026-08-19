@@ -119,6 +119,34 @@ describe('SPA fallback (WIC-1004)', () => {
     await expect(res.text()).resolves.toBe('console.log(1)');
   });
 
+  // A cached index.html keeps asking for the hashed bundle it was built against, so
+  // during any deploy window the old filename is requested after it stops existing.
+  // Answering that with the shell returns 200 for a request that failed: the browser's
+  // module MIME check rejects text/html and the page goes blank, while logs show a 200.
+  it.each([
+    ['/assets/index-STALE.js', 'a stale hashed bundle'],
+    ['/assets/index-STALE.css', 'a stale hashed stylesheet'],
+    ['/favicon.ico', 'a missing icon'],
+    ['/robots.txt', 'a missing text file'],
+  ])('404s %s (%s) instead of serving the shell', async (path) => {
+    const app = buildApp();
+    const res = await app.fetch(new Request(`https://app.careerpin.app${path}`), {
+      ASSETS: makeAssets(ASSET_FILES),
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('Content-Type') ?? '').not.toContain('text/html');
+  });
+
+  it('404s a missing file request when not_found_handling has drifted off SPA mode', async () => {
+    const app = buildApp();
+    const res = await app.fetch(new Request('https://app.careerpin.app/assets/gone-abc.js'), {
+      ASSETS: makeAssets(ASSET_FILES, false),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
   it.each(['/api/health', '/api/applications', '/api/nope'])(
     'keeps %s on JSON — never the SPA shell',
     async (path) => {
