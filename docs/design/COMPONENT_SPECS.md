@@ -3884,7 +3884,7 @@ interface CompanyFact {
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ GAP TALKING POINTS                                      │ │
+│ │ Gap talking points                                      │ │
 │ │ • Kubernetes: "Docker + DevOps collab experience..."    │ │
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
@@ -3977,12 +3977,12 @@ interface CompanyFact {
 │ │                                              │ │
 │ │ ═══════════════════════════════════════════  │ │
 │ │                                              │ │
-│ │ YOUR TOP 5 STORIES                           │ │
+│ │ Your top 5 stories                           │ │
 │ │ [Full content...]                            │ │
 │ │                                              │ │
 │ │ ═══════════════════════════════════════════  │ │
 │ │                                              │ │
-│ │ KEY QUESTIONS & SUGGESTED ANSWERS            │ │
+│ │ Key questions & suggested answers            │ │
 │ │ [Full content...]                            │ │
 │ └──────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────┘
