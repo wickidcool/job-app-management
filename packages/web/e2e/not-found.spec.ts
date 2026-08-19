@@ -77,7 +77,7 @@ test.describe('NotFound catch-all route', () => {
     // The 404 lives inside the app shell, so navigation stays available.
     await expect(page.getByRole('navigation').first()).toBeVisible();
 
-    await page.getByRole('link', { name: /go to dashboard/i }).click();
+    await page.getByRole('link', { name: /back to dashboard/i }).click();
     await expect(page).toHaveURL('/');
     await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeHidden();
   });
@@ -87,6 +87,25 @@ test.describe('NotFound catch-all route', () => {
 
     await expect(page.getByRole('heading', { name: 'Applications' })).toBeVisible();
     await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeHidden();
+  });
+
+  test('/dashboard redirects to the dashboard rather than 404ing', async ({ page }) => {
+    await page.goto('/dashboard');
+
+    await expect(page).toHaveURL('/');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeHidden();
+  });
+
+  test('the /dashboard redirect replaces history instead of stacking onto it', async ({ page }) => {
+    await page.goto('/applications');
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL('/');
+
+    // Without `replace`, going back would land on /dashboard, which would redirect
+    // forward to / again — a back button that cannot escape the page it just left.
+    await page.goBack();
+    await expect(page).toHaveURL('/applications');
   });
 
   test('unauthenticated unmatched paths still redirect to login', async ({ page }) => {
