@@ -36,10 +36,12 @@ export function ChangeActionBadge({ action, size = 'md' }: ChangeActionBadgeProp
   const config = actionConfig[action];
   const sizeClass = sizeConfig[size];
 
+  // No aria-label here on purpose: a <span> with no role maps to the ARIA `generic`
+  // role, which prohibits an author-supplied name, so assistive tech may drop it.
+  // The label text below is a real text node and is announced inline instead.
   return (
     <span
       className={`inline-flex items-center gap-1 rounded font-medium ${config.bgColor} ${config.textColor} ${sizeClass}`}
-      aria-label={`${config.label} action`}
     >
       <span aria-hidden="true">{config.icon}</span>
       {config.label}
