@@ -154,6 +154,31 @@ describe('security headers + HTTPS redirect (WIC-1011)', () => {
       expect(res.status).not.toBe(301);
       expect(res.status).not.toBe(308);
     });
+
+    // The redirect is the *first* thing a downgraded client touches, so it has to carry
+    // HSTS itself — otherwise the pin only lands on the follow-up request and the first
+    // contact of every session stays downgradeable. This holds only because
+    // securityHeaders() is registered ahead of httpsRedirect() in buildApp(); swapping
+    // those two lines silently reopens the hole, so assert it here.
+    it('carries the hardening headers on the redirect itself', async () => {
+      const res = await buildApp().fetch(cleartext('/dashboard'));
+
+      expect(res.status).toBe(301);
+      for (const [name, value] of Object.entries(EXPECTED_HEADERS)) {
+        expect(res.headers.get(name), name).toBe(value);
+      }
+    });
+
+    it('never emits a cleartext Location, even for a request carrying a port', async () => {
+      const res = await buildApp().fetch(
+        new Request('http://app.careerpin.app:80/health', {
+          headers: { 'cf-visitor': '{"scheme":"http"}' },
+        })
+      );
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe('https://app.careerpin.app/health');
+    });
   });
 
   describe('Finding B — static asset headers ship with the build', () => {
