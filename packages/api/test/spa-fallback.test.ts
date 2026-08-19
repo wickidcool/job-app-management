@@ -70,11 +70,34 @@ const DECLARED_PATHS = [...APP_SOURCE.matchAll(/\bpath="([^"]*)"/g)].map((m) => 
 // parity test below instead of quietly shrinking coverage to the routes it still matches.
 const PATH_ATTRIBUTE_COUNT = APP_SOURCE.split(/\bpath=/).length - 1;
 
+/**
+ * What each :param stands for once a route becomes a request URL.
+ *
+ * Deriving the route list is only half of the job — the *shape* of the substituted value
+ * carries as much as the route does, because the guard this suite exercises keys on the
+ * last path segment's extension (WIC-1027). :fileName is the case that matters:
+ * project.service.ts rejects a fileName that does not end in .md, so every URL
+ * /projects/:projectId/files/:fileName can produce carries one. Substituting a generic
+ * id there erases the single property the guard reads, and the route silently stops
+ * testing anything — which is exactly how the pre-WIC-1027 blind spot stayed green.
+ */
+const PARAM_SAMPLES: Record<string, string> = {
+  id: '01HZX',
+  projectId: 'acme-corp-engineer',
+  fileName: 'acme-corp-engineer.md',
+};
+
+const DECLARED_PARAMS = [
+  ...new Set(DECLARED_PATHS.flatMap((p) => [...p.matchAll(/:([^/]+)/g)].map((m) => m[1]))),
+];
+
 // A wildcard is the layout wrapper (/*) or the catch-all (*) — neither is a landable
 // route, and the catch-all is what renders NotFound once the shell is served.
 const CLIENT_ROUTES = [
   ...new Set(
-    DECLARED_PATHS.filter((p) => !p.includes('*')).map((p) => p.replace(/:[^/]+/g, '01HZX'))
+    DECLARED_PATHS.filter((p) => !p.includes('*')).map((p) =>
+      p.replace(/:([^/]+)/g, (_match, name: string) => PARAM_SAMPLES[name] ?? '01HZX')
+    )
   ),
 ];
 
@@ -108,6 +131,21 @@ describe('SPA fallback (WIC-1004)', () => {
     expect(DECLARED_PATHS).toHaveLength(PATH_ATTRIBUTE_COUNT);
     expect(CLIENT_ROUTES).toContain('/');
     expect(CLIENT_ROUTES.every((p) => p.startsWith('/'))).toBe(true);
+  });
+
+  // A :param App.tsx declares but PARAM_SAMPLES does not know falls back to a generic
+  // id — harmless for most routes, and the exact erasure that hid the .md deep link for
+  // :fileName. Name the gap here rather than let the derived list quietly lose a shape.
+  it('has a sample value for every route parameter App.tsx declares', () => {
+    expect(DECLARED_PARAMS.filter((name) => !(name in PARAM_SAMPLES))).toEqual([]);
+  });
+
+  // Standing alarm. The file-request guard only ever fires on a path whose last segment
+  // carries an extension, so if substitution or App.tsx stops producing one, every route
+  // case below still passes while testing nothing about that guard at all. This is the
+  // assertion that would have failed instead of WIC-1027 shipping unnoticed.
+  it('covers at least one route whose URL carries a file extension', () => {
+    expect(CLIENT_ROUTES.filter((p) => /\/[^/]+\.[^/]+$/.test(p))).not.toHaveLength(0);
   });
 
   it.each(CLIENT_ROUTES)('serves the SPA shell for %s', async (path) => {
