@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { _resetConfig } from '../src/config.js';
@@ -48,43 +50,32 @@ function makeAssets(files: Record<string, string>, spaFallback = true) {
 
 const ASSET_FILES = { '/index.html': SHELL, '/assets/index-abc.js': 'console.log(1)' };
 
-// Every path-based React Router route a user can land on directly (App.tsx). This list
-// is the load-bearing assertion of the suite: it stayed green through the WIC-1020
-// fold-in only because it omitted /projects/:projectId/files/:fileName, the one route
-// whose URLs carry an extension. Keep it exhaustive against App.tsx — a route missing
-// here is a deep link nothing tests.
+/**
+ * Every path-based React Router route a user can land on directly, read out of App.tsx
+ * rather than mirrored by hand.
+ *
+ * The fallback's job is defined entirely by that file: any path React Router can render
+ * must get the shell. A hand-kept copy states the same claim but stops being true the
+ * first time a route is added and this list is not — silently, because the suite still
+ * goes green on the routes it does know. Reading the source of truth makes a new route
+ * covered by construction.
+ */
+const APP_TSX = fileURLToPath(new URL('../../web/src/App.tsx', import.meta.url));
+const APP_SOURCE = readFileSync(APP_TSX, 'utf8');
+
+const DECLARED_PATHS = [...APP_SOURCE.matchAll(/\bpath="([^"]*)"/g)].map((m) => m[1]);
+
+// Counting the bare attribute name is independent of how the extractor reads its value,
+// so a declaration form this regex cannot parse (path={...}, single quotes) trips the
+// parity test below instead of quietly shrinking coverage to the routes it still matches.
+const PATH_ATTRIBUTE_COUNT = APP_SOURCE.split(/\bpath=/).length - 1;
+
+// A wildcard is the layout wrapper (/*) or the catch-all (*) — neither is a landable
+// route, and the catch-all is what renders NotFound once the shell is served.
 const CLIENT_ROUTES = [
-  '/',
-  '/login',
-  '/dashboard',
-  '/applications',
-  '/applications/new',
-  '/applications/01HZX',
-  '/applications/01HZX/prep',
-  '/catalog',
-  '/cover-letters/new',
-  '/cover-letters/01HZX',
-  '/job-fit-analysis',
-  '/outreach/new',
-  '/reports',
-  '/reports/pipeline',
-  '/reports/needs-action',
-  '/reports/stale',
-  '/reports/closed-loop',
-  '/reports/by-fit-tier',
-  '/resumes',
-  '/resumes/upload',
-  '/resumes/exports',
-  '/resume-variants',
-  '/resume-variants/new',
-  '/resume-variants/01HZX',
-  '/settings',
-  '/projects',
-  '/projects/new/dialogue',
-  '/projects/acme-corp-engineer',
-  // The route the extension heuristic swallowed. Requested with no navigation headers
-  // on purpose — a deep link must not depend on Sec-Fetch-*/Accept to reach the shell.
-  '/projects/acme-corp-engineer/files/acme-corp-engineer.md',
+  ...new Set(
+    DECLARED_PATHS.filter((p) => !p.includes('*')).map((p) => p.replace(/:[^/]+/g, '01HZX'))
+  ),
 ];
 
 // A browser navigating (address bar, refresh, followed link) sends these. Requests in
@@ -108,6 +99,15 @@ describe('SPA fallback (WIC-1004)', () => {
   afterEach(() => {
     process.env = originalEnv;
     _resetConfig();
+  });
+
+  it('reads every route declaration in App.tsx', () => {
+    // Not a floor on the count — an equality against a second, independent count of the
+    // same declarations. Dropping or rewording any one of them fails here, where a
+    // "more than N routes" assertion would stay green until nearly all of them broke.
+    expect(DECLARED_PATHS).toHaveLength(PATH_ATTRIBUTE_COUNT);
+    expect(CLIENT_ROUTES).toContain('/');
+    expect(CLIENT_ROUTES.every((p) => p.startsWith('/'))).toBe(true);
   });
 
   it.each(CLIENT_ROUTES)('serves the SPA shell for %s', async (path) => {
