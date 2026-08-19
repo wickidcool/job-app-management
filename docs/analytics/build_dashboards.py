@@ -14,8 +14,9 @@ Usage
     python3 docs/analytics/build_dashboards.py --dry-run   # validate only, no writes
     python3 docs/analytics/build_dashboards.py             # create/update for real
 
---dry-run needs only read scope (`query:read`) and re-executes every HogQL query
-against the live project, so it proves the payloads before anything is written.
+--dry-run needs only read scope (`query:read`) and re-executes every query node
+against the live project -- HogQL tables and the native FunnelsQuery/RetentionQuery
+insights alike -- so it proves the payloads before anything is written.
 The real run additionally needs `insight:read`, `insight:write`, `dashboard:read`,
 `dashboard:write` on project 551963.
 """
@@ -114,13 +115,26 @@ def preflight(ph: PostHog, need_write: bool) -> None:
     print(f"OK    scopes present ({'read+write' if need_write else 'read'})")
 
 
-def run_query(ph: PostHog, hogql: str) -> tuple[bool, str]:
-    resp = ph.request("POST", "query/", json={"query": {"kind": "HogQLQuery", "query": hogql}})
+def run_query(ph: PostHog, payload: dict) -> tuple[bool, str]:
+    """Execute an insight's underlying query node, whatever its kind.
+
+    Saved insights wrap their real query in a presentation node (`DataTableNode` for the
+    HogQL tables, `InsightVizNode` for the native funnel/retention ones). `/query/` wants
+    the inner node, so unwrap `source` before executing.
+    """
+    node = payload["query"]
+    node = node.get("source", node)
+    resp = ph.request("POST", "query/", json={"query": node})
     if not resp.ok:
         return False, f"HTTP {resp.status_code}: {resp.text[:300]}"
     body = resp.json()
+    # Funnel/retention nodes report query-level problems in `error` rather than via HTTP.
+    if body.get("error"):
+        return False, f"{node['kind']} error: {body['error']}"
     rows = body.get("results", [])
-    return True, f"{len(rows)} row(s): {rows[:1]}"
+    if not rows:
+        return True, f"{node['kind']}: 0 row(s) — empty (no matching events yet)"
+    return True, f"{node['kind']}: {len(rows)} row(s): {str(rows[:1])[:160]}"
 
 
 def ensure_dashboard(ph: PostHog, name: str) -> int:
@@ -163,7 +177,7 @@ def main() -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="validate payloads and re-execute every HogQL query; write nothing",
+        help="validate payloads and re-execute every query node; write nothing",
     )
     args = parser.parse_args()
 
@@ -171,18 +185,26 @@ def main() -> int:
     if not api_key:
         fail("POSTHOG_PERSONAL_API_KEY is not set")
 
-    payloads = json.loads(PAYLOADS.read_text())
-    print(f"Loaded {len(payloads)} insight payloads from {PAYLOADS.name}")
+    all_payloads = json.loads(PAYLOADS.read_text())
+    # `_enabled: false` entries are authored and validated but deliberately not built yet
+    # (see `_gated_on`). They stay in the file so enabling one is a one-line change.
+    payloads = [p for p in all_payloads if p.get("_enabled", True)]
+    gated = [p for p in all_payloads if not p.get("_enabled", True)]
+    print(f"Loaded {len(all_payloads)} insight payloads from {PAYLOADS.name} "
+          f"({len(payloads)} enabled, {len(gated)} gated)")
+    for p in gated:
+        print(f"GATED {p['_key']:<32} {p.get('_gated_on', 'no reason recorded')}")
 
     ph = PostHog(api_key)
     preflight(ph, need_write=not args.dry_run)
 
     if args.dry_run:
         failures = 0
-        for p in payloads:
-            hogql = p["query"]["source"]["query"]
-            ok, detail = run_query(ph, hogql)
-            print(f"{'PASS' if ok else 'FAIL'}  {p['_key']:<32} {detail}")
+        # Validate gated payloads too — they must stay correct while they wait.
+        for p in payloads + gated:
+            ok, detail = run_query(ph, p)
+            tag = "PASS" if ok else "FAIL"
+            print(f"{tag}  {p['_key']:<32} {detail}")
             failures += 0 if ok else 1
         by_dash: dict[str, int] = {}
         for p in payloads:
@@ -190,7 +212,8 @@ def main() -> int:
         print("\nWould create/update:")
         for name, count in by_dash.items():
             print(f"  - {name}: {count} insights")
-        print(f"\n{len(payloads) - failures}/{len(payloads)} queries executed green.")
+        total = len(payloads) + len(gated)
+        print(f"\n{total - failures}/{total} queries executed green.")
         return 1 if failures else 0
 
     existing_insights = {i["name"]: i for i in ph.list_all("insights/", {"saved": "true"}) if not i.get("deleted")}

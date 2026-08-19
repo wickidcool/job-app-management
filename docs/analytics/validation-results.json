@@ -1,8 +1,20 @@
 {
   "A1_upload_success_rate": {
     "ok": true,
-    "columns": ["submitted", "completed", "success_rate_pct"],
-    "rows": [[1, 1, 100.0]]
+    "node_kind": "FunnelsQuery",
+    "row_count": 2,
+    "steps": [
+      {
+        "name": "resume_upload_submitted",
+        "count": 1,
+        "median_conversion_time": null
+      },
+      {
+        "name": "resume_upload_completed",
+        "count": 1,
+        "median_conversion_time": 0.29200005531311035
+      }
+    ]
   },
   "A2_validation_error_rate": {
     "ok": true,
@@ -71,8 +83,35 @@
   },
   "C1_return_upload_rate_30d": {
     "ok": true,
-    "columns": ["uploaders_30d", "returning_uploaders", "return_upload_rate_pct"],
-    "rows": [[1, 0, 0.0]]
+    "node_kind": "RetentionQuery",
+    "row_count": 5,
+    "cohorts": [
+      {
+        "date": "2026-07-19",
+        "label": "Week 0",
+        "counts": [0.0, 0.0, 0.0, 0.0, 0.0]
+      },
+      {
+        "date": "2026-07-26",
+        "label": "Week 1",
+        "counts": [0.0, 0.0, 0.0, 0.0, 0.0]
+      },
+      {
+        "date": "2026-08-02",
+        "label": "Week 2",
+        "counts": [0.0, 0.0, 0.0, 0.0, 0.0]
+      },
+      {
+        "date": "2026-08-09",
+        "label": "Week 3",
+        "counts": [0.0, 0.0, 0.0, 0.0, 0.0]
+      },
+      {
+        "date": "2026-08-16",
+        "label": "Week 4",
+        "counts": [1.0, 0.0, 0.0, 0.0, 0.0]
+      }
+    ]
   },
   "C2_uploads_per_active_user_7d": {
     "ok": true,
@@ -83,5 +122,12 @@
     "ok": true,
     "columns": ["cohort", "uploaders"],
     "rows": [["new", 1]]
+  },
+  "A3n_upload_funnel_native": {
+    "ok": true,
+    "node_kind": "FunnelsQuery",
+    "row_count": 0,
+    "steps": [],
+    "note": "empty by design today: step 1 resume_upload_started has never fired, so the native funnel returns []. Payload ships _enabled:false."
   }
 }

@@ -2,15 +2,16 @@
 
 **Author:** Data Analyst (01d53393) · **Project:** PostHog 551963 (us.posthog.com) · **Date:** 2026-08-19
 
-Every insight in `docs/analytics/dashboard-spec.md` (A1–A9, B1–B5, C1–C3) authored as HogQL and
-**executed against the live project** — 17/17 returned results. This turns the remaining work into a
-mechanical `POST /api/projects/551963/insights/` loop over `insight-payloads.json`.
+Every insight in `docs/analytics/dashboard-spec.md` (A1–A9, B1–B5, C1–C3) authored and **executed against
+the live project** — 18/18 payloads green (17 built + 1 gated). This turns the remaining work into a
+mechanical `POST /api/projects/551963/insights/` loop over `insight-payloads.json`, driven by
+`build_dashboards.py`.
 
 ## Validation status
 
 | Insight                                   | Dashboard | Executed | Returned from live project                            |
 | ----------------------------------------- | --------- | -------- | ----------------------------------------------------- |
-| A1 — Upload Success Rate                  | A         | PASS     | `[1, 1, 100.0]`                                       |
+| A1 — Upload Success Rate                  | A         | PASS     | funnel `1 → 1` (native, see below)                    |
 | A2 — Validation Error Rate                | A         | PASS     | `[0, 0, None]`                                        |
 | A3 — Upload Funnel Completion (by source) | A         | PASS     | `[None, 0, 1, 1, None]`                               |
 | A4 — Avg / P95 Processing Time            | A         | PASS     | `[1, 1873.0, 1873.0]`                                 |
@@ -24,7 +25,7 @@ mechanical `POST /api/projects/551963/insights/` loop over `insight-payloads.jso
 | B3 — Exports Link CTR                     | B         | PASS     | `—`                                                   |
 | B4 — Post-upload CTA Split                | B         | PASS     | `—`                                                   |
 | B5 — Export Generation Rate               | B         | PASS     | `[1, 1, 100.0]`                                       |
-| C1 — Return Upload Rate (30d)             | C         | PASS     | `[1, 0, 0.0]`                                         |
+| C1 — Return Upload Rate (30d)             | C         | PASS     | 5-week cohort grid (native, see below)                |
 | C2 — Uploads per Active User (weekly)     | C         | PASS     | `[1, 1, 1.0]`                                         |
 | C3 — New vs Returning Uploaders           | C         | PASS     | `['new', 1]`                                          |
 
@@ -52,10 +53,35 @@ Names were cross-checked against the shipped code: `packages/api/src/services/an
 3. **C1–C3 key on `person_id`**, which is what makes them depend on the WIC-822 server attribution +
    WIC-825 client `identify()` alias. Both are merged, so the identity graph is correct in principle, but
    it is **unproven against real multi-session traffic** — re-check C1–C3 once organic users exist.
-4. These are `HogQLQuery` insights rather than native funnel/retention nodes. That is deliberate: HogQL is
-   what my API scope can validate, and it renders as a table on a dashboard. A1/A3 (funnels) and C1
-   (retention) can be swapped to native `FunnelsQuery`/`RetentionQuery` nodes later for the nicer
-   visualisation — the numbers are already defined here.
+4. ~~These are `HogQLQuery` insights rather than native funnel/retention nodes.~~ **Resolved 2026-08-19** —
+   see "Native visualisation nodes" below. `A1` and `C1` now ship as real `FunnelsQuery` / `RetentionQuery`
+   insights; `A3` is the one deliberate exception.
+
+## Native visualisation nodes (resolves caveat 4)
+
+`POST /api/projects/551963/query/` executes `FunnelsQuery`, `RetentionQuery` and `TrendsQuery` nodes under
+**read** scope, so the native nodes could be authored and validated against live data without the write
+scope this ticket is blocked on. Two of the three were swapped in and re-validated:
+
+| Insight | Was         | Now                     | Live result                                   |
+| ------- | ----------- | ----------------------- | --------------------------------------------- |
+| `A1`    | HogQL table | `FunnelsQuery`          | 2 steps, `1 → 1`, conversion time `0.29s`     |
+| `C1`    | HogQL table | `RetentionQuery`        | 5-week grid; `2026-08-16` cohort week 0 = `1` |
+| `A3`    | HogQL table | HogQL table (unchanged) | native variant authored but **gated**         |
+
+**Why `A3` stays HogQL.** Its native funnel is authored and syntactically correct, but a native funnel whose
+**step 1 has zero entrants returns `[]` and renders entirely blank**. `resume_upload_started` has never fired
+(see the coverage gap below), so swapping `A3` today would be a _regression_: the HogQL version still shows
+the step 2/3 counts that did happen. The native payload therefore ships as `A3n_upload_funnel_native` with
+`_enabled: false`; flip it (and set `A3 _enabled: false`) once the client event lands.
+
+This was verified rather than assumed — the empty result is not a malformed `breakdownFilter`. Breaking down
+the _same_ funnel on a known-present property (`is_duplicate`) returns `breakdown_value: "false"` correctly,
+and the 3-step funnel is empty even with the breakdown removed. The cause is the absent step-1 event.
+
+`C1`'s definition changed with the node: the HogQL version measured "share of uploaders with ≥2 uploads in
+30d", the retention node gives a full weekly first-time-retention cohort grid. The original HogQL is preserved
+on each swapped payload under `_hogql_equivalent` if the single-number form is ever wanted back.
 
 ## Event coverage gap (blocks meaningful dashboards, not the build)
 
