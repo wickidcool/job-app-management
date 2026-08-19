@@ -46,11 +46,13 @@ describe('security headers + HTTPS redirect (WIC-1011)', () => {
   beforeEach(() => {
     _resetConfig();
     delete process.env.SUPABASE_JWT_SECRET;
+    delete process.env.TRUST_PROXY_PROTO;
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     _resetConfig();
+    delete process.env.TRUST_PROXY_PROTO;
   });
 
   describe('Finding A2 — security headers on Worker responses', () => {
@@ -132,12 +134,37 @@ describe('security headers + HTTPS redirect (WIC-1011)', () => {
       expect(res.headers.get('location')).toBe('https://app.careerpin.app/api/applications');
     });
 
-    it('honours x-forwarded-proto for non-Cloudflare deployments', async () => {
+    it('honours x-forwarded-proto for non-Cloudflare deployments when opted in', async () => {
+      process.env.TRUST_PROXY_PROTO = 'true';
       const res = await buildApp().fetch(
         new Request(`${APP_HOST}/health`, { headers: { 'x-forwarded-proto': 'http, https' } })
       );
 
       expect(res.status).toBe(301);
+    });
+
+    // Fail-closed: `x-forwarded-proto` is client-settable unless a trusted proxy
+    // rewrites it, so an attacker-supplied `https` must not suppress the redirect.
+    it('ignores x-forwarded-proto unless TRUST_PROXY_PROTO is set', async () => {
+      const spoofed = await buildApp().fetch(
+        new Request('http://app.careerpin.app/health', {
+          headers: { 'x-forwarded-proto': 'https' },
+        })
+      );
+
+      expect(spoofed.status).toBe(301);
+      expect(spoofed.headers.get('location')).toBe('https://app.careerpin.app/health');
+    });
+
+    it('lets cf-visitor win over x-forwarded-proto even when the proxy is trusted', async () => {
+      process.env.TRUST_PROXY_PROTO = 'true';
+      const res = await buildApp().fetch(
+        new Request('http://app.careerpin.app/health', {
+          headers: { 'cf-visitor': '{"scheme":"https"}', 'x-forwarded-proto': 'http' },
+        })
+      );
+
+      expect(res.status).not.toBe(301);
     });
 
     it('leaves HTTPS requests alone', async () => {
@@ -153,6 +180,33 @@ describe('security headers + HTTPS redirect (WIC-1011)', () => {
 
       expect(res.status).not.toBe(301);
       expect(res.status).not.toBe(308);
+    });
+
+    // WIC-1013 follow-up 1: a LAN IP or a bare container/service name has nothing on
+    // :443, so upgrading it breaks mobile/LAN testing and container-network access
+    // instead of hardening anything. Only public hostnames get the redirect.
+    it.each([
+      'http://192.168.1.50:3000/health',
+      'http://10.0.0.4:3000/health',
+      'http://172.16.5.9:3000/health',
+      'http://169.254.1.1:3000/health',
+      'http://api:3000/health',
+      'http://macbook.local:3000/health',
+      'http://web.internal:3000/health',
+    ])('never redirects private dev host %s', async (url) => {
+      const res = await buildApp().request(url);
+
+      expect(res.status).not.toBe(301);
+      expect(res.status).not.toBe(308);
+    });
+
+    it('still redirects a public host that merely looks unusual', async () => {
+      const res = await buildApp().fetch(
+        new Request('http://172.32.0.1/health', { headers: { 'cf-visitor': '{"scheme":"http"}' } })
+      );
+
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe('https://172.32.0.1/health');
     });
 
     // The redirect is the *first* thing a downgraded client touches, so it has to carry
