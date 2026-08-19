@@ -67,6 +67,26 @@ export function buildApp() {
 
   app.route('/api', api);
 
+  // Unmatched paths land here. `assets.not_found_handling` in wrangler.jsonc cannot help:
+  // worker.ts hands every request to Hono, so a path with no matching static file reaches
+  // the app and would otherwise get Hono's default plaintext 404 (WIC-1004).
+  app.notFound(async (c) => {
+    const url = new URL(c.req.url);
+
+    // API paths must keep answering JSON — they must never fall through to the SPA shell.
+    if (url.pathname.startsWith('/api/')) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
+    }
+
+    // Anything else is a client-side route: serve index.html so React Router can resolve it
+    // on direct navigation, refresh or a shared deep link.
+    const assets = c.env.ASSETS;
+    if (!assets) return c.text('Not Found', 404);
+
+    const shell = await assets.fetch(new Request(new URL('/', url)));
+    return shell.ok ? shell : c.text('Not Found', 404);
+  });
+
   app.onError((err, c) => {
     // Re-throw so worker.ts can retry with a fresh Hyperdrive connection.
     if (isHyperdriveTimeout(err)) throw err;
