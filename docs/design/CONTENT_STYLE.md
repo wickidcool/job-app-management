@@ -221,8 +221,33 @@ Playwright compiles a string name to an `i`-flagged matcher unless `exact: true`
 with `exact: true`). So Playwright specs tolerate a casing migration by accident. RTL specs
 do not — a bare string there breaks the moment this standard is applied to the component.
 
-`toContainText` / `toHaveText` with a **string** argument are case-sensitive in Playwright
-too. Prefer a regex there as well.
+### Playwright is only insensitive by default — five mechanics opt back in
+
+"A casing change breaks no Playwright selector" is true of this suite, but it is a fact about
+which APIs it happens to use, not a property of Playwright. These are case-**sensitive**, and
+none of them currently appears in `packages/web/e2e/`:
+
+| Mechanic | Why it's sensitive | Uses in suite |
+|---|---|---:|
+| `{ exact: true }` on any `getBy*` | compiles to `…"s"` instead of `…"i"` | 0 |
+| `toContainText('str')` / `toHaveText('str')` | `ignoreCase` defaults to unset | 2 / 0 |
+| `:text-is("str")` | exact per-text-node compare, no `toLowerCase` | 0 |
+| `text="str"` — *quoted* selector body | quoting sets the strict matcher | 0 |
+| `locator('text=Str')` — unquoted | lax, insensitive — safe | 0 |
+
+The two `toContainText` string calls are `multi-user-isolation.spec.ts:218–219`, asserting the
+absence of the `undefined` and `[object Object]` sentinels. Not chrome copy, so not exposed.
+
+The trap is that the safe and unsafe forms look alike. `:has-text("Add Application")` is
+lax — it lowercases both sides — so `application-form-errors.spec.ts` survives a casing
+migration despite hard-coding button labels. "Tightening" that to `:text-is("Add
+Application")` would silently make it case-sensitive. Prefer a regex and the question
+does not arise.
+
+*Verified against `playwright-core` 1.59.1 by reading the compiled matchers, not the docs:
+`hasTextEngine` and `textEngine` lowercase both operands; `textIsEngine` and the quoted
+branch of `createTextMatcher` do not; `filter({ hasText })` hardcodes `exact: false`, so it
+cannot be made sensitive even deliberately.*
 
 ---
 
@@ -245,18 +270,28 @@ Staged so the highest-traffic surfaces land first:
 
 ### What the migration actually costs
 
-**Casing changes break no tests.** The e2e suite passes `exact: true` zero times, so every
-string selector in it is already case-insensitive. Steps 3–5 are copy-only diffs that
+**Casing changes break no tests today.** Every string selector in the e2e suite resolves to
+a case-insensitive matcher: the suite uses none of the five sensitive mechanics listed under
+*Writing tests against UI copy* against chrome copy. Steps 3–5 are copy-only diffs that
 review by reading.
+
+Note what that claim rests on: the *current* selector inventory, not a Playwright guarantee.
+It has to be rechecked if a spec adds `exact: true`, `:text-is()`, or a `toContainText`
+string against visible copy — which is the reason the regex convention is written down
+rather than left as a happy accident.
 
 **Punctuation changes do.** The `…` and exclamation-mark rules above are not casing rules,
 and no case-insensitive matcher protects them. They are the only part of this standard with
 a test cost:
 
-- ~52 source sites use a literal `...` where the rule specifies `…`
-- 2 e2e assertions encode it — `job-fit-analysis.spec.ts:508` (`Analyzing Job Fit...`) and
-  `workflow-prefill.spec.ts:179` (`Paste the full job description here...`)
-- ~10 sites carry an exclamation mark; none is referenced by a selector
+- **58 source sites across 36 files** use a literal `...` where the rule specifies `…`
+  (spread/rest operators, comments, and one bare truncation marker excluded)
+- **2 e2e assertions** encode it — `job-fit-analysis.spec.ts:508` (`Analyzing Job Fit...`)
+  and `workflow-prefill.spec.ts:179` (`Paste the full job description here...`). These are
+  the only two ellipsis strings in the suite that address chrome; the other two hits are a
+  comment and fixture data.
+- **14 sites carry an exclamation mark**, in 14 files; none is referenced by any selector
+  (checked each string against `e2e/` — zero hits)
 
 Hence step 6 is sequenced last and shipped on its own: it is the one stage that touches
 specs, and bundling it into a casing PR would give a copy-only diff a test diff to hide in.
