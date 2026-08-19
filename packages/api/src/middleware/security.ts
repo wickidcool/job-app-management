@@ -58,14 +58,17 @@ export function httpsRedirect(): MiddlewareHandler<AppEnv> {
     if (LOCAL_HOSTNAMES.has(url.hostname)) return next();
     if (clientScheme(c) !== 'http') return next();
 
-    url.protocol = 'https:';
-    url.port = '';
+    // Built by hand rather than mutating `url.protocol` so the scheme is unconditional:
+    // a `Location` that is still cleartext is the one failure mode this middleware
+    // cannot have. `hostname` (not `host`) drops the port, so an explicit `:80` does not
+    // survive into an `https://…:80` target that no listener answers.
+    const target = `https://${url.hostname}${url.pathname}${url.search}`;
 
     // 301 is cacheable and is what browsers/curl expect for a scheme upgrade, but it
     // rewrites the method to GET — anything with a body gets 308 so the retry is intact.
     const method = c.req.method.toUpperCase();
     const status = method === 'GET' || method === 'HEAD' ? 301 : 308;
-    return c.redirect(url.toString(), status);
+    return c.redirect(target, status);
   };
 }
 
