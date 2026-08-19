@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 /**
  * Copy strings for the 404 page.
@@ -16,7 +16,6 @@ const COPY = {
   // and a completed-onboarding click are opposite signals and must stay tellable
   // apart in analytics and in role+name test selectors. "Back" frames recovery.
   primaryAction: 'Back to dashboard',
-  backAction: 'Go back',
   pathLabel: 'Address you tried:',
 } as const;
 
@@ -38,11 +37,10 @@ function elidePath(path: string): string {
  * `<main>` — indistinguishable from a page that is still loading.
  *
  * Shows the path that was not found so a typo can be told apart from a
- * broken link, and offers a way back rather than a dead end.
+ * broken link, and offers one unambiguous way out.
  */
 export function NotFound() {
   const location = useLocation();
-  const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   // Move focus to the heading so screen-reader and keyboard users are told
@@ -50,12 +48,6 @@ export function NotFound() {
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
-
-  // `window.history.length` counts the whole tab session, so a cold deep-link
-  // from an external site (email, Slack) reports length 2 and "Go back" would
-  // eject the user out of the app entirely. React Router stamps the initial
-  // entry with key 'default', so this is true only after an in-app navigation.
-  const canGoBack = location.key !== 'default';
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 lg:px-8">
@@ -96,7 +88,15 @@ export function NotFound() {
 
         <p className="mt-3 max-w-md text-body text-neutral-600">{COPY.body}</p>
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+        {/*
+          Single action by design (§2.1, decided in WIC-1105) — a secondary
+          `navigate(-1)` either returns the user to the page holding the dead
+          link or ejects them out of the app, so there is no arrival path on
+          which it is the best affordance. The wrapper survives the removal
+          only to carry `mt-8`; the row's flex/gap classes went with the
+          second child, and a lone flex item is centred by the parent either way.
+        */}
+        <div className="mt-8">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-lg bg-primary-600 px-6 py-3
@@ -106,19 +106,6 @@ export function NotFound() {
           >
             {COPY.primaryAction}
           </Link>
-
-          {canGoBack && (
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="inline-flex items-center justify-center rounded-lg border border-neutral-300
-                       bg-white px-6 py-3 font-medium text-neutral-700 transition-colors duration-200
-                       hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500
-                       focus:ring-offset-2"
-            >
-              {COPY.backAction}
-            </button>
-          )}
         </div>
 
         {/* Keyboard hint only — hidden on touch layouts where there is no shortcut. */}
