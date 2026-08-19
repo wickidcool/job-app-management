@@ -12,7 +12,10 @@ const COPY = {
   eyebrow: '404',
   heading: "That page couldn't be found",
   body: "The link may be out of date, or the address may have a typo. Everything you've saved is safe.",
-  primaryAction: 'Go to dashboard',
+  // Deliberately not the onboarding CTA's "Go to Dashboard": a 404-recovery click
+  // and a completed-onboarding click are opposite signals and must stay tellable
+  // apart in analytics and in role+name test selectors. "Back" frames recovery.
+  primaryAction: 'Back to dashboard',
   backAction: 'Go back',
   pathLabel: 'Address you tried:',
 } as const;
