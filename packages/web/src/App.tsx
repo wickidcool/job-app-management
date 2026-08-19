@@ -35,6 +35,7 @@ import { ResumeVariantsList } from './pages/ResumeVariantsList';
 import { ResumeVariantDetail } from './pages/ResumeVariantDetail';
 import { ResumeVariantNew } from './pages/ResumeVariantNew';
 import { InterviewPrepPage } from './pages/InterviewPrepPage';
+import { NotFound } from './pages/NotFound';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
@@ -117,6 +118,9 @@ function App() {
                           element={<ProjectFileEditor />}
                         />
                         <Route path="/settings" element={<Settings />} />
+                        {/* Must stay last: catches every in-app path with no route
+                            so an unmatched URL shows a 404 page, not an empty <main>. */}
+                        <Route path="*" element={<NotFound />} />
                       </Routes>
                     </main>
 
