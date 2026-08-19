@@ -1,0 +1,232 @@
+# ADR-0001 Addendum A, Layer 0 driver — enable-then-dispatch backstop (WIC-1113).
+#
+# WHY THIS EXISTS
+# ---------------
+# Layer 0 (`secret-history-audit.yml`) is the only historical-secret control available
+# on Free-plan repos. On PUBLIC repos GitHub silently switches it off:
+#
+#   "In a public repository, scheduled workflows are automatically disabled when no
+#    repository activity has occurred in 60 days."
+#   https://docs.github.com/en/actions/managing-workflow-runs/disabling-and-enabling-a-workflow
+#
+# Two properties make that worse than it first reads:
+#
+#   1. The audit RUNNING does not count as activity. Only commits/pushes reset the
+#      60-day clock. So Layer 0 cannot keep itself alive by working.
+#   2. Auto-disable kills the WHOLE workflow, not just the `schedule` trigger --
+#      `workflow_dispatch` stops working too. Verified empirically 2026-08-19 against
+#      a disabled workflow:
+#          POST .../dispatches -> 422
+#          {"message":"Cannot trigger a 'workflow_dispatch' on a disabled workflow"}
+#      This is why step order below is load-bearing: ENABLE, then dispatch. A naive
+#      central dispatcher that only dispatches fails exactly when it is needed.
+#
+# Private repos are exempt (the rule is scoped to public repositories), but they are
+# driven anyway: the enable branch is a no-op when a workflow is already active, and
+# uniform treatment means nobody has to keep a public/private split in their head.
+#
+# Blast radius that motivated this (5 dormant PUBLIC repos, Layer 0 expiring ~2026-10-18):
+#   gatsby-source-google-calendar, KubePress, aws-starter-kit, ai-build-tool, create-aws-project
+# `gatsby-source-google-calendar` is the repo where the real leak was found (WIC-1070:
+# a Google OAuth token committed 2020-09-06, undetected ~6 years). Dormancy is not a
+# proxy for safety -- it is the exact risk profile Layer 0 was built for.
+#
+# WHY IT LIVES HERE
+# -----------------
+# `job-app-management` is pushed near-daily, so it never goes idle and this driver
+# cannot itself be auto-disabled. A workflow is only dispatchable if it exists on the
+# repo's DEFAULT branch (verified 2026-08-19: dispatching a workflow present only on a
+# feature branch returns 404), so this file must stay on `main`.
+#
+# This also makes WIC-1084's fork question permanently moot: `disabled_fork` is handled
+# by the same branch as `disabled_inactivity`.
+#
+# The per-repo 06:17 crons remain the primary path. This driver runs one hour earlier
+# and is a self-healing backstop, not a replacement.
+name: Layer 0 driver (enable-then-dispatch)
+
+on:
+  schedule:
+    - cron: '17 5 * * 1' # Mondays 05:17 UTC — one hour BEFORE the per-repo 06:17 crons
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: 'Optional subset override: whitespace/comma separated repo names. Empty = all in-scope repos.'
+        required: false
+        type: string
+
+# The default GITHUB_TOKEN cannot reach other repositories at all, let alone with
+# actions:write. Everything below runs on LAYER0_DRIVER_TOKEN; this workflow needs
+# nothing from the default token.
+permissions: {}
+
+concurrency:
+  group: layer0-driver
+  cancel-in-progress: false
+
+env:
+  ORG: wickidcool
+  LAYER0_PATH: .github/workflows/secret-history-audit.yml
+
+jobs:
+  drive:
+    name: Enable-then-dispatch Layer 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Fail fast and legibly. Without this an unset secret makes `gh` fall back to
+      # anonymous access and every repo reports a confusing 404 instead of "no token".
+      - name: Assert driver credential is present
+        env:
+          GH_TOKEN: ${{ secrets.LAYER0_DRIVER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::LAYER0_DRIVER_TOKEN is not set. See ADR-0001 credential inventory (WIC-1113)."
+            exit 1
+          fi
+          echo "Authenticated as: $(gh api user -q .login)"
+
+      - name: Enable then dispatch
+        id: drive
+        env:
+          GH_TOKEN: ${{ secrets.LAYER0_DRIVER_TOKEN }}
+          REPOS_OVERRIDE: ${{ inputs.repos }}
+        run: |
+          set -euo pipefail
+
+          # ---- The single in-scope list. Add a repo here and nowhere else. ----
+          ALL_REPOS="
+            job-app-management
+            KubePress
+            gatsby-source-google-calendar
+            aws-starter-kit
+            create-aws-project
+            ai-build-tool
+            gatsby-source-youtube
+            wickidcool-website
+            agentic-pdf-reader
+            cfo-manager
+            test-aws-setup
+            test2-aws-starter
+            enterprise-ai
+          "
+
+          if [ -n "${REPOS_OVERRIDE:-}" ]; then
+            REPOS=$(echo "$REPOS_OVERRIDE" | tr ',' ' ')
+            echo "::notice::Subset override in effect — driving only: $(echo $REPOS)"
+          else
+            REPOS="$ALL_REPOS"
+          fi
+
+          FAILED=0
+          TOTAL=0
+          DISPATCHED=0
+          REENABLED=0
+
+          {
+            echo "## Layer 0 driver — enable-then-dispatch"
+            echo ""
+            echo "| Repo | Visibility | Prior state | Re-enabled | Dispatch |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for REPO in $REPOS; do
+            TOTAL=$((TOTAL + 1))
+            VIS='?'; PRIOR='?'; REENABLED_CELL='—'; DISPATCH_CELL='❌ not attempted'
+
+            # 1. Repo metadata. Default branch is read, never assumed: the fleet is a
+            #    mix of `main` and `master` and a wrong ref makes dispatch 422.
+            if ! META=$(gh api "repos/$ORG/$REPO" --jq '[.default_branch, (if .private then "private" else "public" end)] | @tsv' 2>&1); then
+              PRIOR="repo unreachable"
+              DISPATCH_CELL="❌ \`$(echo "$META" | head -1 | cut -c1-80)\`"
+              FAILED=$((FAILED + 1))
+              echo "| \`$REPO\` | ? | $PRIOR | — | $DISPATCH_CELL |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::$REPO: cannot read repository metadata"
+              continue
+            fi
+            DEFAULT_BRANCH=$(echo "$META" | cut -f1)
+            VIS=$(echo "$META" | cut -f2)
+
+            # 2. Locate Layer 0 by PATH, not by name — the display name is free text and
+            #    a rename must not silently turn this into a no-op.
+            WF=$(gh api "repos/$ORG/$REPO/actions/workflows" --paginate \
+                   --jq ".workflows[] | select(.path == \"$LAYER0_PATH\") | [(.id|tostring), .state] | @tsv" 2>/dev/null || true)
+
+            if [ -z "$WF" ]; then
+              # Not installed is a REAL failure, not a skip. A driver that quietly passes
+              # over a repo with no Layer 0 rebuilds the same blind spot one level up.
+              FAILED=$((FAILED + 1))
+              echo "| \`$REPO\` | $VIS | **not installed** | — | ❌ Layer 0 absent |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::$REPO: $LAYER0_PATH is not installed on the default branch"
+              continue
+            fi
+            WF_ID=$(echo "$WF" | cut -f1)
+            PRIOR=$(echo "$WF" | cut -f2)
+
+            # 3. ENABLE BEFORE DISPATCH. Load-bearing: auto-disable (disabled_inactivity),
+            #    fork disable (disabled_fork) and manual disable (disabled_manually) all
+            #    block workflow_dispatch with a 422.
+            if [ "$PRIOR" != "active" ]; then
+              if gh api -X PUT "repos/$ORG/$REPO/actions/workflows/$WF_ID/enable" --silent 2>/dev/null; then
+                NOW=$(gh api "repos/$ORG/$REPO/actions/workflows/$WF_ID" --jq .state 2>/dev/null || echo unknown)
+                if [ "$NOW" = "active" ]; then
+                  REENABLED_CELL='✅ yes'
+                  REENABLED=$((REENABLED + 1))
+                  echo "::notice::$REPO: Layer 0 was '$PRIOR' — re-enabled"
+                else
+                  REENABLED_CELL="❌ still \`$NOW\`"
+                  FAILED=$((FAILED + 1))
+                  echo "| \`$REPO\` | $VIS | \`$PRIOR\` | $REENABLED_CELL | ❌ not attempted |" >> "$GITHUB_STEP_SUMMARY"
+                  echo "::error::$REPO: enable call returned success but state is '$NOW'"
+                  continue
+                fi
+              else
+                REENABLED_CELL='❌ enable failed'
+                FAILED=$((FAILED + 1))
+                echo "| \`$REPO\` | $VIS | \`$PRIOR\` | $REENABLED_CELL | ❌ not attempted |" >> "$GITHUB_STEP_SUMMARY"
+                echo "::error::$REPO: could not enable $LAYER0_PATH (workflow id $WF_ID)"
+                continue
+              fi
+            fi
+
+            # 4. Dispatch on the default branch. One retry: a transient 5xx here would
+            #    otherwise cost a whole week of coverage on that repo.
+            DISPATCH_ERR=''
+            for ATTEMPT in 1 2; do
+              if DISPATCH_ERR=$(gh api -X POST "repos/$ORG/$REPO/actions/workflows/$WF_ID/dispatches" \
+                                  -f "ref=$DEFAULT_BRANCH" 2>&1); then
+                DISPATCH_CELL="✅ \`$DEFAULT_BRANCH\`"
+                DISPATCHED=$((DISPATCHED + 1))
+                DISPATCH_ERR=''
+                break
+              fi
+              [ "$ATTEMPT" = 1 ] && sleep 5
+            done
+            if [ -n "$DISPATCH_ERR" ]; then
+              DISPATCH_CELL="❌ \`$(echo "$DISPATCH_ERR" | head -1 | cut -c1-80)\`"
+              FAILED=$((FAILED + 1))
+              echo "::error::$REPO: dispatch failed on ref '$DEFAULT_BRANCH' — $(echo "$DISPATCH_ERR" | head -1)"
+            fi
+
+            echo "| \`$REPO\` | $VIS | \`$PRIOR\` | $REENABLED_CELL | $DISPATCH_CELL |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          {
+            echo ""
+            echo "**$DISPATCHED/$TOTAL dispatched** · $REENABLED re-enabled · $FAILED failed"
+            echo ""
+            echo "Layer 0 auto-disables on public repos after 60 days with no repository"
+            echo "activity, and auto-disable blocks \`workflow_dispatch\` too — so this driver"
+            echo "always enables before it dispatches. A failure here means a repo is"
+            echo "currently unscanned; it is never cosmetic."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+          echo "dispatched=$DISPATCHED/$TOTAL" >> "$GITHUB_OUTPUT"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::$FAILED repo(s) could not be enabled or dispatched — Layer 0 coverage is incomplete."
+            exit 1
+          fi
+          echo "All $TOTAL in-scope repos enabled and dispatched."
