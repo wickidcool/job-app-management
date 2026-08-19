@@ -563,7 +563,7 @@ Common patterns used in this project:
 **Phase 1 (MVP):**
 - [x] Keyboard navigation for all features
 - [x] Proper form labels and validation
-- [x] Focus management in modals
+- [ ] Focus management in modals (WIC-1141 — 5 dialogs done; `ConfirmationModal` in PR #95)
 - [x] ARIA labels for interactive elements
 - [x] Color contrast validation
 - [x] Screen reader testing (basic)
