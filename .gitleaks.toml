@@ -22,3 +22,20 @@ id = "google-oauth-access-token"
 description = "Google OAuth access token"
 regex = '''ya29\.[A-Za-z0-9_\-]{20,}'''
 keywords = ["ya29."]
+
+# WIC-1130 / ADR-0001 Addendum A Rev 6.2 §A.2 — DB/broker connection string with an
+# embedded credential (userinfo form). gitleaks' 222-rule default set has no rule for
+# this class; `generic-api-key` covers the libpq `password=` and `?password=` forms but
+# misses `scheme://user:pass@host`, which is exactly the form Supabase hands you.
+# Allowlist is STRUCTURAL ONLY (Rev 6.2 §A.2.2) — corpus-derived suppression belongs in
+# the per-repo redacted baseline, never in fleet-distributed config.
+[[rules]]
+id = "pc-db-connection-string"
+description = "Database/broker connection string with an embedded credential (userinfo form)"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|mssql|sqlserver|clickhouse|cockroachdb|snowflake)://[^:@/\s"'<>]{1,64}:[^@/\s"'<>]{1,256}@[^/\s"'<>]+'''
+keywords = ["://"]
+tags = ["adr-0001", "db-credential"]
+
+  [rules.allowlist]
+  regexTarget = "match"
+  regexes = ['''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{8,}|redacted|your[-_]?password|changeme|placeholder)[^@\s]*@''']
