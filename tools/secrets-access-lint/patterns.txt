@@ -1,0 +1,22 @@
+# Secrets-Access content linter — pattern source of truth (ADR-0001 Addendum A, Layer 2)
+# Format: one rule per line -> RULE_ID <TAB> KIND <TAB> REGEX
+#   KIND = single  : a match on any single added line fails the build.
+#   KIND = cooccur : contributes to a co-occurrence group; the file fails only when
+#                    EVERY distinct GROUP tag present for that rule-id matches somewhere
+#                    in the file's added lines. Encode the group tag as RULE_ID#GROUP.
+# Regexes are Python `re`, matched case-insensitively against added (diff "+") lines.
+# Tuning is owned by Architect + Librarian. Keep patterns HIGH-SIGNAL to limit false
+# positives; CODEOWNERS review is the backstop for novel phrasings this misses.
+
+# --- single-line, high-signal access-recipe phrasings -------------------------------
+SA_HOWTO_EXTRACT	single	how\s+to\s+(?:pull|extract|decrypt|dump|obtain|retrieve)\b.{0,40}\bsecret
+SA_MASTER_KEY_PATH	single	master[\s_-]*(?:decryption[\s_-]*)?key.{0,40}(?:/[\w./-]+|path|located|stored\s+at)
+SA_DECRYPT_STORE	single	(?:pgp_sym_decrypt|pgcrypto|openssl\s+enc\s+-d|gpg\s+--decrypt).{0,60}(?:secret|store|vault|credential)
+
+# --- co-occurrence: key material path + a decryption action in the same file --------
+SA_KEYPATH_PLUS_DECRYPT#keypath	cooccur	(?:key(?:file|store)?|master[\s_-]*key)\b.{0,40}(?:\.key|\.pem|/[\w./-]*key[\w./-]*)
+SA_KEYPATH_PLUS_DECRYPT#decrypt	cooccur	\b(?:decrypt|pgp_sym_decrypt|openssl\s+enc\s+-d|gpg\s+-d|gpg\s+--decrypt)\b
+
+# --- co-occurrence: an enumeration of stored secret NAMES + their storage location --
+SA_SECRET_ENUM#names	cooccur	\b(?:secret|credential)s?\s+(?:name|key)s?\s*(?::|=|are|include)
+SA_SECRET_ENUM#location	cooccur	\b(?:stored\s+in|store\s+at|located\s+in|table|schema|embedded\s+postgres|secrets[\s_-]*store)\b

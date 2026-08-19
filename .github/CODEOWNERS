@@ -1,0 +1,21 @@
+# ADR-0001 Addendum A — human review gate on content-sensitive paths.
+#
+# What this file does and does NOT do:
+#   - It REQUESTS review from the owners below on every PR touching these paths.
+#   - It only BLOCKS merge if `main` branch protection sets
+#     `require_code_owner_reviews: true`. It currently does not (see WIC-1064): the
+#     enforcement of record in this repo is the REQUIRED STATUS CHECKS
+#     ("Lint & Test", "Secrets-access content policy"), which cannot be satisfied by
+#     a human decision. CODEOWNERS here is the advisory backstop for phrasings the
+#     Layer 2 pattern set misses.
+#
+# tools/secrets-access-lint/ is listed deliberately: the linter self-excludes that
+# directory (hard-coded, not a user-editable ignore file), so content placed inside it
+# is not scanned by Layer 2. Review on that path is the compensating control.
+
+.github/workflows/content-policy.yml   @alwick
+.github/CODEOWNERS                     @alwick
+tools/secrets-access-lint/             @alwick
+.gitleaks.toml                         @alwick
+CLAUDE.md                              @alwick
+docs/architecture/                     @alwick

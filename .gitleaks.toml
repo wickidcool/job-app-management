@@ -1,0 +1,56 @@
+# ADR-0001 Addendum A — Layer 1 config. Extends gitleaks' default rules; add
+# fleet-specific high-signal value patterns here. Kept minimal on purpose: Layer 2
+# (tools/secrets-access-lint) covers the prose-only access-recipe class that
+# entropy/regex value-scanning cannot see.
+#
+# Scope note: the content-policy workflow runs this with `--no-git`, i.e. against the
+# CURRENT TREE, not 433 commits of history. Full-history remediation for this repo is
+# a separate, still-open workstream (WIC-1076); gating merges on it would leave the
+# required check permanently red. Layer 2 is diff-scoped for the same reason.
+title = "job-app-management content-policy (ADR-0001 Addendum A)"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "pc-db-connection-string"
+description = "Postgres/DB connection string with embedded credentials"
+regex = '''(?i)postgres(?:ql)?://[^:\s]+:[^@\s]+@[^/\s]+'''
+tags = ["adr-0001", "db-credential"]
+
+  # Verified 2026-08-19 against the current tree: every in-repo match is either a
+  # template interpolation or a documented placeholder password, never a live value.
+  [rules.allowlist]
+  description = "Template interpolation and placeholder passwords, never real values"
+  regexTarget = "match"
+  regexes = [
+    # `${VAR}` / `${{ secrets.X }}` — resolved at run time, no value in the repo.
+    '''postgres(?:ql)?://[^\s]*\$\{''',
+    # Documented placeholder passwords (.env.example, docs, local docker-compose).
+    '''(?i)://[^:\s/]+:(?:yourpassword|your[-_]password|password|passwd|changeme|postgres|careerpin|secret|example|<[^>@\s]+>|\[[^\]@\s]+\])@''',
+  ]
+
+# Verified 2026-08-19: the only `generic-api-key` hits in the current tree are a
+# truncated JWT *header* used as documentation ("eyJ...JWT9...", which decodes to the
+# public {"alg":"HS256","typ":"JWT"}) and analytics field NAMES in a docs fixture.
+[[allowlists]]
+description = "Documented placeholders and truncated example values"
+regexTarget = "line"
+regexes = [
+  '''EXAMPLE_[A-Z_]+''',
+  '''<[a-z0-9_-]+>''',
+  # A base64url JWT prefix followed by a literal ellipsis is a documentation
+  # truncation marker — a complete token never ends in "...".
+  '''eyJ[A-Za-z0-9_-]{8,}\.\.\.''',
+  # docs/analytics fixture: `"_key": "A6_avg_sections_detected"` is a metric id.
+  '''"_key"\s*:\s*"[A-Za-z0-9_]+"''',
+]
+
+[[allowlists]]
+description = "Vendored and generated trees are not authored content"
+paths = [
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)test-results/''',
+]

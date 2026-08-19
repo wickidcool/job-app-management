@@ -31,6 +31,39 @@ At the edge the Worker uses **Cloudflare bindings**, not `process.env`. Binding 
 
 Local dev secrets go in `.dev.vars` (copy from `.dev.vars.example`); `wrangler dev` loads them automatically. Production secrets are set with `wrangler secret put`. Non-secret vars (`NODE_ENV`) live in `wrangler.jsonc`.
 
+### Secrets-access documentation is prohibited (ADR-0001 Addendum A §1)
+
+Do **not** author or commit any file whose purpose or effect is to describe how to
+**obtain, decrypt, enumerate, or exfiltrate** live credentials or the systems that
+store them — **even if it contains no literal secret value.** Specifically prohibited:
+
+- paths to key material, keystores, or the secrets store, presented as access instructions;
+- decryption/extraction code or commands targeting the secrets store;
+- enumerations of stored secret _names_ together with their storage locations;
+- connection strings, DB passwords, or key material.
+
+Permitted: noting that a secrets system _exists_ and pointing at the owned tooling or
+the access-request process. Prohibited: the extraction recipe. A document can contain
+no secret value at all and still be a breach — that is the WIC-985 class, and it is
+exactly what value-only scanners (gitleaks, GitHub secret scanning) pass clean.
+
+Enforced at PR time by the `content-policy` workflow:
+
+| Layer | Check | Catches |
+|---|---|---|
+| 1 | `gitleaks` (`.gitleaks.toml`) | literal secret **values** in the tree |
+| 2 | `tools/secrets-access-lint/` | access **recipes** in added prose |
+
+Run Layer 2 locally before committing:
+
+```bash
+npm run lint:content-policy              # diff vs origin/main
+python3 tools/secrets-access-lint/secrets_access_lint.py --files path/to/doc.md
+```
+
+A false positive on legitimate security prose is waived only by an Architect/Librarian
+approval recorded in the PR review — never by editing the pattern set to fit the file.
+
 ### Worker (API)
 
 | Variable | Required | Description |
