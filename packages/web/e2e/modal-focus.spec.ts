@@ -182,8 +182,7 @@ test.describe('ConfirmationModal — destructive delete gate', () => {
   test('locks background scroll while open and releases it on close', async ({ page }) => {
     await setupResumeManager(page);
 
-    const bodyOverflow = () =>
-      page.evaluate(() => getComputedStyle(document.body).overflow);
+    const bodyOverflow = () => page.evaluate(() => getComputedStyle(document.body).overflow);
 
     const before = await bodyOverflow();
     await openDeleteDialogByKeyboard(page);
