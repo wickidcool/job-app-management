@@ -2,6 +2,27 @@
 
 This document defines all reusable UI components with their states, variants, props, and behaviors.
 
+## Reading the wireframes: casing
+
+The ASCII wireframes below depict **rendered output**, not source strings. Where a wireframe shows an
+all-caps label, that is the **Overline** token (`DESIGN_SYSTEM.md` §Typography — 10px / 600 / all-caps
+labels), applied as `text-transform: uppercase` in `className`. It is never a literal caps string in the
+component source.
+
+The distinction matters for accessibility: caps spelled into the DOM are what the accessibility tree
+receives, and some screen readers — VoiceOver notably — spell short all-caps strings out letter by letter.
+`uppercase` renders the caps visually while leaving the accessible name normal-cased. This is known-good
+practice rather than a WCAG conformance requirement; no success criterion fails either way.
+
+Two consequences when reading or extending these specs:
+
+- **A shouted heading is not an overline.** Overline is a 10px label token. An `<h1>`/`<h3>`/`<h4>` that
+  happens to be drawn in caps is a heading, and the fix is to drop the caps, not to re-apply them in CSS.
+  The GapMitigationPanel and QuickReferenceExport wireframes below were corrected on this basis (WIC-1069).
+- **Caps remaining in a wireframe are intentional.** `🔴 CRITICAL:` (§26) and `Overall Fit: MODERATE FIT`
+  (§13) still render in caps because those are badges carrying the Overline treatment. Do not "fix" them
+  in the source string.
+
 ---
 
 ## 1. ApplicationCard
@@ -3678,7 +3699,7 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 │                                                             │
 │ Your profile strongly matches the role requirements.        │
 │                                                             │
-│ KEY STRENGTHS TO HIGHLIGHT                                  │
+│ Key strengths to highlight                                  │
 │ • React/TypeScript expertise (exact match)                  │
 │ • Team leadership experience                                │
 │ • E-commerce domain knowledge                               │
@@ -3949,7 +3970,7 @@ interface CompanyFact {
 ┌──────────────────────────────────────────────────┐
 │                    Page 1                        │
 │ ┌──────────────────────────────────────────────┐ │
-│ │           INTERVIEW QUICK REFERENCE          │ │
+│ │           Interview quick reference          │ │
 │ │                                              │ │
 │ │ Senior Engineer | TechCorp                   │ │
 │ │ May 1, 2026 at 2:00 PM                       │ │
