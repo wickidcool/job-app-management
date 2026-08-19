@@ -46,10 +46,19 @@ export function EmptyState({ variant, onAction, actionLabel }: EmptyStateProps) 
   const buttonLabel = actionLabel || config.defaultActionLabel;
 
   return (
+    // No aria-live here: this content is static per `variant` and never updates
+    // in place, so a live region buys nothing — and it costs correctness. The
+    // aria-hidden package Radix uses to hide the background behind a modal
+    // deliberately exempts [aria-live] elements, which keeps the exempt node,
+    // all of its descendants and its whole ancestor chain reachable to the
+    // screen reader. Because this container wraps the action button, that left
+    // a live control exposed behind every open dialog. If a variant ever needs
+    // to announce a *change* (e.g. "No matching results" after a filter edit),
+    // the live region belongs on the results container that swaps between
+    // states, not on the empty state itself.
     <div
       className="flex flex-col items-center justify-center py-16 px-6 text-center"
       role="region"
-      aria-live="polite"
       aria-label="Empty state"
     >
       {/* Icon */}

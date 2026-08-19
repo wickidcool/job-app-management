@@ -8,6 +8,16 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Accessibility — `EmptyState` no longer leaks its action button out from behind an open modal (2026-08-19)
+
+`EmptyState` carried `aria-live="polite"` on the container that wraps its action button. The `aria-hidden` package Radix Dialog uses to hide the background behind a modal **deliberately exempts `[aria-live]` elements** (`aria-hidden@1.2.6`, `dist/es2015/index.js` L131-133), and exempting a node keeps that node, all of its descendants, and its entire ancestor chain reachable to the screen-reader virtual cursor. On any page rendering `EmptyState`, opening a dialog therefore left `#root`, `<main>` and the empty state's **"Create Your First Project"-style action button** live and reachable behind the modal.
+
+- **Fix** — dropped `aria-live="polite"` from `EmptyState`. The content is static per `variant` and never updates in place, so the live region announced nothing that ordinary content traversal would not; it only bought the modal-hiding exemption. `role="region"` / `aria-label="Empty state"` are unchanged.
+- **Audit** — the three other `aria-live` sites (`KanbanBoard` drag announcer, `OnboardingProgressIndicator`, wizard `ProgressIndicator`) are genuine live regions that each sit on a dedicated `sr-only`/text-only node. They take the same exemption, but because they wrap no actionable content and their siblings are still hidden, nothing reachable leaks. They are deliberately left as-is.
+- **Verified** — a negative control run against the real `aria-hidden` package reproduces the bug on the pre-fix DOM (`#root` unhidden, action button reachable, header/tab bar correctly hidden — matching the behaviour measured on `/projects`) and confirms the fix (`#root[aria-hidden="true"]`, action button unreachable, dialog itself still reachable).
+
+Found during WIC-1141 (PR #97) and split out so an app-wide presentational change would not ride along with that modal migration. (WIC-1155)
+
 ### Observability — Production analytics go-live (2026-08-11)
 
 Product analytics is now **live in production**. The event sink was flipped from `noop` to **PostHog** on both tiers, so all 9 resume/export events instrumented under WIC-814 (documented in the section below) are wired to capture real user data. The Worker API — and therefore the server-side capture path — is live and auth-enforcing on the canonical app domain `https://app.careerpin.app/api/*`. PostHog-side verification has now been run (WIC-964, closed 2026-08-18): the sink is confirmed correctly wired — a QA acceptance probe lands in the prod PostHog project — but the 3 server events have not yet been observed in Live Events, because no live authenticated resume-upload traffic has exercised that path since the sink flipped. This is a traffic-coverage gap, not a sink or instrumentation defect (see below).
