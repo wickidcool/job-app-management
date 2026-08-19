@@ -39,13 +39,16 @@ export interface R2Bucket {
   head(key: string): Promise<R2Object | null>;
 }
 
+/** Cloudflare static-assets binding (`assets.binding` in wrangler.jsonc). */
+export interface AssetsBinding {
+  fetch(request: Request): Promise<Response>;
+}
+
 export interface Env {
+  ASSETS?: AssetsBinding;
   HYPERDRIVE?: { connectionString: string };
   DATABASE_URL?: string;
   R2_BUCKET?: R2Bucket;
-  // Static-asset binding declared in wrangler.jsonc. Used by the SPA fallback in app.ts
-  // to serve index.html for client-side routes. Absent on the Node.js dev entry point.
-  ASSETS?: Fetcher;
   SUPABASE_JWT_SECRET?: string;
   ANTHROPIC_API_KEY?: string;
   SUPABASE_URL?: string;

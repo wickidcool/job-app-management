@@ -22,105 +22,143 @@ vi.mock('../src/services/resume-variant.service.js', () => ({}));
 vi.mock('../src/services/interviewPrep.service.js', () => ({}));
 vi.mock('../src/db/client.js', () => ({ db: {} }));
 
-const SPA_SHELL = '<!doctype html><html><div id="root"></div></html>';
+const SHELL = '<!doctype html><html><head><title>Careerpin</title></head><body></body></html>';
 
-/** Stand-in for the Cloudflare `ASSETS` binding. */
-function assetsStub() {
-  const fetch = vi.fn(async (input: Request | URL | string) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.pathname === '/') {
-      return new Response(SPA_SHELL, {
+/**
+ * Stands in for the Cloudflare ASSETS binding with
+ * not_found_handling: "single-page-application" — a real file match wins, everything
+ * else gets index.html with a 200.
+ */
+function makeAssets(files: Record<string, string>, spaFallback = true) {
+  const fetch = vi.fn(async (request: Request) => {
+    const { pathname } = new URL(request.url);
+    if (files[pathname] !== undefined) {
+      return new Response(files[pathname], {
         status: 200,
-        headers: { 'content-type': 'text/html; charset=utf-8' },
+        headers: { 'Content-Type': pathname.endsWith('.js') ? 'text/javascript' : 'text/html' },
       });
     }
-    return new Response('404 Not Found', { status: 404 });
+    if (spaFallback || pathname === '/index.html') {
+      return new Response(SHELL, { status: 200, headers: { 'Content-Type': 'text/html' } });
+    }
+    return new Response('Not Found', { status: 404 });
   });
-  return { fetch } as unknown as Fetcher & { fetch: ReturnType<typeof vi.fn> };
+  return { fetch };
 }
 
-describe('SPA deep-link fallback (WIC-1004)', () => {
+const ASSET_FILES = { '/index.html': SHELL, '/assets/index-abc.js': 'console.log(1)' };
+
+// Every path-based React Router route a user can land on directly (App.tsx).
+const CLIENT_ROUTES = [
+  '/',
+  '/login',
+  '/dashboard',
+  '/applications',
+  '/applications/new',
+  '/applications/01HZX/prep',
+  '/catalog',
+  '/cover-letters/new',
+  '/cover-letters/01HZX',
+  '/resumes/exports',
+  '/reports/pipeline',
+  '/settings',
+];
+
+describe('SPA fallback (WIC-1004)', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
+    process.env = { ...originalEnv };
+    delete process.env.SUPABASE_JWT_SECRET;
     _resetConfig();
-    // Auth off, so an unmatched /api/* path is a genuine 404 rather than a 401.
-    process.env = { ...originalEnv, SUPABASE_JWT_SECRET: undefined };
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
     process.env = originalEnv;
-    vi.clearAllMocks();
+    _resetConfig();
   });
 
-  describe('client-side routes serve the SPA shell', () => {
-    // The routes QA reproduced as plaintext 404s in production.
-    it.each(['/dashboard', '/dashboard/', '/login', '/applications'])(
-      'serves index.html for %s',
-      async (path) => {
-        const app = buildApp();
-        const ASSETS = assetsStub();
+  it.each(CLIENT_ROUTES)('serves the SPA shell for %s', async (path) => {
+    const app = buildApp();
+    const env = { ASSETS: makeAssets(ASSET_FILES) };
+    const res = await app.fetch(new Request(`https://app.careerpin.app${path}`), env);
 
-        const res = await app.request(path, { method: 'GET' }, { ASSETS });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    await expect(res.text()).resolves.toContain('<html');
+  });
 
-        expect(res.status).toBe(200);
-        expect(res.headers.get('content-type')).toContain('text/html');
-        await expect(res.text()).resolves.toBe(SPA_SHELL);
-      }
+  it('serves the shell for an unknown non-API path so the client renders its own 404', async () => {
+    const app = buildApp();
+    const res = await app.fetch(new Request('https://app.careerpin.app/no/such/page'), {
+      ASSETS: makeAssets(ASSET_FILES),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+  });
+
+  it('falls back to /index.html if not_found_handling ever drifts off SPA mode', async () => {
+    const app = buildApp();
+    const res = await app.fetch(new Request('https://app.careerpin.app/dashboard'), {
+      ASSETS: makeAssets(ASSET_FILES, false),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toContain('<html');
+  });
+
+  it('does not shadow real static files', async () => {
+    const app = buildApp();
+    const res = await app.fetch(new Request('https://app.careerpin.app/assets/index-abc.js'), {
+      ASSETS: makeAssets(ASSET_FILES),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toBe('console.log(1)');
+  });
+
+  it.each(['/api/health', '/api/applications', '/api/nope'])(
+    'keeps %s on JSON — never the SPA shell',
+    async (path) => {
+      const app = buildApp();
+      const assets = makeAssets(ASSET_FILES);
+      const res = await app.fetch(new Request(`https://app.careerpin.app${path}`), { ASSETS: assets });
+
+      expect(res.headers.get('Content-Type')).toContain('application/json');
+      expect(assets.fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('returns JSON 404 for an unknown API path', async () => {
+    const app = buildApp();
+    const res = await app.fetch(new Request('https://app.careerpin.app/api/nope'), {
+      ASSETS: makeAssets(ASSET_FILES),
+    });
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: { code: 'NOT_FOUND', message: 'Endpoint not found' },
+    });
+  });
+
+  it('does not serve the shell for non-GET requests', async () => {
+    const app = buildApp();
+    const assets = makeAssets(ASSET_FILES);
+    const res = await app.fetch(
+      new Request('https://app.careerpin.app/dashboard', { method: 'POST' }),
+      { ASSETS: assets }
     );
 
-    it('requests the shell at / regardless of the deep-link path', async () => {
-      const app = buildApp();
-      const ASSETS = assetsStub();
-
-      await app.request('/applications/01H0000000000000000000', { method: 'GET' }, { ASSETS });
-
-      expect(ASSETS.fetch).toHaveBeenCalledTimes(1);
-      const requested = ASSETS.fetch.mock.calls[0][0] as Request;
-      expect(new URL(requested.url).pathname).toBe('/');
-    });
+    expect(res.status).toBe(404);
+    expect(assets.fetch).not.toHaveBeenCalled();
   });
 
-  describe('API paths must never receive the SPA shell', () => {
-    // This is the regression guard: HTML served to an API caller would break every
-    // client fetch, which is a worse failure than the 404 being fixed.
-    it.each(['/api/does-not-exist', '/api/applications/nope/deeper'])(
-      'returns JSON 404 for %s',
-      async (path) => {
-        const app = buildApp();
-        const ASSETS = assetsStub();
+  it('degrades to a plain 404 when no ASSETS binding exists (Node dev)', async () => {
+    const app = buildApp();
+    const res = await app.fetch(new Request('https://localhost:3000/dashboard'), {});
 
-        const res = await app.request(path, { method: 'GET' }, { ASSETS });
-
-        expect(res.status).toBe(404);
-        expect(res.headers.get('content-type')).toContain('application/json');
-        await expect(res.json()).resolves.toEqual({
-          error: { code: 'NOT_FOUND', message: 'Not found' },
-        });
-        expect(ASSETS.fetch).not.toHaveBeenCalled();
-      }
-    );
-  });
-
-  describe('degraded environments', () => {
-    it('falls back to a plain 404 when the ASSETS binding is absent', async () => {
-      // The Node.js dev entry point has no asset server bound.
-      const app = buildApp();
-
-      const res = await app.request('/dashboard', { method: 'GET' }, {});
-
-      expect(res.status).toBe(404);
-    });
-
-    it('does not serve a broken shell when the asset fetch fails', async () => {
-      const app = buildApp();
-      const ASSETS = {
-        fetch: vi.fn(async () => new Response('boom', { status: 500 })),
-      } as unknown as Fetcher;
-
-      const res = await app.request('/dashboard', { method: 'GET' }, { ASSETS });
-
-      expect(res.status).toBe(404);
-    });
+    expect(res.status).toBe(404);
   });
 });

@@ -67,24 +67,33 @@ export function buildApp() {
 
   app.route('/api', api);
 
-  // Unmatched paths land here. `assets.not_found_handling` in wrangler.jsonc cannot help:
-  // worker.ts hands every request to Hono, so a path with no matching static file reaches
-  // the app and would otherwise get Hono's default plaintext 404 (WIC-1004).
+  // SPA fallback (WIC-1004). Static files are served by the asset router before the
+  // Worker runs, so anything reaching here is either an unknown API path or a
+  // client-side React Router route (/dashboard, /applications/:id, ...). API paths must
+  // keep returning JSON — only non-API requests get the SPA shell.
   app.notFound(async (c) => {
     const url = new URL(c.req.url);
 
-    // API paths must keep answering JSON — they must never fall through to the SPA shell.
-    if (url.pathname.startsWith('/api/')) {
-      return c.json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Endpoint not found' } }, 404);
     }
 
-    // Anything else is a client-side route: serve index.html so React Router can resolve it
-    // on direct navigation, refresh or a shared deep link.
-    const assets = c.env.ASSETS;
-    if (!assets) return c.text('Not Found', 404);
+    const assets = c.env?.ASSETS;
+    const method = c.req.method;
+    if (!assets || (method !== 'GET' && method !== 'HEAD')) {
+      return c.text('Not Found', 404);
+    }
 
-    const shell = await assets.fetch(new Request(new URL('/', url)));
-    return shell.ok ? shell : c.text('Not Found', 404);
+    // not_found_handling: "single-page-application" makes this return index.html, but
+    // retry the shell explicitly so the fallback holds even if that setting drifts.
+    const headers = c.req.raw.headers;
+    let res = await assets.fetch(new Request(url, { method: 'GET', headers }));
+    if (res.status === 404) {
+      res = await assets.fetch(
+        new Request(new URL('/index.html', url), { method: 'GET', headers })
+      );
+    }
+    return res.status === 404 ? c.text('Not Found', 404) : res;
   });
 
   app.onError((err, c) => {

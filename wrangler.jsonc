@@ -7,15 +7,16 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	// Static frontend assets — served by the Worker for any path without a matching API route.
-	// not_found_handling alone is inert here: worker.ts routes every request into Hono, so an
-	// unmatched path never reaches the asset layer's fallback. The `binding` exposes the asset
-	// server as env.ASSETS so the notFound handler in packages/api/src/app.ts can serve the
-	// SPA shell for React Router deep links (WIC-1004).
+	// Static frontend assets. The asset router runs before the Worker: a request that
+	// matches a file on disk is served directly, anything else is forwarded to `main`.
+	// Because a Worker script is present, `not_found_handling` is NOT applied automatically
+	// on that forward — it only takes effect for explicit ASSETS.fetch() calls. So the
+	// `binding` below is required, and app.ts's notFound handler calls it to serve the SPA
+	// shell for client-side routes (WIC-1004).
 	"assets": {
 		"directory": "./packages/web/dist",
-		"not_found_handling": "single-page-application",
-		"binding": "ASSETS"
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application"
 	},
 	// R2: object storage for resume files and cover letters
 	// Setup: wrangler r2 bucket create jobtrail-documents
