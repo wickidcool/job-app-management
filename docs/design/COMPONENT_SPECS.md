@@ -3938,11 +3938,11 @@ interface CompanyFact {
 ```
 ┌────────────────────────┐
 │  ┌──────────────────┐  │
-│  │ SENIOR ENGINEER  │  │
+│  │ Senior Engineer  │  │
 │  │ TechCorp         │  │
 │  │ ───────────────  │  │
 │  │                  │  │
-│  │ TOP STORIES      │  │
+│  │ Top stories      │  │
 │  │ ← Swipe →        │  │
 │  │ ┌──────────────┐ │  │
 │  │ │ 1. React     │ │  │
