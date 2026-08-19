@@ -87,6 +87,11 @@ const PARAM_SAMPLES: Record<string, string> = {
   id: '01HZX',
   projectId: 'acme-corp-engineer',
   fileName: 'acme-corp-engineer.md',
+  // Added ahead of PR #87 (WIC-1044), which declares `/resumes/:resumeId/exports`.
+  // Nothing asserts a sample is used, so this is inert until that route lands and
+  // spares `main` the red run that the two PRs would otherwise produce only once
+  // merged — neither PR's own CI can see the other's half of it.
+  resumeId: '01HZX',
 };
 
 const DECLARED_PARAMS = [
