@@ -16,12 +16,18 @@ import { onboardingRoutes } from './routes/onboarding.js';
 import { personalInfoRoutes } from './routes/personal-info.js';
 import { authRoutes } from './routes/auth.js';
 import { authMiddleware } from './middleware/auth.js';
+import { httpsRedirect, securityHeaders } from './middleware/security.js';
 import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
 import { isHyperdriveTimeout } from './db/hyperdrive.js';
 
 export function buildApp() {
   const app = new Hono<AppEnv>();
+
+  // Transport hardening first (WIC-1011): headers wrap every response including the
+  // redirect, and cleartext requests are turned away before any handler runs.
+  app.use('*', securityHeaders());
+  app.use('*', httpsRedirect());
 
   app.use(
     '*',
