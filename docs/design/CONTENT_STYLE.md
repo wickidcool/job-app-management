@@ -70,6 +70,58 @@ because it is a destination. The same word mid-string is lowercase:
 
 > Nav item: `Dashboard` · Button: `Back to dashboard` · Body: `Return to your dashboard.`
 
+### Boundary cases, ruled
+
+These four come up repeatedly and pull in opposite directions. The ruling is the same each
+time: **a screen you can navigate to is not thereby a proper noun.**
+
+| String | Ruling | Why |
+|---|---|---|
+| `Back to dashboard` | lowercase `d` | A destination, not a name. Being linkable confers nothing. |
+| `Analyze job fit` | lowercase | An action. Uncontroversial. |
+| `Job fit analysis` | lowercase | A named *feature*, and feature names are not proper nouns (above). |
+| `Add applications as you apply to jobs` | lowercase | Common nouns. Uncontroversial. |
+
+Rows 1 and 3 are the ones under genuine pressure — "it's *the* Dashboard," "it's the name
+of the screen." Both arguments are the feature-name loophole wearing a hat. If capitalizing
+a string requires an argument, the answer is no.
+
+When a string is ambiguous on grounds other than casing — whether it should say
+"dashboard" or "overview" at all — that is a copy question, not a casing question, and it
+routes to the Copywriter / Editor.
+
+---
+
+## Casing by slot
+
+The rule above is one sentence; this table is where it lands in practice. It is the
+authority for "what casing does *this* element take."
+
+| Slot | Casing | Notes |
+|---|---|---|
+| Button / link label | Sentence | Includes destructive and secondary |
+| Page title (`h1`) | Sentence | |
+| Section / card heading (`h2`–`h4`) | Sentence | |
+| Nav item, tab label | Sentence | Usually one word — no change |
+| Breadcrumb segment | Sentence | Matches the destination's own page title |
+| Form field label | Sentence | |
+| Placeholder text | Sentence | |
+| Helper / hint / validation text | Sentence | Already de-facto |
+| Empty-state heading + body | Sentence | Already de-facto |
+| Toast / banner | Sentence | |
+| Modal title | Sentence | |
+| Table column header | Sentence **in the DOM** | Rendered as caps by the Overline token |
+| Status / severity badge | Sentence **in the DOM** | Same — token, not baked caps |
+| Nav section label | Sentence **in the DOM** | Same |
+
+**One rule, one exception mechanism.** The table deliberately has no "all caps" row. Every
+visually-uppercase surface is the Overline token, which is CSS — see below. All caps is a
+rendering style; it is never a casing decision.
+
+*Matrix contributed by the UI/UX Developer (WIC-1090). The casing column is uniform by
+construction: if a future board call declared title case instead, only that column would
+flip and every other ruling in this document would stand.*
+
 ---
 
 ## ALL CAPS is a typographic treatment, not casing
@@ -95,9 +147,26 @@ Three reasons, in order of weight:
 3. **Reversibility.** A design change to the badge treatment becomes a stylesheet edit
    rather than a find-and-replace across components.
 
+The treatment already has a token: **Overline** in `DESIGN_SYSTEM.md` §Typography
+(10px / 600 / "All-caps labels"). Use it. `MobileNavigation.tsx` and `CatalogBrowseTable.tsx`
+are the reference implementations.
+
 Status chips and badges keep their uppercase *look*; their source strings become sentence
 case (`Critical`, `Moderate`, `Minor`, `Create`, `Update`, `Delete`, `Ambiguous tag`).
 Where a badge label is derived at runtime, drop the `.toUpperCase()` call and let CSS do it.
+
+**This is why uppercase cannot be a casing rule at all.** Two of the six offending sites
+apply `.toUpperCase()` to strings the *API* supplies — `JobFitAnalysis.tsx:151`
+(`results.recommendation`) and `:271` (`gap.severity`). No prose style guide can govern a
+string it never authored. Uppercase has to be a rendering decision because at those two
+sites there is no source string to rule on.
+
+Genuinely-uppercase *content* is a different thing and stays uppercase under the acronym
+exception — `selectedFormat.toUpperCase()` rendering `PDF` / `DOCX` is correct as written.
+The test is whether the capitals carry meaning or carry styling.
+
+Baked-caps cleanup is tracked in WIC-1069 (implementation corrections in WIC-1086) and runs
+independently of the board call.
 
 ---
 
@@ -126,10 +195,71 @@ Never use exclamation marks in chrome. `All applications are up to date!` become
 
 ---
 
+## Writing tests against UI copy
+
+**Match user-visible copy with a case-insensitive regex, never a bare string.**
+
+```tsx
+// ✅
+screen.getByRole('button', { name: /back to dashboard/i })
+page.getByRole('button', { name: /back to dashboard/i })
+
+// ❌ — hard-codes a casing decision this document may change
+screen.getByRole('button', { name: 'Back to Dashboard' })
+```
+
+The two harnesses have **opposite defaults**, which is why the convention has to be stated
+rather than inferred:
+
+| Harness | String `TextMatch` default |
+|---|---|
+| Playwright (`getByRole`/`getByText`/`getByLabel`/`getByPlaceholder`) | case-**insensitive**, substring |
+| Testing Library / vitest (`getByRole` name, `getByText`) | case-**sensitive**, exact |
+
+Playwright compiles a string name to an `i`-flagged matcher unless `exact: true` is passed
+(verified against `playwright-core` 1.59.1: `internal:role=button[name="…"i]`, vs `…"s"`
+with `exact: true`). So Playwright specs tolerate a casing migration by accident. RTL specs
+do not — a bare string there breaks the moment this standard is applied to the component.
+
+`toContainText` / `toHaveText` with a **string** argument are case-sensitive in Playwright
+too. Prefer a regex there as well.
+
+---
+
 ## Migration
 
 The standard is being applied to the existing tree in stages, not one sweeping PR.
-Scope, per-area ordering, and the e2e selector audit live in **WIC-1066**.
+Per-area ordering and tracking live in **WIC-1066**.
+
+Staged so the highest-traffic surfaces land first:
+
+1. **Standard + test convention** — this document. No source changes; everything after
+   cites it.
+2. **Overline token compliance** — the six baked-caps sites (WIC-1069, corrections in
+   WIC-1086). Independent of the casing call; can run in parallel.
+3. **Onboarding + Dashboard** — first-run path, highest traffic, already holds the
+   existing sentence-case strings.
+4. **Reports + Catalog** — the largest title-case concentration.
+5. **Remaining pages**, then a lint rule if drift returns.
+6. **Punctuation** — kept last and separate. See below.
+
+### What the migration actually costs
+
+**Casing changes break no tests.** The e2e suite passes `exact: true` zero times, so every
+string selector in it is already case-insensitive. Steps 3–5 are copy-only diffs that
+review by reading.
+
+**Punctuation changes do.** The `…` and exclamation-mark rules above are not casing rules,
+and no case-insensitive matcher protects them. They are the only part of this standard with
+a test cost:
+
+- ~52 source sites use a literal `...` where the rule specifies `…`
+- 2 e2e assertions encode it — `job-fit-analysis.spec.ts:508` (`Analyzing Job Fit...`) and
+  `workflow-prefill.spec.ts:179` (`Paste the full job description here...`)
+- ~10 sites carry an exclamation mark; none is referenced by a selector
+
+Hence step 6 is sequenced last and shipped on its own: it is the one stage that touches
+specs, and bundling it into a casing PR would give a copy-only diff a test diff to hide in.
 
 Until an area is migrated it will contain title-case strings. That is expected. Do not
 match the surrounding convention in an unmigrated area — write new strings to this
@@ -139,7 +269,9 @@ standard, and let the migration close the gap.
 
 ## Related
 
-- `docs/design/DESIGN_SYSTEM.md` — typography, color, spacing tokens
+- `docs/design/DESIGN_SYSTEM.md` — typography, color, spacing tokens (Overline lives there)
 - `docs/design/ACCESSIBILITY.md` — accessible name requirements
 - WIC-1063 — the arbitration that surfaced the standards gap
 - WIC-1052 — the 404 copy pass, written to this standard before it was written down
+- WIC-1090 — UI/UX review: the slot matrix, and the selector audit behind the test section
+- WIC-1069 / WIC-1086 — baked-caps cleanup

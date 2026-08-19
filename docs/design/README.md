@@ -124,13 +124,17 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 **Contents:**
 - The house rule: sentence case for every UI string, no opt-out classes
 - Closed exception list (proper nouns, acronyms, user/API data)
-- Why feature names and nav labels are *not* exceptions
+- Why feature names and nav labels are *not* exceptions, plus the four ruled boundary cases
+- Casing by slot — the per-element matrix (buttons, headings, badges, table headers…)
 - ALL CAPS as a CSS treatment, never baked into content
 - Terminal punctuation by element type
+- How to write test selectors that survive a copy change
+- Migration staging and its real test cost
 
 **Key Requirements:**
 - Buttons, headings, labels, toasts, empty states — all sentence case
-- Uppercase via the `uppercase` class, never by retyping the string
+- Uppercase via the Overline token / `uppercase` class, never by retyping the string
+- Match UI copy in tests with a case-insensitive regex, never a bare string
 - New strings follow this standard even in unmigrated areas
 - Status: proposed, pending board sign-off (WIC-1066)
 
