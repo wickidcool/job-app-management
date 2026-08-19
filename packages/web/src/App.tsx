@@ -86,6 +86,10 @@ function App() {
                     <main className="pb-20 md:pb-0">
                       <Routes>
                         <Route path="/" element={<Dashboard />} />
+                        {/* `/dashboard` shipped in nav links and is in real bookmarks and
+                            browser histories. `replace` keeps the dead URL out of history so
+                            the back button does not lead into it. */}
+                        <Route path="/dashboard" element={<Navigate to="/" replace />} />
                         <Route path="/applications" element={<ApplicationsList />} />
                         <Route path="/applications/new" element={<ApplicationNew />} />
                         <Route path="/applications/:id" element={<ApplicationDetail />} />
