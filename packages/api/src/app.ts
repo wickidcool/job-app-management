@@ -27,6 +27,23 @@ import { isHyperdriveTimeout } from './db/hyperdrive.js';
 const FILE_REQUEST = /\/[^/]+\.[^/]+$/;
 
 /**
+ * Paths the build owns outright. Vite emits every hashed bundle under /assets/, and
+ * packages/web/public holds the only root-level static files, so this namespace is
+ * enumerable rather than guessed.
+ *
+ * Nothing here is ever a client-side route, so a miss is a miss however the request was
+ * made — the navigation exemption below must not reach it. A stale bundle URL opened in
+ * the address bar, or an uptime probe that sends Accept: text/html, would otherwise be
+ * answered 200 + HTML: the same deploy-skew blind spot this guard exists to prevent,
+ * merely narrowed to navigating clients.
+ */
+const STATIC_ROOT_FILES = new Set(['/favicon.svg', '/icons.svg']);
+
+function isBuildOwnedPath(pathname: string): boolean {
+  return pathname.startsWith('/assets/') || STATIC_ROOT_FILES.has(pathname);
+}
+
+/**
  * True when the request is a top-level document navigation — an address-bar entry,
  * a refresh, or a followed link — rather than a subresource fetch.
  *
@@ -122,7 +139,12 @@ export function buildApp() {
     // browser's module MIME check instead of failing cleanly, and would never surface as
     // a 404 in monitoring. A navigation is excluded because a deep link is allowed to end
     // in an extension (/projects/:projectId/files/:fileName) and must still get the shell.
-    if (FILE_REQUEST.test(url.pathname) && !isNavigation(headers)) {
+    // Two independent reasons to refuse: the path belongs to the build (never a route,
+    // so headers are irrelevant), or it looks like a file and the request is a
+    // subresource fetch rather than a navigation.
+    const refuseShell =
+      isBuildOwnedPath(url.pathname) || (FILE_REQUEST.test(url.pathname) && !isNavigation(headers));
+    if (refuseShell) {
       // Under SPA handling a miss comes back as the shell with 200, so a status check
       // alone cannot see it — an HTML answer to a non-HTML file request is that miss.
       const servedShell =

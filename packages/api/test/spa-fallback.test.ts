@@ -282,4 +282,64 @@ describe('SPA fallback (WIC-1004)', () => {
 
     expect(res.status).toBe(404);
   });
+
+  // The navigation exemption is what lets /projects/:id/files/:fileName survive the
+  // file-shaped guard. It must not extend to the build's own namespace: a stale bundle
+  // answered 200 + HTML is the deploy-skew blind spot, and it is no less a blind spot
+  // because the client happened to look like a navigation.
+  describe('build-owned paths are refused regardless of request type', () => {
+    it.each([
+      ['a stale bundle opened in the address bar', { 'Sec-Fetch-Dest': 'document' }],
+      ['a stale bundle fetched by a cached index.html', { 'Sec-Fetch-Dest': 'script' }],
+      ['an uptime probe that asks for html', { Accept: 'text/html,*/*' }],
+      ['a client that sends no hints at all', {}],
+    ])('404s %s', async (_label, headers) => {
+      const app = buildApp();
+      const res = await app.fetch(
+        new Request('https://app.careerpin.app/assets/index-STALE.js', { headers }),
+        { ASSETS: makeAssets(ASSET_FILES) }
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.headers.get('Content-Type') ?? '').not.toContain('text/html');
+    });
+
+    it('404s an unbuilt root static file even on a navigation', async () => {
+      const app = buildApp();
+      const res = await app.fetch(
+        new Request('https://app.careerpin.app/favicon.svg', {
+          headers: { 'Sec-Fetch-Dest': 'document', Accept: 'text/html' },
+        }),
+        { ASSETS: makeAssets({ '/index.html': SHELL }) }
+      );
+
+      expect(res.status).toBe(404);
+    });
+
+    it('still serves a real asset that exists', async () => {
+      const app = buildApp();
+      const res = await app.fetch(
+        new Request('https://app.careerpin.app/assets/index-abc.js', {
+          headers: { 'Sec-Fetch-Dest': 'script' },
+        }),
+        { ASSETS: makeAssets(ASSET_FILES) }
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.text()).resolves.toBe('console.log(1)');
+    });
+
+    it('does not swallow a project-file deep link whose name mentions assets', async () => {
+      const app = buildApp();
+      const res = await app.fetch(
+        new Request('https://app.careerpin.app/projects/acme/files/assets-plan.md', {
+          headers: { 'Sec-Fetch-Dest': 'document' },
+        }),
+        { ASSETS: makeAssets(ASSET_FILES) }
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.text()).resolves.toContain('<html');
+    });
+  });
 });
