@@ -101,6 +101,7 @@ function App() {
                         <Route path="/resumes" element={<ResumeManager />} />
                         <Route path="/resumes/upload" element={<ResumeUpload />} />
                         <Route path="/resumes/exports" element={<ResumeExports />} />
+                        <Route path="/resumes/:resumeId/exports" element={<ResumeExports />} />
                         <Route path="/catalog" element={<CatalogPage />} />
                         <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
                         <Route path="/cover-letters/new" element={<CoverLetterNew />} />
