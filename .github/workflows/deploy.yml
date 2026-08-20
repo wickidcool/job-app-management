@@ -14,10 +14,23 @@ on:
 env:
   NODE_VERSION: '20'
 
+# WIC-1095: supersede stale PR runs so an abandoned commit cannot hold a
+# concurrent-job slot for GitHub's 6h default. cancel-in-progress is scoped to
+# pull_request on purpose — on a push to main this run contains
+# `deploy-production` (wrangler deploy + DB migrations), and cancelling that
+# mid-flight is a far worse failure than a redundant run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-test:
     name: Lint & Test
     runs-on: ubuntu-latest
+    # WIC-1095: every job is bounded. Without this GitHub applies a 6h default,
+    # so a wedged network call becomes a permanently-pending required check that
+    # occupies a runner slot instead of failing visibly. Baseline ~1m15s.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -58,6 +71,10 @@ jobs:
     name: E2E Tests
     needs: lint-and-test
     runs-on: ubuntu-latest
+    # WIC-1095: baseline for this job is ~2m45s. 15 minutes is ~5x headroom and
+    # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
+    # red check in 15 min rather than a pending one for 6h.
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,8 +88,42 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # WIC-1095: apt has NO default network timeout, so a connection to a
+      # degraded mirror (azure.archive.ubuntu.com, 2026-08-19) never returns and
+      # `playwright install --with-deps` hangs forever. This config file is read
+      # by *every* apt invocation, including the one Playwright shells out to
+      # internally, which a flag on our own apt call would not cover.
+      - name: Harden apt against a degraded mirror
+        timeout-minutes: 2
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          Acquire::ftp::Timeout "30";
+          EOF
+
+      # WIC-1095: the browser download is ~90s of the step on every run. Keyed on
+      # the lockfile so a Playwright version bump busts it; a miss just costs the
+      # download back.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      # Split from the browser download so the log tells us which half stalled,
+      # and step-bounded so a wedged apt burns 6 minutes rather than the whole
+      # 15-minute job budget — leaving the tests themselves room to still run.
+      - name: Install Playwright system dependencies
+        timeout-minutes: 6
+        run: npx playwright install-deps chromium
+
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 6
+        run: npx playwright install chromium
 
       - name: Run E2E tests
         run: npx playwright test
@@ -99,6 +150,8 @@ jobs:
     needs: [lint-and-test]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # WIC-1095: baseline ~1m5s.
+    timeout-minutes: 20
     environment: dev
     permissions:
       pull-requests: write
@@ -242,6 +295,9 @@ jobs:
     needs: [lint-and-test, e2e-tests]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # WIC-1095: generous on purpose — this job runs DB migrations and a wrangler
+    # deploy, and a timeout that fires mid-migration is worse than a slow run.
+    timeout-minutes: 45
     environment: production
     concurrency:
       group: production-deploy
