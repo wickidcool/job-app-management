@@ -276,18 +276,69 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
 
+      # WIC-1022: the workers.dev route (jobtrail-preview.al-23f.workers.dev) sits behind
+      # Cloudflare Access, so QA 302s to the login page and cannot verify a PR before it
+      # ships. Cloudflare's per-version preview URL for the same build is NOT Access-gated,
+      # and it pins the exact version this run deployed — which also sidesteps the
+      # last-writer-wins race when several PRs deploy to the shared preview Worker.
+      # `wrangler deploy` prints "Current Version ID: <uuid>"; the preview hostname is the
+      # first 8 characters of that UUID prefixed onto the deployment host.
+      - name: Derive Access-free preview URL
+        id: preview
+        env:
+          WRANGLER_STDOUT: ${{ steps.deploy.outputs.command-output }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          version_id="$(printf '%s' "$WRANGLER_STDOUT" \
+            | grep -oiE 'Current Version ID: [0-9a-f-]{36}' \
+            | tail -n 1 | awk '{print $NF}')"
+          host="${DEPLOY_URL#https://}"
+          host="${host%%/*}"
+          if [ -n "$version_id" ] && [ -n "$host" ]; then
+            echo "version-id=$version_id" >> "$GITHUB_OUTPUT"
+            echo "url=https://${version_id%%-*}-${host}" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not derive a version preview URL (version_id='$version_id' host='$host')."
+          fi
+
       - name: Comment preview URL on PR
         uses: actions/github-script@v7
         env:
           DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+          VERSION_URL: ${{ steps.preview.outputs.url }}
+          VERSION_ID: ${{ steps.preview.outputs.version-id }}
         with:
           script: |
             const url = process.env.DEPLOY_URL || '(URL not available — check workflow logs)';
+            const versionUrl = process.env.VERSION_URL;
+            const versionId = process.env.VERSION_ID;
+            const lines = [
+              '## Preview Deployment',
+              '',
+              `Deployed to: ${url}`,
+              '_(behind Cloudflare Access — browser sign-in required)_',
+              '',
+            ];
+            if (versionUrl) {
+              lines.push(
+                `**QA / no-login URL:** ${versionUrl}`,
+                '',
+                `Version \`${versionId}\`, this run's build only. Not behind Cloudflare Access,`,
+                'and pinned to this commit even if another PR deploys to the shared preview',
+                'Worker in the meantime.',
+              );
+            } else {
+              lines.push(
+                '**QA / no-login URL:** not available — grep this run\'s log for',
+                '`Current Version ID:` and browse `https://<first-8-chars>-' +
+                  `${url.replace('https://', '')}\`.`,
+              );
+            }
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## Preview Deployment\n\nDeployed to: ${url}`
+              body: lines.join('\n'),
             })
 
   deploy-production:
