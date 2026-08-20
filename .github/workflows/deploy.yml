@@ -3,8 +3,13 @@ name: Deploy
 on:
   push:
     branches: [main]
+  # Run PR checks regardless of base branch. `branches:` filters the BASE, so
+  # `[main]` silently gave stacked PRs (e.g. #92 -> #89, #93 -> #92) zero checks
+  # while GitHub still reported them mergeable — a green-looking PR that had in
+  # fact never been built. Production deploys stay gated on `push` to `main`
+  # (see the `deploy-production` job's `if:`), so this only widens PR coverage.
   pull_request:
-    branches: [main]
+    branches: ['**']
 
 env:
   NODE_VERSION: '20'
