@@ -143,15 +143,70 @@ jobs:
           path: playwright-report/
           retention-days: 14
 
+  # WIC-1203: does this PR change anything that writes to the shared dev
+  # database? Only such PRs need to serialize against each other (see the
+  # deploy-preview concurrency group below). Runs in parallel with
+  # lint-and-test, which is several times slower, so it costs no wall-clock.
+  detect-db-changes:
+    name: Detect DB Changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      touches_db: ${{ steps.check.outputs.touches_db }}
+    steps:
+      # Queried over the API rather than via checkout+diff: the merge ref's
+      # merge base is not always what `git diff` against the checked-out base
+      # would give on a stacked PR, and this needs no working tree at all.
+      - name: Check for DB-affecting paths
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
+          echo "Changed files:"
+          echo "$files"
+          # Everything the preview deploy's migration step can write:
+          # drizzle migrations + schema, and the idempotent RLS apply script.
+          # verify-rls.mjs is read-only but is included so a change to the
+          # gate itself is also serialized.
+          if printf '%s\n' "$files" | grep -qE '^(packages/api/src/db/(migrations/|schema\.ts)|packages/api/scripts/(apply|verify)-rls\.mjs|supabase/migrations/)'; then
+            echo "touches_db=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR touches the database — preview deploy will serialize on the shared dev DB."
+          else
+            echo "touches_db=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR does not touch the database — preview deploy runs in parallel."
+          fi
+
   deploy-preview:
     name: Deploy Preview
     # Only requires lint-and-test — E2E tests need a live environment and
     # should not gate PR preview deploys.
-    needs: [lint-and-test]
+    needs: [lint-and-test, detect-db-changes]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # WIC-1095: baseline ~1m5s.
     timeout-minutes: 20
+    # WIC-1203: this job migrates the *shared* dev database, so two PRs racing
+    # here can both read the drizzle journal as un-applied and both attempt the
+    # same DDL. The workflow-level group above only serializes pushes to the
+    # SAME ref, which does not help across PRs.
+    #
+    # A blanket constant group would serialize all ~20 open PRs' previews behind
+    # each other, and because GitHub keeps only ONE pending run per group
+    # (queueing a third cancels the second), it would also silently drop preview
+    # deploys under load. So the group is constant only for the PRs that can
+    # actually collide; every other PR keeps a per-PR group and full parallelism.
+    #
+    # cancel-in-progress is false on purpose: cancelling a migration mid-flight
+    # is the failure this is meant to prevent. Superseding repeated pushes to one
+    # PR is already handled by the workflow-level group (WIC-1095).
+    concurrency:
+      group: ${{ needs.detect-db-changes.outputs.touches_db == 'true' && 'preview-db-migrate' || format('preview-deploy-{0}', github.event.pull_request.number) }}
+      cancel-in-progress: false
     environment: dev
     permissions:
       pull-requests: write
