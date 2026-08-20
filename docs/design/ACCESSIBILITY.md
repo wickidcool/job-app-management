@@ -563,7 +563,7 @@ Common patterns used in this project:
 **Phase 1 (MVP):**
 - [x] Keyboard navigation for all features
 - [x] Proper form labels and validation
-- [x] Focus management in modals
+- [ ] Focus management in modals (WIC-1141 — Radix `Dialog` migration. The **migration** is complete once PR #95 and PR #97 have landed; that is not the same as this item being done. Known residual: **WIC-1181** — a successful resume delete destroys the very trigger the modal captured, so focus still ends on `<body>` on the confirm path. Do not tick this box until WIC-1181 is closed.)
 - [x] ARIA labels for interactive elements
 - [x] Color contrast validation
 - [x] Screen reader testing (basic)
