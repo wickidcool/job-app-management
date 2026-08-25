@@ -24,7 +24,7 @@ import type { FitMatchDTO, FitGapDTO } from '../src/services/job-fit.service.js'
  *  2. `blurbs as shipped` re-reads the strings out of the web source, so editing
  *     the copy without revisiting the predicate fails here rather than on screen.
  *
- * Copy is the Copywriter/Editor's to word (WIC-1310); this file only holds them
+ * Copy is the Copywriter/Editor's to word (WIC-1318); this file only holds them
  * to being true.
  */
 
