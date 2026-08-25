@@ -8,6 +8,18 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Documentation — The four remaining UC-5 report endpoints are now specified (2026-08-25)
+
+`API_CONTRACTS.md` had no `Reports (UC-5)` section until the entry below added one, and that entry deliberately specified only `GET /api/reports/by-fit-tier` — the one endpoint with a cross-use-case contract to state. The other four shipped with UC-5 in April 2026 and had never been specified anywhere: `GET /api/reports/pipeline`, `/needs-action`, `/stale` and `/closed-loop` are now documented from the Zod query schemas in `routes/reports.ts` and the response interfaces in `types/index.ts` (WIC-1307). No behaviour changed — this records what the endpoints already do.
+
+Three properties were undocumented and are not guessable from the response shape:
+
+- **Summaries on the paginated reports describe the page, not the result set.** `needs-action`, `stale` and `closed-loop` compute every `summary` field — `total` included — from the current page, after `limit` is applied. `summary.total` is the length of `applications`, never a grand total, and the averages and breakdowns are page-local. A client reading `summary.total` as a result-set count under-reports by a factor of however many pages there are.
+- **`GET /api/reports/stale` defaults to `applied,phone_screen`, not to all statuses.** Those are the two states where the ball is in the employer's court. Callers expecting every active application to be eligible for staleness must pass `status` explicitly.
+- **`closed-loop`'s `rejectionsByStage` need not account for every rejection.** It buckets by `previousStatus`, so rejections whose history is too short to have one count toward `summary.rejections` while appearing in no bucket, and `percentage` is a share of `rejections` rather than of `total`. The percentages sum to 100 only when every rejection has a known previous stage.
+
+Also recorded: `pipeline` and `by-fit-tier` are unpaginated and accept neither `limit` nor `cursor`; `limit` above 100 is a `400` rather than a clamp; `pipeline`'s application objects carry no `status` field because the group supplies it; and `closed-loop`'s `period` filters on `updatedAt` rather than the computed `closedAt`, so editing a closed application keeps it inside a narrow window.
+
 ### Changed — One judgement, one enum: `FitTier` is now `recommendation` plus its two no-verdict states (2026-08-25)
 
 Two types described the same judgement at different granularity, and the relationship between them was written down nowhere. `FitRecommendation` (UC-3, `POST /api/catalog/job-fit/analyze`) was `strong_fit | moderate_fit | stretch | low_fit | null`; `FitTier` (UC-5, `GET /api/reports/by-fit-tier`) was `strong_fit | moderate_fit | weak_fit | not_analyzed`. They agreed at the top and split at the bottom. `FitTier` is now **defined as** `FitRecommendation | 'unscored' | 'not_analyzed'`, so a report groups applications by the verdict the analysis actually reached, at the granularity it reached it (WIC-1298, spun out of WIC-1288).

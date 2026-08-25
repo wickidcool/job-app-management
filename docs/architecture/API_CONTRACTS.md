@@ -2090,12 +2090,290 @@ The cover letter generation system enforces these constraints:
 
 ### Reports (UC-5)
 
-Pipeline reports over the user's applications. The full set is mounted in
-`packages/api/src/routes/reports.ts` — `pipeline`, `needs-action`, `stale`, `closed-loop`, and
-`by-fit-tier`. Only `by-fit-tier` is specified below, because it is the one that consumes a UC-3
-value and therefore has a cross-use-case contract to state (WIC-1298); the other four are
-single-source reports whose shapes are given by `PipelineReportResponse` and friends in
-`packages/api/src/types/index.ts`.
+Read-only reports over the user's applications. All five are mounted in
+`packages/api/src/routes/reports.ts`, implemented in
+`packages/api/src/services/reports.service.ts`, and typed in `packages/api/src/types/index.ts`.
+Four of them read `applications` and `status_history` only; `by-fit-tier` is the one that consumes a
+UC-3 value, and so is the only one with a cross-use-case contract to state (WIC-1298).
+
+No report endpoint mutates anything, and none accepts a request body.
+
+#### Common to all five report endpoints
+
+**User scoping.** Every report is scoped to the caller's `userId` (the `sub` claim). When
+`SUPABASE_JWT_SECRET` is unset — single-user and local dev — the scoping filter is dropped and the
+reports cover all rows. See `docs/AUTHENTICATION.md`.
+
+**`generatedAt`.** Every response carries `generatedAt`, an ISO 8601 timestamp taken when the
+report was assembled. Reports are computed per request; nothing is cached.
+
+**Validation errors.** Query parameters are validated by Zod schemas at the top of
+`routes/reports.ts`, which are the authority on accepted values. Any violation — an unknown enum
+member, a non-numeric `days`, `limit` above 100 — fails the whole request:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid query parameters",
+    "details": { "formErrors": [], "fieldErrors": { "limit": ["..."] } }
+  }
+}
+```
+
+`400 Bad Request`. `details` is Zod's `flatten()` output. Omitting a parameter is always valid;
+every parameter is optional and has the default given in its table below.
+
+**Pagination.** `needs-action`, `stale` and `closed-loop` are cursor-paginated. `pipeline` and
+`by-fit-tier` are **not** — they return the complete set in one response and accept neither `limit`
+nor `cursor`.
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `limit` | integer, 1–100 | `50` | Page size. Above 100 is a `400`, not a clamp. |
+| `cursor` | string | *(start)* | Opaque page token: a base64url-encoded row offset |
+
+`nextCursor` is present **only when a further page exists**; it is absent from the JSON on the
+final page, which is how a client detects the end. Treat the cursor as opaque and pass it back
+verbatim — the offset encoding is an implementation detail and is not part of the contract.
+
+> **Paginated summaries describe the page, not the result set.** In `needs-action`, `stale` and
+> `closed-loop`, every field under `summary` — including `total` — is computed from the
+> applications in the current page, after `limit` has been applied. `summary.total` is therefore
+> the length of `applications`, never a grand total across pages, and the averages and breakdowns
+> are page-local. A client that wants whole-result-set figures must accumulate them across pages
+> itself.
+
+#### `GET /api/reports/pipeline`
+
+Groups the user's **active** applications by status. Terminal applications (`offer`, `rejected`,
+`withdrawn`) are excluded and this is not configurable.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `sortBy` | `'updatedAt' \| 'createdAt' \| 'company'` | `updatedAt` | Sort field within each group |
+| `sortOrder` | `'asc' \| 'desc'` | `desc` | Sort direction |
+
+**Response**: `200 OK`
+
+```typescript
+interface PipelineReportResponse {
+  groups: {
+    status: ActiveStatus;
+    count: number;
+    applications: {
+      id: string;
+      jobTitle: string;
+      company: string;
+      location?: string | null;
+      nextAction?: string | null;
+      nextActionDue?: string | null;   // YYYY-MM-DD (date, not a timestamp)
+      updatedAt: string;               // ISO 8601
+      createdAt: string;               // ISO 8601
+    }[];
+  }[];
+  totals: {
+    active: number;
+    byStatus: Partial<Record<ActiveStatus, number>>;
+  };
+  generatedAt: string;                 // ISO 8601
+}
+
+type ActiveStatus = 'saved' | 'applied' | 'phone_screen' | 'interview';
+```
+
+`groups` always contains all four active statuses, in board order — `saved`, `applied`,
+`phone_screen`, `interview` — including groups with `count: 0`. Clients can render the columns
+without checking for absence.
+
+The application objects carry **no `status` field**: the status is the group they are in. This is
+the one report whose row shape differs from the others in that respect.
+
+`totals.active` is the sum of the four group counts. Because this endpoint is unpaginated, it is a
+true total.
+
+#### `GET /api/reports/needs-action`
+
+Applications with an outstanding next action falling due inside a window. An application qualifies
+only if **both** `nextAction` and `nextActionDue` are set and its status is non-terminal.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `days` | integer, 1–365 | `7` | Look-ahead window: include actions due on or before today + `days` |
+| `includeOverdue` | `'true' \| 'false'` | `true` | Include actions already past due |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor |
+
+`includeOverdue` is compared against the literal string `'false'`: only `includeOverdue=false`
+turns it off. Any other value — including `0`, `no`, or the parameter being absent — leaves overdue
+items in. With it off, the window is bounded below by today as well as above.
+
+**Response**: `200 OK`
+
+```typescript
+interface NeedsActionReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: ApplicationStatus;
+    nextAction: string;
+    nextActionDue: string;             // YYYY-MM-DD
+    daysUntilDue: number;              // negative when overdue
+    urgency: 'overdue' | 'due_soon' | 'upcoming';
+    contact?: string | null;
+    updatedAt: string;                 // ISO 8601
+  }[];
+  summary: {
+    overdue: number;
+    dueSoon: number;
+    upcoming: number;
+    total: number;
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+`urgency` is derived from `daysUntilDue`, measured in whole days from today's local midnight:
+
+| `daysUntilDue` | `urgency` |
+|--------|--------|
+| `< 0` | `overdue` |
+| `0`–`3` | `due_soon` |
+| `> 3` | `upcoming` |
+
+Rows are ordered by due date ascending, so the most overdue action is first and the furthest-out
+action is last.
+
+#### `GET /api/reports/stale`
+
+Applications that have not been touched in a while — `updatedAt` older than today minus `days`.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `days` | integer, 1–365 | `14` | An application is stale once `updatedAt` is this many days old |
+| `status` | comma-separated statuses | `applied,phone_screen` | Which statuses to consider |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor |
+
+`status` accepts any comma-separated subset of the seven `ApplicationStatus` values, whitespace
+around commas tolerated (`applied, interview`). A single unrecognised member fails the whole
+request with `VALIDATION_ERROR` — invalid entries are not silently dropped. Note the default is
+**not** "all active": only `applied` and `phone_screen` are considered stale-able unless you say
+otherwise, because those are the two states where the ball is in the employer's court.
+
+**Response**: `200 OK`
+
+```typescript
+interface StaleReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: ApplicationStatus;
+    daysSinceUpdate: number;
+    lastStatusChange: string;          // ISO 8601
+    contact?: string | null;
+    url?: string | null;
+    updatedAt: string;                 // ISO 8601
+  }[];
+  summary: {
+    total: number;
+    byStatus: Partial<Record<ApplicationStatus, number>>;
+    averageDaysStale: number;          // rounded to the nearest whole day
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+Rows are ordered by `updatedAt` ascending — stalest first.
+
+`daysSinceUpdate` counts whole days since `updatedAt`.
+
+`lastStatusChange` is the most recent `status_history.changedAt` for the application. Applications
+with no history rows — created but never transitioned — report their `createdAt` instead, so the
+field is never null. It answers a different question from `updatedAt`: an application edited
+yesterday but last *moved* two months ago has a recent `updatedAt` and an old `lastStatusChange`.
+
+#### `GET /api/reports/closed-loop`
+
+Outcome analysis over **terminal** applications: what closed, how it closed, and how long it took.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `period` | `'30d' \| '60d' \| '90d' \| 'all'` | `all` | Restrict to applications updated within the period |
+| `status` | comma-separated terminal statuses | `offer,rejected,withdrawn` | Which outcomes to include |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor |
+
+`status` here accepts only the three terminal statuses; passing an active status such as
+`interview` is a `VALIDATION_ERROR`, not an empty result.
+
+`period` filters on `applications.updatedAt`, not on the computed `closedAt` below. For an
+application that has not been edited since it closed the two coincide, but a later edit to a closed
+application will keep it inside a narrow `period` window.
+
+**Response**: `200 OK`
+
+```typescript
+interface ClosedLoopReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: 'offer' | 'rejected' | 'withdrawn';
+    closedAt: string;                  // ISO 8601
+    previousStatus?: ApplicationStatus | null;
+    daysInPipeline: number;
+    salaryRange?: string | null;
+    compTarget?: string | null;
+  }[];
+  summary: {
+    total: number;
+    offers: number;
+    rejections: number;
+    withdrawn: number;
+    rejectionsByStage: {
+      stage: ApplicationStatus;
+      count: number;
+      percentage: number;              // of rejections in this page, rounded
+    }[];
+    averageTimeToClose: number;        // days, rounded
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+Rows are ordered by `updatedAt` descending — most recently closed first.
+
+`closedAt` is the `changedAt` of the application's most recent `status_history` entry, which for a
+terminal application is the transition that closed it. Applications with no history rows fall back
+to `updatedAt`.
+
+`previousStatus` is the status the application held immediately before that closing transition,
+read from the second-to-last history entry. It is `null` when the history is too short to have
+one — an application closed in a single recorded step.
+
+`daysInPipeline` is whole days from `createdAt` to `closedAt`.
+
+`rejectionsByStage` counts rejected applications by `previousStatus`, answering "where in the
+funnel do I lose them". Two consequences of that derivation are worth knowing: rejected
+applications whose `previousStatus` is `null` **contribute to `rejections` but appear in no stage
+bucket**, so the stage counts can sum to less than `rejections`; and `percentage` is a share of
+`rejections`, not of `total`, so the percentages sum to 100 only when every rejection has a known
+previous stage. Stages with no rejections are omitted from the array entirely rather than reported
+as zero — unlike `pipeline.groups`.
 
 #### `GET /api/reports/by-fit-tier`
 
