@@ -51,6 +51,61 @@ async function setupProjectsList(page: Page) {
   await expect(page.getByRole('button', { name: 'Create Project', exact: true })).toBeVisible();
 }
 
+/**
+ * First-run variant: the list starts empty (so `EmptyState` renders its
+ * "Create Your First Project" trigger) and turns non-empty after a successful
+ * POST, which unmounts that trigger mid-close. That is the WIC-1181 failure
+ * class, and it is invisible to every dismissal-path test below because those
+ * all drive the header button, which never unmounts.
+ */
+async function setupFirstRunProjectsList(page: Page) {
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ user: MOCK_USER }),
+    })
+  );
+
+  const created = {
+    id: 'project-001',
+    name: 'Acme Corp',
+    slug: 'acme-corp',
+    description: null,
+    fileCount: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    version: 1,
+  };
+
+  // Stateful: GET is empty until the POST lands, then the refetch that
+  // `useCreateProject`'s `invalidateQueries` kicks off returns the new project.
+  let projects: Array<typeof created> = [];
+
+  await page.route('**/api/projects*', (route) => {
+    if (route.request().method() === 'POST') {
+      projects = [created];
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(created),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ projects }),
+    });
+  });
+
+  await page.addInitScript(() => {
+    localStorage.setItem('auth_token', 'mock-jwt-token-for-e2e-tests');
+  });
+
+  await page.goto('/projects');
+  await expect(page.getByRole('button', { name: 'Create Your First Project' })).toBeVisible();
+}
+
 /** Focus the "Create Project" trigger and open the dialog with the keyboard only. */
 async function openCreateDialogByKeyboard(page: Page) {
   const trigger = page.getByRole('button', { name: 'Create Project', exact: true });
@@ -156,5 +211,49 @@ test.describe('ProjectsList — create project dialog', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(trigger).toHaveCount(1);
+  });
+
+  test('create-success keeps focus on the page when the trigger unmounts', async ({ page }) => {
+    await setupFirstRunProjectsList(page);
+
+    const emptyStateTrigger = page.getByRole('button', { name: 'Create Your First Project' });
+    await emptyStateTrigger.focus();
+    await expect(emptyStateTrigger).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.getByPlaceholder('e.g., Acme Corp').fill('Acme Corp');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+
+    await expect(page.getByRole('dialog')).toBeHidden();
+    // The list is no longer empty, so the trigger that opened this dialog is
+    // gone from the document.
+    await expect(emptyStateTrigger).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Acme Corp/ })).toBeVisible();
+
+    // The actual regression: focus stranded on `<body>` leaves a keyboard user
+    // at the top of the document with no announcement of what just happened.
+    const landedOnBody = await page.evaluate(
+      () => document.activeElement === document.body || document.activeElement === null
+    );
+    expect(landedOnBody, 'focus fell to <body> after a successful create').toBe(false);
+
+    // It should land on the surviving control for the same action.
+    await expect(page.getByRole('button', { name: 'Create Project', exact: true })).toBeFocused();
+  });
+
+  test('create-success restores the header trigger, which survives the re-render', async ({
+    page,
+  }) => {
+    await setupFirstRunProjectsList(page);
+    const trigger = await openCreateDialogByKeyboard(page);
+
+    await page.getByPlaceholder('e.g., Acme Corp').fill('Acme Corp');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+
+    await expect(page.getByRole('dialog')).toBeHidden();
+    // Still mounted, so this is the ordinary restore path rather than the
+    // fallback — it must not regress while fixing the unmount case.
+    await expect(trigger).toBeFocused();
   });
 });

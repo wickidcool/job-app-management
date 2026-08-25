@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
@@ -13,9 +13,14 @@ export function ProjectsList() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
+  // The header "Create Project" button is the one trigger that survives the
+  // create-success re-render; the empty-state button below unmounts the moment
+  // the list stops being empty. It offers the same action, so it is where focus
+  // belongs when the dialog was opened from the empty state and succeeded.
+  const headerCreateRef = useRef<HTMLButtonElement | null>(null);
   // The Project Name input carries `autoFocus`, so Radix never dispatches
   // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
-  const focusRestore = useDialogFocusRestore();
+  const focusRestore = useDialogFocusRestore({ fallbackRef: headerCreateRef });
 
   // Shared by the Cancel button, Escape, and outside-click, so every dismissal
   // path clears the draft rather than only the button.
@@ -82,6 +87,7 @@ export function ProjectsList() {
             💬 Add New Project (Guided)
           </button>
           <button
+            ref={headerCreateRef}
             onClick={() => setShowCreateModal(true)}
             className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
