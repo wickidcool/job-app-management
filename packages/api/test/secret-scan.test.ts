@@ -124,6 +124,31 @@ describe('entropy heuristics', () => {
     expect(looksLikeWordyIdentifier('wic1184deshoutquickrefwireframes')).toBe(false);
   });
 
+  it('still flags a secret riding behind a wordy prefix (WIC-1270)', () => {
+    // The WIC-751 shape: a key arriving as the *value* of a name-ish field. The
+    // tokenizer takes the maximal `[A-Za-z0-9_-]` run, so the human-readable
+    // prefix and the opaque tail are one token — the carve-out must not let the
+    // prefix vouch for the tail.
+    expect(looksHighEntropy('jobtrail-prod-anthropic-key-x7q2m9v4z1')).toBe(true);
+    expect(looksHighEntropy('preview-bucket-signing-a9f3k2m8x1q7w4')).toBe(true);
+    expect(looksHighEntropy('my_service_account_token_9f3a2b8c1d7e4f6a')).toBe(true);
+    // A long all-alpha tail is not a word either — `xoxb-…` must stay caught by
+    // the generic layer, not only by the named `slack-token` pattern.
+    // Pragma must sit on the finding's own line; the token is fabricated.
+    expect(looksHighEntropy('xoxb-2841-2841-abcdefghijklmnopqrstuvwx')).toBe(true); // secret-scan:allow
+    // Random dash-grouped base36: 4-char groups come out all-alpha ~27% of the
+    // time, so two accidental "words" are common. The word-char ratio, not the
+    // word count, is what rejects this.
+    expect(looksHighEntropy('k3jd-hqg6-abcd-efgh-2m9x-q7w4-plzt-8b3n')).toBe(true);
+  });
+
+  it('keeps excluding slugs that contain genuinely long words (WIC-1270)', () => {
+    // `authentication` is 14 chars: bounded-word, not an opaque chunk. Guards
+    // against the upper bound being set so tight it re-introduces false positives.
+    expect(looksHighEntropy('jobtrail-authentication-preview-bucket-v2')).toBe(false);
+    expect(looksLikeWordyIdentifier('supabase-authentication-jwt-secret-name')).toBe(true);
+  });
+
   it('only runs generic entropy scanning when enabled', () => {
     const line = 'opaque = "Xk9Qm2Zr7Lp0Ab5Cd8Ef3Gh6Ij1Kl4Mn"';
     expect(scanText('src/foo.ts', line, { enableEntropy: false })).toEqual([]);

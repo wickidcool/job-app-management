@@ -154,10 +154,24 @@ export function shannonEntropy(str: string): number {
 const ENTROPY_MIN_LEN = 32;
 const ENTROPY_MIN_BITS = 4.0;
 
-/** A kebab/snake segment that reads as a word rather than an opaque chunk. */
-const WORD_SEGMENT = /^[a-z]{3,}$/;
+/**
+ * A kebab/snake segment shaped like a word: a lowercase alphabetic run, long
+ * enough to be pronounceable but short enough that it cannot itself be secret
+ * material. The upper bound is load-bearing — without it a 24-char opaque tail
+ * such as `abcdefghijklmnopqrstuvwx` counts as a "word" (WIC-1270).
+ */
+const WORD_SEGMENT = /^[a-z]{3,16}$/;
 /** How many word-shaped segments make a token a human-authored identifier. */
 const IDENTIFIER_MIN_WORDS = 2;
+/**
+ * Longest non-word segment an identifier may carry. A real slug's non-word
+ * segments are short refs (`wic1184`, `v2`, `2025`); anything longer is opaque
+ * material riding on a human-readable prefix, which is exactly the WIC-751
+ * shape this module exists to catch.
+ */
+const MAX_OPAQUE_SEGMENT = 8;
+/** Word segments must *dominate* an identifier, not merely appear in it. */
+const MIN_WORD_CHAR_RATIO = 0.5;
 
 /**
  * True for lowercase `-`/`_`-delimited identifiers built out of real words:
@@ -166,18 +180,33 @@ const IDENTIFIER_MIN_WORDS = 2;
  * entropy purely because English words use many distinct letters, so the
  * entropy floor alone cannot tell them apart from an opaque token.
  *
- * Deliberately narrow — a token only qualifies when it is all lowercase, split
- * on separators into 3+ segments, and at least two of those segments are
- * pronounceable words (3+ letters, no digits). A UUID has five segments and
- * zero word segments, so it is not excluded here; neither is anything with an
- * uppercase character, which is the dominant shape of real opaque secrets.
+ * Deliberately narrow. A token qualifies only when *all four* hold:
+ *   1. it is all lowercase (uppercase is the dominant shape of real secrets),
+ *   2. separators split it into 3+ segments,
+ *   3. 2+ segments are bounded lowercase alphabetic runs (`WORD_SEGMENT`) and
+ *      no *other* segment is long enough to hide a secret, and
+ *   4. those word segments account for at least half the token's characters.
+ *
+ * Rules 3 and 4 are what keep the carve-out from becoming a bypass. The
+ * tokenizer grabs the maximal `[A-Za-z0-9_-]` run, so without them a wordy
+ * prefix would exempt whatever is appended to it — `jobtrail-prod-anthropic-
+ * key-x7q2m9v4z1` would pass on the strength of `jobtrail`/`prod`/`anthropic`
+ * alone, and random dash-grouped tokens would slip through whenever two groups
+ * happened to come out all-alpha (WIC-1270).
+ *
+ * A UUID has five segments and zero word segments, so it was never excluded.
  */
 export function looksLikeWordyIdentifier(token: string): boolean {
   if (/[A-Z]/.test(token)) return false;
   if (!/[-_]/.test(token)) return false;
   const segments = token.split(/[-_]+/).filter(Boolean);
   if (segments.length < 3) return false;
-  return segments.filter((s) => WORD_SEGMENT.test(s)).length >= IDENTIFIER_MIN_WORDS;
+  const words = segments.filter((s) => WORD_SEGMENT.test(s));
+  if (words.length < IDENTIFIER_MIN_WORDS) return false;
+  // No opaque chunk big enough to be a secret, however wordy its neighbours.
+  if (segments.some((s) => !WORD_SEGMENT.test(s) && s.length > MAX_OPAQUE_SEGMENT)) return false;
+  const wordChars = words.reduce((n, s) => n + s.length, 0);
+  return wordChars / token.length >= MIN_WORD_CHAR_RATIO;
 }
 
 /**
