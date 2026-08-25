@@ -154,12 +154,39 @@ export function shannonEntropy(str: string): number {
 const ENTROPY_MIN_LEN = 32;
 const ENTROPY_MIN_BITS = 4.0;
 
+/** A kebab/snake segment that reads as a word rather than an opaque chunk. */
+const WORD_SEGMENT = /^[a-z]{3,}$/;
+/** How many word-shaped segments make a token a human-authored identifier. */
+const IDENTIFIER_MIN_WORDS = 2;
+
+/**
+ * True for lowercase `-`/`_`-delimited identifiers built out of real words:
+ * branch names (`wic1184-deshout-quickref-wireframes`), resource slugs
+ * (`jobtrail-documents-preview-bucket`), job ids. These carry high Shannon
+ * entropy purely because English words use many distinct letters, so the
+ * entropy floor alone cannot tell them apart from an opaque token.
+ *
+ * Deliberately narrow — a token only qualifies when it is all lowercase, split
+ * on separators into 3+ segments, and at least two of those segments are
+ * pronounceable words (3+ letters, no digits). A UUID has five segments and
+ * zero word segments, so it is not excluded here; neither is anything with an
+ * uppercase character, which is the dominant shape of real opaque secrets.
+ */
+export function looksLikeWordyIdentifier(token: string): boolean {
+  if (/[A-Z]/.test(token)) return false;
+  if (!/[-_]/.test(token)) return false;
+  const segments = token.split(/[-_]+/).filter(Boolean);
+  if (segments.length < 3) return false;
+  return segments.filter((s) => WORD_SEGMENT.test(s)).length >= IDENTIFIER_MIN_WORDS;
+}
+
 /**
  * Heuristic for a generic secret with no recognizable prefix (opaque API tokens,
  * JWTs, base64 blobs). Conservative on purpose — it deliberately ignores:
  *   - short strings (< 32 chars),
  *   - pure hexadecimal (git SHAs, resource ids like a Hyperdrive/R2 id),
- *   - all-lowercase alphanumeric ids (slugs, project refs).
+ *   - tokens without both letters and digits (prose runs, numeric ids),
+ *   - lowercase word-delimited identifiers (branch names, resource slugs).
  * so structured config with ids and connection strings stays clean.
  */
 export function looksHighEntropy(token: string): boolean {
@@ -169,10 +196,10 @@ export function looksHighEntropy(token: string): boolean {
   if (!/^[A-Za-z0-9_-]+$/.test(token)) return false;
   // Pure hex → id / SHA / checksum, not a secret shape we flag generically.
   if (/^[0-9a-fA-F]+$/.test(token)) return false;
-  // All-lowercase alphanumeric with no digits-and-mixed-case signal → slug/id.
-  if (/^[a-z0-9]+$/.test(token) && !/^[a-z]*[0-9][a-z0-9]*$/.test(token)) return false;
   // Require both letters and digits — real high-entropy tokens mix them.
   if (!/[A-Za-z]/.test(token) || !/[0-9]/.test(token)) return false;
+  // Human-authored slug/branch name → identifier, not secret material.
+  if (looksLikeWordyIdentifier(token)) return false;
   return shannonEntropy(token) >= ENTROPY_MIN_BITS;
 }
 

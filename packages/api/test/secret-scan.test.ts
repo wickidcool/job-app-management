@@ -9,6 +9,7 @@ import {
   redact,
   shannonEntropy,
   looksHighEntropy,
+  looksLikeWordyIdentifier,
   isAllowlisted,
   formatFinding,
   HIGH_ENTROPY_PATTERN,
@@ -102,6 +103,25 @@ describe('entropy heuristics', () => {
     expect(looksHighEntropy('jobtrail-documents-dev')).toBe(false); // slug, too short
     // A genuinely random mixed-case+digit base64-ish blob.
     expect(looksHighEntropy('Xk9Qm2Zr7Lp0Ab5Cd8Ef3Gh6Ij1Kl4Mn')).toBe(true);
+  });
+
+  it('ignores long lowercase word-delimited identifiers (WIC-1251)', () => {
+    // The branch name in a `.github/workflows/` comment that red-lit `Lint & Test`
+    // for every open PR at main@3da7854. 35 chars, 4.15 bits/char, zero secrets.
+    expect(looksHighEntropy('wic1184-deshout-quickref-wireframes')).toBe(false);
+    expect(looksHighEntropy('jobtrail-documents-preview-bucket')).toBe(false);
+    expect(looksHighEntropy('feat_wic1209_allcaps_lint_rule_v2')).toBe(false);
+  });
+
+  it('does not let the identifier carve-out swallow real secrets (WIC-1251)', () => {
+    // Any uppercase disqualifies the carve-out, so a mixed-case token still trips.
+    expect(looksHighEntropy('Xk9Qm2Zr-7Lp0Ab5C-d8Ef3Gh6Ij1Kl4Mn')).toBe(true);
+    // Lowercase but no word-shaped segments (UUID-like) → still flagged.
+    expect(looksLikeWordyIdentifier('550e8400-e29b-41d4-a716-446655440000')).toBe(false);
+    // Fewer than three segments is not an identifier shape.
+    expect(looksLikeWordyIdentifier('deshout-quickrefwireframes1184xyz')).toBe(false);
+    // Separator-free tokens are untouched by the carve-out.
+    expect(looksLikeWordyIdentifier('wic1184deshoutquickrefwireframes')).toBe(false);
   });
 
   it('only runs generic entropy scanning when enabled', () => {
