@@ -9,12 +9,16 @@ name: Skip-CI Sweeper
 #   1. `pull_request_target` resolves the workflow file from the BASE branch
 #      tip, not the PR head. skip-ci-guard.yml exists only on `main`, so a PR
 #      stacked on a feature branch that predates it (#102, base
-#      docs/wic1184-deshout-quickref-wireframes) has no workflow to load. Its
-#      `branches: ['**']` filter widens which bases are *matched*; it cannot
-#      widen which bases *contain the file*. This is the WIC-1138 / #94 blind
-#      spot returning through a different mechanism: there the workflow came
-#      from the PR head so shipping the fix on the branch sufficed, here it
-#      does not.
+#      docs/wic1184-deshout-quickref-wireframes) has no workflow to load.  secret-scan:allow
+#      (WIC-1261: the token above is a git branch name, not credential
+#      material. The secret-scan entropy heuristic reads a 35-char
+#      kebab-case branch name as a high-entropy token; the trailing pragma
+#      exempts this one comment line without weakening the scan anywhere
+#      else.) Its `branches: ['**']` filter widens which bases are
+#      *matched*; it cannot widen which bases *contain the file*. This is
+#      the WIC-1138 / #94 blind spot returning through a different
+#      mechanism: there the workflow came from the PR head so shipping the
+#      fix on the branch sufficed, here it does not.
 #
 #   2. `pull_request_target` is edge-triggered and does not retro-fire. Every
 #      PR open when the guard merged carries no verdict until its next push or

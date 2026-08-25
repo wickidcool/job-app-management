@@ -10,6 +10,18 @@ on:
   # (see the `deploy-production` job's `if:`), so this only widens PR coverage.
   pull_request:
     branches: ['**']
+  # WIC-1260: manual production deploy / rollback lever. Before this, the ONLY
+  # route to production was a non-`[skip ci]` push to `main` — so 14 consecutive
+  # `[skip ci]` merges left the lane unexercised for 6 days with no way to run it
+  # on demand, and no way to redeploy a known-good ref after a bad release.
+  # Dispatching this workflow deploys whatever `ref` you pick, at that ref's tree.
+  # It is a real production deploy and stays board-gated like any other.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you deploying manually? (recorded in the run summary)'
+        required: true
+        type: string
 
 env:
   NODE_VERSION: '20'
@@ -348,7 +360,14 @@ jobs:
   deploy-production:
     name: Deploy Production
     needs: [lint-and-test, e2e-tests]
-    if: github.event_name == 'push'
+    # WIC-1260: `workflow_dispatch` alone does nothing — adding it to `on:` without
+    # widening this `if:` would create a run whose only real job is skipped. The
+    # gate is unchanged for every other event: `pull_request` still cannot reach
+    # production, it takes `deploy-preview` (env `dev`). Manual dispatch keeps the
+    # same `environment: production` protection rules and the same
+    # `production-deploy` concurrency group as a push, so a dispatch cannot race a
+    # merge-triggered deploy.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # WIC-1095: generous on purpose — this job runs DB migrations and a wrangler
     # deploy, and a timeout that fires mid-migration is worse than a slow run.
@@ -358,6 +377,29 @@ jobs:
       group: production-deploy
       cancel-in-progress: false
     steps:
+      # WIC-1260: a manual production deploy must leave an audit trail that does
+      # not depend on anyone remembering to write one. Records who dispatched it,
+      # against which ref, and the stated reason.
+      - name: Record manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        # `reason` is attacker-controllable text. It goes through `env:`, never
+        # interpolated into the shell body — a `${{ }}` expansion inside `run:` is
+        # substituted before bash parses the script, so a reason containing `;` or
+        # `$(...)` would execute on a production-credentialed runner.
+        env:
+          DISPATCH_ACTOR: ${{ github.actor }}
+          DISPATCH_REF: ${{ github.ref_name }}
+          DISPATCH_SHA: ${{ github.sha }}
+          DISPATCH_REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo "## Manual production deploy"
+            echo ""
+            echo "- **Dispatched by:** @${DISPATCH_ACTOR}"
+            echo "- **Ref:** \`${DISPATCH_REF}\` @ \`${DISPATCH_SHA}\`"
+            echo "- **Reason:** ${DISPATCH_REASON}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout code
         uses: actions/checkout@v4
 

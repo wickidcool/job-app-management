@@ -86,7 +86,7 @@ export function QuickReferenceExport({
           <div className="border rounded-lg p-6 bg-gray-50">
             {/* Header Section */}
             <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">INTERVIEW QUICK REFERENCE</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Interview quick reference</h1>
               <p className="text-lg font-semibold text-gray-800">
                 {application.jobTitle} | {application.company}
               </p>
