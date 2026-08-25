@@ -3,7 +3,12 @@ import { useForm, useWatch } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
 import { useApplication } from '../hooks/useApplications';
-import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
+import type {
+  AnalyzeJobFitRequest,
+  AnalyzeJobFitResponse,
+  GapSeverity,
+  Recommendation,
+} from '../types/jobFit';
 import { APIError } from '../services/api/apiClient';
 
 interface JobFitFormData {
@@ -12,6 +17,19 @@ interface JobFitFormData {
 }
 
 type Stage = 'input' | 'analyzing' | 'results' | 'error';
+
+const FIT_RECOMMENDATION_LABELS: Record<NonNullable<Recommendation>, string> = {
+  strong_fit: 'Strong fit',
+  moderate_fit: 'Moderate fit',
+  stretch: 'Stretch',
+  low_fit: 'Low fit',
+};
+
+const GAP_SEVERITY_LABELS: Record<GapSeverity, string> = {
+  critical: 'Critical',
+  moderate: 'Moderate',
+  minor: 'Minor',
+};
 
 export function JobFitAnalysis() {
   const navigate = useNavigate();
@@ -146,11 +164,13 @@ export function JobFitAnalysis() {
           {/* Overall Fit Card */}
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
             <div className="text-center">
-              <div className="text-xl font-semibold text-neutral-900 mb-2">
-                Overall Fit:{' '}
-                <span className="uppercase">
-                  {results.recommendation?.replace('_', ' ') || 'No recommendation'}
-                </span>
+              <div className="mb-2">
+                <div className="text-sm text-neutral-500">Overall fit</div>
+                <div className="text-2xl font-bold text-neutral-900">
+                  {results.recommendation
+                    ? FIT_RECOMMENDATION_LABELS[results.recommendation]
+                    : 'No recommendation'}
+                </div>
               </div>
               <p className="text-neutral-700 mb-4">{results.summary}</p>
               <div className="text-sm text-neutral-500">Confidence: {results.confidence}</div>
@@ -270,7 +290,7 @@ export function JobFitAnalysis() {
                         {gap.jdRequirement}
                       </div>
                       <div className="text-sm text-neutral-700 mt-1">
-                        <span className="uppercase">{gap.severity}</span> -{' '}
+                        {GAP_SEVERITY_LABELS[gap.severity]} -{' '}
                         {gap.isRequired ? 'Required skill' : 'Nice-to-have skill'}
                       </div>
                     </div>
