@@ -21,6 +21,7 @@ vi.mock('../src/services/application.service.js', () => ({
 vi.mock('../src/services/dashboard.service.js', () => ({ getDashboardStats: vi.fn() }));
 
 import * as reportsService from '../src/services/reports.service.js';
+import { AppError } from '../src/types/index.js';
 
 const generatedAt = '2026-04-27T00:00:00.000Z';
 
@@ -190,6 +191,21 @@ describe('Reports Routes', () => {
     it('returns 400 when all status values are invalid', async () => {
       const res = await app.request('/api/reports/stale?status=bad,junk', { method: 'GET' });
       expect(res.status).toBe(400);
+    });
+
+    // WIC-1308. The cursor is rejected in the service (that is where the
+    // encoding it must match lives), not by the route's Zod schema, so it
+    // reaches the client via `app.onError`. This asserts that path produces the
+    // same error envelope the schema rejections above do — the service unit
+    // tests cover which cursors are rejected.
+    it('surfaces a service-thrown invalid-cursor error as a 400 VALIDATION_ERROR', async () => {
+      vi.mocked(reportsService.getStaleReport).mockRejectedValue(
+        new AppError('VALIDATION_ERROR', 'Invalid cursor.', undefined, 400)
+      );
+
+      const res = await app.request('/api/reports/stale?cursor=not-base64!!', { method: 'GET' });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('VALIDATION_ERROR');
     });
   });
 
