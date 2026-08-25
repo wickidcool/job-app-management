@@ -1,7 +1,7 @@
 import { eq, and, inArray, notInArray, lte, lt, gte, asc, desc, isNotNull } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
-import { AppError } from '../types/index.js';
+import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import type {
   ApplicationStatus,
   ActiveStatus,
@@ -66,52 +66,6 @@ export function recommendationToFitTier(
 ): FitTier {
   if (!analysis) return 'not_analyzed';
   return analysis.recommendation ?? 'unscored';
-}
-
-/**
- * Resolves the `cursor` query param to a row offset. Absent cursor means the
- * first page; anything this module did not issue is a `400`.
- *
- * There is deliberately no `try`/`catch` here. `Buffer.from(s, 'base64url')`
- * does not throw on invalid input — it drops characters outside the alphabet
- * and decodes whatever is left, down to an empty buffer — so a malformed
- * cursor arrives as a *value*, never an exception. The `catch` this replaces
- * was unreachable, and the bad value it was meant to absorb
- * (`parseInt('', 10)` is `NaN`) flowed straight through to `.offset()`
- * (WIC-1308).
- *
- * The digits test earns its place; `Number.isSafeInteger` alone would not do:
- * - `Number('')` is `0`, so a cursor decoding to nothing (`'!!!!'`) would
- *   silently mean page one — the failure mode being fixed, just quieter.
- * - a negative offset is a safe integer, and reaches Postgres as `OFFSET -5`,
- *   which errors with `OFFSET must not be negative` — a `500` the caller
- *   cannot diagnose from the response.
- * `isSafeInteger` still catches the remaining case: a digit string too large
- * to survive `Number` intact.
- *
- * Rejecting rather than falling back to page one is the deliberate choice. The
- * cursor is opaque and server-issued (`docs/architecture/API_CONTRACTS.md`), so
- * a client that echoes `nextCursor` back verbatim can never reach this branch;
- * one that does has a bug, and silently serving page one both hides it and
- * invites an endless pagination loop.
- */
-export function parseCursor(cursor: string | undefined): number {
-  if (!cursor) return 0;
-  const decoded = Buffer.from(cursor, 'base64url').toString('utf-8');
-  const offset = /^\d+$/.test(decoded) ? Number(decoded) : NaN;
-  if (!Number.isSafeInteger(offset)) {
-    throw new AppError(
-      'VALIDATION_ERROR',
-      'Invalid cursor. Pass back the `nextCursor` from a previous response verbatim, or omit it for the first page.',
-      undefined,
-      400
-    );
-  }
-  return offset;
-}
-
-function encodeCursor(offset: number): string {
-  return Buffer.from(String(offset)).toString('base64url');
 }
 
 export async function getPipelineReport(

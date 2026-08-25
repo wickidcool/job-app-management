@@ -2,6 +2,7 @@ import { eq, ilike, or, desc, inArray, and, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
+import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import { coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
 import type { CoverLetter, OutreachMessage, RevisionEntry } from '../db/schema.js';
 import { getConfig } from '../config.js';
@@ -358,9 +359,7 @@ export async function listCoverLetters(
 ): Promise<{ coverLetters: CoverLetterSummaryDTO[]; nextCursor?: string }> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 20, 100);
-  const offset = params.cursor
-    ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10)
-    : 0;
+  const offset = parseCursor(params.cursor);
 
   const conditions: ReturnType<typeof eq>[] = [];
   if (userId) {
@@ -400,7 +399,7 @@ export async function listCoverLetters(
 
   return {
     coverLetters: result.map(toSummaryDTO),
-    nextCursor: hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined,
+    nextCursor: hasMore ? encodeCursor(offset + limit) : undefined,
   };
 }
 

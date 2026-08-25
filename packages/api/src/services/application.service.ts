@@ -1,6 +1,7 @@
 import { eq, and, ilike, inArray, desc, asc, or, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
+import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import { applications, statusHistory } from '../db/schema.js';
 import { enqueueChange } from './change-queue.service.js';
 import {
@@ -180,14 +181,7 @@ export async function listApplications(
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  let offset = 0;
-  if (params.page) {
-    try {
-      offset = parseInt(Buffer.from(params.page, 'base64url').toString('utf-8'), 10);
-    } catch {
-      // Invalid page token — start from beginning
-    }
-  }
+  const offset = parseCursor(params.page, 'page');
 
   const sortOrder = params.sortOrder === 'asc' ? asc : desc;
   let orderBy;
@@ -220,7 +214,7 @@ export async function listApplications(
 
   let nextPage: string | undefined;
   if (hasMore) {
-    nextPage = Buffer.from(String(offset + limit)).toString('base64url');
+    nextPage = encodeCursor(offset + limit);
   }
 
   return {
