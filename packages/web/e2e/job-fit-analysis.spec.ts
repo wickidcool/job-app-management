@@ -399,12 +399,17 @@ test.describe('Job Fit Analysis page', () => {
 
     // The tokenised scale: critical is the red step, moderate the orange one.
     // `mark` on the left border, `surface` on the card. See DESIGN_SYSTEM.md "Gap Severity Scale".
-    await expect(page.locator('.border-red-900.bg-red-50')).toHaveCount(1);
-    await expect(page.locator('.border-orange-700.bg-orange-50')).toHaveCount(1);
+    const criticalCard = page.locator('.border-red-900.bg-red-50');
+    const moderateCard = page.locator('.border-orange-700.bg-orange-50');
+    await expect(criticalCard).toHaveCount(1);
+    await expect(moderateCard).toHaveCount(1);
 
     // The word is the mandatory carrier of severity — colour never carries it alone (WCAG 1.4.1).
-    await expect(page.getByText('CRITICAL')).toBeVisible();
-    await expect(page.getByText('MODERATE')).toBeVisible();
+    // Scoped to each card, which also pins the word to the right colour step. Page-scoped matching
+    // is wrong here: "moderate" is also a fit level ("moderate fit") elsewhere on this same screen,
+    // and Playwright's default text match is a case-insensitive substring, so it collides.
+    await expect(criticalCard.getByText('critical', { exact: true })).toBeVisible();
+    await expect(moderateCard.getByText('moderate', { exact: true })).toBeVisible();
 
     // No severity emoji survive. They were the second, contradicting signal on the same card:
     // this page called `minor` green while GapMitigationPanel called it yellow.
