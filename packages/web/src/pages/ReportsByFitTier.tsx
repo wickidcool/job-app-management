@@ -7,7 +7,9 @@ import type { FitTier } from '../services/api/reportsService';
  * The tiers that carry an actual verdict, best first. `unscored` and
  * `not_analyzed` are deliberately absent — they are states of the analysis, not
  * judgements about the job, and get their own row above rather than a tile that
- * invites comparison against a real fit level.
+ * invites comparison against a real fit level. That decision is now stated in
+ * `VerdictTier` below, where the compiler holds both ends of it: these two may
+ * not take a tile, and every other tier must.
  *
  * Each blurb states a **necessary** condition of its tier — never a sufficient
  * one. `computeRecommendation` is a four-way cascade over three variables (match
@@ -31,13 +33,7 @@ import type { FitTier } from '../services/api/reportsService';
  * input, so a blurb that stops being true fails the API suite. Reword freely —
  * update the paired predicate in that file when you do.
  */
-const VERDICT_TIERS: ReadonlyArray<{
-  tier: Extract<FitTier, 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'>;
-  blurb: string;
-  container: string;
-  heading: string;
-  body: string;
-}> = [
+const VERDICT_TIERS = [
   {
     tier: 'strong_fit',
     blurb: '80%+ of required skills, at most one critical gap',
@@ -66,7 +62,42 @@ const VERDICT_TIERS: ReadonlyArray<{
     heading: 'text-neutral-900',
     body: 'text-neutral-700',
   },
-];
+] as const satisfies ReadonlyArray<{
+  tier: VerdictTier;
+  blurb: string;
+  container: string;
+  heading: string;
+  body: string;
+}>;
+
+/**
+ * Every verdict tier must have a tile. An unrendered tier is not a cosmetic
+ * gap: the API returns it in `groups` and counts it in `summary.byTier`, so a
+ * tier with no tile is a set of applications silently missing from a report
+ * that claims to cover the pipeline.
+ *
+ * This is the web-side twin of `_FIT_TIER_ORDER_IS_EXHAUSTIVE` in
+ * `packages/api/src/services/reports.service.ts`, and it exists because
+ * `VERDICT_TIERS` alone could not carry the claim. Its old annotation was
+ * `Extract<FitTier, 'strong_fit' | ...>` — a *filter*, so deleting a tier
+ * narrowed it and errored, but **adding** one was simply not selected and
+ * compiled clean (WIC-1310). A subset assertion where an exhaustiveness
+ * assertion was wanted.
+ *
+ * Both halves matter. `VerdictTier` is derived by exclusion rather than by
+ * listing four names, so a new `Recommendation` member joins it automatically
+ * and lands here as an error; `as const` keeps the entry literals, without
+ * which `(typeof VERDICT_TIERS)[number]['tier']` would widen to the whole union
+ * and the check below would be vacuous.
+ */
+type VerdictTier = Exclude<FitTier, 'unscored' | 'not_analyzed'>;
+
+type UntiledVerdictTier = Exclude<VerdictTier, (typeof VERDICT_TIERS)[number]['tier']>;
+
+const _VERDICT_TIERS_IS_EXHAUSTIVE: [UntiledVerdictTier] extends [never]
+  ? true
+  : ['VERDICT_TIERS has no tile for:', UntiledVerdictTier] = true;
+void _VERDICT_TIERS_IS_EXHAUSTIVE;
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
