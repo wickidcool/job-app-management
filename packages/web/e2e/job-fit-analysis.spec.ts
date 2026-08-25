@@ -382,10 +382,10 @@ test.describe('Job Fit Analysis page', () => {
   });
 
   // TC-6: Gaps are visually prominent
-  // FIXME: Test is flaky in CI - gap severity styling may vary
-  test.skip('TC-6: gaps are displayed prominently with severity-coded styling', async ({
-    page,
-  }) => {
+  // Previously skipped as flaky ("gap severity styling may vary") — the variance was real:
+  // three disagreeing severity ramps rendered the same value differently. WIC-1146 put both
+  // render sites on the single GAP_SEVERITY map, so the classes below are now deterministic.
+  test('TC-6: gaps are displayed prominently with severity-coded styling', async ({ page }) => {
     await mockJobFitApi(page, MOCK_ANALYSIS_RESPONSE);
 
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
@@ -396,14 +396,19 @@ test.describe('Job Fit Analysis page', () => {
     });
 
     await expect(page.getByText('❌ Gaps (2)')).toBeVisible();
-    // Critical gap has red background
-    await expect(page.locator('.border-red-500').first()).toBeVisible();
+
+    // The tokenised scale: critical is the red step, moderate the orange one.
+    // `mark` on the left border, `surface` on the card. See DESIGN_SYSTEM.md "Gap Severity Scale".
+    await expect(page.locator('.border-red-900.bg-red-50')).toHaveCount(1);
+    await expect(page.locator('.border-orange-700.bg-orange-50')).toHaveCount(1);
+
+    // The word is the mandatory carrier of severity — colour never carries it alone (WCAG 1.4.1).
     await expect(page.getByText('CRITICAL')).toBeVisible();
     await expect(page.getByText('MODERATE')).toBeVisible();
-    // Critical gaps show 🔴 icon
-    await expect(
-      page.getByText(/🔴.*aws/i).or(page.locator('[class*="border-red-500"]').first())
-    ).toBeVisible();
+
+    // No severity emoji survive. They were the second, contradicting signal on the same card:
+    // this page called `minor` green while GapMitigationPanel called it yellow.
+    await expect(page.locator('body')).not.toContainText(/🔴|🟠|🟡|🟢/u);
   });
 
   // TC-2: Submit JD URL → receive fit assessment

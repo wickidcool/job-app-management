@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
 import { useApplication } from '../hooks/useApplications';
 import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
+import { GAP_SEVERITY } from '../constants/gapSeverity';
 import { APIError } from '../services/api/apiClient';
 
 interface JobFitFormData {
@@ -252,25 +253,16 @@ export function JobFitAnalysis() {
               </h3>
               <div className="space-y-3">
                 {results.gaps.map((gap, idx) => {
-                  const severityColor =
-                    gap.severity === 'critical'
-                      ? 'border-red-500 bg-red-50'
-                      : gap.severity === 'moderate'
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-yellow-500 bg-yellow-50';
+                  const severity = GAP_SEVERITY[gap.severity];
 
                   return (
-                    <div key={idx} className={`border-l-4 ${severityColor} p-4 rounded`}>
-                      <div className="font-medium text-neutral-900">
-                        {gap.severity === 'critical'
-                          ? '🔴'
-                          : gap.severity === 'moderate'
-                            ? '🟡'
-                            : '🟢'}{' '}
-                        {gap.jdRequirement}
-                      </div>
+                    <div
+                      key={idx}
+                      className={`border-l-4 ${severity.mark} ${severity.surface} p-4 rounded`}
+                    >
+                      <div className="font-medium text-neutral-900">{gap.jdRequirement}</div>
                       <div className="text-sm text-neutral-700 mt-1">
-                        <span className="uppercase">{gap.severity}</span> -{' '}
+                        <span className={`uppercase ${severity.text}`}>{gap.severity}</span> -{' '}
                         {gap.isRequired ? 'Required skill' : 'Nice-to-have skill'}
                       </div>
                     </div>
