@@ -8,12 +8,18 @@ This is the **alternative to granting API scopes**. Every insight below was auth
 
 Pick **one** of the three routes.
 
-**Routes 2 and 3 are equivalent** — both build the 17 HogQL tiles documented below.
-**Route 1 is not.** It builds from `insight-payloads.json`, which since #81 expresses
-A1, A3 and C1 as PostHog-native funnel/retention queries rather than HogQL tables. Route 1
-therefore produces 18 tiles (it adds a native `A3n`), and its A1/C1 are person-aggregated
-rather than event-count ratios — different numbers under the same metric names. The other
-15 tiles are identical across all three routes.
+**All three routes build the same 17 tiles, under the same 17 names**, from the same
+source file (`insight-payloads.json`). Everything below is generated from it.
+
+**Two of those 17 are not the same calculation.** Since #81, Route 1 renders **A1** as a
+native `FunnelsQuery` and **C1** as a native `RetentionQuery` — both person-aggregated.
+Routes 2 and 3 cannot paste a native node as SQL, so they use the HogQL tables kept at
+`_hogql_variant`: A1 as an event-count ratio, C1 as the share of people with >=2 uploads
+in 30d. Same tile names, different numbers — read each tile's description, which differs
+per route for exactly these two. The other **15 tiles are byte-identical across all three**.
+
+(The native `A3n` variant is `_enabled: false` — gated on `resume_upload_started` ever
+firing — so _no_ route builds it today. A3 is the HogQL form everywhere.)
 
 ---
 
