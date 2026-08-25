@@ -9,12 +9,12 @@ Outputs (next to this file):
   dashboard-templates.json  -- 3 PostHog dashboard-template objects for JSON import
   console-build-runbook.md  -- click-by-click runbook + per-insight HogQL to paste
 
-Both routes here are paste-the-SQL routes, so every payload must carry HogQL text at
-`query.source.query`. That was true of `insight-payloads.json` when the committed pack was
-generated; #81 has since re-expressed A1, A3 and C1 as PostHog-native funnel/retention
-queries, which carry no SQL. This script therefore no longer reproduces the committed pack
-from the current payload file and refuses to run rather than emit a partial one -- see
-`require_hogql_payloads()`. Re-deriving the pack means restoring HogQL forms for those three.
+Both routes here are paste-the-SQL routes, so every tile needs HogQL text. Most payloads carry
+it inline at `query.source.query`. #81 re-expressed A1 and C1 as PostHog-native funnel/retention
+queries, which carry no SQL -- those two keep their pasteable form under `_hogql_variant`
+(description + full `DataTableNode`/`HogQLQuery` node), so `insight-payloads.json` remains the
+single source of truth for all three routes. `resolve_hogql()` prefers the inline form and falls
+back to the variant; anything with neither aborts the run before a byte is written.
 """
 import json
 import os
@@ -55,36 +55,57 @@ def deep_link(query):
     return f"{HOST}/project/{PROJECT}/insights/new#q={frag}"
 
 
-def require_hogql_payloads(payloads):
-    """Refuse to emit a pack unless every payload carries pasteable HogQL.
+def resolve_hogql(payload):
+    """Return the (description, query-node) pair Routes 2 and 3 should paste.
+
+    Native funnel/retention payloads carry no SQL at `query.source.query`; they keep an
+    equivalent HogQL table under `_hogql_variant`, with its own description because the
+    two forms compute different things (see the route-divergence note in the runbook).
+    Returns None when neither form exists, so the caller can abort before writing.
+    """
+    if "query" in payload["query"].get("source", {}):
+        return payload["description"], payload["query"]
+    variant = payload.get("_hogql_variant")
+    if variant:
+        return variant["description"], variant["query"]
+    return None
+
+
+def resolve_all(payloads):
+    """Resolve every payload up front, refusing as a whole rather than part-way.
 
     Checked before anything is written: a mid-run failure here used to overwrite the
     verified dashboard-templates.json and then die before writing the runbook.
     """
-    missing = [p["_key"] for p in payloads if "query" not in p["query"].get("source", {})]
+    resolved = [(p, resolve_hogql(p)) for p in payloads]
+    missing = [p["_key"] for p, r in resolved if r is None]
     if missing:
         raise SystemExit(
-            "refusing to generate: these payloads carry no HogQL text at "
-            f"query.source.query -- {', '.join(missing)}.\n"
-            "They are PostHog-native funnel/retention queries, which Routes 2 and 3 "
-            "cannot express as pasteable SQL. The committed pack predates that change; "
-            "regenerating it requires HogQL forms for the payloads listed above."
+            "refusing to generate: no pasteable HogQL for -- "
+            f"{', '.join(missing)}.\n"
+            "These are PostHog-native funnel/retention queries with no `_hogql_variant` "
+            "fallback, and Routes 2 and 3 cannot express them as SQL. Add a `_hogql_variant` "
+            "(description + DataTableNode/HogQLQuery node) to each in insight-payloads.json."
         )
+    return [(p, desc, query) for p, (desc, query) in resolved]
 
 
 def main():
-    payloads = json.load(open(os.path.join(HERE, "insight-payloads.json")))
-    require_hogql_payloads(payloads)
+    all_payloads = json.load(open(os.path.join(HERE, "insight-payloads.json")))
+    # Mirrors build_dashboards.py: `_enabled: false` entries are authored and validated
+    # but deliberately not built yet, so all three routes agree on which tiles exist.
+    payloads = [p for p in all_payloads if p.get("_enabled", True)]
+    resolved = resolve_all(payloads)
 
     templates = []
     for name, description in DASHBOARDS:
         tiles = []
-        for i, p in enumerate(x for x in payloads if x["_dashboard"] == name):
+        for i, (p, desc, query) in enumerate(x for x in resolved if x[0]["_dashboard"] == name):
             tiles.append({
                 "type": "INSIGHT",
                 "name": p["name"],
-                "description": p["description"],
-                "query": p["query"],
+                "description": desc,
+                "query": query,
                 "layouts": layouts_for(i),
                 "color": None,
             })
@@ -110,12 +131,18 @@ def main():
     w("")
     w("Pick **one** of the three routes.")
     w("")
-    w("**Routes 2 and 3 are equivalent** — both build the 17 HogQL tiles documented below.")
-    w("**Route 1 is not.** It builds from `insight-payloads.json`, which since #81 expresses")
-    w("A1, A3 and C1 as PostHog-native funnel/retention queries rather than HogQL tables. Route 1")
-    w("therefore produces 18 tiles (it adds a native `A3n`), and its A1/C1 are person-aggregated")
-    w("rather than event-count ratios — different numbers under the same metric names. The other")
-    w("15 tiles are identical across all three routes.")
+    w("**All three routes build the same 17 tiles, under the same 17 names**, from the same")
+    w("source file (`insight-payloads.json`). Everything below is generated from it.")
+    w("")
+    w("**Two of those 17 are not the same calculation.** Since #81, Route 1 renders **A1** as a")
+    w("native `FunnelsQuery` and **C1** as a native `RetentionQuery` — both person-aggregated.")
+    w("Routes 2 and 3 cannot paste a native node as SQL, so they use the HogQL tables kept at")
+    w("`_hogql_variant`: A1 as an event-count ratio, C1 as the share of people with >=2 uploads")
+    w("in 30d. Same tile names, different numbers — read each tile's description, which differs")
+    w("per route for exactly these two. The other **15 tiles are byte-identical across all three**.")
+    w("")
+    w("(The native `A3n` variant is `_enabled: false` — gated on `resume_upload_started` ever")
+    w("firing — so *no* route builds it today. A3 is the HogQL form everywhere.)")
     w("")
     w("---")
     w("")
@@ -171,21 +198,21 @@ def main():
     w("")
     w("| # | Insight name | Dashboard | Open pre-filled |")
     w("|---|---|---|---|")
-    for p in payloads:
+    for p, _desc, query in resolved:
         w(f"| {p['_key'].split('_')[0]} | {p['name']} | {p['_dashboard']} | "
-          f"[open]({deep_link(p['query'])}) |")
+          f"[open]({deep_link(query)}) |")
     w("")
     w("---")
     w("")
     w("## The 17 queries")
     w("")
-    for p in payloads:
+    for p, desc, query in resolved:
         w(f"### {p['name']}")
         w("")
-        w(f"*{p['_dashboard']} · {p['description']}*")
+        w(f"*{p['_dashboard']} · {desc}*")
         w("")
         w("```sql")
-        w(p["query"]["source"]["query"].strip())
+        w(query["source"]["query"].strip())
         w("```")
         w("")
 
@@ -226,6 +253,11 @@ def main():
         print(f"  {name}: {n} tiles")
     print(f"wrote {out_json}")
     print(f"wrote {out_md}")
+    # Both artifacts are Prettier-formatted in the repo, and this script does not emit
+    # Prettier's exact style (short-array collapsing, md table padding). Without this the
+    # regenerated pack diffs cosmetically against the committed one and CI format-checks fail.
+    print("\nnow run: npx prettier --write docs/analytics/dashboard-templates.json "
+          "docs/analytics/console-build-runbook.md")
 
 
 if __name__ == "__main__":
