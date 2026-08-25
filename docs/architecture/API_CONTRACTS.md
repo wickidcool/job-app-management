@@ -2108,8 +2108,11 @@ reports cover all rows. See `docs/AUTHENTICATION.md`.
 report was assembled. Reports are computed per request; nothing is cached.
 
 **Validation errors.** Query parameters are validated by Zod schemas at the top of
-`routes/reports.ts`, which are the authority on accepted values. Any violation — an unknown enum
-member, a non-numeric `days`, `limit` above 100 — fails the whole request:
+`routes/reports.ts`, which are the authority on accepted values — with one exception. `cursor` is
+declared there as a plain optional string, so the schema accepts any string; whether a particular
+cursor is valid is decided later, when it is decoded in `reports.service.ts`. For every other
+parameter the schema is the whole story, and any violation — an unknown enum member, a non-numeric
+`days`, `limit` above 100 — fails the whole request:
 
 ```json
 {
