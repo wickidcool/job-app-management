@@ -16,9 +16,17 @@ export interface UseDialogFocusRestoreOptions {
 /**
  * How long to keep watching a restored trigger for removal, in ms.
  *
- * Covers the re-render that follows an already-resolved mutation. Kept short on
- * purpose: moving focus long after the dialog closed would yank a user who has
- * since started interacting, and staying put is the lesser evil at that point.
+ * This is *not* what stops us yanking a user who has moved on — `watchRestore`'s
+ * `focusin` self-cancel does that, the moment they touch anything. The timer only
+ * bounds the *idle* case, where a late correction costs approximately nothing
+ * because focus is sitting on `document.body` either way.
+ *
+ * The reason to keep it short is cost: the watch is a `MutationObserver` over
+ * `document.body` with `subtree: true`, which is not free on a busy list page.
+ * A second comfortably covers the re-render that follows an already-resolved
+ * mutation, which is the only thing the watch exists for. Accepted residual: a
+ * refetch slower than this strands focus on `document.body` — the pre-existing
+ * behaviour, not a new failure mode.
  */
 const RESTORE_WATCH_MS = 1000;
 
