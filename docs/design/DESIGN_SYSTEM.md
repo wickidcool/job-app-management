@@ -246,8 +246,11 @@ Rejected alternatives, for the same rule:
 
 - **"Partial fit"** — collides with the "Partial matches" section on the same screen, where
   "partial" describes a *match type*, a different axis again.
-- **"Weak fit"** — that string is already the label of `FitTier: 'weak_fit'`, a different enum
-  with a different wire value, in the by-fit-tier report.
+- **"Weak fit"** — at the time, that string was the label of `FitTier: 'weak_fit'`, a different
+  enum with a different wire value, in the by-fit-tier report. That collision no longer exists:
+  WIC-1298 removed `weak_fit` and redefined `FitTier` as `Recommendation` plus its two no-verdict
+  states, so nothing owns the string any more. The rejection stands on the rule above regardless —
+  "weak" is a magnitude adjective, and fit level is a verdict scale.
 
 **Labels are display strings; the wire values are unchanged.** `recommendation` is an API contract
 value (`docs/architecture/API_CONTRACTS.md`, `POST /api/catalog/job-fit/analyze`), so the rename is

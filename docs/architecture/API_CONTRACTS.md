@@ -1259,7 +1259,11 @@ The `recommendation` field is computed as follows:
 - `moderate_fit`: 50-79% of required skills matched, ≤3 critical gaps  
 - `stretch`: 30-49% of required skills matched, or seniority mismatch
 - `low_fit`: <30% of required skills matched
-- `null`: Catalog is empty (see `catalogEmpty: true`)
+- `null`: the analysis ran but could not score. Two distinct causes: the catalog is empty (returned
+  with `catalogEmpty: true`), **or** no required skills were found in the job description
+  (`catalogEmpty: false`, and `parsedJd.requiredStack` is empty). Clients must not read `null` as
+  "no analysis" — it is a result. The by-fit-tier report names this state `unscored` and keeps it
+  separate from `not_analyzed`; see `GET /api/reports/by-fit-tier`.
 
 Partial matches (alias/related) count at 0.5x weight toward match percentage.
 
@@ -2081,6 +2085,115 @@ The cover letter generation system enforces these constraints:
    - Email: max 1000 characters
 
 ---
+
+---
+
+### Reports (UC-5)
+
+Pipeline reports over the user's applications. The full set is mounted in
+`packages/api/src/routes/reports.ts` — `pipeline`, `needs-action`, `stale`, `closed-loop`, and
+`by-fit-tier`. Only `by-fit-tier` is specified below, because it is the one that consumes a UC-3
+value and therefore has a cross-use-case contract to state (WIC-1298); the other four are
+single-source reports whose shapes are given by `PipelineReportResponse` and friends in
+`packages/api/src/types/index.ts`.
+
+#### `GET /api/reports/by-fit-tier`
+
+Groups the user's applications by the fit verdict UC-3 reached for each.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `includeTerminal` | `'true' \| 'false'` | `false` | Include `offer` / `rejected` / `withdrawn` applications |
+| `sortBy` | `'updatedAt' \| 'createdAt'` | `updatedAt` | Sort field within each group |
+| `sortOrder` | `'asc' \| 'desc'` | `desc` | Sort direction |
+
+**Response**: `200 OK`
+
+```typescript
+interface ByFitTierReportResponse {
+  groups: {
+    tier: FitTier;
+    count: number;
+    applications: {
+      id: string;
+      jobTitle: string;
+      company: string;
+      status: ApplicationStatus;
+      fitTier: FitTier;
+      updatedAt: string;          // ISO 8601
+    }[];
+  }[];
+  summary: {
+    total: number;
+    analyzed: number;             // applications an analysis has run for — includes `unscored`
+    notAnalyzed: number;          // the `not_analyzed` count, i.e. no analysis exists
+    byTier: Partial<Record<FitTier, number>>;
+  };
+  generatedAt: string;            // ISO 8601
+}
+```
+
+`groups` is always present for every tier, in the order below, including tiers with `count: 0`.
+
+**`FitTier` and its relationship to `recommendation`**
+
+`FitTier` is **`recommendation` plus the two states an analysis result can be in when it carries no
+verdict**. The two are one judgement, reported at one granularity — a report does not coarsen the
+analysis:
+
+```typescript
+type FitTier =
+  | 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'   // = AnalyzeJobFitResponse['recommendation']
+  | 'unscored'                                              // an analysis ran; it produced no verdict
+  | 'not_analyzed';                                         // no analysis has ever been run
+```
+
+The mapping is total and lossless. `recommendationToFitTier()` in
+`packages/api/src/services/reports.service.ts` is the only place it is applied:
+
+| Stored analysis | `recommendation` | `fitTier` |
+|--------|--------|--------|
+| present | `'strong_fit'` | `strong_fit` |
+| present | `'moderate_fit'` | `moderate_fit` |
+| present | `'stretch'` | `stretch` |
+| present | `'low_fit'` | `low_fit` |
+| present | `null` | `unscored` |
+| **absent** | — | `not_analyzed` |
+
+Two distinctions the table is load-bearing for:
+
+- **`stretch` is not a magnitude, so it is not merged into `low_fit`.** Per the scoring algorithm
+  under `POST /api/catalog/job-fit/analyze`, `stretch` fires on a *seniority* mismatch even at a good
+  skill match. A client that treats `stretch` as "weak" tells the user their skills are short when
+  the finding was that the level is wrong, and those call for opposite actions.
+- **`unscored` is not `not_analyzed`.** `recommendation: null` means the analysis ran and could not
+  score — an empty catalog (`catalogEmpty: true`), or a JD in which no required skills were found.
+  `not_analyzed` means no analysis exists for that application. The first is answered by fixing the
+  catalog or the JD; the second by running the analysis.
+
+> **History (WIC-1298).** `FitTier` was previously an independent union
+> `'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed'`, agreeing with `recommendation` at
+> the top and diverging at the bottom, with the relationship written down nowhere. `weak_fit` merged
+> `stretch` and `low_fit`; `not_analyzed` also absorbed `recommendation: null`. Both members changed
+> in the same revision. Because UC-3 analyses are not persisted yet, this endpoint had never emitted
+> a non-zero `weak_fit` count — every application returns `not_analyzed` — so no client can have
+> depended on the removed member. Once UC-3 persistence lands, the same change would be a genuine
+> breaking revision.
+
+**Both `FitTier` and `recommendation` are wire values.** Adding or removing a member of either
+versions this endpoint and `POST /api/catalog/job-fit/analyze`. Because `FitTier` is *defined* as
+`FitRecommendation | 'unscored' | 'not_analyzed'` in `packages/api/src/types/index.ts`, a change to
+`recommendation` propagates here by construction and fails the build at `FIT_TIER_ORDER` until the
+new member is ranked — the two cannot silently drift apart again. Display labels are a separate
+concern and do not version anything (`packages/web/src/constants/fitLevel.ts`; see the note under
+the UC-3 scoring algorithm).
+
+**Current limitation**: UC-3 analyses are not persisted — there is no `job_fit_analyses` table and
+`applications` carries no analysis reference — so every application currently reports
+`not_analyzed`, `analyzed: 0`. The contract above is what the endpoint returns once that lands; only
+the data source changes.
 
 ---
 
