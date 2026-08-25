@@ -23,6 +23,12 @@ Two consequences when reading or extending these specs:
   (§13) still render in caps because those are badges carrying the Overline treatment. Do not "fix" them
   in the source string.
 
+The source-side half of this is enforced in CI by `local/no-literal-caps-jsx-text`
+(`packages/web/eslint-rules/no-literal-caps-jsx-text.js`, WIC-1209): a literal all-caps JSX text node
+fails lint, while mixed-case source plus a CSS `uppercase` class passes. See
+`CONTENT_STYLE.md` §"ALL CAPS is a typographic treatment, not casing" for the rule's scope and its
+three known blind spots.
+
 ---
 
 ## 1. ApplicationCard

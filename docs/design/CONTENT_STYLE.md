@@ -168,6 +168,30 @@ The test is whether the capitals carry meaning or carry styling.
 Baked-caps cleanup is tracked in WIC-1069 (implementation corrections in WIC-1086) and runs
 independently of the board call.
 
+### Enforcement (WIC-1209)
+
+The ❌ form above is enforced in CI by a local ESLint rule,
+`local/no-literal-caps-jsx-text` (`packages/web/eslint-rules/no-literal-caps-jsx-text.js`).
+It flags literal all-caps JSX **text nodes** and passes the ✅ form, including when the
+`uppercase` class sits on an ancestor element or arrives through an interpolated
+`className`. Acronyms (`PDF`, `DOCX`, `AWS`, `STAR`, `URL`, …) are allowlisted.
+
+This exists because the cleanup above was driven by hand-enumerated site lists across six
+tickets (WIC-1069 → WIC-1127 → WIC-1184 → WIC-1187 → WIC-1195 → WIC-1205, plus WIC-1228),
+and hand enumeration has no completion criterion. The rule supplies one.
+
+**What the rule cannot see**, by construction — a text-node rule reads text nodes only:
+
+- Runtime `.toUpperCase()` on API-supplied strings — the `JobFitAnalysis.tsx` case argued
+  two paragraphs above. Tracked in WIC-1122 / WIC-1146.
+- Caps inside attribute values, e.g. an `aria-label` built by template literal —
+  unreachable from CSS and invisible here. This was `ChangeActionBadge`'s worst instance
+  (WIC-1185).
+- Caps reaching JSX through a variable or config object.
+
+Those remain review-time concerns. `eslint-plugin-jsx-a11y` does not cover any of this —
+measured under WIC-1185: strict config, 0 findings against a 4-error positive control.
+
 ---
 
 ## Punctuation
