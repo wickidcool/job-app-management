@@ -6,7 +6,14 @@ This is the **alternative to granting API scopes**. Every insight below was auth
 `dashboard-spec.md` v1.0 and executed green against this live project (17/17 — see
 `dashboard-build-pack.md`). Nothing here needs a credential change, a new key, or an agent.
 
-Pick **one** of the three routes. They produce the same three dashboards.
+Pick **one** of the three routes.
+
+**Routes 2 and 3 are equivalent** — both build the 17 HogQL tiles documented below.
+**Route 1 is not.** It builds from `insight-payloads.json`, which since #81 expresses
+A1, A3 and C1 as PostHog-native funnel/retention queries rather than HogQL tables. Route 1
+therefore produces 18 tiles (it adds a native `A3n`), and its A1/C1 are person-aggregated
+rather than event-count ratios — different numbers under the same metric names. The other
+15 tiles are identical across all three routes.
 
 ---
 

@@ -8,6 +8,13 @@ Dashboards A/B/C by hand in the PostHog UI, with no API scope change at all.
 Outputs (next to this file):
   dashboard-templates.json  -- 3 PostHog dashboard-template objects for JSON import
   console-build-runbook.md  -- click-by-click runbook + per-insight HogQL to paste
+
+Both routes here are paste-the-SQL routes, so every payload must carry HogQL text at
+`query.source.query`. That was true of `insight-payloads.json` when the committed pack was
+generated; #81 has since re-expressed A1, A3 and C1 as PostHog-native funnel/retention
+queries, which carry no SQL. This script therefore no longer reproduces the committed pack
+from the current payload file and refuses to run rather than emit a partial one -- see
+`require_hogql_payloads()`. Re-deriving the pack means restoring HogQL forms for those three.
 """
 import json
 import os
@@ -48,8 +55,26 @@ def deep_link(query):
     return f"{HOST}/project/{PROJECT}/insights/new#q={frag}"
 
 
+def require_hogql_payloads(payloads):
+    """Refuse to emit a pack unless every payload carries pasteable HogQL.
+
+    Checked before anything is written: a mid-run failure here used to overwrite the
+    verified dashboard-templates.json and then die before writing the runbook.
+    """
+    missing = [p["_key"] for p in payloads if "query" not in p["query"].get("source", {})]
+    if missing:
+        raise SystemExit(
+            "refusing to generate: these payloads carry no HogQL text at "
+            f"query.source.query -- {', '.join(missing)}.\n"
+            "They are PostHog-native funnel/retention queries, which Routes 2 and 3 "
+            "cannot express as pasteable SQL. The committed pack predates that change; "
+            "regenerating it requires HogQL forms for the payloads listed above."
+        )
+
+
 def main():
     payloads = json.load(open(os.path.join(HERE, "insight-payloads.json")))
+    require_hogql_payloads(payloads)
 
     templates = []
     for name, description in DASHBOARDS:
@@ -72,11 +97,6 @@ def main():
             "variables": [],
         })
 
-    out_json = os.path.join(HERE, "dashboard-templates.json")
-    with open(out_json, "w") as fh:
-        json.dump(templates, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-
     lines = []
     w = lines.append
     w("# WIC-1024 — zero-scope console build runbook")
@@ -88,7 +108,14 @@ def main():
     w("`dashboard-spec.md` v1.0 and executed green against this live project (17/17 — see")
     w("`dashboard-build-pack.md`). Nothing here needs a credential change, a new key, or an agent.")
     w("")
-    w("Pick **one** of the three routes. They produce the same three dashboards.")
+    w("Pick **one** of the three routes.")
+    w("")
+    w("**Routes 2 and 3 are equivalent** — both build the 17 HogQL tiles documented below.")
+    w("**Route 1 is not.** It builds from `insight-payloads.json`, which since #81 expresses")
+    w("A1, A3 and C1 as PostHog-native funnel/retention queries rather than HogQL tables. Route 1")
+    w("therefore produces 18 tiles (it adds a native `A3n`), and its A1/C1 are person-aggregated")
+    w("rather than event-count ratios — different numbers under the same metric names. The other")
+    w("15 tiles are identical across all three routes.")
     w("")
     w("---")
     w("")
@@ -182,6 +209,13 @@ def main():
     w("identity graph (WIC-822 server attribution + WIC-825 client `identify()` alias) is correct in")
     w("principle but unproven against organic users.")
     w("")
+
+    # Both artifacts are fully built before either is written, so a failure above can
+    # never leave a half-regenerated pack on disk.
+    out_json = os.path.join(HERE, "dashboard-templates.json")
+    with open(out_json, "w") as fh:
+        json.dump(templates, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
 
     out_md = os.path.join(HERE, "console-build-runbook.md")
     with open(out_md, "w") as fh:
