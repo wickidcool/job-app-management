@@ -1,0 +1,590 @@
+[
+  {
+    "template_name": "Dashboard A — Upload Health",
+    "dashboard_description": "Resume upload pipeline health: success/failure rates, processing latency, parse quality. Source: docs/analytics/dashboard-spec.md v1.0 (A1-A9).",
+    "dashboard_filters": {},
+    "tags": ["wic-1024", "dashboard-spec-v1.0"],
+    "tiles": [
+      {
+        "type": "INSIGHT",
+        "name": "A1 — Upload Success Rate",
+        "description": "submitted -> completed conversion. Target >=95% (warn <97, crit <93).",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  countIf(event = 'resume_upload_submitted') AS submitted,\n  countIf(event = 'resume_upload_completed') AS completed,\n  round(100.0 * countIf(event = 'resume_upload_completed')\n        / nullIf(countIf(event = 'resume_upload_submitted'), 0), 2) AS success_rate_pct\nFROM events\nWHERE event IN ('resume_upload_submitted','resume_upload_completed')\n  AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "0",
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "0",
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A2 — Validation Error Rate",
+        "description": "validation_failed / started. Target <=5% (warn >8, crit >15).",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  countIf(event = 'resume_upload_started') AS started,\n  countIf(event = 'resume_upload_validation_failed') AS validation_failed,\n  round(100.0 * countIf(event = 'resume_upload_validation_failed')\n        / nullIf(countIf(event = 'resume_upload_started'), 0), 2) AS validation_error_rate_pct\nFROM events\nWHERE event IN ('resume_upload_started','resume_upload_validation_failed')\n  AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "1",
+            "x": 6,
+            "y": 0,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "1",
+            "x": 0,
+            "y": 5,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A3 — Upload Funnel Completion (by source)",
+        "description": "started -> submitted -> completed, broken down by source. Target >=80% (warn <70).",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  toString(properties.source) AS source,\n  countIf(event = 'resume_upload_started')   AS s1_started,\n  countIf(event = 'resume_upload_submitted') AS s2_submitted,\n  countIf(event = 'resume_upload_completed') AS s3_completed,\n  round(100.0 * countIf(event = 'resume_upload_completed')\n        / nullIf(countIf(event = 'resume_upload_started'), 0), 2) AS overall_conversion_pct\nFROM events\nWHERE event IN ('resume_upload_started','resume_upload_submitted','resume_upload_completed')\n  AND timestamp > now() - INTERVAL 7 DAY\nGROUP BY source\nORDER BY s1_started DESC"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "2",
+            "x": 0,
+            "y": 5,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "2",
+            "x": 0,
+            "y": 10,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A4 — Avg / P95 Processing Time",
+        "description": "processing_time_ms on completed, duplicates excluded (gap-1 fix). avg <=3000ms, P95 <=8000ms.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  count() AS n_real_uploads,\n  round(avg(toFloat(properties.processing_time_ms)), 1) AS avg_ms,\n  round(quantile(0.95)(toFloat(properties.processing_time_ms)), 1) AS p95_ms\nFROM events\nWHERE event = 'resume_upload_completed'\n  AND toString(properties.is_duplicate) = 'false'\n  AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "3",
+            "x": 6,
+            "y": 5,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "3",
+            "x": 0,
+            "y": 15,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A5 — Parse Success Rate (proxy)",
+        "description": "completed with sections_detected > 0 / all completed. Target >=90%.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  count() AS completed,\n  countIf(toFloat(properties.sections_detected) > 0) AS parsed_ok,\n  round(100.0 * countIf(toFloat(properties.sections_detected) > 0)\n        / nullIf(count(), 0), 2) AS parse_success_rate_pct\nFROM events\nWHERE event = 'resume_upload_completed'\n  AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "4",
+            "x": 0,
+            "y": 10,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "4",
+            "x": 0,
+            "y": 20,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A6 — Avg Sections Detected",
+        "description": "Healthy 4-8.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT round(avg(toFloat(properties.sections_detected)), 2) AS avg_sections_detected\nFROM events\nWHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "5",
+            "x": 6,
+            "y": 10,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "5",
+            "x": 0,
+            "y": 25,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A7 — Avg Bullets per Section",
+        "description": "avg(bullets_total)/avg(sections_detected). Healthy 3-10.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  round(avg(toFloat(properties.bullets_total)), 2)    AS avg_bullets,\n  round(avg(toFloat(properties.sections_detected)), 2) AS avg_sections,\n  round(avg(toFloat(properties.bullets_total))\n        / nullIf(avg(toFloat(properties.sections_detected)), 0), 2) AS bullets_per_section\nFROM events\nWHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "6",
+            "x": 0,
+            "y": 15,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "6",
+            "x": 0,
+            "y": 30,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A8 — Avg Extracted Text Length",
+        "description": "avg extracted_char_count. Healthy 2,000-8,000.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT round(avg(toFloat(properties.extracted_char_count)), 1) AS avg_extracted_char_count\nFROM events\nWHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "7",
+            "x": 6,
+            "y": 15,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "7",
+            "x": 0,
+            "y": 35,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "A9 — Failure Breakdown",
+        "description": "resume_upload_failed by error_stage x error_code.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  toString(properties.error_stage) AS error_stage,\n  toString(properties.error_code)  AS error_code,\n  count() AS failures\nFROM events\nWHERE event = 'resume_upload_failed' AND timestamp > now() - INTERVAL 7 DAY\nGROUP BY error_stage, error_code\nORDER BY failures DESC"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "8",
+            "x": 0,
+            "y": 20,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "8",
+            "x": 0,
+            "y": 40,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      }
+    ],
+    "variables": []
+  },
+  {
+    "template_name": "Dashboard B — Export & Engagement",
+    "dashboard_description": "Post-upload engagement: export views, resume-manager visits, CTA split, export generation. Source: docs/analytics/dashboard-spec.md v1.0 (B1-B5).",
+    "dashboard_filters": {},
+    "tags": ["wic-1024", "dashboard-spec-v1.0"],
+    "tiles": [
+      {
+        "type": "INSIGHT",
+        "name": "B1 — Export View Rate",
+        "description": "export_viewed sessions / completed sessions. Target >=50% (warn <30).",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  uniqIf(toString(properties.session_id), event = 'resume_upload_completed') AS completed_sessions,\n  uniqIf(toString(properties.session_id), event = 'export_viewed')           AS export_viewed_sessions,\n  round(100.0 * uniqIf(toString(properties.session_id), event = 'export_viewed')\n        / nullIf(uniqIf(toString(properties.session_id), event = 'resume_upload_completed'), 0), 2) AS export_view_rate_pct\nFROM events\nWHERE event IN ('resume_upload_completed','export_viewed')\n  AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "0",
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "0",
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "B2 — Resume Manager Visit Rate",
+        "description": "sessions with resume_manager_viewed / total sessions. Target >=40%.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  uniq(toString(properties.session_id)) AS total_sessions,\n  uniqIf(toString(properties.session_id), event = 'resume_manager_viewed') AS manager_sessions,\n  round(100.0 * uniqIf(toString(properties.session_id), event = 'resume_manager_viewed')\n        / nullIf(uniq(toString(properties.session_id)), 0), 2) AS manager_visit_rate_pct\nFROM events\nWHERE timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "1",
+            "x": 6,
+            "y": 0,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "1",
+            "x": 0,
+            "y": 5,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "B3 — Exports Link CTR",
+        "description": "resume_exports_link_clicked by resume_file_type.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  toString(properties.resume_file_type) AS resume_file_type,\n  count() AS clicks\nFROM events\nWHERE event = 'resume_exports_link_clicked' AND timestamp > now() - INTERVAL 7 DAY\nGROUP BY resume_file_type\nORDER BY clicks DESC"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "2",
+            "x": 0,
+            "y": 5,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "2",
+            "x": 0,
+            "y": 10,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "B4 — Post-upload CTA Split",
+        "description": "resume_upload_cta_clicked by cta (view_details vs upload_new).",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  toString(properties.cta) AS cta,\n  count() AS clicks,\n  round(100.0 * count() / nullIf(sum(count()) OVER (), 0), 2) AS pct_of_clicks\nFROM events\nWHERE event = 'resume_upload_cta_clicked' AND timestamp > now() - INTERVAL 7 DAY\nGROUP BY cta\nORDER BY clicks DESC"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "3",
+            "x": 6,
+            "y": 5,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "3",
+            "x": 0,
+            "y": 15,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "B5 — Export Generation Rate",
+        "description": "completed with non-empty export_id / all completed. Expect ~100%.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  count() AS completed,\n  countIf(toString(properties.export_id) != '' AND toString(properties.export_id) != 'null') AS with_export_id,\n  round(100.0 * countIf(toString(properties.export_id) != '' AND toString(properties.export_id) != 'null')\n        / nullIf(count(), 0), 2) AS export_generation_rate_pct\nFROM events\nWHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "4",
+            "x": 0,
+            "y": 10,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "4",
+            "x": 0,
+            "y": 20,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      }
+    ],
+    "variables": []
+  },
+  {
+    "template_name": "Dashboard C — Retention & Repeat Usage",
+    "dashboard_description": "Repeat-usage behaviour keyed on person_id: return rate, uploads per active user, new vs returning. Source: docs/analytics/dashboard-spec.md v1.0 (C1-C3).",
+    "dashboard_filters": {},
+    "tags": ["wic-1024", "dashboard-spec-v1.0"],
+    "tiles": [
+      {
+        "type": "INSIGHT",
+        "name": "C1 — Return Upload Rate (30d)",
+        "description": "users with >=2 completed uploads in 30d.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  count() AS uploaders_30d,\n  countIf(uploads >= 2) AS returning_uploaders,\n  round(100.0 * countIf(uploads >= 2) / nullIf(count(), 0), 2) AS return_upload_rate_pct\nFROM (\n  SELECT person_id, count() AS uploads\n  FROM events\n  WHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 30 DAY\n  GROUP BY person_id\n)"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "0",
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "0",
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "C2 — Uploads per Active User (weekly)",
+        "description": "total completed / unique persons, 7d.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  count() AS total_completed,\n  uniq(person_id) AS active_users,\n  round(count() / nullIf(uniq(person_id), 0), 2) AS uploads_per_active_user\nFROM events\nWHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 7 DAY"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "1",
+            "x": 6,
+            "y": 0,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "1",
+            "x": 0,
+            "y": 5,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      },
+      {
+        "type": "INSIGHT",
+        "name": "C3 — New vs Returning Uploaders",
+        "description": "first-seen cohort split of uploaders.",
+        "query": {
+          "kind": "DataTableNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT\n  multiIf(first_upload >= now() - INTERVAL 7 DAY, 'new', 'returning') AS cohort,\n  count() AS uploaders\nFROM (\n  SELECT person_id, min(timestamp) AS first_upload\n  FROM events\n  WHERE event = 'resume_upload_completed'\n  GROUP BY person_id\n)\nGROUP BY cohort\nORDER BY cohort"
+          }
+        },
+        "layouts": {
+          "sm": {
+            "i": "2",
+            "x": 0,
+            "y": 5,
+            "w": 6,
+            "h": 5,
+            "minW": 3,
+            "minH": 5
+          },
+          "xs": {
+            "i": "2",
+            "x": 0,
+            "y": 10,
+            "w": 1,
+            "h": 5,
+            "minW": 1,
+            "minH": 5
+          }
+        },
+        "color": null
+      }
+    ],
+    "variables": []
+  }
+]
