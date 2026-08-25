@@ -35,21 +35,21 @@ export function GapMitigationPanel({
           icon: '🔴',
           color: 'border-red-500 bg-red-50',
           textColor: 'text-red-700',
-          label: 'CRITICAL',
+          label: 'Critical',
         };
       case 'moderate':
         return {
           icon: '🟠',
           color: 'border-orange-500 bg-orange-50',
           textColor: 'text-orange-700',
-          label: 'MODERATE',
+          label: 'Moderate',
         };
       default:
         return {
           icon: '🟡',
           color: 'border-yellow-500 bg-yellow-50',
           textColor: 'text-yellow-700',
-          label: 'MINOR',
+          label: 'Minor',
         };
     }
   };
@@ -97,7 +97,7 @@ export function GapMitigationPanel({
             Your profile strongly matches the role requirements.
           </p>
           <div className="text-left max-w-2xl mx-auto">
-            <h4 className="font-semibold text-green-900 mb-3">KEY STRENGTHS TO HIGHLIGHT</h4>
+            <h4 className="font-semibold text-green-900 mb-3">Key strengths to highlight</h4>
             <ul className="space-y-2 text-sm text-green-800">
               <li className="flex items-start gap-2">
                 <span>•</span>
@@ -139,7 +139,9 @@ export function GapMitigationPanel({
                   <span className="text-2xl">{severityInfo.icon}</span>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold ${severityInfo.textColor}`}>
+                      <span
+                        className={`text-xs font-bold uppercase tracking-wider ${severityInfo.textColor}`}
+                      >
                         {severityInfo.label}
                       </span>
                       <h3 className="text-lg font-semibold text-gray-900">{gap.skill}</h3>
