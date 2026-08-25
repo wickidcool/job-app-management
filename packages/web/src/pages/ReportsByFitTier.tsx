@@ -41,10 +41,13 @@ export function ReportsByFitTier() {
         <div className="text-center">
           <div className="text-4xl mb-4">🎯</div>
           <h2 className="text-xl font-semibold text-neutral-900 mb-2">Job Fit Analysis Required</h2>
+          {/*
+            The tier labels are deliberately NOT enumerated here: the tier cards below render
+            in the same block (not an early return), so naming them twice on one page both
+            stutters ("fit" four times) and duplicates every label string. WIC-1297 §4.
+          */}
           <p className="text-neutral-600 mb-6 max-w-2xl mx-auto">
-            This report groups applications by fit tier ({FIT_TIER_LABELS.strong_fit},{' '}
-            {FIT_TIER_LABELS.moderate_fit}, {FIT_TIER_LABELS.weak_fit}). To use this feature, you
-            need to run job fit analysis on your applications first.
+            Run job fit analysis on your applications to populate this report.
           </p>
           <button
             onClick={() => navigate('/')}
