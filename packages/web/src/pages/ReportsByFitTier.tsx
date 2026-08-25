@@ -29,6 +29,33 @@ import type { FitTier } from '../services/api/reportsService';
  * the seniority one — and why `low_fit` deliberately does not, since saying it
  * would make that blurb sufficient as well as necessary.
  *
+ * Two rules any rewording has to keep (WIC-1322):
+ *
+ * **A bare comma never carries the connective.** These blurbs are clause lists
+ * of two different kinds, and the reader gets no cue from a comma alone which
+ * kind they are holding. So conjunction is written `, with` and disjunction is
+ * written `, or` — never a naked comma for either. `strong_fit` and
+ * `moderate_fit` are conjunctions ("…, with at most one critical gap");
+ * `stretch` is a disjunction ("…, more than three critical gaps, or a seniority
+ * mismatch"); `low_fit` is one clause and takes no comma at all.
+ *
+ * **Exclusivity belongs to the set, not to the tiles.** The blurbs are
+ * necessary-only, so more than one is true of the same application — 267 of the
+ * 574 reachable inputs (46.5%) satisfy two or more. That is a property of
+ * dropping clauses and it cannot be worded away tile by tile. Prefixing the
+ * lower tiers with "Otherwise:" was proposed and measured: it removes only the
+ * *upward* bleed (a blurb true of an input that scored higher) and leaves 147
+ * of 574 (25.6%), because a blurb that dropped a clause stays true of inputs
+ * that fall *through* it — `moderate_fit` dropped `criticalGaps <= 3`, so 60%
+ * matched with five critical gaps reads as `moderate_fit` but scores `stretch`,
+ * and no ordering word touches that case. Full exclusivity needs every blurb to
+ * restate its whole cascade arm, which is the three-clause spec line this set
+ * exists to avoid, and it degrades `low_fit` to "everything else". The cascade
+ * is a fact about the four tiles together, so `TIER_ORDER_CAPTION` states it
+ * once above the row instead — where it also answers the question overlapping
+ * descriptions actually raise on a counts report: whether the counts
+ * double-count.
+ *
  * `packages/api/test/fit-tier-blurbs.test.ts` reads these exact strings and
  * checks each one against the real `computeRecommendation` over every reachable
  * input, so a blurb that stops being true fails the API suite. Reword freely —
@@ -70,6 +97,26 @@ const VERDICT_TIERS: ReadonlyArray<{
     body: 'text-neutral-700',
   },
 ];
+
+/**
+ * Carries the one thing the tiles cannot say about themselves: the tiers are
+ * ordered and `computeRecommendation` stops at the first arm that matches, so
+ * an application meeting two descriptions is filed under the higher one only.
+ *
+ * Deliberately not folded into the blurbs. It is a claim about the set, and a
+ * per-tile version ("Otherwise: …") would have to be read as an anaphor to the
+ * tile before it — which the layout does not support: the row is
+ * `lg:grid-cols-4` across at desktop and 2×2 at `md`, so "the one before this"
+ * is leftward, or up-and-right, or (only at the single-column mobile
+ * breakpoint) actually above. A caption above the row reads the same at all
+ * three widths.
+ *
+ * "Counted once" is doing the load-bearing work: these tiles print counts, and
+ * four overlapping descriptions over four numbers invite the reader to wonder
+ * whether an application is being tallied twice.
+ */
+const TIER_ORDER_CAPTION =
+  'Ranked best first. Each application is counted once, in the first tier it qualifies for.';
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
@@ -162,7 +209,8 @@ export function ReportsByFitTier() {
       </div>
 
       {/* Placeholder tier groups */}
-      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4 opacity-50">
+      <p className="mt-6 text-sm text-neutral-600">{TIER_ORDER_CAPTION}</p>
+      <div className="mt-2 grid gap-4 md:grid-cols-2 lg:grid-cols-4 opacity-50">
         {VERDICT_TIERS.map(({ tier, blurb, container, heading, body }) => (
           <div key={tier} className={`rounded-lg border p-6 ${container}`}>
             <div className="flex items-center justify-between">
