@@ -1254,11 +1254,21 @@ interface RecommendedStarEntry {
 
 **Scoring Algorithm**:
 
-The `recommendation` field is computed as follows:
-- `strong_fit`: ≥80% of required skills matched, ≤1 critical gap
-- `moderate_fit`: 50-79% of required skills matched, ≤3 critical gaps  
-- `stretch`: 30-49% of required skills matched, or seniority mismatch
-- `low_fit`: <30% of required skills matched
+The `recommendation` field is an **ordered cascade over three variables** — match percentage, the
+count of `critical`-severity required gaps, and the seniority flag — not four percentage bands. The
+first rule that matches wins, so a tier's percentage range is *not* bounded above by the tier before
+it: a job can match 100% of required skills and still return `moderate_fit`, because 2–3 critical
+gaps disqualify it from `strong_fit` and `moderate_fit` is simply the next rule that accepts it.
+Reading these as exclusive bands is how the by-fit-tier report came to print blurbs that contradicted
+the counts beside them (WIC-1309).
+
+Evaluated in this order:
+- `strong_fit`: ≥80% of required skills matched **and** ≤1 critical gap
+- `moderate_fit`: otherwise, ≥50% matched **and** ≤3 critical gaps **and** no seniority mismatch —
+  so this fires anywhere from 50% to 100% matched
+- `stretch`: otherwise, ≥30% matched **or** a seniority mismatch — this is where a strong skill match
+  with >3 critical gaps lands, and where any seniority mismatch lands regardless of percentage
+- `low_fit`: <30% matched **and** no seniority mismatch
 - `null`: the analysis ran but could not score. Two distinct causes: the catalog is empty (returned
   with `catalogEmpty: true`), **or** no required skills were found in the job description
   (`catalogEmpty: false`, and `parsedJd.requiredStack` is empty). Clients must not read `null` as
