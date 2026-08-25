@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
 import { useApplication } from '../hooks/useApplications';
 import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
+import { FIT_LEVEL_LABELS, NO_FIT_LEVEL_LABEL } from '../constants/fitLevel';
 import { APIError } from '../services/api/apiClient';
 
 interface JobFitFormData {
@@ -149,7 +150,9 @@ export function JobFitAnalysis() {
               <div className="text-xl font-semibold text-neutral-900 mb-2">
                 Overall Fit:{' '}
                 <span className="uppercase">
-                  {results.recommendation?.replace('_', ' ') || 'No recommendation'}
+                  {results.recommendation
+                    ? FIT_LEVEL_LABELS[results.recommendation]
+                    : NO_FIT_LEVEL_LABEL}
                 </span>
               </div>
               <p className="text-neutral-700 mb-4">{results.summary}</p>

@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useReportsByFitTier } from '../hooks/useReports';
+import { FIT_TIER_LABELS } from '../constants/fitLevel';
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
@@ -41,8 +42,9 @@ export function ReportsByFitTier() {
           <div className="text-4xl mb-4">🎯</div>
           <h2 className="text-xl font-semibold text-neutral-900 mb-2">Job Fit Analysis Required</h2>
           <p className="text-neutral-600 mb-6 max-w-2xl mx-auto">
-            This report groups applications by fit tier (Strong, Moderate, Weak). To use this
-            feature, you need to run job fit analysis on your applications first.
+            This report groups applications by fit tier ({FIT_TIER_LABELS.strong_fit},{' '}
+            {FIT_TIER_LABELS.moderate_fit}, {FIT_TIER_LABELS.weak_fit}). To use this feature, you
+            need to run job fit analysis on your applications first.
           </p>
           <button
             onClick={() => navigate('/')}
@@ -61,7 +63,9 @@ export function ReportsByFitTier() {
         <div className="rounded-lg border border-neutral-200 bg-white p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-neutral-900">Not Analyzed</h3>
+              <h3 className="text-lg font-semibold text-neutral-900">
+                {FIT_TIER_LABELS.not_analyzed}
+              </h3>
               <p className="mt-1 text-sm text-neutral-600">Applications without fit analysis</p>
             </div>
             <div className="text-3xl font-bold text-neutral-900">{summary.notAnalyzed}</div>
@@ -74,7 +78,7 @@ export function ReportsByFitTier() {
         <div className="rounded-lg border border-green-200 bg-green-50 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-green-900">Strong Fit</h3>
+              <h3 className="text-lg font-semibold text-green-900">{FIT_TIER_LABELS.strong_fit}</h3>
               <p className="mt-1 text-sm text-green-700">High match score</p>
             </div>
             <div className="text-3xl font-bold text-green-900">
@@ -86,7 +90,9 @@ export function ReportsByFitTier() {
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-yellow-900">Moderate Fit</h3>
+              <h3 className="text-lg font-semibold text-yellow-900">
+                {FIT_TIER_LABELS.moderate_fit}
+              </h3>
               <p className="mt-1 text-sm text-yellow-700">Medium match score</p>
             </div>
             <div className="text-3xl font-bold text-yellow-900">
@@ -98,7 +104,7 @@ export function ReportsByFitTier() {
         <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-neutral-900">Weak Fit</h3>
+              <h3 className="text-lg font-semibold text-neutral-900">{FIT_TIER_LABELS.weak_fit}</h3>
               <p className="mt-1 text-sm text-neutral-700">Low match score</p>
             </div>
             <div className="text-3xl font-bold text-neutral-900">

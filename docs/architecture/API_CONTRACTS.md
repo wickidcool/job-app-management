@@ -1263,6 +1263,14 @@ The `recommendation` field is computed as follows:
 
 Partial matches (alias/related) count at 0.5x weight toward match percentage.
 
+> **`recommendation` is a wire value, not a display string.** The four members above are stable and
+> clients must send/receive them verbatim. What the UI *shows* is remapped — `moderate_fit` renders
+> as "Possible fit" and `low_fit` as "Unlikely fit", because `moderate` and `low` are words already
+> owned by the `severity` and `confidence` scales in this same response and rendered on the same
+> screen (WIC-1288). The label table and the rule behind it live in `docs/design/DESIGN_SYSTEM.md`
+> ("Scale Vocabulary"); the map is `packages/web/src/constants/fitLevel.ts`. Changing a label is a
+> UI change and does not version this endpoint; changing a member of the union does.
+
 **Example Request (text)**:
 
 ```bash
