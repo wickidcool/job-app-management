@@ -254,6 +254,35 @@ value (`docs/architecture/API_CONTRACTS.md`, `POST /api/catalog/job-fit/analyze`
 a presentation-layer remap and nothing crosses the network differently. Never render a
 `Recommendation` or `FitTier` value directly.
 
+#### The ladder is not ordinal in its words
+
+The four labels do not rank themselves. "Stretch" is the only rung that is not `<adjective> fit`,
+so a reader cannot order it by form and has to order it by meaning — and "stretch role" is
+idiomatically *aspirational*, while "possible" is the weakest modality word in English. One reader
+gets maybe → reaching; another gets hedged → go for it. Both readings are defensible.
+
+That is survivable today **only because the ladder is never displayed.** One analysis renders one
+rung: no legend, no sort, no filter, no adjacent tier. Each label only has to be self-sufficient in
+isolation, and all four are.
+
+> **Ordering becomes load-bearing the moment fit level becomes a sort key, a filter chip, or a
+> grouped list.** If that ships, it must carry the order in position, rank, or count — not in the
+> words. The typecheck guard below cannot catch this one; it checks disjointness, not sequence.
+
+Until then the joint is better repaired one line lower, in the summary sentence beneath the label,
+which already does interpretive work for `stretch` and `low_fit` and does none for `moderate_fit`.
+That is API copy — tracked in **WIC-1301**, sequenced after this change.
+
+Two distinctions worth protecting, both easy to mistake for redundancy:
+
+- **"No recommendation" ≠ "Not analyzed."** The first means the analysis ran and could not score
+  (`recommendation: null`, empty required stack); the second means it never ran. Do not unify them.
+- **`FitTier` and `Recommendation` have started diverging in register**, not just in resolution:
+  `FIT_TIER_LABELS` reads Strong fit / Possible fit / **Weak fit** / Not analyzed — two verdicts and
+  a magnitude, with magnitude subtitles beneath. Defensible as title = verdict, subtitle =
+  magnitude, but whoever reconciles the two enums is now facing a vocabulary question as well as a
+  granularity one.
+
 ### Enforcement
 
 `fitLevel.ts` derives the reserved vocabulary from the `GapSeverity` and `Confidence` unions and
