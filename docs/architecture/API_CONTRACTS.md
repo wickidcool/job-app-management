@@ -710,7 +710,7 @@ Returns a paginated list of catalog change diffs.
 |-----------|------|----------|-------------|
 | `status` | string | No | Filter by status: `pending`, `approved`, `rejected`, `partial`, `expired` |
 | `limit` | number | No | Max results (default: 20, max: 100) |
-| `cursor` | string | No | Pagination cursor (base64url-encoded offset) |
+| `cursor` | string | No | Pagination cursor |
 
 **Response**: `200 OK`
 
@@ -2122,7 +2122,9 @@ member, a non-numeric `days`, `limit` above 100 — fails the whole request:
 ```
 
 `400 Bad Request`. `details` is Zod's `flatten()` output. Omitting a parameter is always valid;
-every parameter is optional and has the default given in its table below.
+every parameter is optional and has the default given in its table below. This is not the only
+`VALIDATION_ERROR` shape on these endpoints — a malformed `cursor` is rejected past the Zod layer
+and carries no `details`; see **Pagination** below.
 
 **Pagination.** `needs-action`, `stale` and `closed-loop` are cursor-paginated. `pipeline` and
 `by-fit-tier` are **not** — they return the complete set in one response and accept neither `limit`
@@ -2131,11 +2133,34 @@ nor `cursor`.
 | Parameter | Type | Default | Description |
 |--------|--------|--------|--------|
 | `limit` | integer, 1–100 | `50` | Page size. Above 100 is a `400`, not a clamp. |
-| `cursor` | string | *(start)* | Opaque page token: a base64url-encoded row offset |
+| `cursor` | string | *(start)* | Opaque page token, issued by the server as `nextCursor` |
 
 `nextCursor` is present **only when a further page exists**; it is absent from the JSON on the
 final page, which is how a client detects the end. Treat the cursor as opaque and pass it back
-verbatim — the offset encoding is an implementation detail and is not part of the contract.
+verbatim — its encoding is an implementation detail and is not part of the contract.
+
+**A cursor the server did not issue is a `400`.** Hand-crafted, truncated or otherwise malformed
+cursors are rejected rather than being treated as page one (WIC-1308):
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid cursor. Pass back the `nextCursor` from a previous response verbatim, or omit it for the first page."
+  }
+}
+```
+
+`400 Bad Request`. Note the two differences from the query-parameter errors above: the `message` is
+specific to the cursor, and **`details` is deliberately absent** — the cursor is client-supplied, so
+reflecting it back buys the caller nothing.
+
+An **absent or empty** `cursor` is not an error. `?cursor=` and no `cursor` at all are
+indistinguishable at the query-parameter layer, and both mean the first page.
+
+Because the cursor is opaque and server-issued, a client that echoes `nextCursor` back verbatim can
+never reach this error. One that does has a bug, and silently serving page one would both hide that
+bug and invite an endless pagination loop — hence reject rather than fall back.
 
 > **Paginated summaries describe the page, not the result set.** In `needs-action`, `stale` and
 > `closed-loop`, every field under `summary` — including `total` — is computed from the
