@@ -17,8 +17,8 @@ import { NotFound } from './NotFound';
  * than in a screen reader.
  *
  * §7's items 1-3 are also covered by e2e/not-found.spec.ts, which is the stronger
- * check (real router, real chrome) but does not currently run in CI (WIC-1085). Items
- * 4 and 5 are keyboard/AT behaviour that e2e was never going to cover.
+ * check (real router, real chrome) and does run in CI. Items 4 and 5 are keyboard/AT
+ * behaviour that e2e was never going to cover, so they are only pinned here.
  */
 
 /** A stand-in for whatever real page a successful navigation lands on. */
@@ -195,9 +195,9 @@ describe('NotFound', () => {
   /**
    * WIC-1053 item 2 — the touch user's search affordance.
    *
-   * The e2e spec drives this end to end against the real palette, but e2e does not
-   * run in CI (WIC-1085), so the wiring is pinned here too. A probe stands in for
-   * `CommandPalette` because the palette itself pulls in the applications query.
+   * The e2e spec drives this end to end against the real palette; this pins the same
+   * wiring at unit level, where it fails faster and without a browser. A probe stands
+   * in for `CommandPalette` because the palette itself pulls in the applications query.
    */
   it('opens the command palette from the search button', async () => {
     const user = userEvent.setup();

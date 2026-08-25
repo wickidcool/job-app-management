@@ -122,6 +122,14 @@ test.describe('NotFound catch-all route', () => {
     // reach it; the keyboard path has to survive that move.
     await page.goto('/nope');
 
+    // `goto` resolves on `load`, but the Ctrl+K listener is registered in
+    // `CommandPaletteProvider`'s effect, which runs after React mounts. Unlike a
+    // locator action, `keyboard.press` neither auto-waits nor retries, so a press
+    // dispatched before that lands on a document with no listener and is simply lost.
+    // Waiting on rendered page content is the mount barrier the sibling test above
+    // gets incidentally from awaiting its button.
+    await expect(page.getByRole('heading', { name: /couldn't be found/i })).toBeVisible();
+
     await page.keyboard.press('ControlOrMeta+k');
 
     await expect(
