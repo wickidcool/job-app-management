@@ -36,6 +36,55 @@ DASHBOARDS = [
      "Source: docs/analytics/dashboard-spec.md v1.0 (C1-C3)."),
 ]
 
+# Build-day synthetic-traffic exclusion guidance (WIC-1389 / WIC-1392). This lives here, in the
+# generator's source, rather than hand-patched onto the generated runbook: WIC-1302 makes the pack
+# a CI-verified pure function of this file plus insight-payloads.json, so any prose the runbook must
+# carry has to originate here or it would be silently reverted on the next regeneration.
+SYNTHETIC_EXCLUSION_SECTION = """\
+## Before you paste anything: exclude synthetic traffic (MANDATORY)
+
+_Added 2026-08-26 (WIC-1389 / WIC-1392). The 17 queries below were authored when 551963 held
+nothing but probes, so they deliberately carry **no** exclusion — every tile counted the
+synthetic events on purpose, to prove the query ran. **On build day that is no longer what you
+want**, because by definition you are building because organic traffic arrived, and the probes
+are still in there permanently._
+
+Every known synthetic actor is recorded in `docs/analytics/probe-registry.json`. Print the
+current exclusion predicate with:
+
+```bash
+python3 docs/analytics/organic_watch.py --audit     # prints SYNTHETIC_PREDICATE
+```
+
+Then add one line to **every** query below, immediately after its existing `WHERE`:
+
+```sql
+  AND NOT ( <paste SYNTHETIC_PREDICATE here> )
+```
+
+Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source
+of record. If a probe fires between now and build day, the regenerated predicate covers it and a
+hand-copied one does not.
+
+### Two funnel-reading corrections (from DevOps, WIC-1389)
+
+Both will produce wrong panels if ignored, and neither is visible from the query text:
+
+1. **Never read `resume_upload_failed` as the failure count** (affects **A9**, and any failure
+   rate derived from it). `track()` delivers over `fetch()`, and a `fetch` is a subrequest — so
+   during a subrequest-exhaustion outage (WIC-1386) the failure capture is itself dropped
+   (WIC-1387). A failure panel therefore reads **0 during a total outage**, which is
+   indistinguishable from perfect health, and it is *most* wrong exactly when you need it most.
+   Derive failures from `resume_upload_submitted` with **no matching terminal event** in the
+   session, and treat A9 as a breakdown of the failures you already know about, not a count.
+
+2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**
+   WIC-996 emitted all three upload legs 0.3 s apart including `completed` *and* `failed` for one
+   session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling
+   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of
+   the 6 lifetime events, both terminal events and both `submitted` are probes. Any funnel
+   conversion you compute today is an artefact. Exclude first, then read."""
+
 # Tiles are laid out two-up on the 12-column `sm` breakpoint, single-column on `xs`.
 TILE_W, TILE_H = 6, 5
 
@@ -204,6 +253,11 @@ def main():
     w("")
     w("---")
     w("")
+    for ln in SYNTHETIC_EXCLUSION_SECTION.split("\n"):
+        w(ln)
+    w("")
+    w("---")
+    w("")
     w("## The 17 queries")
     w("")
     for p, desc, query in resolved:
@@ -221,8 +275,12 @@ def main():
     w("## What these dashboards will show on day one")
     w("")
     w("**Mostly zeros, and that is correct.** PostHog project "
-      f"`{PROJECT}` holds 5 lifetime events, all synthetic")
-    w("(3 from the WIC-996 server smoke test, 2 QA probes). Zero organic traffic has ever reached it.")
+      f"`{PROJECT}` holds **6 lifetime events, all")
+    w("synthetic** (3 from the WIC-996 server smoke test, 2 QA probes, and — since 2026-08-26 — 1 from the")
+    w("WIC-967 end-to-end probe). Zero organic traffic has ever reached it. All 6 are itemised in")
+    w("`docs/analytics/probe-registry.json`; apply the exclusion above and every tile reads **0**, which is")
+    w("the honest day-one picture. The counts described in the next paragraph are what you see *without*")
+    w("the exclusion, i.e. probe residue.")
     w("Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the")
     w("app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the")
     w("client transport is broken — WIC-1012 proved the client capture leg round-trips.")

@@ -127,12 +127,12 @@ Both will produce wrong panels if ignored, and neither is visible from the query
    rate derived from it). `track()` delivers over `fetch()`, and a `fetch` is a subrequest — so
    during a subrequest-exhaustion outage (WIC-1386) the failure capture is itself dropped
    (WIC-1387). A failure panel therefore reads **0 during a total outage**, which is
-   indistinguishable from perfect health, and it is *most* wrong exactly when you need it most.
+   indistinguishable from perfect health, and it is _most_ wrong exactly when you need it most.
    Derive failures from `resume_upload_submitted` with **no matching terminal event** in the
    session, and treat A9 as a breakdown of the failures you already know about, not a count.
 
 2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**
-   WIC-996 emitted all three upload legs 0.3 s apart including `completed` *and* `failed` for one
+   WIC-996 emitted all three upload legs 0.3 s apart including `completed` _and_ `failed` for one
    session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling
    `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of
    the 6 lifetime events, both terminal events and both `submitted` are probes. Any funnel
@@ -398,7 +398,7 @@ ORDER BY cohort
 synthetic** (3 from the WIC-996 server smoke test, 2 QA probes, and — since 2026-08-26 — 1 from the
 WIC-967 end-to-end probe). Zero organic traffic has ever reached it. All 6 are itemised in
 `docs/analytics/probe-registry.json`; apply the exclusion above and every tile reads **0**, which is
-the honest day-one picture. The counts described in the next paragraph are what you see *without*
+the honest day-one picture. The counts described in the next paragraph are what you see _without_
 the exclusion, i.e. probe residue.
 Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the
 app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the
