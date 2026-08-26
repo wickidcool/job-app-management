@@ -14,8 +14,13 @@ import apiResumesRoute from '../../../api/src/routes/resumes.ts?raw';
 import { MAX_RESUME_SIZE_BYTES } from './upload';
 
 function readApiMaxFileSize(): number {
+  // Anchored to the start of a line (WIC-1421 review). Unanchored, `match` returns the
+  // FIRST hit, so a stale value left behind in a comment — `// was: const MAX_FILE_SIZE =
+  // 10 * 1024 * 1024;` above a changed declaration — shadows the real one and the guard
+  // passes while the two limits are actually apart. Measured: 2 passed with the client at
+  // 10MB and the server at 20MB.
   const match = apiResumesRoute.match(
-    /const MAX_FILE_SIZE\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024\s*;/
+    /^const MAX_FILE_SIZE\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024\s*;/m
   );
 
   // Not a soft failure. If this stops matching, the guard has silently stopped guarding,
