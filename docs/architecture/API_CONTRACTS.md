@@ -1042,6 +1042,11 @@ interface MergeCompaniesResponse {
 }
 ```
 
+`targetCompanyId` must not appear in `sourceCompanyIds` — the merge soft-deletes
+everything the source list names, so a target listed as its own source would be
+deleted by its own merge. That request is rejected with `400 BAD_REQUEST`
+(`A merge target cannot also be a source`) before anything is written.
+
 ---
 
 #### Tags
@@ -1138,6 +1143,12 @@ interface MergeTagsResponse {
   mergedCount: number;
 }
 ```
+
+`targetTagId` must not appear in `sourceTagIds`, and the constraint is stricter
+here than for companies: the tag merge **hard**-deletes its sources, so a target
+listed as its own source is removed permanently. That request is rejected with
+`400 BAD_REQUEST` (`A merge target cannot also be a source`) before anything is
+written.
 
 ---
 
