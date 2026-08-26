@@ -19,9 +19,23 @@ function readApiMaxFileSize(): number {
   // 10 * 1024 * 1024;` above a changed declaration — shadows the real one and the guard
   // passes while the two limits are actually apart. Measured: 2 passed with the client at
   // 10MB and the server at 20MB.
-  const match = apiResumesRoute.match(
-    /^const MAX_FILE_SIZE\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024\s*;/m
-  );
+  const matches = [
+    ...apiResumesRoute.matchAll(/^const MAX_FILE_SIZE\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024\s*;/gm),
+  ];
+
+  // Exactly one, not "the first one" (WIC-1462). The `^`/`m` anchor above stops a `// was:`
+  // line shadowing the real declaration, but a stale copy sitting at column 0 inside a
+  // /* ... */ block still matches it, and then "the first hit" is arbitrary — measured, that
+  // shape also passed 2/2 with the client at 10MB and the server at 20MB. Requiring exactly
+  // one match closes it and keeps the renamed/moved case loud in the same assertion.
+  expect(
+    matches.length,
+    'Expected exactly one column-0 "const MAX_FILE_SIZE = <n> * 1024 * 1024;" in ' +
+      `packages/api/src/routes/resumes.ts, found ${matches.length}. If the API reshaped ` +
+      'that constant, re-point this guard at its new home — do not delete it.'
+  ).toBe(1);
+
+  const match = matches[0] ?? null;
 
   // Not a soft failure. If this stops matching, the guard has silently stopped guarding,
   // which is the state that produced the defect in the first place.
