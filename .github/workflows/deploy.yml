@@ -264,8 +264,11 @@ jobs:
       # Cloudflare probe. CLOUDFLARE_ACCOUNT_ID is passed so the CF check hits the
       # account-scoped token-verify endpoint — a least-privilege, account-scoped
       # Workers+R2 deploy token (the correct CI token) 401s on the user-scoped one.
-      # Advisory until we confirm no false positives on the real dev/prod tokens; flip
-      # to a hard gate (drop continue-on-error) once green in live runs.
+      # WIC-1009: the PRODUCTION job's copy of this step is now a hard gate. This
+      # preview copy stays advisory until WIC-760 is resolved: the dev-environment
+      # CLOUDFLARE_API_TOKEN is independently dead, so hard-gating here would only
+      # move an already-failing preview deploy's failure earlier and could mask
+      # unrelated PR feedback. Flip this one too once WIC-760 lands a live token.
       - name: Credential preflight (authenticated, advisory)
         continue-on-error: true
         run: npm run -w @wic/api preflight -- cloudflare supabase
@@ -439,10 +442,14 @@ jobs:
       # Cloudflare probe. CLOUDFLARE_ACCOUNT_ID is passed so the CF check hits the
       # account-scoped token-verify endpoint — a least-privilege, account-scoped
       # Workers+R2 deploy token (the correct CI token) 401s on the user-scoped one.
-      # Advisory until we confirm no false positives on the real dev/prod tokens; flip
-      # to a hard gate (drop continue-on-error) once green in live runs.
-      - name: Credential preflight (authenticated, advisory)
-        continue-on-error: true
+      # WIC-1009: flipped to a HARD GATE. This step must fail the job before
+      # "Run database migrations" below — otherwise a present-but-invalid
+      # CLOUDFLARE_API_TOKEN passes the presence-only check above, migrates the
+      # production database, and then dies at "Deploy to Cloudflare Workers",
+      # leaving prod schema ahead of prod code. Precondition for the flip (no false
+      # positives on the real prod token) was met in run 32191251045 (2026-08-18),
+      # where this step concluded `success` against the live prod credentials.
+      - name: Credential preflight (authenticated)
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -450,6 +457,7 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
+      # Gated by the preflight above (WIC-1009) — do not move this step earlier.
       - name: Run database migrations
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
