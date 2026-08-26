@@ -35,7 +35,7 @@ vi.mock('../src/config.js', () => ({
   getConfig: vi.fn(() => ({ anthropicApiKey: undefined })),
 }));
 
-import { getTableName } from 'drizzle-orm';
+import { and, eq, getTableName, isNotNull, or } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { getDb } from '../src/db/client.js';
 import { getConfig } from '../src/config.js';
@@ -70,15 +70,36 @@ const dialect = new PgDialect();
  * and a bare `.where(undefined)` both render to. That last case is the point: a
  * `toHaveBeenCalled()` check on `where` passes against a `WHERE` that filters
  * nothing.
+ *
+ * Both patterns are anchored to the *whole* rendered clause, and anything else
+ * raises. Presence of an owner term is not restriction by it: matched anywhere
+ * in the string, `or(eq(userId, caller), isNotNull(userId))` reads as
+ * "scoped to the caller" while returning the entire table, and because the stub
+ * below filters each fixture by whatever this returns, the harness would then
+ * manufacture the safe answer the service never produced — every behavioural
+ * assertion in this file included. Degrading to `undefined` on an unrecognised
+ * shape is no better, since the stub reads that as "matches everything", so an
+ * oracle that cannot evaluate a clause must refuse to certify it instead.
+ *
+ * The cost is that a legitimate future `and(ownerScope(...), someOtherFilter)`
+ * also raises. That is the correct direction to fail — loudly, with the SQL in
+ * the message — for a service whose three reads each carry exactly one
+ * predicate. #162 (WIC-1491) parses the rendered SQL into a boolean tree and is
+ * the general fix; when it lands this collapses to its `expectScopedTo`.
  */
 function ownerOf(table: unknown, clause: unknown): string | null | undefined {
   if (clause === undefined || clause === null) return undefined;
   const name = getTableName(table as Parameters<typeof getTableName>[0]);
   const { sql, params } = dialect.sqlToQuery(clause as Parameters<PgDialect['sqlToQuery']>[0]);
-  const bound = new RegExp(`"${name}"\\."user_id" = \\$(\\d+)`).exec(sql);
+  const text = sql.trim();
+  const bound = new RegExp(`^"${name}"\\."user_id" = \\$(\\d+)$`).exec(text);
   if (bound) return params[Number(bound[1]) - 1] as string;
-  if (new RegExp(`"${name}"\\."user_id" is null`, 'i').test(sql)) return null;
-  return undefined;
+  if (new RegExp(`^"${name}"\\."user_id" is null$`, 'i').test(text)) return null;
+  throw new Error(
+    `ownerOf: unmodelled predicate on "${name}" — presence of an owner term is not ` +
+      `restriction by it, so this oracle refuses to certify a shape it cannot evaluate. ` +
+      `Rendered SQL: ${text}`
+  );
 }
 
 interface OwnedRow extends Record<string, unknown> {
@@ -178,6 +199,32 @@ describe('analyzeJobFit tenancy (WIC-1435)', () => {
     expect(response.recommendedStarEntries.map((e) => e.rawText)).toContain(MINE);
     expect(response.strongMatches.map((m) => m.catalogEntry)).toContain('postgresql');
     expect(response.catalogEmpty).toBe(false);
+  });
+
+  // Two cells that pin the oracle itself. Every assertion in this file routes
+  // through `ownerOf`, so an oracle that cannot tell a restricting owner term
+  // from a decorative one would report the whole file green against the live
+  // WIC-1435 leak — `or(eq(userId, caller), isNotNull(userId))` in `ownerScope`
+  // passed 17/17 here, and 453/453 across the suite, before this change.
+  //
+  // The first is the kill assertion for exactly that shape. The second is the
+  // generalisation control: the refusal is a property of "shape I cannot
+  // evaluate", not a special case for `or`. The opposite direction — that the
+  // oracle does not over-raise on the two shapes it *does* model — is what the
+  // `= $n` and `is null` assertions in the cells below already establish.
+  it('refuses to certify an owner term that is present but not restricting', () => {
+    const leaky = or(eq(quantifiedBullets.userId, CALLER), isNotNull(quantifiedBullets.userId));
+
+    expect(() => ownerOf(quantifiedBullets, leaky)).toThrow(/unmodelled predicate/);
+  });
+
+  it('raises rather than silently degrading on a predicate shape it cannot model', () => {
+    const conjunction = and(
+      eq(quantifiedBullets.userId, CALLER),
+      eq(quantifiedBullets.id, '01HZ_BUL_MINE')
+    );
+
+    expect(() => ownerOf(quantifiedBullets, conjunction)).toThrow(/unmodelled predicate/);
   });
 
   it('scopes the STAR-catalog read to the caller', async () => {
