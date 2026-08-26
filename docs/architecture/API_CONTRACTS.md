@@ -2,25 +2,68 @@
 
 ## Overview
 
-This document defines the REST API contracts for the Job Application Manager backend. The API runs locally on the user's machine via a Fastify server.
+This document defines the REST API contracts for the Job Application Manager backend.
+The API is a **Hono** application deployed as a single **Cloudflare Worker**
+(`packages/api/src/worker.ts`), which serves both the `/api/*` routes and the built React
+SPA. It is backed by Supabase Postgres — reached through a Cloudflare Hyperdrive
+connection pool — and Cloudflare R2 for document storage. The same Hono app
+(`packages/api/src/app.ts`) also runs on Node.js via `@hono/node-server` for local
+development.
+
+This is a hosted, multi-user cloud service. It is not a local-only application, and
+authentication is required in production — see [Authentication](#authentication).
 
 ## Base URL
 
-```
-http://localhost:3000/api
-```
+| Environment | Base URL | Notes |
+|-------------|----------|-------|
+| Production | `https://app.careerpin.app/api` | The deployed Worker |
+| Browser / SPA | `/api` | Same-origin; the Worker serves the SPA and the API together. Overridable at build time with `VITE_API_BASE_URL` |
+| Local dev (Node) | `http://localhost:3000/api` | `npm run dev:api` |
+| Local dev (Worker) | `http://localhost:8787/api` | `npm run dev:worker` — `wrangler dev`'s default port, with R2/Hyperdrive emulation |
 
-The API runs entirely locally. No cloud endpoints or external authentication required.
+> The apex domain `careerpin.app` is the **marketing site**, not the API. Requests to
+> `https://careerpin.app/api/...` return the marketing HTML page with a `200`, not JSON.
+> Use the `app.` subdomain.
 
 ## Authentication
 
-**Single-user mode (default)**: No authentication required. The application runs locally and serves one user.
-
-**Optional multi-user mode**: If enabled, use session-based auth:
+All `/api/*` routes are wrapped by the JWT auth middleware
+(`packages/api/src/middleware/auth.ts`, mounted at `app.ts:103`). Send a Supabase-issued
+access token as a bearer token:
 
 ```
-Cookie: session=<session_token>
+Authorization: Bearer <jwt>
 ```
+
+The `Bearer ` prefix is required. Tokens are verified server-side with `jose`: `ES256` and
+`RS256` tokens are verified against the JWKS of the issuer named in the token's own `iss`
+claim (audience `authenticated`), and `HS256` tokens against `SUPABASE_JWT_SECRET`. The
+authenticated user id is the token's `sub` claim.
+
+**Obtaining a token**: `POST /api/auth/login` with `{ email, password }` returns
+`{ token, user }`. `POST /api/auth/register` returns the same shape with `201` when
+Supabase issues a session immediately, or `200` with a "check your email" message when
+email confirmation is pending.
+
+**Exempt paths** — the only routes reachable without a token:
+
+- `POST /api/auth/login`
+- `POST /api/auth/register`
+- `POST /api/auth/logout`
+
+(`GET /health` sits outside the `/api` mount entirely and is likewise unauthenticated.)
+
+**Auth bypass (local only)**: the middleware skips verification and sets the user id to
+`null` when **both** `SUPABASE_URL` and `SUPABASE_JWT_SECRET` are absent — the
+single-user local-development case. Both are set in production, so production always
+requires a valid JWT. If Supabase is not configured, the `/api/auth/*` endpoints
+themselves return `503 NOT_CONFIGURED`.
+
+> Some `curl` examples further down this document use the local dev base URL and omit the
+> `Authorization` header, which only works under that local bypass. To run any of them
+> against production, swap the host for `https://app.careerpin.app` **and** add
+> `-H "Authorization: Bearer <jwt>"`.
 
 ## Common Response Codes
 
@@ -30,9 +73,14 @@ Cookie: session=<session_token>
 | 201 | Created |
 | 204 | No Content (successful delete) |
 | 400 | Bad Request (validation error) |
+| 401 | Unauthorized (`UNAUTHORIZED` — missing/malformed `Authorization` header, or an invalid or expired token) |
 | 404 | Not Found |
 | 409 | Conflict (version mismatch or invalid status transition) |
+| 415 | Unsupported Media Type (file upload of a type other than PDF or DOCX) |
+| 422 | Unprocessable Entity (job-description parse failure or source-URL fetch timeout) |
+| 429 | Too Many Requests (AI rate limit; `details.retryAfter` carries the reset) |
 | 500 | Internal Server Error |
+| 503 | Service Unavailable (AI provider or Supabase auth not configured; database temporarily unreachable) |
 
 ## Error Response Format
 
