@@ -86,7 +86,11 @@ export const ONBOARDING_STEP_FLAG_PAIRS = [
 // Exhaustiveness guard. `satisfies` above only checks that every name listed IS a
 // flag; it stays silent when a *new* flag is added to OnboardingProgressUpdate and
 // not paired here — which is the drift that would quietly reopen this defect for the
-// new step. This line fails to compile in that case, naming the unpaired flag.
+// new step. This line fails to compile in that case, and in the reverse case where a
+// pair is deleted from the list but its flags survive on the interface (both measured).
+// tsc reports it as `Type 'boolean' is not assignable to type '["unpaired onboarding
+// step flag:", UnpairedStepFlag]'` — it does not expand the offending name, so hover
+// `UnpairedStepFlag` (or run `tsc --noErrorTruncation`) to see which flag is unpaired.
 type UnpairedStepFlag = Exclude<
   OnboardingStepFlag,
   (typeof ONBOARDING_STEP_FLAG_PAIRS)[number][number]
