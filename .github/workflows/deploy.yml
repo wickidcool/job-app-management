@@ -73,6 +73,13 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      # WIC-1195: the wireframes drifted out of sync with the components they
+      # describe four times (WIC-1127, -1184, -1187, -1205), each time caught by
+      # a reader rather than a check. This fails the build on a new unmarked
+      # all-caps label instead, so the next one is a red check, not ticket five.
+      - name: Audit wireframe casing
+        run: python3 docs/design/wireframe-casing-audit.py
+
       - name: Run tests
         run: npm run test
 
