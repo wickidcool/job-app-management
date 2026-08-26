@@ -114,8 +114,9 @@ describe('parseCursor', () => {
 // `reports.service.ts` — the ones WIC-1308 was about — so that claim was false
 // for a quarter of the codebase: reinstating the original WIC-1308 defect in
 // `getNeedsActionReport` left all 403 tests green. The invariant this table
-// encodes is `grep -c 'parseCursor(' src/services/*.ts`, which is 12; every
-// row below must correspond to one of those, and every one of those to a row.
+// encodes is a bijection with `grep -rn 'parseCursor(' src/services/*.ts`
+// (twelve lines, five files): every row below corresponds to one of those, and
+// every one of those to a row. The case below checks that, per service.
 describe('every paginated list endpoint rejects a malformed cursor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
