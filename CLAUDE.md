@@ -1,8 +1,8 @@
 # Job App Management — Developer Reference
 
-Multi-user job application tracker. Runs as a **single Cloudflare Worker (Hono)** that serves both the `/api/*` routes and the built React SPA, backed by **Supabase Postgres** (via Hyperdrive) and **Cloudflare R2**. Deployed to production at [careerpin.app](https://careerpin.app).
+Multi-user job application tracker. Runs as a **single Cloudflare Worker (Hono)** that serves both the `/api/*` routes and the built React SPA, backed by **Supabase Postgres** and **Cloudflare R2**. Deployed to production at [careerpin.app](https://careerpin.app).
 
-See `docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md` for the full picture.
+See `docs/architecture/ARCHITECTURE.md` for the current-state overview. (`docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md` is the *migration* record — how the Fastify→Hono move was planned, not what runs today.)
 
 ## Project Structure
 
@@ -24,8 +24,10 @@ At the edge the Worker uses **Cloudflare bindings**, not `process.env`. Binding 
 
 | Binding | Type | Purpose |
 |---|---|---|
-| `HYPERDRIVE` | Hyperdrive | Pooled connection to Supabase Postgres (`.connectionString`) |
-| `R2_BUCKET` | R2Bucket | Document storage (`jobtrail-documents`) |
+| `HYPERDRIVE` | Hyperdrive | Pooled connection to Supabase Postgres (`.connectionString`). **Declared under `env.preview` only** — production has no Hyperdrive binding. |
+| `R2_BUCKET` | R2Bucket | Document storage (`jobtrail-documents` in production, `jobtrail-documents-dev` in preview) |
+
+`packages/api/src/db/client.ts` picks a connection in this order: `HYPERDRIVE` binding → `DATABASE_URL` → Node singleton. Because the root `wrangler.jsonc` declares Hyperdrive only for `preview`, **preview takes path 1 and production takes path 2**, connecting to the Supabase transaction pooler on port 6543.
 
 ## Environment Variables & Secrets
 
@@ -35,13 +37,14 @@ Local dev secrets go in `.dev.vars` (copy from `.dev.vars.example`); `wrangler d
 
 | Variable | Required | Description |
 |---|---|---|
-| `SUPABASE_URL` | For auth | Supabase project URL |
+| `SUPABASE_URL` | For auth | Supabase project URL. Also gates the auth bypass — see below. |
 | `SUPABASE_ANON_KEY` | For auth | Supabase anon key |
-| `SUPABASE_JWT_SECRET` | For auth | JWT secret. When set, all `/api/*` endpoints require a valid JWT; when unset, auth is bypassed (single-user/local). |
+| `SUPABASE_JWT_SECRET` | For auth | JWT secret (HS256 path). Auth is bypassed only when **both** this **and** `SUPABASE_URL` are absent (`middleware/auth.ts`) — setting just one leaves `/api/*` requiring a valid JWT. |
+| `DATABASE_URL` | Production | Supabase transaction-pooler URL (port 6543), pushed as a Worker secret by `deploy.yml`. Unused in `preview`, which has the `HYPERDRIVE` binding instead. |
 | `ANTHROPIC_API_KEY` | For AI | Anthropic Claude key for resume parsing, job-fit analysis, dialogue capture. AI features are disabled when unset. |
 | `NODE_ENV` | No | `production` in prod (set in `wrangler.jsonc`). |
 
-> `DATABASE_URL` is **not** used by the Worker — the `HYPERDRIVE` binding handles Postgres. It is only read by the migration runner (`packages/api/src/db/migrate.ts`); use the Supabase transaction-pooler URL there. `R2_BUCKET` is a native binding, not an env var.
+> `DATABASE_URL` **is** used by the production Worker. `deploy.yml` builds the Supabase transaction-pooler URL (port 6543) and pushes it as a Worker secret, and `db/client.ts` falls back to it because production declares no `HYPERDRIVE` binding. It is also what the migration runner (`packages/api/src/db/migrate.ts`) reads. `R2_BUCKET` is a native binding, not an env var.
 
 ### Frontend (`@wic/web`, Vite build-time)
 
