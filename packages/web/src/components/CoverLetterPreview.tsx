@@ -62,7 +62,7 @@ export function CoverLetterPreview({
               at all, so there is exactly one depth to be correct at and a `headingLevel`
               prop would have no call site that could pass a non-default value.
               If this header is ever shown in the generator, the level becomes a host
-              decision and the prop is the right answer then — see WIC-1566. */}
+              decision and the prop is the right answer then — see WIC-1569. */}
           <h2 className="text-lg font-semibold text-gray-900">Cover Letter Preview</h2>
           <div className="flex gap-2">
             <button

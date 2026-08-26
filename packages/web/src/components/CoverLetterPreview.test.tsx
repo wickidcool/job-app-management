@@ -65,10 +65,8 @@ describe('CoverLetterPreview — heading level (WIC-1563)', () => {
     // `showExportActions={false}`, so the component contributes no heading to that page's
     // outline and there is only one depth to be correct at. If this ever goes red, the
     // heading has become a host decision and §10 says it earns a `headingLevel` prop
-    // (h2 for the detail page, h3 beside the generator's "📝 Editor") — see WIC-1566.
-    const { container } = render(
-      <CoverLetterPreview content={LETTER} showExportActions={false} />
-    );
+    // (h2 for the detail page, h3 beside the generator's "📝 Editor") — see WIC-1569.
+    const { container } = render(<CoverLetterPreview content={LETTER} showExportActions={false} />);
 
     expect(getOutline(container)).toEqual([]);
     expect(screen.queryByRole('heading')).toBeNull();

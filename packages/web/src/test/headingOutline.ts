@@ -27,9 +27,7 @@ export interface OutlineEntry {
  * around without ever going red.
  */
 export function getOutline(container: HTMLElement): OutlineEntry[] {
-  const nodes = container.querySelectorAll<HTMLElement>(
-    'h1, h2, h3, h4, h5, h6, [role="heading"]'
-  );
+  const nodes = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, [role="heading"]');
 
   return Array.from(nodes).map((node) => {
     const ariaLevel = node.getAttribute('aria-level');

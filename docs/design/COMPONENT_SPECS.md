@@ -731,6 +731,44 @@ here rather than merely tidy.
   more than one nesting depth** — the same class of decision, not every hardcoded heading in
   `components/`. A single-call-site feature panel's heading level is effectively part of its
   page's outline and belongs in the page's own audit (WIC-1099, WIC-1483), not behind a prop.
+  The rest of `components/` was measured against this boundary in WIC-1563: of the **30**
+  components under `components/**` that render a heading, **25 are rendered by exactly one host
+  component** and are therefore out of scope by definition. Count *distinct hosts*, not
+  occurrences — `OnboardingStep` (6 render sites, all in `OnboardingModal`) and `WizardStep`
+  (5, all in `WizardContainer`) look like multi-site components to a naive grep, but every
+  occurrence is the same host at the same depth, one shown at a time, so there is no host
+  decision to delegate and both were verified gap-free as they stand. That leaves five:
+  `EmptyState` (fixed in WIC-1417), `CoverLetterPreview` and `ApplicationCard` (below), and
+  `PersonalInfoForm` and `ApplicationForm`, which were already correct at both of their depths.
+- **The criterion is where the *heading* renders, not where the *component* mounts** (WIC-1563).
+  These come apart whenever the heading sits behind a conditional. `CoverLetterPreview` mounts
+  at two depths, which reads like a clear case for the prop — but its header is inside
+  `{showExportActions && …}`, and the nested host (`CoverLetterGenerator`) is precisely the one
+  that passes `false`. Exactly one rendering has a heading, so the prop would have had **no call
+  site able to pass a non-default value**: ceremony, and worse than ceremony, because
+  `headingLevel={3}` alongside `showExportActions={false}` is a dead assignment that reads as a
+  fix. It was corrected in place (`h3` → `h2`) instead. Count the *renderings of the heading*
+  before reaching for the prop, and pin the count with a test — `CoverLetterPreview.test.tsx`
+  asserts the component contributes no heading in the suppressed configuration, so the day that
+  changes the suite goes red and says the prop is now owed (WIC-1569).
+
+#### Kanban headings (WIC-1563)
+
+`KanbanColumn` and `ApplicationCard` both hardcoded `<h3>`, which made every card a structural
+**sibling** of its own column instead of a child — the column's contents were not nested under
+the column in the outline at all, and that outline is exactly how a screen-reader user moves
+between columns. Neither took a prop:
+
+- **`KanbanColumn` is corrected in place to `<h2>`.** It has one call site (`KanbanBoard:159`),
+  which is the single-call-site boundary above. `KanbanBoard` owns no heading of its own, so the
+  column titles sit directly under `ApplicationsList:113`'s `<h1>` and `h3` skipped a level.
+- **`ApplicationCard` is left at `<h3>` and takes no prop.** It has two render sites — inside a
+  column via `SortableApplicationCard`, and inside `KanbanBoard`'s `<DragOverlay>` — but both
+  want the same level once the column is `h2`, so there is no host decision to delegate. The
+  overlay follows the column grid in document order, so `h3` there trails the last column's `h2`
+  and is still gap-free. A per-component tag assertion would have called both of these components
+  correct before the fix, which is why `KanbanBoard.test.tsx` asserts the **rendered outline** of
+  the whole tree rather than tag names.
 
 ---
 

@@ -50,11 +50,7 @@ function renderBoard(applications: Application[]) {
   return render(
     <>
       <h1>Applications</h1>
-      <KanbanBoard
-        applications={applications}
-        onStatusChange={() => {}}
-        onCardClick={() => {}}
-      />
+      <KanbanBoard applications={applications} onStatusChange={() => {}} onCardClick={() => {}} />
     </>
   );
 }
@@ -66,10 +62,7 @@ describe('Kanban heading outline (WIC-1563)', () => {
     const outline = getOutline(container);
     const skips = findOutlineSkips(outline);
 
-    expect(
-      skips,
-      `outline: ${describeOutline(outline)}`
-    ).toEqual([]);
+    expect(skips, `outline: ${describeOutline(outline)}`).toEqual([]);
   });
 
   it('nests each card under its own column: h1 -> h2 column -> h3 card', () => {
