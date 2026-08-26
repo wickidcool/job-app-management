@@ -116,13 +116,23 @@ const EMPHASIS_DESCRIPTORS: Record<string, string> = {
   balanced: 'Balance technical skills and leadership qualities equally.',
 };
 
-async function fetchStarEntries(ids: string[]): Promise<{ id: string; rawText: string }[]> {
+// `userId` is positionally required — not optional — so that no call site can
+// silently forget to scope a caller-supplied id list. It still accepts
+// `undefined` to match the auth-bypass path the eight row-addressed handlers
+// use (`c.get('userId') ?? undefined`); see the sibling lookups below.
+async function fetchStarEntries(
+  ids: string[],
+  userId: string | undefined
+): Promise<{ id: string; rawText: string }[]> {
   if (ids.length === 0) return [];
   const db = getDb();
+  const whereClause = userId
+    ? and(inArray(quantifiedBullets.id, ids), eq(quantifiedBullets.userId, userId))
+    : inArray(quantifiedBullets.id, ids);
   const rows = await db
     .select({ id: quantifiedBullets.id, rawText: quantifiedBullets.rawText })
     .from(quantifiedBullets)
-    .where(inArray(quantifiedBullets.id, ids));
+    .where(whereClause);
   return rows;
 }
 
@@ -167,7 +177,7 @@ export async function generateCoverLetter(
     );
   }
 
-  const starEntries = await fetchStarEntries(input.selectedStarEntryIds);
+  const starEntries = await fetchStarEntries(input.selectedStarEntryIds, userId);
 
   // Validate all IDs exist
   const foundIds = new Set(starEntries.map((e) => e.id));
@@ -334,7 +344,7 @@ export async function getCoverLetter(
   const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
-  const starEntries = await fetchStarEntries(row.selectedStarEntryIds ?? []);
+  const starEntries = await fetchStarEntries(row.selectedStarEntryIds ?? [], userId);
   const usedStarEntries: UsedStarEntryDTO[] = starEntries.map((e, i) => ({
     id: e.id,
     rawText: e.rawText,
@@ -474,7 +484,7 @@ export async function reviseCoverLetter(
   if (!existing) throw new NotFoundError('Cover letter');
 
   const selectedIds = input.selectedStarEntryIds ?? existing.selectedStarEntryIds ?? [];
-  const starEntries = await fetchStarEntries(selectedIds);
+  const starEntries = await fetchStarEntries(selectedIds, userId);
 
   const tone = (input.tone ?? existing.tone) as string;
   const lengthVariant = (input.lengthVariant ?? existing.lengthVariant) as string;
@@ -596,11 +606,10 @@ export async function generateOutreach(
 
   if (input.coverLetterId) {
     const db = getDb();
-    const [cl] = await db
-      .select()
-      .from(coverLetters)
-      .where(eq(coverLetters.id, input.coverLetterId))
-      .limit(1);
+    const whereClause = userId
+      ? and(eq(coverLetters.id, input.coverLetterId), eq(coverLetters.userId, userId))
+      : eq(coverLetters.id, input.coverLetterId);
+    const [cl] = await db.select().from(coverLetters).where(whereClause).limit(1);
     if (!cl)
       throw new CoverLetterError(
         'COVER_LETTER_NOT_FOUND',
@@ -610,7 +619,7 @@ export async function generateOutreach(
       );
     contextText = `Based on this cover letter excerpt:\n${cl.content.slice(0, 500)}`;
   } else if (input.selectedStarEntryIds?.length) {
-    const entries = await fetchStarEntries(input.selectedStarEntryIds);
+    const entries = await fetchStarEntries(input.selectedStarEntryIds, userId);
     contextText = `Key achievements:\n${entries.map((e) => `- ${e.rawText}`).join('\n')}`;
   } else {
     contextText = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
