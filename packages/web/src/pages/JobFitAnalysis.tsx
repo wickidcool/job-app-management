@@ -5,6 +5,9 @@ import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
 import { useApplication } from '../hooks/useApplications';
 import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
 import { FIT_LEVEL_LABELS, NO_FIT_LEVEL_LABEL } from '../constants/fitLevel';
+import { GAP_SEVERITY } from '../constants/gapSeverity';
+import { formatSkillCount } from '../constants/skillCount';
+import { formatRequirement, REQUIREMENT_SEPARATOR } from '../constants/requirementLabel';
 import { APIError } from '../services/api/apiClient';
 
 interface JobFitFormData {
@@ -147,13 +150,13 @@ export function JobFitAnalysis() {
           {/* Overall Fit Card */}
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
             <div className="text-center">
-              <div className="text-xl font-semibold text-neutral-900 mb-2">
-                Overall Fit:{' '}
-                <span className="uppercase">
+              <div className="mb-2">
+                <div className="text-sm text-neutral-500">Overall fit</div>
+                <div className="text-2xl font-bold text-neutral-900">
                   {results.recommendation
                     ? FIT_LEVEL_LABELS[results.recommendation]
                     : NO_FIT_LEVEL_LABEL}
-                </span>
+                </div>
               </div>
               <p className="text-neutral-700 mb-4">{results.summary}</p>
               <div className="text-sm text-neutral-500">Confidence: {results.confidence}</div>
@@ -208,20 +211,16 @@ export function JobFitAnalysis() {
           {results.strongMatches.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
               <h3 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-                ✅ Strong Matches ({results.strongMatches.length})
+                ✅ Strong Matches ({formatSkillCount(results.strongMatches)})
               </h3>
               <div className="space-y-3">
                 {results.strongMatches.map((match, idx) => (
                   <div key={idx} className="border-l-4 border-green-500 pl-4 py-2">
                     <div className="font-medium text-neutral-900">{match.catalogEntry}</div>
                     <div className="text-sm text-neutral-600">
-                      Matches: {match.jdRequirement} ({match.matchType})
+                      Matches: {match.jdRequirement} ({match.matchType}){REQUIREMENT_SEPARATOR}
+                      {formatRequirement(match.isRequired)}
                     </div>
-                    {match.isRequired && (
-                      <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
-                        Required
-                      </span>
-                    )}
                   </div>
                 ))}
               </div>
@@ -232,7 +231,7 @@ export function JobFitAnalysis() {
           {results.partialMatches.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
               <h3 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-                ⚠️ Partial Matches ({results.partialMatches.length})
+                ⚠️ Partial Matches ({formatSkillCount(results.partialMatches)})
               </h3>
               <div className="space-y-3">
                 {results.partialMatches.map((match, idx) => (
@@ -240,6 +239,8 @@ export function JobFitAnalysis() {
                     <div className="font-medium text-neutral-900">{match.catalogEntry}</div>
                     <div className="text-sm text-neutral-600">
                       Partially matches: {match.jdRequirement} ({match.matchType})
+                      {REQUIREMENT_SEPARATOR}
+                      {formatRequirement(match.isRequired)}
                     </div>
                   </div>
                 ))}
@@ -251,30 +252,22 @@ export function JobFitAnalysis() {
           {results.gaps.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
               <h3 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-                ❌ Gaps ({results.gaps.length})
+                ❌ Gaps ({formatSkillCount(results.gaps)})
               </h3>
               <div className="space-y-3">
                 {results.gaps.map((gap, idx) => {
-                  const severityColor =
-                    gap.severity === 'critical'
-                      ? 'border-red-500 bg-red-50'
-                      : gap.severity === 'moderate'
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-yellow-500 bg-yellow-50';
+                  const severity = GAP_SEVERITY[gap.severity];
 
                   return (
-                    <div key={idx} className={`border-l-4 ${severityColor} p-4 rounded`}>
-                      <div className="font-medium text-neutral-900">
-                        {gap.severity === 'critical'
-                          ? '🔴'
-                          : gap.severity === 'moderate'
-                            ? '🟡'
-                            : '🟢'}{' '}
-                        {gap.jdRequirement}
-                      </div>
+                    <div
+                      key={idx}
+                      className={`border-l-4 ${severity.mark} ${severity.surface} p-4 rounded`}
+                    >
+                      <div className="font-medium text-neutral-900">{gap.jdRequirement}</div>
                       <div className="text-sm text-neutral-700 mt-1">
-                        <span className="uppercase">{gap.severity}</span> -{' '}
-                        {gap.isRequired ? 'Required skill' : 'Nice-to-have skill'}
+                        <span className={severity.text}>{severity.label}</span>
+                        {REQUIREMENT_SEPARATOR}
+                        {formatRequirement(gap.isRequired)}
                       </div>
                     </div>
                   );

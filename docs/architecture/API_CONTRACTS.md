@@ -5,10 +5,18 @@
 This document defines the REST API contracts for the Job Application Manager backend.
 The API is a **Hono** application deployed as a single **Cloudflare Worker**
 (`packages/api/src/worker.ts`), which serves both the `/api/*` routes and the built React
-SPA. It is backed by Supabase Postgres — reached through a Cloudflare Hyperdrive
-connection pool — and Cloudflare R2 for document storage. The same Hono app
-(`packages/api/src/app.ts`) also runs on Node.js via `@hono/node-server` for local
-development.
+SPA. It is backed by Supabase Postgres and by Cloudflare R2 for document storage. The
+same Hono app (`packages/api/src/app.ts`) also runs on Node.js via `@hono/node-server`
+for local development.
+
+> How the API reaches Postgres depends on the environment, and production is **not** the
+> Hyperdrive path. `wrangler.jsonc` declares the `HYPERDRIVE` binding under `env.preview`
+> only, so preview pools through Cloudflare Hyperdrive while **production connects to the
+> Supabase transaction pooler (port 6543) using the `DATABASE_URL` secret**. The
+> resolution order is `HYPERDRIVE` → `DATABASE_URL` → Node singleton
+> (`packages/api/src/db/client.ts`). This affects failure modes rather than
+> request/response shapes: on the Hyperdrive path a connection timeout is retried up to
+> 3 times and only then surfaces as `503` with `Retry-After: 1` (`worker.ts:9-32`).
 
 This is a hosted, multi-user cloud service. It is not a local-only application, and
 authentication is required in production — see [Authentication](#authentication).
@@ -20,11 +28,76 @@ authentication is required in production — see [Authentication](#authenticatio
 | Production | `https://app.careerpin.app/api` | The deployed Worker |
 | Browser / SPA | `/api` | Same-origin; the Worker serves the SPA and the API together. Overridable at build time with `VITE_API_BASE_URL` |
 | Local dev (Node) | `http://localhost:3000/api` | `npm run dev:api` |
-| Local dev (Worker) | `http://localhost:8787/api` | `npm run dev:worker` — `wrangler dev`'s default port, with R2/Hyperdrive emulation |
+| Local dev (Worker) | `http://localhost:8787/api` | `npm run dev:worker` — `wrangler dev`'s default port. Serves the SPA and R2; no Hyperdrive binding (it is a bare `wrangler dev`, so it loads the top-level config), so it reads `DATABASE_URL` from `.dev.vars` |
 
 > The apex domain `careerpin.app` is the **marketing site**, not the API. Requests to
 > `https://careerpin.app/api/...` return the marketing HTML page with a `200`, not JSON.
 > Use the `app.` subdomain.
+
+## Transport Security
+
+Two pieces of global middleware run ahead of every handler
+(`packages/api/src/middleware/security.ts`, mounted at `app.ts:79-80`). They apply to
+**all** endpoints below, including the unauthenticated `/api/auth/*` routes and `/health`.
+
+### Cleartext requests are redirected, not served
+
+A request that reaches the Worker over plain HTTP is answered with a redirect to the
+same URL on HTTPS — it is never passed to a route handler.
+
+| Request method | Status | Why |
+|----------------|--------|-----|
+| `GET`, `HEAD` | `301 Moved Permanently` | Cacheable, and what browsers/clients expect for a scheme upgrade |
+| Everything else | `308 Permanent Redirect` | `301` rewrites the method to `GET`; `308` preserves the method **and** the body so the retry is intact |
+
+`Location` is `https://{hostname}{path}{query}`. The port is deliberately dropped, so an
+explicit `:80` does not survive into an `https://…:80` target that nothing answers.
+
+**The redirect is skipped for private hostnames**, so local development over HTTP works
+unchanged: loopback (`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`), RFC1918 and link-local
+IP literals, IPv6 unique-local/link-local, the `.localhost` / `.local` / `.internal` /
+`.test` / `.home.arpa` suffixes, and any dotless name (a bare `api` is a container name,
+not a routable host).
+
+The client's scheme is read from Cloudflare's `cf-visitor` header, which is the only
+authoritative source at the edge. `x-forwarded-proto` is **ignored unless
+`TRUST_PROXY_PROTO` is `true` or `1`** — it is client-settable, so an attacker-supplied
+`x-forwarded-proto: https` on a cleartext request would otherwise suppress the redirect.
+
+> **In production the `301` you observe comes from Cloudflare, not from this middleware.**
+> The `careerpin.app` zone has `Always Use HTTPS` enabled, so the edge answers `:80`
+> before the Worker is invoked — which is why that response carries no
+> `Strict-Transport-Security` and has a `text/html` body. The Worker-side redirect is
+> defence-in-depth: it preserves the guarantee if the zone setting is toggled off, and
+> covers non-zone routes (`workers.dev`, a proxied Node deployment). Note that HSTS sent
+> over cleartext is ignored by browsers (RFC 6797 §8.1), which is why the zone-level
+> redirect was required in the first place.
+
+### Security headers on every response
+
+Every Worker-generated response — success and error alike — carries:
+
+| Header | Value |
+|--------|-------|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Content-Security-Policy` | `frame-ancestors 'none'` |
+
+These are set **without clobbering**: a handler that sets one of these itself keeps its
+own value.
+
+Two deliberate omissions, both pending follow-up work rather than oversights:
+
+- `preload` is left off the HSTS directive until the cleartext redirect is verified in
+  production — preload is not reversible on a useful timescale.
+- The CSP is scoped to `frame-ancestors` (clickjacking) only. A full policy requires an
+  audit of the Supabase, PostHog, and R2 origins the SPA talks to.
+
+Static assets served by the Worker's asset router (`/`, `/assets/*`, `/favicon.svg`)
+never reach this middleware; those are covered separately by
+`packages/web/public/_headers` at the edge.
 
 ## Authentication
 
@@ -60,10 +133,24 @@ single-user local-development case. Both are set in production, so production al
 requires a valid JWT. If Supabase is not configured, the `/api/auth/*` endpoints
 themselves return `503 NOT_CONFIGURED`.
 
-> Some `curl` examples further down this document use the local dev base URL and omit the
-> `Authorization` header, which only works under that local bypass. To run any of them
-> against production, swap the host for `https://app.careerpin.app` **and** add
-> `-H "Authorization: Bearer <jwt>"`.
+### Running the `curl` examples
+
+Every `curl` example below is written against two shell variables, so the host is chosen
+in one place rather than baked into each example:
+
+```bash
+export API_BASE="https://app.careerpin.app/api"   # or a Base URL row above
+export TOKEN="<jwt>"                               # from POST /api/auth/login
+```
+
+`$TOKEN` is required against any environment where Supabase is configured — which is every
+environment except the local bypass described above. It is sent on every example rather
+than only the ones that would fail without it: an example that omits the header documents
+an endpoint as unauthenticated, and none of these are.
+
+> The four `https://api.example.com/v1/...` examples in [Applications](#applications) are
+> a separate, older surface and are left as-is; they already carry an `Authorization`
+> header.
 
 ## Common Response Codes
 
@@ -72,6 +159,8 @@ themselves return `503 NOT_CONFIGURED`.
 | 200 | Success |
 | 201 | Created |
 | 204 | No Content (successful delete) |
+| 301 | Moved Permanently (cleartext `GET`/`HEAD` upgraded to HTTPS — see [Transport Security](#transport-security)) |
+| 308 | Permanent Redirect (cleartext request with a body upgraded to HTTPS, method and body preserved) |
 | 400 | Bad Request (validation error) |
 | 401 | Unauthorized (`UNAUTHORIZED` — missing/malformed `Authorization` header, or an invalid or expired token) |
 | 404 | Not Found |
@@ -918,7 +1007,8 @@ interface ApplyDiffResponse {
 **Example**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/diffs/01HXK5R3J7/apply" \
+curl -X POST "$API_BASE/catalog/diffs/01HXK5R3J7/apply" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "action": "partial",
@@ -1358,7 +1448,8 @@ Partial matches (alias/related) count at 0.5x weight toward match percentage.
 **Example Request (text)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionText": "Senior Software Engineer at Acme Corp...\n\nRequirements:\n- 5+ years TypeScript/JavaScript\n- React or Vue experience\n- PostgreSQL or MySQL\n- AWS or GCP cloud experience\n\nNice to have:\n- GraphQL\n- Kubernetes"
@@ -1368,7 +1459,8 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 **Example Request (URL)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionUrl": "https://boards.greenhouse.io/acme/jobs/12345"
@@ -1380,7 +1472,7 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 ```json
 {
   "recommendation": "moderate_fit",
-  "summary": "You match 4 of 6 required skills. Gaps in AWS/GCP cloud experience and PostgreSQL are addressable with your Azure and MongoDB experience.",
+  "summary": "You match 4 of 6 required skills. This role is within reach. Gaps in AWS/GCP cloud experience, PostgreSQL.",
   "confidence": "high",
   "parsedJd": {
     "roleTitle": "Senior Software Engineer",
@@ -1649,7 +1741,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/generate" \
+curl -X POST "$API_BASE/cover-letters/generate" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
@@ -1756,7 +1849,8 @@ interface ReviseCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "instructions": "Make the opening more enthusiastic and add a sentence about my passion for developer tooling",
@@ -1868,7 +1962,8 @@ interface OutreachMessage {
 **Example Request (LinkedIn)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "linkedin",
@@ -1900,7 +1995,8 @@ curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
 **Example Request (Email)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "email",
@@ -1995,7 +2091,8 @@ interface ExportCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "format": "docx",
@@ -2769,7 +2866,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps" \
+curl -X POST "$API_BASE/interview-preps" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
@@ -3030,7 +3128,8 @@ interface UpdateInterviewPrepResponse {
 **Example Request**:
 
 ```bash
-curl -X PATCH "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+curl -X PATCH "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "storyUpdates": [
@@ -3128,7 +3227,8 @@ interface ExportQuickReferenceResponse {
 **Example Request**:
 
 ```bash
-curl -X GET "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+curl -X GET "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+  -H "Authorization: Bearer $TOKEN" \
   -o interview-prep.pdf
 ```
 
@@ -3209,7 +3309,8 @@ interface LogPracticeSessionResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+curl -X POST "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "full_interview",
