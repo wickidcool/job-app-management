@@ -69,7 +69,7 @@ An npm-workspaces monorepo (`"workspaces": ["packages/*"]`):
 | Path | Workspace | Contents |
 |---|---|---|
 | `packages/api` | `@wic/api` | Hono API, Worker entry, Drizzle schema + migrations, services |
-| `packages/web` | `@wic/web` | React 18 + Vite SPA; `dist/` is the Worker's `assets.directory`, exposed as the `ASSETS` binding |
+| `packages/web` | `@wic/web` | React 19 + Vite SPA; `dist/` is the Worker's `assets.directory`, exposed as the `ASSETS` binding |
 | `packages/marketing` | — | Static marketing site for the apex/`www` hosts (plain HTML/CSS/JS + `_worker.js`) |
 | `packages/infra` | — | `redirect-worker/` and `redirect-pages/` — hostname redirect shims |
 
@@ -81,7 +81,7 @@ An npm-workspaces monorepo (`"workspaces": ["packages/*"]`):
 |---|---|---|
 | **Runtime** | Cloudflare Workers | `compatibility_date` `2026-05-05`, `compatibility_flags: ["nodejs_compat"]` |
 | **API framework** | Hono 4.7 | `@hono/node-server` for the local Node path |
-| **Frontend** | React 18, TypeScript, Vite | Served as Worker static assets |
+| **Frontend** | React 19, TypeScript, Vite 8 | React Router 7; served as Worker static assets |
 | **Database** | Supabase Postgres | `postgres` (postgres-js) driver |
 | **ORM** | Drizzle ORM 0.30 | Migrations via `drizzle-kit` |
 | **Connection pooling** | Cloudflare Hyperdrive | Bound in `preview` only; production uses the Supabase transaction pooler (see below) |
