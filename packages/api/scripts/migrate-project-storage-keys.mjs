@@ -31,26 +31,58 @@ import {
 } from '@aws-sdk/client-s3';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const APPLY = process.argv.includes('--apply');
 const localIdx = process.argv.indexOf('--local');
 const LOCAL_DIR = localIdx === -1 ? null : process.argv[localIdx + 1];
 
-const databaseUrl = process.env.DATABASE_URL ?? '';
-if (!databaseUrl) {
-  console.error('Error: DATABASE_URL is not set — it is the only source of slug ownership.');
-  process.exit(1);
-}
-const isSupabase =
-  databaseUrl.includes('supabase.co') || databaseUrl.includes('pooler.supabase.com');
-
-/** `projects/{a}/{b}` is legacy; `projects/{a}/{b}/{c}` is already namespaced. */
-function classify(key) {
+/**
+ * Legacy vs already-migrated, decided purely on key segment count.
+ *
+ *   projects/index.md                    2 -> legacy index (derived, delete)
+ *   projects/{slug}/{file}               3 -> legacy
+ *   projects/{userId}/{slug}/{file}      4 -> already namespaced
+ *
+ * The count is exact rather than a heuristic **only because a project file name
+ * can never contain `/`** — `project.service.validateFileName` rejects `..`,
+ * `/` and `\`, so a legacy slug directory is always exactly one level deep and
+ * no key can be ambiguous between the two shapes. If that guard ever loosens,
+ * this discriminator breaks and the migration would mis-file. Exported so
+ * `test/migrate-project-storage-keys.test.ts` pins it.
+ */
+export function classify(key) {
   const parts = key.split('/');
   if (parts[0] !== 'projects') return { kind: 'foreign' };
   if (parts.length === 2) return { kind: 'legacy-index' }; // projects/index.md
   if (parts.length === 3) return { kind: 'legacy', slug: parts[1], fileName: parts[2] };
   return { kind: 'namespaced' };
+}
+
+/**
+ * Split legacy files into what we can place and what a human must adjudicate.
+ * `owners` is slug -> [userId, ...] read from the `projects` table, the only
+ * authority on who owns a slug. Exported for the same reason as `classify`.
+ */
+export function bucketByOwnership(legacy, owners) {
+  const movable = [];
+  const commingled = new Map();
+  const orphaned = new Map();
+  for (const item of legacy) {
+    const slugOwners = owners.get(item.slug) ?? [];
+    if (slugOwners.length === 1) {
+      movable.push({ ...item, userId: slugOwners[0] });
+    } else if (slugOwners.length > 1) {
+      // Already commingled: two users' files share this directory and nothing
+      // in the object store records who wrote what. Never guess.
+      if (!commingled.has(item.slug)) commingled.set(item.slug, { owners: slugOwners, files: [] });
+      commingled.get(item.slug).files.push(item.fileName);
+    } else {
+      if (!orphaned.has(item.slug)) orphaned.set(item.slug, []);
+      orphaned.get(item.slug).push(item.fileName);
+    }
+  }
+  return { movable, commingled, orphaned };
 }
 
 async function listAllKeys(s3, bucket) {
@@ -78,6 +110,14 @@ async function ownersBySlug(sql) {
 }
 
 async function main() {
+  const databaseUrl = process.env.DATABASE_URL ?? '';
+  if (!databaseUrl) {
+    console.error('Error: DATABASE_URL is not set — it is the only source of slug ownership.');
+    process.exit(1);
+  }
+  const isSupabase =
+    databaseUrl.includes('supabase.co') || databaseUrl.includes('pooler.supabase.com');
+
   const sql = postgres(databaseUrl, {
     max: 1,
     ssl: isSupabase ? 'require' : false,
@@ -132,21 +172,7 @@ async function main() {
     }
 
     // Bucket the legacy slugs by how confidently we can place them.
-    const movable = [];
-    const commingled = new Map();
-    const orphaned = new Map();
-    for (const item of legacy) {
-      const slugOwners = owners.get(item.slug) ?? [];
-      if (slugOwners.length === 1) movable.push({ ...item, userId: slugOwners[0] });
-      else if (slugOwners.length > 1) {
-        if (!commingled.has(item.slug))
-          commingled.set(item.slug, { owners: slugOwners, files: [] });
-        commingled.get(item.slug).files.push(item.fileName);
-      } else {
-        if (!orphaned.has(item.slug)) orphaned.set(item.slug, []);
-        orphaned.get(item.slug).push(item.fileName);
-      }
-    }
+    const { movable, commingled, orphaned } = bucketByOwnership(legacy, owners);
 
     console.log(`Mode:            ${APPLY ? 'APPLY' : 'DRY RUN (pass --apply to execute)'}`);
     console.log(`Backend:         ${LOCAL_DIR ? `local fs (${LOCAL_DIR})` : `R2 (${bucket})`}`);
@@ -224,7 +250,11 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only run when invoked as a CLI, so the pure helpers above can be imported by
+// tests without the script connecting to a database on import.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
