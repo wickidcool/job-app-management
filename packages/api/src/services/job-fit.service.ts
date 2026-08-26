@@ -572,7 +572,47 @@ export function computeRecommendation(
   return 'low_fit';
 }
 
-function computeSummary(
+/**
+ * The sentence rendered directly beneath the fit level on `JobFitAnalysis`.
+ *
+ * Two vocabulary rules bind this function, both decided in WIC-1301 and
+ * specified in `docs/design/DESIGN_SYSTEM.md` ("Fit Level Summary"):
+ *
+ * 1. **The summary never restates the verdict.** The fit level label above it
+ *    (`FIT_LEVEL_LABELS`, WIC-1288) is the only place the verdict is worded.
+ *    `strong_fit` used to open "Strong match — ", which both duplicated the
+ *    "Strong fit" label three lines above it *and* borrowed "match", the noun
+ *    the per-skill sections own ("Strong Matches (N)"), to mean something else:
+ *    a whole-application verdict rather than one skill's `matchType`. The two
+ *    also carry different numbers — `matchCount` counts required strong *and*
+ *    partial matches, while the heading counts every strong match including
+ *    nice-to-haves — so "Strong match — you meet 5 of 6" could sit above
+ *    "Strong Matches (7)". The e2e fixture happened to make them agree, which
+ *    is what kept it invisible. **The verdict axis owns "fit"; the match
+ *    classification axis owns "match".** Here, "match" is only ever the verb
+ *    counting skills, which is the same axis the sections use.
+ *
+ * 2. **The trailing clause is a caveat, so the top rung has none.** The ladder
+ *    reads: nothing to add / within reach / a stretch / not yet. `moderate_fit`
+ *    previously had no clause at all, which left the ladder's weakest joint —
+ *    "Possible fit" vs "Stretch" — to be ordered by two labels that do not
+ *    reliably order themselves ("possible" is the weakest modality word in
+ *    English; "a stretch role" is idiomatically aspirational).
+ *
+ * A clause may not assert coverage the gap sentence then contradicts.
+ * `strong_fit` admits one critical required gap (`computeRecommendation`), so
+ * "your profile covers the core requirements" would render immediately above
+ * " Gap in AWS." Clauses state the verdict's stance, never a fact about the
+ * data — which is also why they stay true when `gaps` is empty.
+ *
+ * Magnitude adjectives are unavailable here: gap severity owns
+ * `critical`/`moderate`/`minor` and confidence owns `high`/`medium`/`low`
+ * (DESIGN_SYSTEM.md → "Scale Vocabulary").
+ *
+ * Exported for unit testing — every other surface that asserts these strings
+ * is a mocked fixture, which is precisely how the collision above survived.
+ */
+export function computeSummary(
   recommendation: FitRecommendation | null,
   strongMatches: FitMatchDTO[],
   partialMatches: FitMatchDTO[],
@@ -595,9 +635,9 @@ function computeSummary(
 
   switch (recommendation) {
     case 'strong_fit':
-      return `Strong match — you meet ${matchCount} of ${totalRequired} required skills.${gapStr}`;
-    case 'moderate_fit':
       return `You match ${matchCount} of ${totalRequired} required skills.${gapStr}`;
+    case 'moderate_fit':
+      return `You match ${matchCount} of ${totalRequired} required skills. This role is within reach.${gapStr}`;
     case 'stretch':
       return `You match ${matchCount} of ${totalRequired} required skills. This role may be a stretch.${gapStr}`;
     case 'low_fit':
