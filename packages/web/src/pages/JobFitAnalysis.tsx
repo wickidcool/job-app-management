@@ -7,6 +7,7 @@ import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFi
 import { FIT_LEVEL_LABELS, NO_FIT_LEVEL_LABEL } from '../constants/fitLevel';
 import { GAP_SEVERITY } from '../constants/gapSeverity';
 import { formatSkillCount } from '../constants/skillCount';
+import { formatRequirement, REQUIREMENT_SEPARATOR } from '../constants/requirementLabel';
 import { APIError } from '../services/api/apiClient';
 
 interface JobFitFormData {
@@ -217,13 +218,9 @@ export function JobFitAnalysis() {
                   <div key={idx} className="border-l-4 border-green-500 pl-4 py-2">
                     <div className="font-medium text-neutral-900">{match.catalogEntry}</div>
                     <div className="text-sm text-neutral-600">
-                      Matches: {match.jdRequirement} ({match.matchType})
+                      Matches: {match.jdRequirement} ({match.matchType}){REQUIREMENT_SEPARATOR}
+                      {formatRequirement(match.isRequired)}
                     </div>
-                    {match.isRequired && (
-                      <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
-                        Required
-                      </span>
-                    )}
                   </div>
                 ))}
               </div>
@@ -242,6 +239,8 @@ export function JobFitAnalysis() {
                     <div className="font-medium text-neutral-900">{match.catalogEntry}</div>
                     <div className="text-sm text-neutral-600">
                       Partially matches: {match.jdRequirement} ({match.matchType})
+                      {REQUIREMENT_SEPARATOR}
+                      {formatRequirement(match.isRequired)}
                     </div>
                   </div>
                 ))}
@@ -266,8 +265,9 @@ export function JobFitAnalysis() {
                     >
                       <div className="font-medium text-neutral-900">{gap.jdRequirement}</div>
                       <div className="text-sm text-neutral-700 mt-1">
-                        <span className={severity.text}>{severity.label}</span> -{' '}
-                        {gap.isRequired ? 'Required skill' : 'Nice-to-have skill'}
+                        <span className={severity.text}>{severity.label}</span>
+                        {REQUIREMENT_SEPARATOR}
+                        {formatRequirement(gap.isRequired)}
                       </div>
                     </div>
                   );
