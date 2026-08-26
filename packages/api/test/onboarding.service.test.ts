@@ -187,6 +187,18 @@ describe('shouldShowOnboarding', () => {
     expect(select).toHaveBeenCalledTimes(3);
   });
 
+  it('reads the status row scoped to the calling user', async () => {
+    // The probe assertions below skip past this first clause, and no row-count test can
+    // see it either — the double returns the queued status row whichever user_id the
+    // clause names. Left unpinned, a status read scoped to the wrong user is invisible.
+    const { whereSql } = stubDb([statusRow()], [], []);
+    await shouldShowOnboarding(USER_ID);
+
+    const [statusRead] = whereSql();
+    expect(statusRead.sql).toBe('"onboarding_status"."user_id" = $1');
+    expect(statusRead.params).toEqual([USER_ID]);
+  });
+
   it('scopes the probes by startedAt for a user who has engaged with the flow', async () => {
     // The row-count tests above pass with or without the bound, because the double
     // resolves rows whatever the predicate says. This one reads the rendered SQL.
@@ -195,10 +207,12 @@ describe('shouldShowOnboarding', () => {
     await shouldShowOnboarding(USER_ID);
 
     const [, resumeProbe, applicationProbe] = whereSql();
-    expect(resumeProbe.sql).toMatch(/"uploaded_at" </);
-    expect(resumeProbe.params).toContain(startedAt.toISOString());
-    expect(applicationProbe.sql).toMatch(/"created_at" </);
-    expect(applicationProbe.params).toContain(startedAt.toISOString());
+    expect(resumeProbe.sql).toBe('("resumes"."user_id" = $1 and "resumes"."uploaded_at" < $2)');
+    expect(resumeProbe.params).toEqual([USER_ID, startedAt.toISOString()]);
+    expect(applicationProbe.sql).toBe(
+      '("applications"."user_id" = $1 and "applications"."created_at" < $2)'
+    );
+    expect(applicationProbe.params).toEqual([USER_ID, startedAt.toISOString()]);
   });
 
   it('leaves the probes unbounded for a user the flow has never moved', async () => {
@@ -209,8 +223,10 @@ describe('shouldShowOnboarding', () => {
     await shouldShowOnboarding(USER_ID);
 
     const [, resumeProbe, applicationProbe] = whereSql();
-    expect(resumeProbe.sql).not.toMatch(/</);
-    expect(applicationProbe.sql).not.toMatch(/</);
+    expect(resumeProbe.sql).toBe('"resumes"."user_id" = $1');
+    expect(resumeProbe.params).toEqual([USER_ID]);
+    expect(applicationProbe.sql).toBe('"applications"."user_id" = $1');
+    expect(applicationProbe.params).toEqual([USER_ID]);
   });
 
   it('reads history only when the status row cannot answer on its own', async () => {
