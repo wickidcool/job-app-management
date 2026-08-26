@@ -1,0 +1,194 @@
+name: Deploy Drift Detector
+
+# WIC-1271 (follow-up to WIC-1260). Production drifted 6 days / 14 commits behind
+# `main` and nothing noticed — it surfaced only because a human hand-compared a
+# bundle hash. This job answers one question on a schedule: how far is production
+# behind `main`, and does the undeployed delta contain anything a user would see?
+#
+#   - Runtime-bearing delta  -> LOUD: open/refresh a tracking issue + fail the run.
+#   - Docs/CI/workflow-only   -> QUIET: job-summary note only, no issue, no page.
+#     A monitor that pages for a docs typo gets muted, and then it is worse than
+#     nothing. The allowlist that decides "runtime vs not" is the SAME one
+#     skip-ci-guard.yml enforces, loaded from a single shared module so the two
+#     can never disagree (see .github/workflows/lib/runtime-paths.js).
+#
+# This job only READS (curl, the Actions API, a git compare) and manages its own
+# tracking issue. It never deploys, so dispatching it manually is board-safe.
+
+on:
+  schedule:
+    # 14:17 UTC on weekdays. Off the top of the hour (avoids Actions congestion)
+    # and inside working hours so a loud alert is seen the same day. Schedules
+    # only fire from the DEFAULT branch, so this is inert until it lands on main.
+    - cron: '17 14 * * 1-5'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: deploy-drift
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Production vs main drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve live production bundle (honest artifact signal)
+        id: prod
+        run: |
+          set -uo pipefail
+          bundle="$(curl -sS --max-time 20 https://app.careerpin.app/ \
+            | grep -o 'index-[A-Za-z0-9_-]*\.js' | head -1 || true)"
+          echo "bundle=${bundle}" >> "$GITHUB_OUTPUT"
+          echo "Live production bundle: ${bundle:-<none found>}"
+
+      - name: Classify drift and alert
+        uses: actions/github-script@v7
+        env:
+          PROD_BUNDLE: ${{ steps.prod.outputs.bundle }}
+        with:
+          script: |
+            const { classify } = require('./.github/workflows/lib/runtime-paths.js');
+            const { owner, repo } = context.repo;
+            const LABEL = 'deploy-drift';
+            const dispatchUrl =
+              `https://github.com/${owner}/${repo}/actions/workflows/deploy.yml`;
+
+            // --- What is production actually serving? ---------------------------
+            // Honest signal is the deployed artifact, but the git sha we can act on
+            // is the head of the last successful production Deploy. deploy-production
+            // runs only on `push` to main or `workflow_dispatch` (see deploy.yml),
+            // so restrict to those events; PR runs never reach production.
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner, repo, workflow_id: 'deploy.yml',
+              branch: 'main', status: 'success', per_page: 100,
+            }, (r) => r.data);
+            const deployRun = runs.find(
+              (r) => r.event === 'push' || r.event === 'workflow_dispatch');
+            const mainBranch = await github.rest.repos.getBranch({ owner, repo, branch: 'main' });
+            const mainHead = mainBranch.data.commit.sha;
+            const bundle = process.env.PROD_BUNDLE || '';
+
+            const summary = core.summary
+              .addHeading('Deploy Drift Detector', 2)
+              .addRaw(`Live production bundle: \`${bundle || 'unknown'}\`\n\n`)
+              .addRaw(`\`main\` head: \`${mainHead.slice(0, 8)}\`\n\n`);
+
+            if (!deployRun) {
+              // No successful production deploy in the API's retention window. Don't
+              // page on this — it is an observability gap, not proven drift.
+              summary.addRaw('No successful production Deploy run found in the retention window — cannot resolve the deployed sha. **Not paging.**\n');
+              await summary.write();
+              core.warning('Deployed sha unresolved; skipping drift comparison.');
+              return;
+            }
+            const deployedSha = deployRun.head_sha;
+            summary.addRaw(`Deployed sha (last green Deploy \`#${deployRun.run_number}\`, event \`${deployRun.event}\`): \`${deployedSha.slice(0, 8)}\`\n\n`);
+
+            if (deployedSha === mainHead) {
+              summary.addRaw('Production is at `main` head. No drift.\n');
+              await summary.write();
+              await closeExistingAlert('Production is back in sync with `main`.');
+              core.info('In sync.');
+              return;
+            }
+
+            // --- How far behind, and does the delta touch runtime? --------------
+            const cmp = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${deployedSha}...${mainHead}`,
+            });
+            const behind = cmp.data.ahead_by; // commits in main not yet deployed
+            const files = (cmp.data.files || []).map((f) => f.filename);
+            const { runtime, allowlisted } = classify(files);
+
+            const list = (xs) => xs.map((p) => `- \`${p}\``).join('\n');
+            summary.addRaw(`Production is **${behind} commit(s) behind** \`main\`, touching **${files.length} file(s)** (${runtime.length} with runtime surface).\n\n`);
+
+            if (runtime.length === 0) {
+              // Docs/CI/workflow-only. The deliberate no-deploy route is working as
+              // intended. Informational only — never a page.
+              summary
+                .addRaw('Every undeployed path is docs / markdown / workflow-only — nothing a user would see. **Informational, not a page.**\n\n')
+                .addRaw(`Changed (allowlisted):\n${list(allowlisted)}\n`);
+              await summary.write();
+              await closeExistingAlert(`Drift is now docs/CI-only (${behind} commit(s) behind). Nothing user-visible outstanding.`);
+              core.info(`Informational: ${behind} behind, 0 runtime paths.`);
+              return;
+            }
+
+            // --- Runtime-bearing drift: page loudly -----------------------------
+            const title = '🚨 Production is behind `main` on runtime code';
+            const body = [
+              `Production is **${behind} commit(s) behind** \`main\` and the undeployed delta changes **runtime code** users would see.`,
+              '',
+              `- Deployed sha: \`${deployedSha.slice(0, 12)}\` (last green Deploy \`#${deployRun.run_number}\`)`,
+              `- \`main\` head: \`${mainHead.slice(0, 12)}\``,
+              `- Live bundle: \`${bundle || 'unknown'}\``,
+              '',
+              '**Runtime paths outstanding:**',
+              list(runtime),
+              '',
+              allowlisted.length ? `<details><summary>${allowlisted.length} allowlisted path(s)</summary>\n\n${list(allowlisted)}\n</details>` : '',
+              '',
+              `### Close it in one click`,
+              `Dispatch the production deploy (or roll back to a known-good ref): **${dispatchUrl}** → *Run workflow*.`,
+              '',
+              `<sub>Opened by deploy-drift.yml. This issue auto-updates each run and closes when the runtime delta clears.</sub>`,
+            ].join('\n');
+
+            summary
+              .addRaw('### Runtime code is undeployed — paging\n\n')
+              .addRaw(`${list(runtime)}\n\n`)
+              .addRaw(`One-click deploy/rollback: ${dispatchUrl}\n`);
+            await summary.write();
+
+            await upsertAlert(title, body);
+            core.setFailed(`Production is ${behind} commit(s) behind main with ${runtime.length} runtime path(s) undeployed: ${runtime.join(', ')}`);
+
+            // --- helpers --------------------------------------------------------
+            async function findAlert() {
+              const issues = await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'open', labels: LABEL, per_page: 100,
+              });
+              return issues[0] || null;
+            }
+            async function ensureLabel() {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: LABEL });
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner, repo, name: LABEL, color: 'b60205',
+                    description: 'Production is behind main on runtime code (deploy-drift.yml)',
+                  });
+                } else { throw e; }
+              }
+            }
+            async function upsertAlert(title, body) {
+              await ensureLabel();
+              const existing = await findAlert();
+              if (existing) {
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, title, body });
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `Re-checked: still drifted.\n\n${body}` });
+              } else {
+                await github.rest.issues.create({ owner, repo, title, body, labels: [LABEL] });
+              }
+            }
+            async function closeExistingAlert(note) {
+              const existing = await findAlert();
+              if (!existing) return;
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `✅ ${note} Closing.` });
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
+            }

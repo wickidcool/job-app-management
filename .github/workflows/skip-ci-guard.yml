@@ -49,6 +49,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # WIC-1271: check out the BASE branch only, to load the shared allowlist
+      # module. `base.sha` is the PR target (trusted repo code), NEVER the PR
+      # head — so this keeps the invariant stated above (this job never checks
+      # out or executes PR head code). Credentials are dropped; the module is
+      # only `require`d for its path predicates, nothing from it is executed
+      # against PR content.
+      - name: Checkout base for the shared allowlist
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
       - name: Check for a skip marker on a runtime-code change
         uses: actions/github-script@v7
         with:
@@ -73,14 +85,10 @@ jobs:
             ];
 
             // Paths that may legitimately ship under a skip marker: they have no
-            // runtime surface, so there is nothing for CI to have proven.
-            // `.github/workflows/**` is here because a workflow-only change is
-            // exactly the no-deploy merge route this repo relies on.
-            const ALLOWED = [
-              (p) => p.startsWith('docs/'),
-              (p) => p.endsWith('.md'),
-              (p) => p.startsWith('.github/workflows/'),
-            ];
+            // runtime surface, so there is nothing for CI to have proven. The
+            // list lives in ONE place (WIC-1271) so this guard and the
+            // deploy-drift detector can never disagree about "runtime vs not".
+            const { classify } = require('./.github/workflows/lib/runtime-paths.js');
 
             const { data: commit } = await github.rest.repos.getCommit({
               owner, repo, ref: pr.head.sha,
@@ -92,7 +100,7 @@ jobs:
               owner, repo, pull_number: pr.number, per_page: 100,
             });
             const paths = files.map((f) => f.filename);
-            const runtime = paths.filter((p) => !ALLOWED.some((ok) => ok(p)));
+            const { runtime } = classify(paths);
 
             const list = (xs) => xs.map((p) => `- \`${p}\``).join('\n');
             const summary = core.summary
