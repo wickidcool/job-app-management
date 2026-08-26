@@ -151,10 +151,33 @@ function toConcretePathname(raw: string): string {
     .replace(/^$/, '/');
 }
 
+/**
+ * Strip comments before scanning. A link that has been commented out is not a link: the
+ * button is gone from the UI and the page it reached is orphaned, which is precisely the
+ * class the route -> link audit exists to catch (WIC-1428/WIC-1530). `collectLinkSites`
+ * regexes over raw source, so without this a commented-out link still credits its route —
+ * deleting a link is caught, but commenting the *same* link out is not, even though the
+ * user-visible outcome (button gone, page unreachable) is identical. That is the single
+ * most common way a page actually becomes orphaned, and it is cheap to exclude.
+ *
+ * The `[^:'"`\\]` guard on the line-comment rule keeps `https://` and `to="//x"` from
+ * being eaten. It is a lexer-free approximation: a `//` inside a string literal that is
+ * not preceded by `:` could over-strip, which is why the two block/JSX forms run first.
+ * Measured on the tree at introduction: 0 of 152 link sites sat inside a comment, so this
+ * changes no baseline credit — it only closes the fail-open (WIC-1560).
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ') // {/* JSX comment */}
+    .replace(/\/\*[\s\S]*?\*\//g, ' ') //          /* block comment */
+    .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1'); //  // line comment
+}
+
 function collectLinkSites(sources: Record<string, string>): LinkSite[] {
   const sites: LinkSite[] = [];
 
-  for (const [file, source] of Object.entries(sources)) {
+  for (const [file, rawSource] of Object.entries(sources)) {
+    const source = stripComments(rawSource);
     for (const pattern of LINK_PATTERNS) {
       for (const match of source.matchAll(pattern)) {
         const raw = match[1];
@@ -264,6 +287,31 @@ describe('in-app navigation targets', () => {
         '/orphan': 'OrphanPage',
       })
     ).toEqual(['/orphan']);
+  });
+
+  // Commenting the entry point out is the most common way a page becomes orphaned, and
+  // the user-visible outcome is identical to deleting it. `collectLinkSites` regexes over
+  // source, so it must not credit a route from a link that is commented out — otherwise
+  // JSX-commenting the sole `<Link>` to a page silently reverts its entry point (the exact
+  // regression WIC-1530 added a guard against) and this audit stays green. FO-B/FO-C.
+  it('does not credit a route from a commented-out link', () => {
+    const source = [
+      '<Link to="/live">Live</Link>',
+      '// <Link to="/line-commented">Gone</Link>',
+      '{/* <Link to="/jsx-commented">Gone</Link> */}',
+      '/* to="/block-commented" */',
+      // A live link on a line that also contains a `://` URL: the line-comment guard must
+      // not treat the `//` in `https://` as a comment and strip `/guarded` after it.
+      'const api = "https://example.com"; go(<Link to="/guarded">G</Link>);',
+    ].join('\n');
+
+    const collected = collectLinkSites({ 'x.tsx': source }).map((site) => site.raw);
+
+    expect(collected).not.toContain('/line-commented');
+    expect(collected).not.toContain('/jsx-commented');
+    expect(collected).not.toContain('/block-commented');
+    // Live links survive, including the one guarded from the `https://` false positive.
+    expect(collected.sort()).toEqual(['/guarded', '/live']);
   });
 
   it('credits a link to the route it resolves to, including parameterized ones', () => {

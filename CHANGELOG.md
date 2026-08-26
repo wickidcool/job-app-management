@@ -20,6 +20,15 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Fixed — The route audit is no longer blind to a commented-out entry point (2026-08-26)
+
+The `route → link` direction added below credited a route from any inbound link site found in source — but `collectLinkSites` regexes over **raw** source, so a link that had been *commented out* still counted. Deleting the sole `<Link>` to a page turned the suite red; **commenting the same link out did not**, even though the user-visible outcome is identical (button gone, page unreachable). Commenting the entry point out is the single most common way a page actually becomes orphaned, so this was a fail-open on the exact class the audit exists to catch — JSX-commenting `CoverLetterDetail`'s `<Link to={\`/outreach/new…\`}>` would have silently reverted WIC-1530's fix and kept this guard green (WIC-1560).
+
+- **`stripComments` runs before the link patterns**, dropping `{/* … */}` JSX comments, `/* … */` block comments, and `// …` line comments. The line-comment rule carries a `[^:'"\`\\]` guard so `https://` and `to="//x"` are not mistaken for comments.
+- **Latent, not live.** Measured at introduction: **0 of 152** link sites sat inside a comment and all 28 non-`<Navigate>` routes keep a live credit, so the baseline is unchanged (`packages/web` suite `45 passed / 2 todo`). Eight of the 28 routes hang on exactly one credit, where a single commented-out line is the whole difference between guarded and unguarded.
+- **Three negative controls, all now red.** Deleting the `/reports/needs-action` nav entry (was already red), **line-commenting** it (was green → now red), and **JSX-commenting** the sole `/outreach/new` `<Link>` (was green → now red, naming `/outreach/new`). A new in-file capability test (`does not credit a route from a commented-out link`) pins all three comment forms plus the `https://` guard, so this cannot regress.
+- **Test-only.** No application code changes.
+
 ### Added — The route audit now runs in both directions, so an orphan page turns the suite red (2026-08-26)
 
 `route-integrity.test.ts` asserted **link → route**: every internal path the UI can send a user to must be matched by a concrete route in `App.tsx`. It structurally could not assert the converse, **route → link** — a page that is built and mounted with no button anywhere pointing at it produces no link site, so there was nothing for the assertion to look at and orphans accumulated green. That class had produced four cards on this project (WIC-109 `CatalogPage`, WIC-110 the Diff Review modal, WIC-1428 catalog `pending_review`, WIC-1530 the outreach composer) and had **never once produced a guard**. This is the guard (WIC-1531).
