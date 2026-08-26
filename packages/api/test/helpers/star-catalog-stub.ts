@@ -11,9 +11,14 @@
 // A real-Postgres harness would be better still, but `@electric-sql/pglite` is
 // only declared on an unmerged branch; depending on it here is how WIC-1433 broke
 // CI at import while the local suite was green.
-import { expect, vi } from 'vitest';
+import { vi } from 'vitest';
 import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import {
+  applyTenancyPredicate,
+  expectScopedTo as expectScopedToShared,
+  type ProbeRow,
+} from './tenancy.js';
 
 const CATALOG_TABLE = 'quantified_bullets';
 
@@ -41,12 +46,29 @@ export function ownerParamOf(clause: unknown): string | null | undefined {
   return undefined;
 }
 
-/** The clause filters `quantified_bullets` by owner, bound to this exact caller. */
-export function expectScopedTo(clause: unknown, userId: string): void {
-  expect(clause, 'no WHERE clause was built at all').toBeDefined();
-  const { sql, params } = render(clause);
-  expect(sql).toContain('"quantified_bullets"."user_id" = $');
-  expect(params).toContain(userId);
+/**
+ * The clause restricts `quantified_bullets` to rows this caller owns.
+ *
+ * WIC-1502: delegates to the shared evaluator (WIC-1491). The body this
+ * replaced was the presence form —
+ *
+ * ```ts
+ * expect(sql).toContain('"quantified_bullets"."user_id" = $');
+ * expect(params).toContain(userId);
+ * ```
+ *
+ * — which passes identically for `and(idTerm, ownerTerm)` and
+ * `or(idTerm, ownerTerm)`, though only the first restricts anything. Measured
+ * on bf9a265: an `or`-shaped fix to `fetchStarEntries` fired the D5 trip-wires,
+ * and converting them per this file's own protocol gave 8/8 green with a live
+ * IDOR. The shared version evaluates the real boolean tree against probe rows,
+ * so the `or` shape throws.
+ *
+ * Pass `ids` whenever the read also constrains by caller-supplied id — the id
+ * half is then asserted by column, not merely by presence in `params`.
+ */
+export function expectScopedTo(clause: unknown, userId: string, ids?: readonly string[]): void {
+  expectScopedToShared(clause, { table: CATALOG_TABLE, userId, ids });
 }
 
 export interface CatalogRow {
@@ -94,14 +116,18 @@ export function stubDb({ catalog, tables = [] }: StubOptions) {
       const resolve = () => {
         let visible: Record<string, unknown>[];
         if (isCatalogTable(table)) {
-          const owner = ownerParamOf(read.clause);
-          visible =
-            owner === undefined
-              ? (catalog as unknown as Record<string, unknown>[])
-              : (catalog.filter((r) => (r.userId ?? null) === owner) as unknown as Record<
-                  string,
-                  unknown
-                >[]);
+          // WIC-1502: filter by the predicate's real boolean structure rather
+          // than by an owner id regexed out of the rendered SQL. The previous
+          // version read the owner term out and filtered `userId === owner`
+          // conjunctively whatever the actual operator was, so `or(id, owner)`
+          // and `and(id, owner)` produced the *same* rows here while Postgres
+          // returns the foreign row for only one of them. That is what let a
+          // leaking fix pass the D5 trip-wires.
+          visible = applyTenancyPredicate(
+            catalog as unknown as ProbeRow[],
+            read.clause,
+            CATALOG_TABLE
+          ) as Record<string, unknown>[];
         } else {
           visible = rowsByTable.get(table) ?? [];
         }
