@@ -1047,6 +1047,15 @@ everything the source list names, so a target listed as its own source would be
 deleted by its own merge. That request is rejected with `400 BAD_REQUEST`
 (`A merge target cannot also be a source`) before anything is written.
 
+The surviving company reports the **earliest** first-seen date across the target
+and every source, not the target's own. Duplicates usually arise because a
+company was re-entered under a new spelling, so the source is commonly the older
+record; keeping the target's date would walk the reported start of the
+relationship forward in time. Sources are soft-deleted, so their dates are not
+readable through any endpoint afterwards. `applicationCount` is likewise summed
+across all of them, and each source's `name` is folded into the survivor's
+`aliases`.
+
 ---
 
 #### Tags
