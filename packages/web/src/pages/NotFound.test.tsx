@@ -63,6 +63,11 @@ describe('NotFound', () => {
     expect(heading).toHaveTextContent(/couldn't be found/i);
 
     // No nested landmark competing with the page's <main> to be announced first.
+    // NOTE: since WIC-1155 these two no longer discriminate against the rejected
+    // EmptyState option — that component dropped its region landmark and its
+    // "Empty state" label, so it now satisfies them too (see the control below).
+    // They are kept as a plain regression guard on NotFound's own markup; D2 is
+    // what still carries the §1 argument.
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Empty state')).not.toBeInTheDocument();
     // A heading at h3 with no h1 above it is the outline defect §1 (D2) describes.
@@ -78,14 +83,30 @@ describe('NotFound', () => {
    * Without this, "no region named Empty state" passes for any markup at all,
    * including markup with no assertions worth making. Rendering the component the
    * spec rejected (§1, Option 1: a `'not-found'` variant on `EmptyState`) shows the
-   * three defects are real and that the assertions above can actually fail.
+   * defects are real and that the assertions above can actually fail.
+   *
+   * D1 has expired, and deliberately so. This control originally asserted that
+   * EmptyState exposes a region landmark named "Empty state" — the first of the
+   * three defects that made it unfit as a page-level 404. WIC-1155 (#99) then
+   * removed that landmark from EmptyState outright, for an unrelated and stronger
+   * reason: the wrapper's ARIA kept its action button reachable behind every open
+   * modal. So the defect is genuinely gone rather than merely unasserted, and the
+   * honest control is now the opposite assertion. Its consequence is recorded on
+   * the test above: the region/label half of that test can no longer be failed by
+   * this component, and D2 is the only half still discriminating.
    */
   it('negative control: the rejected EmptyState reuse would fail those assertions', () => {
     render(<EmptyState variant="no-results" />);
 
-    expect(screen.getByRole('region')).toHaveAccessibleName('Empty state'); // D1
-    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument(); // D2
-    expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument(); // D2
+    // D1, inverted by WIC-1155: no landmark at all, so it cannot compete with
+    // <main> — but equally it no longer names itself, so this is not the reason
+    // the option was rejected any more.
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Empty state')).not.toBeInTheDocument();
+    // D2 — still the live discriminator: an h3 with no h1 above it is exactly the
+    // broken document outline a 404 page must not ship.
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument();
   });
 
   // §7.4 — the keyboard user's first Tab from page load lands on the primary action.
