@@ -10,6 +10,8 @@ import type { OnboardingStatus } from '../src/db/schema.js';
 
 const USER_ID = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
 
+const STARTED_AT = new Date('2026-08-26T00:00:00.000Z');
+
 function statusRow(overrides: Partial<OnboardingStatus> = {}): OnboardingStatus {
   return {
     id: '01HXONBOARD00000000000001',
@@ -21,7 +23,7 @@ function statusRow(overrides: Partial<OnboardingStatus> = {}): OnboardingStatus 
     resumeStepSkipped: false,
     applicationStepCompleted: false,
     applicationStepSkipped: false,
-    startedAt: new Date('2026-08-26T00:00:00.000Z'),
+    startedAt: STARTED_AT,
     completedAt: null,
     createdAt: new Date('2026-08-26T00:00:00.000Z'),
     updatedAt: new Date('2026-08-26T00:00:00.000Z'),
@@ -76,9 +78,12 @@ function describePredicate(condition: unknown): Predicate {
  *
  * Every read is recorded in `reads` with its `where` argument, so a test can
  * assert both the sequence of tables consulted and the predicate each was
- * probed with. A read that reaches `.limit()` without a `.where()` is recorded
- * with `where: null` rather than crashing, so a missing predicate shows up as a
- * failed assertion instead of a TypeError.
+ * probed with. That second half is what makes the WIC-1370 `started_at` bound
+ * visible at all: the double resolves whatever the table was declared with
+ * regardless of predicate, so no count of reads can tell a bounded probe from
+ * an unbounded one. A read that reaches `.limit()` without a `.where()` is
+ * recorded with `where: null` rather than crashing, so a missing predicate
+ * shows up as a failed assertion instead of a TypeError.
  */
 function stubDb(tables: Partial<Record<StubbedTable, readonly unknown[]>>) {
   const reads: Read[] = [];
@@ -119,6 +124,21 @@ function scopedToUser(table: StubbedTable): Predicate {
   return { sql: `${table}.user_id = ?`, params: [USER_ID] };
 }
 
+/**
+ * The same per-user predicate, additionally bounded in time (WIC-1370).
+ *
+ * The timestamp column differs per table — `resumes` stamps `uploaded_at`,
+ * `applications` stamps `created_at` — so it is spelled out by the caller
+ * rather than derived, which also makes a probe that bounded the wrong column
+ * fail loudly.
+ */
+function scopedToUserBefore(table: StubbedTable, column: string, before: Date): Predicate {
+  return {
+    sql: `(${table}.user_id = ? and ${table}.${column} < ?)`,
+    params: [USER_ID, before],
+  };
+}
+
 describe('shouldShowOnboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -137,7 +157,13 @@ describe('shouldShowOnboarding', () => {
   });
 
   it('E-1: true for a user who abandoned mid-flow', async () => {
-    stubDb({ onboarding_status: [statusRow({ currentStep: 'resume_upload', version: 4 })] });
+    // Mid-flow is engaged, so the probes do run (WIC-1370) — bounded by startedAt,
+    // and this user has nothing predating their status row.
+    stubDb({
+      onboarding_status: [statusRow({ currentStep: 'resume_upload', version: 4 })],
+      resumes: [],
+      applications: [],
+    });
     await expect(shouldShowOnboarding(USER_ID)).resolves.toBe(true);
   });
 
@@ -175,11 +201,20 @@ describe('shouldShowOnboarding', () => {
   // ── AC-10: returning-user bypass (WIC-1359) ────────────────────────────────
   //
   // AC-10 requires that a user with >=1 resume or >=1 application is never shown
-  // onboarding. The subtlety is that "has a resume" is also true of a genuine new
-  // user halfway through the flow — the flow is what created it — so the bypass is
-  // scoped to users who have never engaged with onboarding: no status row, or the
-  // pristine `welcome` row that GET /status auto-creates on first page load. The
-  // mid-flow tests below are the guard on that scoping.
+  // onboarding, unconditionally. The subtlety is that "has a resume" is also true of
+  // a genuine new user halfway through the flow — the flow's step 3 is what created
+  // it — so the probes cannot be unconditional either.
+  //
+  // The discriminator is time, not engagement (WIC-1370). For a user who has driven
+  // the flow at least one step, only work created *before* their status row could
+  // have come from somewhere other than the flow, so the probes are bounded by
+  // `startedAt`. For a user the flow has never moved — no row, or the pristine
+  // `welcome` row GET /status auto-creates on page load — there is no flow output to
+  // exclude, so the probes are unbounded.
+  //
+  // The double resolves a declared table's rows regardless of predicate, so the read
+  // sequences below cannot see that bound on their own. The two "scopes/leaves the
+  // probes" tests assert the rendered `where` directly; they are what pin the fix.
 
   it('AC-10: an established user with a resume and no onboarding row is not shown it', async () => {
     // No onboarding row — the shape of every user who predates the feature.
@@ -202,27 +237,97 @@ describe('shouldShowOnboarding', () => {
     // The cohort users actually hit: an established user loads the app, GET /status
     // auto-initializes a pristine welcome row for them, and before WIC-1359 that row
     // alone opened the modal over their populated dashboard.
-    stubDb({ onboarding_status: [statusRow()], resumes: SOME_ROW });
+    const { reads } = stubDb({ onboarding_status: [statusRow()], resumes: SOME_ROW });
     await expect(shouldShowOnboarding(USER_ID)).resolves.toBe(false);
+    expect(reads.map((r) => r.table)).toEqual(['onboarding_status', 'resumes']);
+  });
+
+  it('AC-10 for an established user whose row shows one "Get Started" click', async () => {
+    // WIC-1370: the modal WIC-1359 put in front of this user is a thing they can
+    // click. One click POSTs currentStep, and if engagement alone short-circuited to
+    // "show", they would get onboarding over a populated dashboard forever. The
+    // resume that answers here is older than the status row, so the bound keeps it.
+    const { reads } = stubDb({
+      onboarding_status: [statusRow({ currentStep: 'personal_info' })],
+      resumes: SOME_ROW,
+    });
+    await expect(shouldShowOnboarding(USER_ID)).resolves.toBe(false);
+    expect(reads.map((r) => r.table)).toEqual(['onboarding_status', 'resumes']);
+    expect(reads[1].where).toEqual(scopedToUserBefore('resumes', 'uploaded_at', STARTED_AT));
+  });
+
+  it('AC-10 for an established user who clicked "Skip for now" once', async () => {
+    // Same cohort, the other button: handleSkipPersonalInfo POSTs a skip flag.
+    const { reads } = stubDb({
+      onboarding_status: [statusRow({ personalInfoStepSkipped: true })],
+      resumes: SOME_ROW,
+    });
+    await expect(shouldShowOnboarding(USER_ID)).resolves.toBe(false);
+    expect(reads.map((r) => r.table)).toEqual(['onboarding_status', 'resumes']);
+    expect(reads[1].where).toEqual(scopedToUserBefore('resumes', 'uploaded_at', STARTED_AT));
   });
 
   it('AC-10 does not eject a new user who has just uploaded their first resume', async () => {
-    // Mid-flow at resume_upload with a resume on file. Reading history here would
-    // close the modal on the user in the middle of the step that created the row.
-    // Neither history table is declared, so any probe at all fails this test.
+    // Mid-flow at resume_upload with nothing predating the status row: the resume the
+    // flow itself just created falls outside the startedAt bound, so both probes come
+    // back empty and this user stays in the step that created it.
     const { reads } = stubDb({
       onboarding_status: [statusRow({ currentStep: 'resume_upload' })],
+      resumes: [],
+      applications: [],
     });
     await expect(shouldShowOnboarding(USER_ID)).resolves.toBe(true);
-    expect(reads.map((r) => r.table)).toEqual(['onboarding_status']);
+    expect(reads.map((r) => r.table)).toEqual(['onboarding_status', 'resumes', 'applications']);
   });
 
   it('AC-10 does not eject a user still on welcome who has skipped a step', async () => {
-    // Skipping is engagement: the flow is in progress even though currentStep has
-    // not moved off welcome yet, so history must not be consulted.
-    const { reads } = stubDb({ onboarding_status: [statusRow({ resumeStepSkipped: true })] });
+    // Skipping is engagement: the flow is in progress even though currentStep has not
+    // moved off welcome yet, and this user has no work predating their status row.
+    const { reads } = stubDb({
+      onboarding_status: [statusRow({ resumeStepSkipped: true })],
+      resumes: [],
+      applications: [],
+    });
     await expect(shouldShowOnboarding(USER_ID)).resolves.toBe(true);
-    expect(reads.map((r) => r.table)).toEqual(['onboarding_status']);
+    expect(reads.map((r) => r.table)).toEqual(['onboarding_status', 'resumes', 'applications']);
+  });
+
+  it('scopes the probes by startedAt for a user who has engaged with the flow', async () => {
+    // The read-sequence tests above pass with or without the bound, because the double
+    // resolves a declared table's rows whatever the predicate says. This one reads the
+    // predicate. A distinct startedAt proves the bound comes from the status row
+    // rather than from a constant that happens to match the fixture.
+    const startedAt = new Date('2026-08-26T01:23:45.000Z');
+    const { reads } = stubDb({
+      onboarding_status: [statusRow({ currentStep: 'resume_upload', startedAt })],
+      resumes: [],
+      applications: [],
+    });
+    await shouldShowOnboarding(USER_ID);
+
+    expect(reads).toEqual([
+      { table: 'onboarding_status', where: scopedToUser('onboarding_status') },
+      { table: 'resumes', where: scopedToUserBefore('resumes', 'uploaded_at', startedAt) },
+      {
+        table: 'applications',
+        where: scopedToUserBefore('applications', 'created_at', startedAt),
+      },
+    ]);
+  });
+
+  it('leaves the probes unbounded for a user the flow has never moved', async () => {
+    // Deliberately NOT scoped: a new user who dismissed at welcome and then created an
+    // application by hand must not be dragged back into onboarding by a startedAt bound
+    // that excludes their own work. The pristine row carries a startedAt all the same,
+    // so "no bound" here is a choice the service makes, not an absent value.
+    const { reads } = stubDb({ onboarding_status: [statusRow()], resumes: [], applications: [] });
+    await shouldShowOnboarding(USER_ID);
+
+    expect(reads).toEqual([
+      { table: 'onboarding_status', where: scopedToUser('onboarding_status') },
+      { table: 'resumes', where: scopedToUser('resumes') },
+      { table: 'applications', where: scopedToUser('applications') },
+    ]);
   });
 
   it('reads history only when the status row cannot answer on its own', async () => {
@@ -252,7 +357,7 @@ describe('shouldShowOnboarding', () => {
   //
   // The previous stub bound a queued result to call *position*, so a read of the
   // wrong table drew whatever row was next in line and the suite stayed green.
-  // These two tests pin the properties that make the AC-10 assertions above
+  // These three tests pin the properties that make the AC-10 assertions above
   // mean what they say, so the harness cannot quietly regress to positional.
 
   it('harness: a read of an undeclared table throws instead of drawing another row', () => {
