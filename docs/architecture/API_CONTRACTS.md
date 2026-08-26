@@ -2287,9 +2287,12 @@ No report endpoint mutates anything, and none accepts a request body.
 
 #### Common to all five report endpoints
 
-**User scoping.** Every report is scoped to the caller's `userId` (the `sub` claim). When
-`SUPABASE_JWT_SECRET` is unset — single-user and local dev — the scoping filter is dropped and the
-reports cover all rows. See `docs/AUTHENTICATION.md`.
+**User scoping.** Every report is scoped to the caller's `userId` (the `sub` claim). When **both**
+`SUPABASE_URL` and `SUPABASE_JWT_SECRET` are absent — the single-user local-development case — the
+middleware sets the user id to `null` and the scoping filter is dropped, so the reports cover all
+rows. A token that verifies but carries no `sub` claim also yields a `null` user id, and therefore
+an unscoped report, even with Supabase fully configured (WIC-1554). See
+[Authentication](#authentication) and `docs/AUTHENTICATION.md`.
 
 **`generatedAt`.** Every response carries `generatedAt`, an ISO 8601 timestamp taken when the
 report was assembled. Reports are computed per request; nothing is cached.
@@ -2316,6 +2319,11 @@ every parameter is optional and has the default given in its table below. This i
 `VALIDATION_ERROR` shape on these endpoints — a malformed `cursor` is rejected past the Zod layer
 and carries no `details`; see **Pagination** below.
 
+A parameter a schema does not declare at all is **stripped, not rejected** — the schemas are plain
+`z.object()`, not `.strict()`. So the `limit` above 100 example is a `400` only on the three
+endpoints that declare `limit`: on the unpaginated `pipeline` and `by-fit-tier`, `?limit=500` is a
+silent `200 OK` with the parameter discarded.
+
 **Pagination.** `needs-action`, `stale` and `closed-loop` are cursor-paginated. `pipeline` and
 `by-fit-tier` are **not** — they return the complete set in one response and accept neither `limit`
 nor `cursor`.
@@ -2336,7 +2344,7 @@ cursors are rejected rather than being treated as page one (WIC-1308):
 {
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "Invalid cursor. Pass back the `nextCursor` from a previous response verbatim, or omit it for the first page."
+    "message": "Invalid `cursor`. Pass back the `nextCursor` from a previous response verbatim, or omit it for the first page."
   }
 }
 ```
@@ -2423,9 +2431,10 @@ only if **both** `nextAction` and `nextActionDue` are set and its status is non-
 | `limit` | integer, 1–100 | `50` | Page size |
 | `cursor` | string | *(start)* | Pagination cursor |
 
-`includeOverdue` is compared against the literal string `'false'`: only `includeOverdue=false`
-turns it off. Any other value — including `0`, `no`, or the parameter being absent — leaves overdue
-items in. With it off, the window is bounded below by today as well as above.
+`includeOverdue` accepts only the literal strings `true` and `false`. Any other value — `1`, `0`,
+`no`, or an empty `includeOverdue=` — is a `VALIDATION_ERROR`, not a coercion. Only
+`includeOverdue=false` turns overdue items off; `true` and omitting the parameter both leave them
+in. With it off, the window is bounded below by today as well as above.
 
 **Response**: `200 OK`
 
@@ -2467,7 +2476,9 @@ action is last.
 
 #### `GET /api/reports/stale`
 
-Applications that have not been touched in a while — `updatedAt` older than today minus `days`.
+Applications that have not been touched in a while — `updatedAt` older than **now** minus `days`.
+The threshold keeps the current time of day rather than snapping to midnight, so unlike
+`needs-action` (which anchors on today's local midnight) this boundary moves through the day.
 
 **Query Parameters**:
 
@@ -2578,7 +2589,8 @@ to `updatedAt`.
 
 `previousStatus` is the status the application held immediately before that closing transition,
 read from the second-to-last history entry. It is `null` when the history is too short to have
-one — an application closed in a single recorded step.
+one — an application closed in a single recorded step, or one with no `status_history` rows at all
+(the same fallback case `closedAt` names above).
 
 `daysInPipeline` is whole days from `createdAt` to `closedAt`.
 
