@@ -807,12 +807,20 @@ export async function generateDiff(
   userId?: string
 ) {
   const db = getDb();
+  // `sourceId` comes straight from the request body, so the caller's identity is
+  // the thing being checked here — it has to travel with the event. Without it
+  // `resolveOwnerUserId` falls back to the source row's own `user_id`, the
+  // "owner" resolves to the victim, and the scoped document read matches by
+  // construction. `?? null` rather than bare `userId`: in local-dev auth bypass
+  // `userId` is undefined, `typeof null === 'string'` is false, and the row
+  // fallback still applies, so single-user local behaviour is unchanged.
   await processCatalogChange({
     id: ulid(),
     sourceType,
     sourceId,
     changeType: 'created',
     timestamp: new Date().toISOString(),
+    metadata: { userId: userId ?? null },
   });
   const [diff] = await db
     .select()

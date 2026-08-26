@@ -35,7 +35,11 @@ vi.mock('../src/db/client.js', () => ({
 // stay green with the predicate removed.
 vi.mock('../src/services/storage.service.js', () => ({
   isStorageAvailable: () => true,
-  getObject: async () => Buffer.from('resume-bytes'),
+  // The object body is the file path, so extractText below can return text that
+  // differs per document. Needed to tell "B read A's file" from "B read some
+  // file" — with one fixed body every resume yields identical prose and the
+  // disclosure is invisible.
+  getObject: async (path: string) => Buffer.from(path),
 }));
 
 // Same reasoning: extractText is real pdfjs/mammoth and cannot parse a stub
@@ -43,11 +47,18 @@ vi.mock('../src/services/storage.service.js', () => ({
 // extractExperienceEntries) stays real, since extraction depends on it.
 vi.mock('../src/services/resume.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/services/resume.service.js')>();
-  return { ...actual, extractText: async () => RESUME_TEXT };
+  return {
+    ...actual,
+    extractText: async (content: Buffer) =>
+      TEXT_BY_FILE_PATH.get(content.toString()) ?? RESUME_TEXT,
+  };
 });
 
+/** Per-document resume prose, keyed by `filePath`. Empty ⇒ everyone gets RESUME_TEXT. */
+const TEXT_BY_FILE_PATH = new Map<string, string>();
+
 const { processCatalogChange } = await import('../src/services/extraction.service.js');
-const { applyDiff } = await import('../src/services/catalog.service.js');
+const { applyDiff, generateDiff } = await import('../src/services/catalog.service.js');
 const {
   companyCatalog,
   techStackTags,
@@ -246,6 +257,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  TEXT_BY_FILE_PATH.clear();
   await client.exec(`
     TRUNCATE catalog_diffs, catalog_change_log, recurring_themes, quantified_bullets,
              job_fit_tags, tech_stack_tags, company_catalog, resumes, applications CASCADE;
@@ -533,6 +545,107 @@ describe("WIC-1404 AC-4 — is_core_strength is computed from the owner's docume
     expect(aAfter.occurrenceCount).toBe(2);
     expect(aAfter.isCoreStrength).toBe(false);
     expect(aAfter.sourceIds).not.toContain('01RESUME_B');
+
+    // ...and B is not silently skipped: an unscoped existence read routes B's
+    // run to `update`, whose scoped WHERE then matches nothing at all, so B
+    // ends up with no row rather than with A's. Without this the whole test
+    // survives reverting `existingThemeSlugs`' scoping.
+    const [bTheme] = await db
+      .select()
+      .from(recurringThemes)
+      .where(eq(recurringThemes.userId, USER_B));
+    expect(bTheme, 'user B must get their own mentorship row').toBeDefined();
+    expect(bTheme.sourceIds).toEqual(['01RESUME_B']);
+  });
+});
+
+/*
+ * Once the existence reads are scoped, the create/update decision is per tenant,
+ * so in every fixture above the `update` branch only ever fires same-tenant and
+ * its own WHERE is never tested against a foreign row. Three of the four update
+ * predicates therefore survive being reverted with the suite fully green — the
+ * company one is caught only because AC-3's second test happens to seed both
+ * tenants with `acme-corp`. This does for the other three what that test does
+ * for companies: seed a co-resident row first, then assert it is untouched.
+ */
+describe('WIC-1404 — the update predicates, exercised against a co-resident row', () => {
+  it("increments only the uploader's row when both tenants hold the same slug", async () => {
+    await seedResume('01RESUME_A1', USER_A);
+    await seedResume('01RESUME_A2', USER_A);
+    await processCatalogChange(
+      resumeEvent('01RESUME_A1', USER_A, `${RESUME_TEXT} ${JOB_FIT_TEXT}`)
+    );
+
+    // B independently holds all three slugs — legal under the 0017 composites,
+    // and the shape that makes a slug-only WHERE a two-row UPDATE.
+    await db.insert(techStackTags).values({
+      id: '01TECH_B',
+      userId: USER_B,
+      tagSlug: 'react',
+      displayName: 'React',
+      category: 'frontend',
+      sourceIds: ['01RESUME_B'],
+      mentionCount: 1,
+    });
+    await db.insert(jobFitTags).values({
+      id: '01JF_B',
+      userId: USER_B,
+      tagSlug: 'software-engineering',
+      displayName: 'Software Engineering',
+      category: 'role',
+      sourceIds: ['01RESUME_B'],
+      mentionCount: 1,
+    });
+    await db.insert(recurringThemes).values({
+      id: '01THEME_B',
+      userId: USER_B,
+      themeSlug: 'mentorship',
+      displayName: 'Mentorship',
+      sourceIds: ['01RESUME_B'],
+      occurrenceCount: 1,
+    });
+
+    const [techBefore] = await db
+      .select()
+      .from(techStackTags)
+      .where(eq(techStackTags.userId, USER_B));
+    const [jfBefore] = await db.select().from(jobFitTags).where(eq(jobFitTags.userId, USER_B));
+    const [themeBefore] = await db
+      .select()
+      .from(recurringThemes)
+      .where(eq(recurringThemes.userId, USER_B));
+
+    await processCatalogChange(
+      resumeEvent('01RESUME_A2', USER_A, `${RESUME_TEXT} ${JOB_FIT_TEXT}`)
+    );
+
+    // Positive direction: A's own rows advanced, so the UPDATEs really ran and
+    // the negative assertions below are not vacuous.
+    const [techA] = await db.select().from(techStackTags).where(eq(techStackTags.userId, USER_A));
+    expect(techA.mentionCount, "A's own update must have run").toBe(2);
+
+    // Negative direction: B's rows byte-identical on every mutable column.
+    const [techAfter] = await db
+      .select()
+      .from(techStackTags)
+      .where(eq(techStackTags.userId, USER_B));
+    expect(techAfter.mentionCount).toBe(techBefore.mentionCount);
+    expect(techAfter.sourceIds).toEqual(techBefore.sourceIds);
+    expect(techAfter.version).toBe(techBefore.version);
+
+    const [jfAfter] = await db.select().from(jobFitTags).where(eq(jobFitTags.userId, USER_B));
+    expect(jfAfter.mentionCount).toBe(jfBefore.mentionCount);
+    expect(jfAfter.sourceIds).toEqual(jfBefore.sourceIds);
+    expect(jfAfter.version).toBe(jfBefore.version);
+
+    const [themeAfter] = await db
+      .select()
+      .from(recurringThemes)
+      .where(eq(recurringThemes.userId, USER_B));
+    expect(themeAfter.occurrenceCount).toBe(themeBefore.occurrenceCount);
+    expect(themeAfter.sourceIds).toEqual(themeBefore.sourceIds);
+    expect(themeAfter.isCoreStrength).toBe(false);
+    expect(themeAfter.version).toBe(themeBefore.version);
   });
 });
 
@@ -612,5 +725,85 @@ describe('WIC-1404 — owner resolution', () => {
 
     expect(await db.select().from(techStackTags)).toHaveLength(0);
     expect(await db.select().from(catalogDiffs)).toHaveLength(0);
+  });
+});
+
+/*
+ * The test above proves the scoped document read works — but it hand-builds
+ * `metadata: { userId }`, and the production entry point does not. `generateDiff`
+ * holds the authenticated caller and never forwards it, so `resolveOwnerUserId`
+ * falls back to the source row's own owner: the "owner" resolves to the victim
+ * and `WHERE resumes.id = $1 AND resumes.user_id = $2` matches by construction.
+ * The predicate cannot miss on the one path it was written to defend.
+ *
+ * Same shape as the application.service.ts miss WIC-1404 fixed, one layer up:
+ * a scoping predicate is only as good as the identity its entry point carries.
+ * These tests drive generateDiff itself, so no fixture can supply the metadata
+ * the route forgets.
+ */
+describe('WIC-1406 — generateDiff scopes to the caller, not to the named document', () => {
+  /** A distinctive line so a leak is identifiable as A's prose, not any prose. */
+  const A_PRIVATE_TEXT =
+    'Reduced AWS spend by 42% at Stealth Startup. Built dashboards in React. Mentored two engineers.';
+
+  async function seedResumeWithText(id: string, userId: string, text: string) {
+    await seedResume(id, userId);
+    TEXT_BY_FILE_PATH.set(`${userId}/resume/${id}.pdf`, text);
+  }
+
+  it('refuses to build a diff from a resume the caller does not own, and writes nothing', async () => {
+    await seedResumeWithText('01RESUME_A', USER_A, A_PRIVATE_TEXT);
+
+    // User B posts /api/catalog/generate-diff naming user A's resume ULID.
+    await expect(
+      generateDiff('resume', '01RESUME_A', USER_B),
+      "B must not receive a diff derived from A's document"
+    ).rejects.toThrow(/CatalogDiff/);
+
+    // Nothing was written anywhere: not into A's catalog, not as a diff row.
+    expect(await db.select().from(techStackTags)).toHaveLength(0);
+    expect(await db.select().from(recurringThemes)).toHaveLength(0);
+    expect(await db.select().from(catalogDiffs)).toHaveLength(0);
+  });
+
+  it("does not return any of the named resume's prose to a foreign caller", async () => {
+    await seedResumeWithText('01RESUME_A', USER_A, A_PRIVATE_TEXT);
+
+    // The `create` shape is the one that carries verbatim resume text in
+    // `changes[].data.rawText`, rather than only slugs and ULIDs.
+    const result = await generateDiff('resume', '01RESUME_A', USER_B).catch((e: unknown) => e);
+
+    expect(result, 'the foreign call must reject rather than resolve').toBeInstanceOf(Error);
+    expect(JSON.stringify(result)).not.toContain('Stealth Startup');
+    expect(JSON.stringify(result)).not.toContain('42');
+  });
+
+  it("still builds a diff for the owner's own resume", async () => {
+    // Positive control. Without it both assertions above would hold on a
+    // generateDiff that had simply stopped working for everyone.
+    await seedResumeWithText('01RESUME_A', USER_A, A_PRIVATE_TEXT);
+
+    const diff = await generateDiff('resume', '01RESUME_A', USER_A);
+    expect(diff.id).toBeDefined();
+
+    const rows = await db.select().from(techStackTags).where(eq(techStackTags.userId, USER_A));
+    expect(
+      rows.find((t) => t.tagSlug === 'react'),
+      "A's own run must extract"
+    ).toBeDefined();
+  });
+
+  it('falls back to the document owner when there is no authenticated caller', async () => {
+    // Local-dev auth bypass: `c.get('userId')` is undefined, so the route passes
+    // `undefined`. `metadata.userId` is then null, `typeof null === 'string'` is
+    // false, and the row fallback still applies — single-user local behaviour is
+    // untouched by the caller-scoping fix.
+    await seedResumeWithText('01RESUME_A', USER_A, A_PRIVATE_TEXT);
+
+    const diff = await generateDiff('resume', '01RESUME_A', undefined);
+    expect(diff.id).toBeDefined();
+
+    const rows = await db.select().from(techStackTags).where(eq(techStackTags.userId, USER_A));
+    expect(rows.find((t) => t.tagSlug === 'react')).toBeDefined();
   });
 });

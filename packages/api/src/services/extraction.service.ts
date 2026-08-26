@@ -513,6 +513,13 @@ function stringSimilarity(a: string, b: string): number {
 // the request body, so without this predicate a caller naming someone else's
 // resume ULID has that resume's text extracted into catalog rows. Scoping the
 // read means a mismatch yields no text and the whole run bails.
+//
+// This only bites if the *caller's* identity reached `resolveOwnerUserId`. When
+// the event carries no `metadata.userId` the owner falls back to the source row
+// itself, the predicate compares a row to its own owner and can never miss. So
+// any entry point that takes a document id from untrusted input must forward
+// the authenticated caller — see the `metadata` on `catalog.service.ts`'s
+// `generateDiff`, which is load-bearing for this comment being true.
 async function getTextContent(
   sourceType: 'resume' | 'application',
   sourceId: string,
