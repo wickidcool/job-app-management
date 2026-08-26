@@ -1,7 +1,7 @@
 import { eq, and, ilike, inArray, desc, asc, or, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
-import { encodeCursor, parseCursor } from '../lib/pagination.js';
+import { encodeCursor, parseCursor, PAGE_NAMES } from '../lib/pagination.js';
 import { applications, statusHistory } from '../db/schema.js';
 import { enqueueChange } from './change-queue.service.js';
 import {
@@ -181,7 +181,7 @@ export async function listApplications(
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const offset = parseCursor(params.page, 'page');
+  const offset = parseCursor(params.page, PAGE_NAMES);
 
   const sortOrder = params.sortOrder === 'asc' ? asc : desc;
   let orderBy;

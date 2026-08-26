@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { encodeCursor, parseCursor } from '../src/lib/pagination.js';
+import { encodeCursor, parseCursor, PAGE_NAMES } from '../src/lib/pagination.js';
 import { AppError } from '../src/types/index.js';
 
 // A database handle that fails the test if anything touches it. Every guarded
@@ -24,6 +24,7 @@ import * as catalogService from '../src/services/catalog.service.js';
 import * as applicationService from '../src/services/application.service.js';
 import * as coverLetterService from '../src/services/cover-letter.service.js';
 import * as resumeVariantService from '../src/services/resume-variant.service.js';
+import * as reportsService from '../src/services/reports.service.js';
 
 const encode = (offset: string) => Buffer.from(offset).toString('base64url');
 
@@ -86,8 +87,18 @@ describe('parseCursor', () => {
     // `GET /api/applications` spells its cursor `page`. A message saying
     // "Invalid cursor" would send that caller looking for a parameter their
     // request does not contain.
-    expect(() => parseCursor('!!!!', 'page')).toThrowError(/`page`.*`nextPage`/s);
+    expect(() => parseCursor('!!!!', PAGE_NAMES)).toThrowError(/`page`.*`nextPage`/s);
     expect(() => parseCursor('!!!!')).toThrowError(/`cursor`.*`nextCursor`/s);
+  });
+
+  it('does not derive the response field from the parameter name', () => {
+    // WIC-1335. The message used to compute the field as
+    // `next${param === 'page' ? 'Page' : 'Cursor'}`, so any third spelling
+    // would have been told to pass back `nextCursor` — a field its response
+    // does not contain. The two names are now given, not inferred.
+    expect(() => parseCursor('!!!!', { param: 'after', responseField: 'endCursor' })).toThrowError(
+      /`after`.*`endCursor`/s
+    );
   });
 });
 
@@ -97,6 +108,14 @@ describe('parseCursor', () => {
 // malformed cursor and asserts it throws before the database is touched.
 // Reverting any single site to `parseInt(Buffer.from(...))` fails its case here
 // — the inline version returns `NaN` and walks straight into `POISON_DB`.
+//
+// WIC-1335. The table must be *exhaustive*, not merely long. It first listed
+// only the nine sites this commit converted and omitted the three in
+// `reports.service.ts` — the ones WIC-1308 was about — so that claim was false
+// for a quarter of the codebase: reinstating the original WIC-1308 defect in
+// `getNeedsActionReport` left all 403 tests green. The invariant this table
+// encodes is `grep -c 'parseCursor(' src/services/*.ts`, which is 12; every
+// row below must correspond to one of those, and every one of those to a row.
 describe('every paginated list endpoint rejects a malformed cursor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -123,7 +142,58 @@ describe('every paginated list endpoint rejects a malformed cursor', () => {
       'resumeVariant.listResumeVariants',
       (cursor) => resumeVariantService.listResumeVariants({ cursor }),
     ],
+    // The three WIC-1308 fixed in place, before the decoder moved to
+    // `lib/pagination.ts`. They were never covered at call-site level — not by
+    // PR #113 and not by the first draft of this table (WIC-1335).
+    ['reports.getNeedsActionReport', (cursor) => reportsService.getNeedsActionReport({ cursor })],
+    ['reports.getStaleReport', (cursor) => reportsService.getStaleReport({ cursor })],
+    ['reports.getClosedLoopReport', (cursor) => reportsService.getClosedLoopReport({ cursor })],
   ];
+
+  // The row-name prefix each service file is spelled with. The only
+  // hand-maintained half of the check below — and adding a service without
+  // adding its entry here fails too, as an unmapped prefix.
+  const SERVICE_FILES: Record<string, string> = {
+    catalog: 'catalog.service.ts',
+    application: 'application.service.ts',
+    coverLetter: 'cover-letter.service.ts',
+    resumeVariant: 'resume-variant.service.ts',
+    reports: 'reports.service.ts',
+  };
+
+  // Guards the guard. `CALL_SITES` is hand-maintained, so on its own it can
+  // only ever claim to be exhaustive; this counts. A new paginated endpoint
+  // that lands without a row fails here rather than quietly shrinking the
+  // coverage claim above — which is precisely how the three reports sites went
+  // missing (WIC-1335). Compared per service rather than in total, so swapping
+  // one service's row for another's does not net out to zero.
+  it('covers every parseCursor call site in the services layer', async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const dir = new URL('../src/services/', import.meta.url);
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.service.ts'));
+    const sources = await Promise.all(
+      files.map((f) => readFile(new URL(f, dir), 'utf-8').then((body) => [f, body] as const))
+    );
+
+    const inSource: Record<string, number> = {};
+    for (const [file, body] of sources) {
+      const calls = body.match(/parseCursor\(/g)?.length ?? 0;
+      if (calls) inSource[file] = calls;
+    }
+
+    const inTable: Record<string, number> = {};
+    for (const [name] of CALL_SITES) {
+      const file = SERVICE_FILES[name.split('.')[0]];
+      expect(file, `no SERVICE_FILES entry for the \`${name}\` prefix`).toBeDefined();
+      inTable[file] = (inTable[file] ?? 0) + 1;
+    }
+
+    expect(inTable).toEqual(inSource);
+
+    // And nothing decodes a cursor behind the guard's back. `encodeCursor` and
+    // `parseCursor` are the only two places `base64url` may appear.
+    expect(sources.filter(([, body]) => body.includes('base64url')).map(([f]) => f)).toEqual([]);
+  });
 
   it.each(CALL_SITES)('%s rejects a cursor that decodes to a non-number', async (_name, call) => {
     await expect(call(MALFORMED)).rejects.toMatchObject({

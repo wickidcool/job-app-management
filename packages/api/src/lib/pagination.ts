@@ -3,16 +3,38 @@ import { AppError } from '../types/index.js';
 /**
  * Offset pagination cursors, in one place.
  *
- * The encoder and the decoder used to be copy-pasted, apart, at ten call sites
- * across six services (WIC-1308 fixed one of them; WIC-1312 is the other nine).
- * Living apart is what let them drift: every site could produce a cursor but
- * only one could reject a bad one. Keep them adjacent.
+ * The encoder and the decoder used to be copy-pasted, apart, at twelve call
+ * sites across five services — catalog 6, reports 3, application 1,
+ * cover-letter 1, resume-variant 1 (WIC-1308 fixed the three in reports;
+ * WIC-1312 is the other nine). Living apart is what let them drift: every site
+ * could produce a cursor but only one trio could reject a bad one. Keep them
+ * adjacent.
+ *
+ * `test/pagination.test.ts` drives all twelve through this module and counts
+ * them, so the tally above is checked rather than asserted (WIC-1335 — the
+ * first draft of both this comment and that table was three sites short).
  */
 
 /** The wire form of a cursor: the row offset, base64url-encoded. */
 export function encodeCursor(offset: number): string {
   return Buffer.from(String(offset)).toString('base64url');
 }
+
+/**
+ * What one endpoint calls its cursor on the way in and on the way out. These
+ * are two independent facts about a published contract, so neither is derived
+ * from the other.
+ */
+export interface CursorNames {
+  /** The query parameter the cursor arrives in. */
+  param: string;
+  /** The response field that carries the next one back. */
+  responseField: string;
+}
+
+/** What all but one endpoint use. `GET /api/applications` is the exception. */
+export const CURSOR_NAMES: CursorNames = { param: 'cursor', responseField: 'nextCursor' };
+export const PAGE_NAMES: CursorNames = { param: 'page', responseField: 'nextPage' };
 
 /**
  * Resolves a pagination cursor to a row offset. Absent cursor means the first
@@ -43,18 +65,21 @@ export function encodeCursor(offset: number): string {
  * send. Serving page one instead would both hide the caller's bug and invite
  * an endless pagination loop.
  *
- * @param paramName The query parameter this cursor arrived in, so the message
- *   names something the caller can actually find in their request. Not every
- *   endpoint spells it `cursor` — `GET /api/applications` uses `page`.
+ * @param names What this endpoint calls its cursor, so the message points at
+ *   something the caller can actually find. Both halves are stated because
+ *   neither implies the other: `GET /api/applications` reads `page` and
+ *   answers `nextPage`, everything else reads `cursor` and answers
+ *   `nextCursor`, but an endpoint is free to pair them however it likes
+ *   (WIC-1335).
  */
-export function parseCursor(cursor: string | undefined, paramName = 'cursor'): number {
+export function parseCursor(cursor: string | undefined, names: CursorNames = CURSOR_NAMES): number {
   if (!cursor) return 0;
   const decoded = Buffer.from(cursor, 'base64url').toString('utf-8');
   const offset = /^\d+$/.test(decoded) ? Number(decoded) : NaN;
   if (!Number.isSafeInteger(offset)) {
     throw new AppError(
       'VALIDATION_ERROR',
-      `Invalid \`${paramName}\`. Pass back the \`next${paramName === 'page' ? 'Page' : 'Cursor'}\` from a previous response verbatim, or omit it for the first page.`,
+      `Invalid \`${names.param}\`. Pass back the \`${names.responseField}\` from a previous response verbatim, or omit it for the first page.`,
       undefined,
       400
     );
