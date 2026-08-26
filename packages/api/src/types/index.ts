@@ -507,7 +507,42 @@ export class CoverLetterError extends AppError {
 // ============================================================================
 
 export type ActiveStatus = 'saved' | 'applied' | 'phone_screen' | 'interview';
-export type FitTier = 'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed';
+
+/**
+ * The fit verdict for one application, as reported across a whole pipeline.
+ *
+ * **`FitTier` is `FitRecommendation` plus the two states an analysis result can
+ * be in when there is no verdict.** It is written as a union of the UC-3 type on
+ * purpose (WIC-1298): a report groups applications by the judgement UC-3 made,
+ * so the two must not be able to drift. Add a member to `FitRecommendation` and
+ * it appears here automatically — and `FIT_TIER_ORDER` in `reports.service.ts`
+ * fails to compile until it is ranked.
+ *
+ * Until WIC-1298 this was its own four-member vocabulary — `strong_fit |
+ * moderate_fit | weak_fit | not_analyzed` — which agreed with
+ * `FitRecommendation` at the top and diverged at the bottom, with no mapping
+ * written down anywhere. Two things were wrong with it:
+ *
+ * - **`weak_fit` collapsed `stretch` into `low_fit`.** `stretch` is not a
+ *   magnitude: it fires on a *seniority* mismatch even at a good skill match
+ *   (`computeRecommendation` in `job-fit.service.ts`). Reporting that as "weak"
+ *   tells the user their skills are short when the finding was that the level is
+ *   wrong — the opposite action. `stretch` and `low_fit` are now distinct tiers.
+ * - **`not_analyzed` absorbed `recommendation: null`.** "No analysis has ever
+ *   run" and "an analysis ran and could not score" are different facts and want
+ *   different prompts. The latter is now `unscored`.
+ *
+ * `recommendationToFitTier()` in `reports.service.ts` is the single place the
+ * two vocabularies meet. Both are wire values: changing a member versions
+ * `GET /api/reports/by-fit-tier` and `POST /api/catalog/job-fit/analyze`.
+ * Display labels are decoupled (`packages/web/src/constants/fitLevel.ts`).
+ */
+export type FitTier =
+  | FitRecommendation
+  /** An analysis ran but produced no verdict (`recommendation: null`). */
+  | 'unscored'
+  /** No fit analysis has ever been run for this application. */
+  | 'not_analyzed';
 
 export interface PipelineApplication {
   id: string;
