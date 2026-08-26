@@ -14,6 +14,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:rls": "node scripts/apply-rls.mjs",
     "db:rls:verify": "node scripts/verify-rls.mjs",
+    "storage:migrate-project-keys": "node scripts/migrate-project-storage-keys.mjs",
     "db:push": "drizzle-kit push",
     "test": "vitest run",
     "test:watch": "vitest",
