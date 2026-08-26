@@ -110,6 +110,25 @@ describe('Onboarding Routes', () => {
       expect(onboardingService.initializeOnboardingStatus).not.toHaveBeenCalled();
     });
 
+    it('E-1: a mid-flow user resumes at the persisted currentStep', async () => {
+      // Session abandoned during resume_upload; the record survives and the next
+      // status read hands the client back the step it left off at.
+      const abandoned = freshStatus({ currentStep: 'resume_upload', version: 4 });
+      vi.mocked(onboardingService.getOnboardingStatus).mockResolvedValue(abandoned);
+
+      const res = await app.request('/api/users/me/onboarding/status', {
+        method: 'GET',
+        headers: await bearer(),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.currentStep).toBe('resume_upload');
+      expect(body.completedAt).toBeNull();
+      // Resuming must not reset progress by re-initializing a welcome-step row.
+      expect(onboardingService.initializeOnboardingStatus).not.toHaveBeenCalled();
+    });
+
     it('scopes the lookup to the caller in the JWT, not a client-supplied id', async () => {
       const otherUser = '11111111-2222-3333-4444-555555555555';
       vi.mocked(onboardingService.getOnboardingStatus).mockResolvedValue(freshStatus());
@@ -126,21 +145,6 @@ describe('Onboarding Routes', () => {
     it('returns 401 without a bearer token', async () => {
       const res = await app.request('/api/users/me/onboarding/status', { method: 'GET' });
       expect(res.status).toBe(401);
-      expect(onboardingService.getOnboardingStatus).not.toHaveBeenCalled();
-    });
-
-    it('returns 401 when auth is unconfigured and the request has no user identity', async () => {
-      // Local-dev bypass: authMiddleware waves the request through with userId=null.
-      // Onboarding is per-user, so the route must still refuse rather than operate
-      // on an anonymous null user.
-      delete process.env.SUPABASE_JWT_SECRET;
-      _resetConfig();
-      const bypassApp = buildApp();
-
-      const res = await bypassApp.request('/api/users/me/onboarding/status', { method: 'GET' });
-
-      expect(res.status).toBe(401);
-      expect((await res.json()).error.code).toBe('UNAUTHORIZED');
       expect(onboardingService.getOnboardingStatus).not.toHaveBeenCalled();
     });
   });
@@ -219,25 +223,6 @@ describe('Onboarding Routes', () => {
       const body = await res.json();
       expect(body.personalInfoStepCompleted).toBe(true);
       expect(body.personalInfoStepSkipped).toBe(false);
-    });
-
-    it('E-1: a mid-flow user resumes at the persisted currentStep', async () => {
-      // Session abandoned during resume_upload; the record survives and the next
-      // status read hands the client back the step it left off at.
-      const abandoned = freshStatus({ currentStep: 'resume_upload', version: 4 });
-      vi.mocked(onboardingService.getOnboardingStatus).mockResolvedValue(abandoned);
-
-      const res = await app.request('/api/users/me/onboarding/status', {
-        method: 'GET',
-        headers: await bearer(),
-      });
-
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.currentStep).toBe('resume_upload');
-      expect(body.completedAt).toBeNull();
-      // Resuming must not reset progress by re-initializing a welcome-step row.
-      expect(onboardingService.initializeOnboardingStatus).not.toHaveBeenCalled();
     });
 
     it('initializes the record first when progress arrives before any status read', async () => {
@@ -361,20 +346,6 @@ describe('Onboarding Routes', () => {
       expect(onboardingService.completeOnboarding).toHaveBeenCalledWith(USER_ID);
     });
 
-    it('AC-11: a completed user is not re-shown onboarding', async () => {
-      // Once complete has landed, should-show must stay false — this is the
-      // re-entry guard the flow depends on.
-      vi.mocked(onboardingService.shouldShowOnboarding).mockResolvedValue(false);
-
-      const res = await app.request('/api/users/me/onboarding/should-show', {
-        method: 'GET',
-        headers: await bearer(),
-      });
-
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ shouldShow: false });
-    });
-
     it('AC-11: completing twice is idempotent rather than an error', async () => {
       const completedAt = new Date('2026-08-26T02:00:00.000Z');
       const done = freshStatus({ currentStep: 'completed', completedAt, version: 5 });
@@ -426,8 +397,16 @@ describe('Onboarding Routes', () => {
       expect(onboardingService.shouldShowOnboarding).toHaveBeenCalledWith(USER_ID);
     });
 
-    it('E-1: true for a user who abandoned mid-flow', async () => {
-      vi.mocked(onboardingService.shouldShowOnboarding).mockResolvedValue(true);
+    // NOTE: there is deliberately no route-level `E-1: true for a user who
+    // abandoned mid-flow` case here. The route mocks shouldShowOnboarding, so
+    // an abandoned-mid-flow user and a no-record user are the same `true` — the
+    // test would be byte-equivalent to AC-1 above. E-1's real discrimination
+    // lives where the branch does: onboarding.service.test.ts.
+
+    it('AC-11: a completed user is not re-shown onboarding', async () => {
+      // Once complete has landed, should-show must stay false — this is the
+      // re-entry guard the flow depends on.
+      vi.mocked(onboardingService.shouldShowOnboarding).mockResolvedValue(false);
 
       const res = await app.request('/api/users/me/onboarding/should-show', {
         method: 'GET',
@@ -435,7 +414,7 @@ describe('Onboarding Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ shouldShow: true });
+      expect(await res.json()).toEqual({ shouldShow: false });
     });
 
     it('answers with a bare boolean envelope, never the whole status row', async () => {
@@ -452,6 +431,46 @@ describe('Onboarding Routes', () => {
     it('returns 401 without a bearer token', async () => {
       const res = await app.request('/api/users/me/onboarding/should-show', { method: 'GET' });
       expect(res.status).toBe(401);
+    });
+  });
+
+  // ── Local-dev auth bypass, every route ─────────────────────────────────────
+  //
+  // When SUPABASE_JWT_SECRET is unset, authMiddleware waves the request through
+  // with userId=null rather than rejecting it. Onboarding is per-user, so each
+  // route carries its own `if (!userId) throw UNAUTHORIZED` guard. The
+  // `returns 401 without a bearer token` cases above exercise the *middleware*,
+  // not those guards — deleting all four guards leaves them all green. This
+  // block is what pins the guards themselves, so it must cover every route.
+
+  describe('the local-dev bypass never reaches a route with a null user', () => {
+    const ROUTES = [
+      { method: 'GET', path: '/api/users/me/onboarding/status' },
+      { method: 'POST', path: '/api/users/me/onboarding/progress' },
+      { method: 'POST', path: '/api/users/me/onboarding/complete' },
+      { method: 'GET', path: '/api/users/me/onboarding/should-show' },
+    ] as const;
+
+    it.each(ROUTES)('$method $path returns 401 UNAUTHORIZED', async ({ method, path }) => {
+      delete process.env.SUPABASE_JWT_SECRET;
+      _resetConfig();
+      const bypassApp = buildApp();
+
+      const res = await bypassApp.request(path, {
+        method,
+        ...(method === 'POST'
+          ? { headers: { 'content-type': 'application/json' }, body: '{}' }
+          : {}),
+      });
+
+      expect(res.status).toBe(401);
+      expect((await res.json()).error.code).toBe('UNAUTHORIZED');
+      // The guard must fire before any service call touches a null user.
+      expect(onboardingService.getOnboardingStatus).not.toHaveBeenCalled();
+      expect(onboardingService.initializeOnboardingStatus).not.toHaveBeenCalled();
+      expect(onboardingService.updateOnboardingProgress).not.toHaveBeenCalled();
+      expect(onboardingService.completeOnboarding).not.toHaveBeenCalled();
+      expect(onboardingService.shouldShowOnboarding).not.toHaveBeenCalled();
     });
   });
 });
