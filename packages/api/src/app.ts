@@ -21,6 +21,56 @@ import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
 import { isHyperdriveTimeout } from './db/hyperdrive.js';
 
+/**
+ * Extensions the asset pipeline actually serves. A dotted path outside this set is a
+ * client route, not a file request.
+ *
+ * Matching *any* dot is wider than the deploy-skew defect needs, and that extra width is
+ * what swallowed /projects/:projectId/files/:fileName — project.service.ts rejects a
+ * fileName that does not end in .md, so every URL that route can produce carries a dot.
+ * .md is deliberately absent here; .txt/.json are safe because toSlug() collapses
+ * [^a-z0-9]+ to '-', so only the filename segment of that route can carry one.
+ */
+const FILE_REQUEST =
+  /\.(?:js|mjs|cjs|css|map|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|otf|eot|json|txt|xml|webmanifest|wasm)$/i;
+
+/**
+ * Paths the build owns outright. Vite emits every hashed bundle under /assets/, and
+ * packages/web/public holds the only root-level static files, so this namespace is
+ * enumerable rather than guessed.
+ *
+ * Nothing here is ever a client-side route, so a miss is a miss however the request was
+ * made — the navigation exemption below must not reach it. A stale bundle URL opened in
+ * the address bar, or an uptime probe that sends Accept: text/html, would otherwise be
+ * answered 200 + HTML: the same deploy-skew blind spot this guard exists to prevent,
+ * merely narrowed to navigating clients.
+ */
+const STATIC_ROOT_FILES = new Set(['/favicon.svg', '/icons.svg']);
+
+function isBuildOwnedPath(pathname: string): boolean {
+  return pathname.startsWith('/assets/') || STATIC_ROOT_FILES.has(pathname);
+}
+
+/**
+ * True when the request is a top-level document navigation — an address-bar entry,
+ * a refresh, or a followed link — rather than a subresource fetch.
+ *
+ * This is what separates the two failure modes the fallback has to tell apart. The
+ * <script> tag in a cached index.html asking for its hashed bundle is a subresource
+ * (Sec-Fetch-Dest: script) and must fail loudly; a user refreshing on
+ * /projects/acme/files/acme-notes.md is a navigation that must get the SPA shell even
+ * though its last segment carries an extension.
+ *
+ * Every browser that can run the SPA sends Sec-Fetch-*. Clients that do not (curl,
+ * uptime probes) fall back to Accept, which a navigating browser sets to text/html.
+ */
+function isNavigation(headers: Headers): boolean {
+  const dest = headers.get('Sec-Fetch-Dest');
+  const mode = headers.get('Sec-Fetch-Mode');
+  if (dest !== null || mode !== null) return dest === 'document' || mode === 'navigate';
+  return (headers.get('Accept') ?? '').includes('text/html');
+}
+
 export function buildApp() {
   const app = new Hono<AppEnv>();
 
@@ -72,6 +122,57 @@ export function buildApp() {
   api.route('/', personalInfoRoutes);
 
   app.route('/api', api);
+
+  // SPA fallback (WIC-1004). Static files are served by the asset router before the
+  // Worker runs, so anything reaching here is either an unknown API path or a
+  // client-side React Router route (/dashboard, /applications/:id, ...). API paths must
+  // keep returning JSON — only non-API requests get the SPA shell.
+  app.notFound(async (c) => {
+    const url = new URL(c.req.url);
+
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Endpoint not found' } }, 404);
+    }
+
+    const assets = c.env?.ASSETS;
+    const method = c.req.method;
+    if (!assets || (method !== 'GET' && method !== 'HEAD')) {
+      return c.text('Not Found', 404);
+    }
+
+    // not_found_handling: "single-page-application" makes this return index.html, but
+    // retry the shell explicitly so the fallback holds even if that setting drifts.
+    const headers = c.req.raw.headers;
+    let res = await assets.fetch(new Request(url, { method: 'GET', headers }));
+
+    // A subresource fetch for a path ending in a served extension is asking for a file,
+    // not a React Router route — the asset router already tried it and missed. Handing it
+    // the shell would answer 200 to a request that failed: a stale hashed bundle still
+    // referenced by a cached index.html would blank the page on the browser's module MIME
+    // check instead of failing cleanly, and would never surface as a 404 in monitoring.
+    // Two independent reasons to refuse: the path belongs to the build (never a route, so
+    // headers are irrelevant), or its extension is one the pipeline serves and the request
+    // is a subresource fetch rather than a navigation. A navigating client is exempt from
+    // the second because an .html-serving extension can still front a route.
+    const refuseShell =
+      isBuildOwnedPath(url.pathname) || (FILE_REQUEST.test(url.pathname) && !isNavigation(headers));
+    if (refuseShell) {
+      // Under SPA handling a miss comes back as the shell with 200, so a status check
+      // alone cannot see it — an HTML answer to a non-HTML file request is that miss.
+      // No .html exemption is needed: .html is not in FILE_REQUEST, and the build emits
+      // no .html under the paths isBuildOwnedPath claims, so nothing that legitimately
+      // answers text/html reaches here.
+      const servedShell = (res.headers.get('Content-Type') ?? '').includes('text/html');
+      return res.status === 404 || servedShell ? c.text('Not Found', 404) : res;
+    }
+
+    if (res.status === 404) {
+      res = await assets.fetch(
+        new Request(new URL('/index.html', url), { method: 'GET', headers })
+      );
+    }
+    return res.status === 404 ? c.text('Not Found', 404) : res;
+  });
 
   app.onError((err, c) => {
     // Re-throw so worker.ts can retry with a fresh Hyperdrive connection.
