@@ -14,7 +14,9 @@ import apiResumesRoute from '../../../api/src/routes/resumes.ts?raw';
 import { MAX_RESUME_SIZE_BYTES } from './upload';
 
 function readApiMaxFileSize(): number {
-  const match = apiResumesRoute.match(/const MAX_FILE_SIZE\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024\s*;/);
+  const match = apiResumesRoute.match(
+    /const MAX_FILE_SIZE\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024\s*;/
+  );
 
   // Not a soft failure. If this stops matching, the guard has silently stopped guarding,
   // which is the state that produced the defect in the first place.
