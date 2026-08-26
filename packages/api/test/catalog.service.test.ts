@@ -674,6 +674,27 @@ describe.each([
     expect(result.mergedCount).toBe(1);
     expect(store.find(TARGET)).toMatchObject({ version: 2 });
   });
+
+  it('leaves a foreign-owned row alone while merging', async () => {
+    // Pins the second half of stubRowStore's documented visibility rule. Without
+    // this case the tenancy term in `matches` is dead weight — no other test
+    // puts a row the caller does not own into the store, so a double that
+    // matched on bare id membership, or an update that ignored its where-clause
+    // entirely, passed every one of them. Both mutants fail here.
+    const FOREIGN = '01HZ_MERGE_FOREIGN';
+    const store = stubRowStore([
+      row({ id: TARGET, userId: CALLER }),
+      row({ id: OTHER, userId: CALLER }),
+      row({ id: FOREIGN, userId: OTHER_USER }),
+    ]);
+
+    const result = await merge([OTHER, FOREIGN], TARGET, CALLER);
+
+    // The scoped source read never sees the foreign row, so it is not counted…
+    expect(result.mergedCount).toBe(1);
+    // …and the scoped writes never reach it either.
+    expect(store.find(FOREIGN)).toEqual(row({ id: FOREIGN, userId: OTHER_USER }));
+  });
 });
 
 // ── WIC-1373: tag PATCH + generate-diff tenancy ───────────────────────────────
