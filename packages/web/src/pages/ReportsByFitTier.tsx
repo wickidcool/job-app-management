@@ -9,10 +9,27 @@ import type { FitTier } from '../services/api/reportsService';
  * judgements about the job, and get their own row above rather than a tile that
  * invites comparison against a real fit level.
  *
- * The blurbs restate the thresholds in `computeRecommendation`. `stretch` is the
- * one that is not a match percentage: it also fires on a seniority mismatch at a
- * decent skill match, which is why it is its own tier and not folded into
- * `low_fit` (WIC-1298).
+ * Each blurb states a **necessary** condition of its tier — never a sufficient
+ * one. `computeRecommendation` is a four-way cascade over three variables (match
+ * percentage, critical-gap count, seniority flag), and a tile has no room to
+ * restate a cascade. What it must never do is contradict the tier it labels.
+ *
+ * (The number beside each blurb is `byTier[tier]` — how many applications fall
+ * in that tier. It is not a skill-match count, and no skill-match count is
+ * rendered on this page.)
+ *
+ * These originally restated the match-percentage arm alone, which made them
+ * false for 14.1% of reachable scoring inputs: 100% of required skills matched
+ * with 3 critical gaps returns `moderate_fit`, so the tier was captioned
+ * "50–79% of required skills" — contradicting both its own definition and the
+ * "You match 20 of 20 required skills" the user reads on drill-in
+ * (`computeSummary`, `job-fit.service.ts`) (WIC-1309). Every blurb below
+ * therefore carries the gap and seniority conditions that can pull a tier down.
+ *
+ * `packages/api/test/fit-tier-blurbs.test.ts` reads these exact strings and
+ * checks each one against the real `computeRecommendation` over every reachable
+ * input, so a blurb that stops being true fails the API suite. Reword freely —
+ * update the paired predicate in that file when you do.
  */
 const VERDICT_TIERS: ReadonlyArray<{
   tier: Extract<FitTier, 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'>;
@@ -23,28 +40,28 @@ const VERDICT_TIERS: ReadonlyArray<{
 }> = [
   {
     tier: 'strong_fit',
-    blurb: '80%+ of required skills',
+    blurb: '80%+ of required skills, at most one critical gap',
     container: 'border-green-200 bg-green-50',
     heading: 'text-green-900',
     body: 'text-green-700',
   },
   {
     tier: 'moderate_fit',
-    blurb: '50–79% of required skills',
+    blurb: '50%+ of required skills, up to three critical gaps, no seniority mismatch',
     container: 'border-yellow-200 bg-yellow-50',
     heading: 'text-yellow-900',
     body: 'text-yellow-700',
   },
   {
     tier: 'stretch',
-    blurb: '30–49% of required skills, or a seniority mismatch',
+    blurb: 'A partial skill match, too many critical gaps, or a seniority mismatch',
     container: 'border-orange-100 bg-orange-50',
     heading: 'text-orange-700',
     body: 'text-orange-700',
   },
   {
     tier: 'low_fit',
-    blurb: 'Under 30% of required skills',
+    blurb: 'Under 30% of required skills, and no seniority mismatch',
     container: 'border-neutral-200 bg-neutral-50',
     heading: 'text-neutral-900',
     body: 'text-neutral-700',
