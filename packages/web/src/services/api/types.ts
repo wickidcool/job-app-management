@@ -3,6 +3,8 @@
  * These types match the backend API response structure
  */
 
+import type { Ratio } from '../../types/units';
+
 export type ApplicationStatus =
   | 'saved'
   | 'applied'
@@ -336,7 +338,17 @@ export interface CatalogEntry {
   result: string;
   tags: string[];
   timeframe?: string;
-  relevanceScore?: number; // For fit analysis context
+  /**
+   * How relevant this entry is to the job under analysis. A ratio in `[0, 1]` per ADR-008 §1 —
+   * this entry belongs to the job-fit population (`packages/api/src/types/index.ts` →
+   * `CatalogEntryDTO`), whose producers all emit `Math.round(x * 100) / 100`. Populated only
+   * when the list is fetched in a fit-analysis context; `undefined` otherwise.
+   *
+   * Branded so it cannot be assigned to a `Percent` sink. Note that the brand does not stop
+   * `score >= 80` or `{score}%` — arithmetic and rendering both erase it — so the unit is
+   * *also* pinned by `StarEntryPicker.test.tsx`.
+   */
+  relevanceScore?: Ratio;
   relevanceReasoning?: string;
 }
 
