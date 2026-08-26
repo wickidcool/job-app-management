@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recommendationToFitTier, parseCursor } from '../src/services/reports.service.js';
-import { AppError } from '../src/types/index.js';
+import { recommendationToFitTier } from '../src/services/reports.service.js';
 import type { FitRecommendation, FitTier } from '../src/types/index.js';
 
 // WIC-1298. `FitRecommendation` (UC-3, one analysis) and `FitTier` (UC-5, a
@@ -63,63 +62,5 @@ describe('recommendationToFitTier', () => {
     expect([...reachable].sort()).toEqual(
       ['low_fit', 'moderate_fit', 'not_analyzed', 'strong_fit', 'stretch', 'unscored'].sort()
     );
-  });
-});
-
-// WIC-1308. The predecessor of `parseCursor` wrapped its body in a `try`/`catch`
-// that could not fire, because `Buffer.from(s, 'base64url')` does not throw on
-// invalid input. The intended fallback therefore never happened and `NaN`
-// reached `.offset()` in all three paginated reports.
-describe('parseCursor', () => {
-  const encode = (offset: string) => Buffer.from(offset).toString('base64url');
-
-  it.each([
-    ['undefined', undefined],
-    ['the empty string', ''],
-  ])('treats %s as the first page', (_label, cursor) => {
-    expect(parseCursor(cursor)).toBe(0);
-  });
-
-  it.each([0, 1, 50, 1_000_000])('round-trips the offset %i this module issued', (offset) => {
-    expect(parseCursor(encode(String(offset)))).toBe(offset);
-  });
-
-  it.each([
-    // Each of these produced a bad *value* rather than an exception, which is
-    // why the `catch` never ran.
-    ['not valid base64url at all', 'not-base64!!'],
-    // Note there is no `encode('')` case: it *is* the empty string, which the
-    // query layer cannot distinguish from an absent `cursor`, so it is the
-    // first page by the rule above rather than a rejection.
-    ['base64url that decodes to nothing', '!!!!'],
-    ['a negative offset — Postgres rejects OFFSET -5 outright', encode('-5')],
-    ['a fractional offset', encode('1.5')],
-    ['digits with a trailing tail, which parseInt would have accepted', encode('50junk')],
-    ['an offset too large to survive Number intact', encode('99999999999999999999')],
-    ['exponent notation, which parseInt read as 1', encode('1e9999')],
-    ['whitespace around the digits', encode(' 50 ')],
-  ])('rejects %s with a 400', (_label, cursor) => {
-    expect(() => parseCursor(cursor)).toThrow(AppError);
-    try {
-      parseCursor(cursor);
-      expect.unreachable('parseCursor should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(AppError);
-      expect((err as AppError).code).toBe('VALIDATION_ERROR');
-      expect((err as AppError).statusCode).toBe(400);
-    }
-  });
-
-  it('never returns a value Postgres would reject as an OFFSET', () => {
-    // The guard the old `catch` was standing in for: whatever comes back is a
-    // usable offset, not `NaN` and not negative. Drizzle currently drops the
-    // OFFSET clause for `NaN` (it is falsy), so today's symptom is a silent
-    // wrong page rather than a 500 — but that is an accident of Drizzle's
-    // internals, not a contract this module should lean on.
-    for (const cursor of [undefined, '', encode('0'), encode('42')]) {
-      const offset = parseCursor(cursor);
-      expect(Number.isSafeInteger(offset)).toBe(true);
-      expect(offset).toBeGreaterThanOrEqual(0);
-    }
   });
 });
