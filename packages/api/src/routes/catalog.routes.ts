@@ -338,7 +338,14 @@ export const catalogRoutes = new Hono<AppEnv>()
       c.req.header('cf-connecting-ip') ||
       c.req.header('x-forwarded-for')?.split(',')[0] ||
       'unknown';
-    const { response, rateLimitHeaders } = await analyzeJobFit(parsed.data, clientIp);
+    // `clientIp` is the rate-limit bucket key, not an identity. The catalog reads
+    // are scoped by the caller id, which every sibling route on this router
+    // already threads (WIC-1435).
+    const { response, rateLimitHeaders } = await analyzeJobFit(
+      parsed.data,
+      clientIp,
+      c.get('userId') ?? undefined
+    );
 
     return new Response(JSON.stringify(response), {
       status: 200,
