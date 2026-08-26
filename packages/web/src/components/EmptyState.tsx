@@ -46,12 +46,31 @@ export function EmptyState({ variant, onAction, actionLabel }: EmptyStateProps) 
   const buttonLabel = actionLabel || config.defaultActionLabel;
 
   return (
-    <div
-      className="flex flex-col items-center justify-center py-16 px-6 text-center"
-      role="region"
-      aria-live="polite"
-      aria-label="Empty state"
-    >
+    // This wrapper is deliberately a plain <div> with no ARIA. Three attributes
+    // were removed here; each was doing harm rather than nothing.
+    //
+    // No aria-live: this content is static per `variant` and never updates in
+    // place, so a live region buys nothing — and it costs correctness. The
+    // aria-hidden package Radix uses to hide the background behind a modal
+    // deliberately exempts [aria-live] elements, which keeps the exempt node,
+    // all of its descendants and its whole ancestor chain reachable to the
+    // screen reader. Because this container wraps the action button, that left
+    // a live control exposed behind every open dialog. If a variant ever needs
+    // to announce a *change* (e.g. "No matching results" after a filter edit),
+    // the live region belongs on the results container that swaps between
+    // states, not on the empty state itself.
+    //
+    // No role="region"/aria-label: a region is a navigable landmark, and this
+    // block — an icon, a heading, one sentence and at most one button — is not
+    // a major structural area. It is also the only thing inside <main> when it
+    // renders, so it added a second landmark wrapping the sole contents of the
+    // first. The heading below is the real entry point, and "No documents found"
+    // names this content far better than "Empty state", which was our component
+    // name leaking into the accessibility tree. The two had to go together in
+    // any case: aria-label on a role-less <div> maps to `generic`, which does
+    // not support an accessible name, so keeping it would have left a dead
+    // attribute that axe flags as aria-prohibited-attr.
+    <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
       {/* Icon */}
       <div className="text-6xl mb-4 opacity-50" aria-hidden="true">
         {config.icon}
