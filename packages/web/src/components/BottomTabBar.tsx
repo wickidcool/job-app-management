@@ -47,6 +47,7 @@ export function BottomTabBar({ applicationCount, exportCount }: BottomTabBarProp
       dropdown: [
         { label: 'Catalog', path: '/catalog' },
         { label: 'Job Fit Analysis', path: '/job-fit-analysis' },
+        { label: 'Cover Letters', path: '/cover-letters' },
         { label: 'Projects', path: '/projects' },
       ],
     },

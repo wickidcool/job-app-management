@@ -38,6 +38,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
   const toolsNavItems = [
     { icon: '📚', label: 'Catalog', path: '/catalog' },
     { icon: '🔍', label: 'Job Fit Analysis', path: '/job-fit-analysis' },
+    { icon: '✉️', label: 'Cover Letters', path: '/cover-letters' },
   ];
 
   const settingsNavItem = { icon: '⚙️', label: 'Settings', path: '/settings' };

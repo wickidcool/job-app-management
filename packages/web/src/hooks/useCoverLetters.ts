@@ -20,16 +20,26 @@ export const coverLetterKeys = {
 };
 
 /**
- * Fetch all cover letters
+ * Fetch all cover letters.
+ *
+ * `enabled` follows the same convention as `useCoverLetter` below: a caller
+ * whose filter depends on data still in flight passes `false` rather than
+ * firing an unfiltered fetch-everything and then refetching. `ApplicationDetail`
+ * needs it — its `company` filter comes from the application it is still
+ * loading.
  */
-export function useCoverLetters(params?: {
-  status?: 'draft' | 'finalized';
-  company?: string;
-  search?: string;
-}) {
+export function useCoverLetters(
+  params?: {
+    status?: 'draft' | 'finalized';
+    company?: string;
+    search?: string;
+  },
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: coverLetterKeys.list(params),
     queryFn: () => coverLetterService.list(params),
+    enabled: options?.enabled ?? true,
   });
 }
 
