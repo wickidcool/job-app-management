@@ -1,4 +1,4 @@
-import { eq, ilike, or, desc, and, sql, inArray, notInArray } from 'drizzle-orm';
+import { eq, ilike, or, desc, and, sql, inArray, notInArray, isNull } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -28,6 +28,29 @@ import {
   NotFoundError,
   VersionConflictError,
 } from '../types/index.js';
+
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+/**
+ * Owner predicate for the STAR catalog (WIC-1449).
+ *
+ * Every read of `quantified_bullets` must carry this — `rawText` is the
+ * user-authored accomplishment sentence and is returned verbatim to the caller
+ * and persisted into `resume_variants.content`. RLS is not a backstop: the
+ * policies in `0002_rls_current_schema.sql` are granted `TO authenticated
+ * USING (auth.uid() = user_id)`, but the Worker connects over a raw
+ * `postgres://` string and never sets a JWT claim, so `auth.uid()` is NULL and
+ * the policies never apply. The predicate has to be in the query.
+ *
+ * Returned unconditionally, never `undefined`: an absent caller id is the
+ * unauthenticated local-dev path, whose rows are written with `user_id = NULL`
+ * (`userId ?? null` on every insert here), so it scopes to `IS NULL` rather
+ * than failing open to the whole table. Same shape as
+ * `personal-info.service.ts:34`.
+ */
+function bulletOwnerScope(userId?: string) {
+  return userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId);
+}
 
 // ── DTO mappers ───────────────────────────────────────────────────────────────
 
@@ -198,10 +221,14 @@ export async function generateResumeVariant(
   if (input.selectedBullets && input.selectedBullets.length > 0) {
     const allBulletIds = input.selectedBullets.flatMap((s) => s.bulletIds);
     if (allBulletIds.length > 0) {
+      // Scoped too, not just the catalog read below: unscoped this both confirms
+      // the existence of another user's bullet id and, because the selection is
+      // later intersected with the caller-scoped catalog, silently yields an
+      // empty resume instead of the BULLET_NOT_FOUND this branch exists to raise.
       const foundBullets = await db
         .select({ id: quantifiedBullets.id })
         .from(quantifiedBullets)
-        .where(inArray(quantifiedBullets.id, allBulletIds));
+        .where(and(bulletOwnerScope(userId), inArray(quantifiedBullets.id, allBulletIds)));
       const foundIds = new Set(foundBullets.map((b) => b.id));
       const invalidIds = allBulletIds.filter((id) => !foundIds.has(id));
       if (invalidIds.length > 0) {
@@ -266,8 +293,11 @@ export async function generateResumeVariant(
       impactCategory: quantifiedBullets.impactCategory,
     })
     .from(quantifiedBullets)
+    .where(bulletOwnerScope(userId))
     .limit(200);
 
+  // Evaluated over the caller's catalog, so UC-6's empty-state is reachable for a
+  // user with no bullets even when other users have some.
   if (allBullets.length === 0) {
     throw new ResumeVariantError(
       'CATALOG_EMPTY',
@@ -517,6 +547,10 @@ export async function getResumeVariant(
   const usedIds = (content.experience ?? []).flatMap((e) => (e.bullets ?? []).map((b) => b.id));
   let usedBullets: UsedBulletDTO[] = [];
   if (usedIds.length > 0) {
+    // `usedIds` comes out of the variant's own persisted `content`, which for any
+    // variant generated before this fix can already name another user's bullets.
+    // Scoping the re-hydration stops those ids resolving back to foreign
+    // `rawText` on every GET; it does not clean the rows (see AC-7 follow-up).
     const rows = await db
       .select({
         id: quantifiedBullets.id,
@@ -524,7 +558,7 @@ export async function getResumeVariant(
         impactCategory: quantifiedBullets.impactCategory,
       })
       .from(quantifiedBullets)
-      .where(inArray(quantifiedBullets.id, usedIds));
+      .where(and(bulletOwnerScope(userId), inArray(quantifiedBullets.id, usedIds)));
     usedBullets = rows.map((b) => ({
       id: b.id,
       rawText: b.rawText,
@@ -779,6 +813,7 @@ Rules:
   const usedIds = (newContent.experience ?? []).flatMap((e) => (e.bullets ?? []).map((b) => b.id));
   let usedBullets: UsedBulletDTO[] = [];
   if (usedIds.length > 0) {
+    // Same re-hydration hazard as `getResumeVariant` — scoped for the same reason.
     const bulletRows = await db
       .select({
         id: quantifiedBullets.id,
@@ -786,7 +821,7 @@ Rules:
         impactCategory: quantifiedBullets.impactCategory,
       })
       .from(quantifiedBullets)
-      .where(inArray(quantifiedBullets.id, usedIds));
+      .where(and(bulletOwnerScope(userId), inArray(quantifiedBullets.id, usedIds)));
     usedBullets = bulletRows.map((b) => ({
       id: b.id,
       rawText: b.rawText,
@@ -808,7 +843,7 @@ Rules:
 
 export async function suggestBullets(
   input: SuggestBulletsInput,
-  _userId?: string
+  userId?: string
 ): Promise<{
   suggestions: BulletSuggestionDTO[];
   totalCatalogBullets: number;
@@ -826,9 +861,12 @@ export async function suggestBullets(
 
   const db = getDb();
 
+  const ownerScope = bulletOwnerScope(userId);
+
   const [{ count: totalCatalogBullets }] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
-    .from(quantifiedBullets);
+    .from(quantifiedBullets)
+    .where(ownerScope);
 
   const allBullets = await db
     .select({
@@ -840,8 +878,8 @@ export async function suggestBullets(
     .from(quantifiedBullets)
     .where(
       input.excludeBulletIds?.length
-        ? notInArray(quantifiedBullets.id, input.excludeBulletIds)
-        : undefined
+        ? and(ownerScope, notInArray(quantifiedBullets.id, input.excludeBulletIds))
+        : ownerScope
     )
     .limit(500);
 

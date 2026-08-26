@@ -1,4 +1,4 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -19,6 +19,23 @@ import {
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { AppError, NotFoundError } from '../types/index.js';
+
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+/**
+ * Owner predicate for the STAR catalog (WIC-1449) — mirror of the one in
+ * `resume-variant.service.ts`. Unscoped, this read copies another user's
+ * `rawText` into the generated STAR stories and persists them to
+ * `interview_prep_stories`. RLS does not backstop it: the Worker is not the
+ * `authenticated` role and never sets a JWT claim, so `auth.uid()` is NULL.
+ *
+ * Never `undefined` — an absent caller id scopes to `IS NULL` (the rows the
+ * unauthenticated local-dev path writes via `userId ?? null`) rather than
+ * failing open to the whole table.
+ */
+function bulletOwnerScope(userId?: string) {
+  return userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId);
+}
 
 // ── Error classes ─────────────────────────────────────────────────────────────
 
@@ -430,10 +447,13 @@ export async function generateInterviewPrep(
       impactCategory: quantifiedBullets.impactCategory,
     })
     .from(quantifiedBullets)
+    .where(bulletOwnerScope(userId))
     .limit(200);
 
   const warnings: Array<{ code: string; message: string }> = [];
 
+  // Evaluated over the caller's catalog — the UC-7 counterpart of UC-6's
+  // CATALOG_EMPTY, likewise unreachable while the read was global.
   if (allBullets.length === 0) {
     throw new InterviewPrepError(
       'CATALOG_EMPTY',
