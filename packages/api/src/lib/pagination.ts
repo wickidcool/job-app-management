@@ -68,9 +68,11 @@ export const PAGE_NAMES: CursorNames = { param: 'page', responseField: 'nextPage
  * This paragraph used to argue the other way round: the catalog `Diffs` row
  * published the encoding, so a hand-crafted base64url offset counted as a
  * legitimate input that still works. PR #120 (`172802b`) deleted that row's
- * encoding and made all six `cursor` rows opaque, which strengthens the
- * conclusion rather than weakening it — a hand-crafted cursor is now not a
- * supported input at all (WIC-1567).
+ * encoding, which strengthens the conclusion rather than weakening it — a
+ * hand-crafted cursor is now not a supported input at all (WIC-1567). The
+ * claim above deliberately rests on § Pagination's blanket statement rather
+ * than on a count of parameter rows: the row count tracks how many endpoints
+ * are documented and moves whenever one is added.
  *
  * @param names What this endpoint calls its cursor, so the message points at
  *   something the caller can actually find. Both halves are stated because
