@@ -441,6 +441,14 @@ describe('WIC-1437 defect 2 — outreach cover-letter lookup is scoped to the ca
 //
 // One negative case each. All five now go red under `or`, which is what the
 // acceptance criterion on WIC-1502 asks for.
+//
+// Re-measured on the current head, widening the matrix to every owner-bearing
+// conjunction rather than the seven `and(id, owner)` reads alone. That adds
+// `:435`, `updateCoverLetter`'s `and(id, version, owner)` UPDATE predicate,
+// which is not an `and(id, owner)` read and so fell outside the earlier sweep —
+// the `deleteLog` assertion in the update test below is what pins it. Flipping
+// each site to `or` alone: :130 → 7 failed, :342 → 1, :435 → 1, :446 → 1,
+// :461 → 1, :481 → 1, :610 → 3, :715 → 1. Zero survivors across all eight.
 
 describe('WIC-1502 — every id-addressed cover_letters read rejects a foreign id', () => {
   const VERSION = 1;
