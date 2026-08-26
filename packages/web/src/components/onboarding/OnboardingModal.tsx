@@ -6,6 +6,7 @@ import { OnboardingStep } from './OnboardingStep';
 import { ResumeUploadZone } from './ResumeUploadZone';
 import { PersonalInfoForm } from '../PersonalInfoForm';
 import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalInfo';
+import { useCreateApplication } from '../../hooks/useApplications';
 import type { Resume } from '../../services/api';
 import type { UpdatePersonalInfoRequest } from '../../services/api/types';
 
@@ -36,6 +37,13 @@ export function OnboardingModal() {
   const [uploadedResume, setUploadedResume] = useState<Resume | null>(null);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
   const [personalInfoCompleted, setPersonalInfoCompleted] = useState(false);
+  const [showResumeSkipConfirm, setShowResumeSkipConfirm] = useState(false);
+  const [showFirstApplicationForm, setShowFirstApplicationForm] = useState(false);
+  const [firstApplicationCompany, setFirstApplicationCompany] = useState('');
+  const [firstApplicationJobTitle, setFirstApplicationJobTitle] = useState('');
+  const [firstApplicationUrl, setFirstApplicationUrl] = useState('');
+  const [firstApplicationError, setFirstApplicationError] = useState<string | null>(null);
+  const createApplication = useCreateApplication();
 
   const { data: personalInfoData } = usePersonalInfo();
   const updatePersonalInfo = useUpdatePersonalInfo();
@@ -99,6 +107,83 @@ export function OnboardingModal() {
     }
   };
 
+  // WIC-1383 (D-6) — AC-5: "Skip for now" on the resume step must warn about reduced
+  // functionality and only proceed once confirmed. `handleSkipResume` above is now the
+  // *confirmed* path; the button opens the dialog instead of calling it. Cancelling has
+  // to leave the step completely untouched — no `resumeStepSkipped` write, no advance —
+  // because that flag feeds the spec's Skip Rate by Step metric, and a warning the user
+  // backed out of is not a skip.
+  const handleRequestSkipResume = () => {
+    setShowResumeSkipConfirm(true);
+  };
+
+  const handleCancelSkipResume = () => {
+    setShowResumeSkipConfirm(false);
+  };
+
+  const handleConfirmSkipResume = async () => {
+    setShowResumeSkipConfirm(false);
+    await handleSkipResume();
+  };
+
+  // WIC-1383 (D-8) — AC-7/AC-8: step 5 used to be a stub. Both of its buttons called
+  // handleCompleteStep(5) under a "this would open the application form modal" comment,
+  // so `applicationStepCompleted` and `applicationStepSkipped` had no writer anywhere in
+  // the client and were permanently false for every user — the two success metrics that
+  // read them ("Skip Rate by Step", "First Application Time") reported a step nobody had
+  // ever reached. Rather than a second modal on top of this one, the quick-add renders
+  // inline: AC-7 only asks for company + job title, and the URL the accepted spec lists
+  // as optional.
+  const handleShowFirstApplicationForm = () => {
+    setFirstApplicationError(null);
+    setShowFirstApplicationForm(true);
+  };
+
+  const handleCreateFirstApplication = async () => {
+    const company = firstApplicationCompany.trim();
+    const jobTitle = firstApplicationJobTitle.trim();
+
+    if (!company || !jobTitle) {
+      setFirstApplicationError('Company and job title are both required.');
+      return;
+    }
+
+    setFirstApplicationError(null);
+
+    try {
+      await createApplication.mutateAsync({
+        company,
+        jobTitle,
+        url: firstApplicationUrl.trim() || undefined,
+        status: 'saved',
+      });
+    } catch (error) {
+      console.error('Failed to create first application:', error);
+      setFirstApplicationError("We couldn't save that application. Please try again.");
+      return;
+    }
+
+    // Only after the application actually exists. Writing the flag first would report a
+    // completed step for a user who has no application.
+    await updateProgress({
+      applicationStepCompleted: true,
+      applicationStepSkipped: false,
+    });
+    nextStep();
+  };
+
+  // Reached from "I'll Do This Later" and from the footer "Next Step" button, which are
+  // the same act: leaving step 5 without an application. Wiring only the named button
+  // would leave the footer as a third silent path that writes neither flag, which is the
+  // hole this defect was filed for.
+  const handleSkipFirstApplication = async () => {
+    await updateProgress({
+      applicationStepSkipped: true,
+      applicationStepCompleted: false,
+    });
+    nextStep();
+  };
+
   // The completion step's two shortcuts have to finish onboarding the same way the
   // footer button does before they leave. Reaching step 6 only advances local state —
   // STEP_MAP has no entry for it, so the server still reads `first_application` with a
@@ -160,6 +245,49 @@ export function OnboardingModal() {
               className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
             >
               Save & Exit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Resume-skip warning (WIC-1383 / AC-5). Same shape as the dismiss confirmation above
+  // — one dialog in the tree, so nothing has to hide a background modal from assistive
+  // tech — with copy that names what is lost. The step's own state lives on the parent
+  // (`uploadedResume`), so returning here and back does not discard an upload.
+  if (showResumeSkipConfirm) {
+    return (
+      <div className="fixed inset-0 z-[1400] flex items-center justify-center bg-black/50 p-4">
+        <div
+          className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="skip-resume-title"
+          aria-describedby="skip-resume-description"
+        >
+          <h3 id="skip-resume-title" className="text-lg font-semibold text-neutral-900">
+            Continue without a resume?
+          </h3>
+          <p id="skip-resume-description" className="mt-2 text-sm text-neutral-600">
+            Your resume is what we read your experience from. Without one, tailored resume variants,
+            cover letter drafting and job-fit scoring stay unavailable, and applications have to be
+            filled in by hand. You can upload it any time from the Resumes page.
+          </p>
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={handleCancelSkipResume}
+              className="flex-1 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+            >
+              Go Back
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirmSkipResume()}
+              className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              Skip Anyway
             </button>
           </div>
         </div>
@@ -336,7 +464,7 @@ export function OnboardingModal() {
                 />
                 <button
                   type="button"
-                  onClick={handleSkipResume}
+                  onClick={handleRequestSkipResume}
                   className="mt-4 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 hover:underline"
                 >
                   Skip for now
@@ -391,28 +519,111 @@ export function OnboardingModal() {
               title="Ready to Add Your First Application?"
               description="You can create your first application now, or explore the app and add one later."
               canProceed={true}
-              onNext={() => handleCompleteStep(5)}
+              onNext={() => void handleSkipFirstApplication()}
               onBack={previousStep}
             >
               <div className="mx-auto max-w-md space-y-4">
-                <button
-                  type="button"
-                  className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                  onClick={() => {
-                    // This would open the application form modal
-                    // For now, just proceed to next step
-                    handleCompleteStep(5);
-                  }}
-                >
-                  Create Application Now
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-md border border-neutral-300 bg-white px-6 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                  onClick={() => handleCompleteStep(5)}
-                >
-                  I'll Do This Later
-                </button>
+                {showFirstApplicationForm ? (
+                  <form
+                    className="space-y-4 text-left"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleCreateFirstApplication();
+                    }}
+                  >
+                    <div>
+                      <label
+                        htmlFor="first-application-company"
+                        className="block text-sm font-medium text-neutral-700"
+                      >
+                        Company <span className="text-error-700">*</span>
+                      </label>
+                      <input
+                        id="first-application-company"
+                        name="company"
+                        type="text"
+                        required
+                        value={firstApplicationCompany}
+                        onChange={(event) => setFirstApplicationCompany(event.target.value)}
+                        className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="first-application-job-title"
+                        className="block text-sm font-medium text-neutral-700"
+                      >
+                        Job title <span className="text-error-700">*</span>
+                      </label>
+                      <input
+                        id="first-application-job-title"
+                        name="jobTitle"
+                        type="text"
+                        required
+                        value={firstApplicationJobTitle}
+                        onChange={(event) => setFirstApplicationJobTitle(event.target.value)}
+                        className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="first-application-url"
+                        className="block text-sm font-medium text-neutral-700"
+                      >
+                        Job posting URL <span className="text-neutral-400">(optional)</span>
+                      </label>
+                      <input
+                        id="first-application-url"
+                        name="url"
+                        type="url"
+                        value={firstApplicationUrl}
+                        onChange={(event) => setFirstApplicationUrl(event.target.value)}
+                        className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                      />
+                    </div>
+
+                    {firstApplicationError && (
+                      <p
+                        role="alert"
+                        className="rounded-md border border-error-100 bg-error-50 p-3 text-sm text-error-700"
+                      >
+                        {firstApplicationError}
+                      </p>
+                    )}
+
+                    <p className="text-sm text-neutral-500">
+                      We'll save this as <span className="font-medium">Saved</span> so you can move
+                      it along the board once you apply.
+                    </p>
+
+                    <button
+                      type="submit"
+                      disabled={createApplication.isPending}
+                      className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500"
+                    >
+                      {createApplication.isPending ? 'Saving…' : 'Save Application'}
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                      onClick={handleShowFirstApplicationForm}
+                    >
+                      Create Application Now
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-md border border-neutral-300 bg-white px-6 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                      onClick={() => void handleSkipFirstApplication()}
+                    >
+                      I'll Do This Later
+                    </button>
+                  </>
+                )}
               </div>
             </OnboardingStep>
           )}

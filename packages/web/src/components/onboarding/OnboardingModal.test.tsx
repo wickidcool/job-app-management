@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { OnboardingModal } from './OnboardingModal';
 import { useOnboarding } from '../../contexts/OnboardingContext';
+import { useCreateApplication } from '../../hooks/useApplications';
 import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalInfo';
 
 // The modal reads onboarding state from context and personal-info state from
@@ -13,6 +14,11 @@ import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalI
 // one click, no database.
 vi.mock('../../contexts/OnboardingContext');
 vi.mock('../../hooks/usePersonalInfo');
+// Step 5's quick-add (WIC-1383) put a second react-query hook at the top of the
+// component. It is unconditional, so it runs on every step — without this mock these
+// completion-step tests fail with "No QueryClient set". Step-5 behaviour itself is
+// covered in OnboardingModal.step-actions.test.tsx.
+vi.mock('../../hooks/useApplications');
 
 type OnboardingContextValue = ReturnType<typeof useOnboarding>;
 
@@ -41,6 +47,10 @@ function mockOnboarding(overrides: Partial<OnboardingContextValue> = {}) {
   vi.mocked(useUpdatePersonalInfo).mockReturnValue({
     mutateAsync: vi.fn().mockResolvedValue(undefined),
   } as unknown as ReturnType<typeof useUpdatePersonalInfo>);
+  vi.mocked(useCreateApplication).mockReturnValue({
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    isPending: false,
+  } as unknown as ReturnType<typeof useCreateApplication>);
 
   return { completeOnboarding };
 }
