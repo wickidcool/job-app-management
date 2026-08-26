@@ -1,4 +1,4 @@
-import { eq, and, ilike, asc, desc, sql } from 'drizzle-orm';
+import { eq, and, ilike, asc, desc, inArray, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import {
@@ -23,6 +23,22 @@ import {
   type TechStackCategory,
 } from '../types/index.js';
 import { processCatalogChange } from './extraction.service.js';
+
+/**
+ * Reject an empty source list before a merge builds its `inArray` predicate.
+ *
+ * `inArray(col, [])` does not render `false` on the drizzle-orm pinned here
+ * (0.30.10) — it throws `inArray requires at least one value` while the query
+ * is being built, which would surface as an opaque 500. The routes already
+ * enforce `.min(1)` on both merge bodies (`catalog.routes.ts:70,75`), so this
+ * only guards a direct service call — but it makes that call fail with a 400
+ * like the route would, rather than a 500 from inside the query builder.
+ */
+function assertMergeSources(sourceIds: string[]) {
+  if (sourceIds.length === 0) {
+    throw new AppError('BAD_REQUEST', 'A merge needs at least one source id', undefined, 400);
+  }
+}
 
 // ── Company catalog ──────────────────────────────────────────────────────────
 
@@ -76,6 +92,7 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
 
 export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
+  assertMergeSources(sourceIds);
   // Every read AND every write is scoped to the caller, so a known id belonging
   // to another user can neither be folded into a target nor soft-deleted. The
   // predicate is conditional on userId for the same reason as resolveDiffItem:
@@ -83,9 +100,13 @@ export async function mergeCompanies(sourceIds: string[], targetId: string, user
   const targetWhere = userId
     ? and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId))
     : eq(companyCatalog.id, targetId);
+  // The id term must be `inArray`, never a raw `= ANY(${sourceIds})`: Drizzle
+  // interpolates a JS array into a `sql` template as a comma-separated
+  // parameter list, so that renders `= ANY(($1, $2))` — a row constructor,
+  // which Postgres rejects outright. See the WIC-1377 tests.
   const sourcesWhere = userId
-    ? and(sql`${companyCatalog.id} = ANY(${sourceIds})`, eq(companyCatalog.userId, userId))
-    : sql`${companyCatalog.id} = ANY(${sourceIds})`;
+    ? and(inArray(companyCatalog.id, sourceIds), eq(companyCatalog.userId, userId))
+    : inArray(companyCatalog.id, sourceIds);
 
   const [target] = await db.select().from(companyCatalog).where(targetWhere);
   if (!target) throw new NotFoundError('Company');
@@ -216,12 +237,14 @@ export async function updateJobFitTag(
 
 export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
+  assertMergeSources(sourceIds);
   const targetWhere = userId
     ? and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId))
     : eq(jobFitTags.id, targetId);
+  // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
   const sourcesWhere = userId
-    ? and(sql`${jobFitTags.id} = ANY(${sourceIds})`, eq(jobFitTags.userId, userId))
-    : sql`${jobFitTags.id} = ANY(${sourceIds})`;
+    ? and(inArray(jobFitTags.id, sourceIds), eq(jobFitTags.userId, userId))
+    : inArray(jobFitTags.id, sourceIds);
 
   const [target] = await db.select().from(jobFitTags).where(targetWhere);
   if (!target) throw new NotFoundError('JobFitTag');
@@ -348,12 +371,14 @@ export async function updateTechStackTag(
 
 export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
+  assertMergeSources(sourceIds);
   const targetWhere = userId
     ? and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId))
     : eq(techStackTags.id, targetId);
+  // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
   const sourcesWhere = userId
-    ? and(sql`${techStackTags.id} = ANY(${sourceIds})`, eq(techStackTags.userId, userId))
-    : sql`${techStackTags.id} = ANY(${sourceIds})`;
+    ? and(inArray(techStackTags.id, sourceIds), eq(techStackTags.userId, userId))
+    : inArray(techStackTags.id, sourceIds);
 
   const [target] = await db.select().from(techStackTags).where(targetWhere);
   if (!target) throw new NotFoundError('TechStackTag');
