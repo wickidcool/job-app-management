@@ -44,6 +44,28 @@ function stubDb(rows: OnboardingStatus[]) {
   return { select };
 }
 
+/**
+ * A db double for the *established user* AC-10 describes: the onboarding_status
+ * read comes back empty, but every subsequent table read — the resume /
+ * application history AC-10 requires the service to consult — returns a row.
+ * Today the service issues only the first read, so the later rows are never
+ * consumed and the it.fails below stays red-by-design; once AC-10 is
+ * implemented they are consumed and it flips.
+ */
+function stubEstablishedUser() {
+  const limit = vi
+    .fn()
+    .mockResolvedValueOnce([]) // onboarding_status: no row
+    .mockResolvedValue([{ id: '01HXRESUME0000000000000001' }]); // resumes / applications
+  const select = vi.fn().mockReturnValue({
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({ limit }),
+    }),
+  });
+  vi.mocked(getDb).mockReturnValue({ select } as unknown as ReturnType<typeof getDb>);
+  return { select };
+}
+
 describe('shouldShowOnboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -96,12 +118,21 @@ describe('shouldShowOnboarding', () => {
   // first is the behaviour AC-10 asks for and currently does not hold; the
   // second is a sentinel on the actual cause (the service never looks at
   // resume or application history).
+  //
+  // Which of the two is the guaranteed trip-wire, precisely: the **sentinel**
+  // is, for any fix shape — consulting resume/application history at all means
+  // more than one select. The `it.fails` flips for the natural
+  // `select…where…limit` fix shape, which is what stubEstablishedUser doubles.
+  // A fix built on a count aggregate with no `.limit()` would instead run off
+  // the end of the stubbed chain and fail by a different route. Either way the
+  // suite goes red on a fix; only the sentinel is red for a guaranteed reason.
 
   it.fails(
     'AC-10: an established user with resumes/applications must NOT be shown onboarding',
     async () => {
-      // No onboarding row — the shape of every user who predates the feature.
-      stubDb([]);
+      // No onboarding row, but resume/application history exists — the shape of
+      // every established user who predates the feature.
+      stubEstablishedUser();
       await expect(shouldShowOnboarding(USER_ID)).resolves.toBe(false);
     }
   );
@@ -109,7 +140,8 @@ describe('shouldShowOnboarding', () => {
   it('AC-10 sentinel: shouldShowOnboarding consults only onboarding_status', async () => {
     // One select == one table read (onboarding_status). If someone implements
     // AC-10 by adding resume/application count queries, this count changes and
-    // the it.fails above starts passing — both must be updated together.
+    // this test fails — the guaranteed signal that the gap above is closed.
+    // Update it together with the it.fails above.
     const { select } = stubDb([]);
     await shouldShowOnboarding(USER_ID);
     expect(select).toHaveBeenCalledTimes(1);
