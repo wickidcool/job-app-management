@@ -338,8 +338,10 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    // Overall recommendation shown
-    await expect(page.getByText('MODERATE FIT')).toBeVisible();
+    // Overall recommendation shown. The fit level is a verdict scale with its own
+    // vocabulary — it deliberately shares no word with gap severity or confidence
+    // (WIC-1288), so this page-scoped locator cannot collide with a gap card.
+    await expect(page.getByText('Possible fit')).toBeVisible();
     await expect(page.getByText('You match 4 of 6 required skills.')).toBeVisible();
 
     // Parsed requirements section
@@ -432,7 +434,7 @@ test.describe('Job Fit Analysis page', () => {
     await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByText('MODERATE FIT')).toBeVisible();
+    await expect(page.getByText('Possible fit')).toBeVisible();
   });
 
   // TC-3: Empty input validation
@@ -585,7 +587,7 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    await expect(page.getByText('STRONG FIT')).toBeVisible();
+    await expect(page.getByText('Strong fit')).toBeVisible();
     await expect(page.getByText('Strong match — you meet 5 of 6 required skills.')).toBeVisible();
     await expect(page.getByText('Staff Infrastructure Engineer')).toBeVisible();
     await expect(page.getByText('Remote (US/EU)')).toBeVisible();

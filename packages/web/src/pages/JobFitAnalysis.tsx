@@ -3,7 +3,8 @@ import { useForm, useWatch } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useJobFitAnalysis } from '../hooks/useJobFitAnalysis';
 import { useApplication } from '../hooks/useApplications';
-import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse, Recommendation } from '../types/jobFit';
+import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
+import { FIT_LEVEL_LABELS, NO_FIT_LEVEL_LABEL } from '../constants/fitLevel';
 import { GAP_SEVERITY } from '../constants/gapSeverity';
 import { APIError } from '../services/api/apiClient';
 
@@ -13,13 +14,6 @@ interface JobFitFormData {
 }
 
 type Stage = 'input' | 'analyzing' | 'results' | 'error';
-
-const FIT_RECOMMENDATION_LABELS: Record<NonNullable<Recommendation>, string> = {
-  strong_fit: 'Strong fit',
-  moderate_fit: 'Moderate fit',
-  stretch: 'Stretch',
-  low_fit: 'Low fit',
-};
 
 export function JobFitAnalysis() {
   const navigate = useNavigate();
@@ -158,8 +152,8 @@ export function JobFitAnalysis() {
                 <div className="text-sm text-neutral-500">Overall fit</div>
                 <div className="text-2xl font-bold text-neutral-900">
                   {results.recommendation
-                    ? FIT_RECOMMENDATION_LABELS[results.recommendation]
-                    : 'No recommendation'}
+                    ? FIT_LEVEL_LABELS[results.recommendation]
+                    : NO_FIT_LEVEL_LABEL}
                 </div>
               </div>
               <p className="text-neutral-700 mb-4">{results.summary}</p>
