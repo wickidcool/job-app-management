@@ -68,8 +68,20 @@ Do not diagnose deletion from DNS. Ever.
 
 ### How to actually tell paused from alive
 
+**Do this first: ask the Management API.** Everything below it is inference; this is the record.
+
+```bash
+gh workflow run supabase-project-status.yml --ref main -f mode=status -f target=both
+```
+
+`GET /v1/projects/{ref}` returns the project's real lifecycle `status`, which settles
+paused-vs-deleted in one call. §6 covers it in full, including what each response actually
+licenses you to conclude. Reach for the side-channel signals below only when that call is
+unavailable — which today means whenever `SUPABASE_ACCESS_TOKEN` is not provisioned (WIC-1344).
+
 | Signal | Paused | Alive |
 |---|---|---|
+| **Management API `status`** | **`INACTIVE`** | **`ACTIVE_HEALTHY`** |
 | Pooler connect (`psql`) | `Tenant or user not found` | `SELECT 1` returns `1` |
 | PostgREST `/rest/v1/...` | connection failure / 5xx | returns a **pgcode** (e.g. `42501`) — only a live DB emits one |
 | `/auth/v1/token` bad creds | empty `{}` / `AUTH_ERROR` | `"Invalid login credentials"` |
@@ -78,16 +90,20 @@ Do not diagnose deletion from DNS. Ever.
 Both healthy and dead auth endpoints return **HTTP 401**. Discriminate on the **message body**,
 never the status code.
 
-The fastest authoritative check is just to run the keep-alive workflow (above): it prints
-`✅ <env> (<ref>) is awake` or names the pause explicitly.
+Without the Management API, the fastest authoritative check is to run the keep-alive workflow
+(above): it prints `✅ <env> (<ref>) is awake` or names the pause explicitly. Note what it *cannot*
+tell you — `Tenant or user not found` is emitted for a paused project, a rotated password, and a
+deleted one alike.
 
 ## 3. When a project has already paused
 
-**Only the Supabase account owner can restore it, from the console.** It will not recover on its
-own, and no automation we currently hold can do it — there is no `SUPABASE_ACCESS_TOKEN`
-provisioned, so no agent can call `POST /v1/projects/{ref}/restore` (tracked as WIC-1349). Escalate
-to Allan (`al@wickidcool.com`) with the project ref. **MTTR is bounded entirely by one human's
-availability, with no automatic floor.**
+**First choice: restore it from the Management API** — see §6. That is the only path that does not
+depend on one person being awake.
+
+**Fallback: only the Supabase account owner can restore it, from the console.** It will not recover
+on its own. Escalate to Allan (`al@wickidcool.com`) with the project ref. On that path **MTTR is
+bounded entirely by one human's availability, with no automatic floor** — which is exactly what
+§6 exists to remove.
 
 Urgency is about downtime, not data loss: the pause email grants a **90-day** window to restore
 before data is at risk (for the 08-25 pause that would have been 2026-11-23). So there *is* a
@@ -119,3 +135,80 @@ Upgrading org `lnkenselppaqxstglvqq` to **Pro removes auto-pause outright** and 
 for something we call *production*. It is a recurring-spend decision for Allan, not an agent's.
 The keep-alive is free and covers both projects today, so this is a recommendation, not a blocker.
 Billing: <https://supabase.com/dashboard/org/lnkenselppaqxstglvqq/billing?panel=subscriptionPlan>
+
+Note this is **orthogonal to §6**. Pro removes auto-pause, but paused-vs-deleted ambiguity and
+console-only restore exist on every plan tier, so the Management API capability is worth having
+either way.
+
+## 6. The Management API — the authoritative answer, and self-restore
+
+**Card:** WIC-1344 · **Workflow:** `.github/workflows/supabase-project-status.yml`
+
+### The rule this section exists to enforce
+
+> **NXDOMAIN does not mean deleted.** A paused project presents identically to a deleted one on
+> DNS, on the pooler, and on the auth endpoint. **Never attach a data-loss deadline to a Supabase
+> NXDOMAIN without a Management API `status` check.** WIC-1283 did exactly that and burned a P0 on
+> a routine auto-pause.
+
+### Usage
+
+```bash
+# Read-only. Reports the live status of both projects.
+gh workflow run supabase-project-status.yml --ref main -f mode=status -f target=both
+
+# Restore — fires POST /v1/projects/{ref}/restore, but ONLY if the status call
+# just returned INACTIVE. A healthy project is refused before any POST is made.
+gh workflow run supabase-project-status.yml --ref main -f mode=restore-if-paused -f target=production
+```
+
+Equivalent by hand, if you hold the token locally:
+
+```bash
+curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  https://api.supabase.com/v1/projects/fnmuvgnkxdeupprcyvdt | jq -r .status
+```
+
+### Reading the response — what each outcome licenses you to conclude
+
+| Response | Means | Do |
+|---|---|---|
+| `200` + `ACTIVE_HEALTHY` | project is up | If the app is still broken, the fault is **not** the project — look at creds, pooler region, Hyperdrive |
+| `200` + `INACTIVE` | **paused** | Restore (below). Not deleted. No data at risk — the pause email grants 90 days |
+| `200` + `COMING_UP` / `RESTORING` | restore already in flight | **Wait.** Do not re-fire restore |
+| `200` + `PAUSING` / `GOING_DOWN` | pause in flight | Keep-alive lost the race; restore once it settles |
+| `404` **and** `GET /v1/projects` succeeds | the ref is genuinely absent from this account | **This is the only signal that supports a deletion diagnosis.** Escalate as data loss |
+| `404` **and** `GET /v1/projects` also fails | the token cannot see that org | Token/scope problem. **Do not escalate as data loss** |
+| `401` / `403` | token invalid, revoked, or wrong account | Says **nothing** about whether the project is up. Rotate the token; diagnose separately |
+
+That `404` split is the whole point. A bare 404 is as ambiguous as NXDOMAIN was; it only becomes
+evidence when paired with a *successful* list call proving the token can see the account at all.
+The workflow performs that second call automatically and refuses to phrase it as deletion
+otherwise.
+
+### The restore guard
+
+`restore-if-paused` re-reads the status immediately before acting and calls `/restore` **only** when
+it reads exactly `INACTIVE`. Anything else — healthy, transitional, unknown — is refused with no
+POST. This is why the restore path can be documented and shipped without ever having been
+test-fired against healthy production, which would be an unforced outage risk. Verified 2026-08-26
+by executing the workflow's `run:` script, extracted from the parsed YAML, against a stub
+Management API: 16/16 branches, including a negative control confirming the harness fails when the
+guard is removed.
+
+Restore is asynchronous. Supabase takes several minutes; re-run in `status` mode until it reads
+`ACTIVE_HEALTHY`.
+
+### The credential
+
+`SUPABASE_ACCESS_TOKEN` — a Supabase Management API **personal access token** (`sbp_…`) created at
+<https://supabase.com/dashboard/account/tokens> by the account that owns org `lnkenselppaqxstglvqq`
+(`al@wickidcool.com`). A PAT carries the creating account's full authority and is **not**
+scope-restrictable, so treat it as a high-value credential: one **repository-level** secret named
+`SUPABASE_ACCESS_TOKEN` covers both projects. An environment-scoped secret of the same name also
+works and takes precedence. Never commit it; the workflow passes it via the environment only and
+never echoes it.
+
+> **Status as of 2026-08-26: not yet provisioned.** Only the Supabase account owner can mint it —
+> no agent can work around this. Until then the workflow fails on its first step with an explicit
+> pointer rather than a confusing 401, and §3's console fallback is the live path.
