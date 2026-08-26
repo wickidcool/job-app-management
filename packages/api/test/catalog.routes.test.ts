@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
+import { _resetConfig } from '../src/config.js';
+import { _resetJwksCache } from '../src/middleware/auth.js';
 
 vi.mock('../src/services/catalog.service.js', () => ({
   listDiffs: vi.fn(),
@@ -727,5 +730,112 @@ describe('Catalog Routes', () => {
 
       expect(response.status).toBe(404);
     });
+  });
+});
+
+// ── Merge routes under auth (WIC-1365) ──────────────────────────────────────
+//
+// The cases above run with SUPABASE_JWT_SECRET unset, so `userId` is null and
+// the third argument is `undefined` — right for the harness, but it reads as
+// "the user id is not part of the merge contract". It is: the merge services
+// scope every read and write by it. These pin the other half of the contract,
+// that the authenticated caller's `sub` is what reaches the service.
+
+const MERGE_JWT_SECRET = 'super-secret-jwt-key-for-testing-only-32-chars!!';
+const CALLER_SUB = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+
+describe('Catalog merge routes thread the authenticated user id', () => {
+  const originalEnv = process.env;
+  let app: ReturnType<typeof buildApp>;
+  let auth: Record<string, string>;
+
+  beforeEach(async () => {
+    process.env = { ...originalEnv, SUPABASE_JWT_SECRET: MERGE_JWT_SECRET };
+    _resetConfig();
+    _resetJwksCache();
+    vi.clearAllMocks();
+    app = buildApp();
+
+    const token = await new SignJWT({ sub: CALLER_SUB })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(MERGE_JWT_SECRET));
+    auth = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    _resetConfig();
+    _resetJwksCache();
+  });
+
+  it('passes the caller sub to mergeCompanies', async () => {
+    vi.mocked(catalogService.mergeCompanies).mockResolvedValue({
+      mergedCompany: {
+        id: '01HZ_CO_001',
+        name: 'Acme Corp',
+        normalizedName: 'acme-corp',
+        aliases: [],
+        firstSeen: '2026-04-01T00:00:00.000Z',
+        applicationCount: 5,
+        latestStatus: 'applied',
+        isDeleted: false,
+        version: 2,
+      },
+      mergedCount: 1,
+    });
+
+    const response = await app.request('/api/catalog/companies/merge', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        sourceCompanyIds: ['01HZ_CO_002'],
+        targetCompanyId: '01HZ_CO_001',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService.mergeCompanies).toHaveBeenCalledWith(
+      ['01HZ_CO_002'],
+      '01HZ_CO_001',
+      CALLER_SUB
+    );
+  });
+
+  it.each([
+    ['job-fit', 'mergeJobFitTags'],
+    ['tech-stack', 'mergeTechStackTags'],
+  ] as const)('passes the caller sub to %s merge', async (type, fn) => {
+    vi.mocked(catalogService[fn]).mockResolvedValue({
+      mergedTag: { ...mockTag, mentionCount: 9, aliases: ['ai-ml'], version: 2 },
+      mergedCount: 1,
+    });
+
+    const response = await app.request(`/api/catalog/tags/${type}/merge`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ sourceTagIds: ['01HZ_TAG_002'], targetTagId: '01HZ_TAG_001' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService[fn]).toHaveBeenCalledWith(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER_SUB);
+  });
+
+  it.each([
+    ['/api/catalog/companies/merge', { sourceCompanyIds: ['01HZ_CO_002'], targetCompanyId: 'x' }],
+    ['/api/catalog/tags/job-fit/merge', { sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'x' }],
+    ['/api/catalog/tags/tech-stack/merge', { sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'x' }],
+  ])('rejects %s with no bearer token before any merge runs', async (path, body) => {
+    const response = await app.request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(401);
+    expect(catalogService.mergeCompanies).not.toHaveBeenCalled();
+    expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
+    expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
   });
 });

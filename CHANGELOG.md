@@ -8,6 +8,15 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Security — catalog merge endpoints are scoped to the calling user (2026-08-26)
+
+The three catalog merge services took the caller's user id and ignored it — the parameter was named `_userId` and never referenced, so every lookup and every write inside them was keyed on row id alone. An authenticated user who knew or guessed a ULID could operate on another user's catalog: `POST /api/catalog/companies/merge` folded another user's companies into a target and soft-deleted the sources, and the two tag merge routes **hard-deleted** each source row with no recovery path. The routes were never at fault; they threaded `c.get('userId')` through correctly (WIC-1365, surfaced reviewing PR #124).
+
+- **Both reads and both writes now carry the tenancy predicate.** Scoping only the read would still leave the destructive half exploitable, because the follow-up `UPDATE`/`DELETE` matched on id alone — a source row the scoped read excluded would have been deleted anyway. The tag deletes now iterate the rows the scoped read returned rather than the caller's raw id list.
+- **Single-user/local mode is unchanged.** The predicate is conditional on `userId` being present, matching `resolveDiffItem` and the `list*` functions in the same file, so with `SUPABASE_JWT_SECRET` unset (`userId` null) the emitted SQL is byte-for-byte what it was before. Three tests pin that explicitly.
+- **A row the caller does not own reports `NotFoundError`, not 403** — consistent with `resolveDiffItem`, and it avoids confirming that the id exists.
+- **Tests assert the rendered SQL, not the call count.** The service tests serialise the Drizzle where-clause through `PgDialect` and assert on the predicate, so deleting the `eq(table.userId, userId)` term fails them; reverting the fix fails 5 of them. The route tests gained an authenticated block that signs an HS256 JWT and pins the caller's `sub` reaching each of the three services — the pre-existing cases assert `undefined` there, which was right for an unauthenticated harness but read as "the user id is not part of the merge contract".
+
 ### Docs — COMPONENT_SPECS wireframe casing is now marked per line instead of derived (2026-08-26)
 
 The casing note at the top of `docs/design/COMPONENT_SPECS.md` asked readers to sort a shouted wireframe line into "heading" (a bug) or "badge" (intentional). An ASCII wireframe renders both as the same glyphs, so every reader re-derived the split by hand and some derived it wrong — producing four tickets that each found the same defect further down the same file (WIC-1069 → WIC-1184 → WIC-1187 → WIC-1195). Docs only; no source or rendered output changes (WIC-1195).
