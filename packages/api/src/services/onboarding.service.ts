@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, lt } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import {
@@ -159,14 +159,24 @@ function hasEngagedWithOnboarding(status: OnboardingStatus): boolean {
  *
  * Existence probes rather than counts: we only need "any", and the resume probe
  * short-circuits the second round trip in the common case.
+ *
+ * `createdBefore` scopes the probes in time. Onboarding step 3 *is* the resume
+ * upload, so "has a resume" cannot on its own mean "returning user" — for a row
+ * the flow has already been driven through, only work that predates the status
+ * row could have come from somewhere other than the flow. Pass `null` to ask the
+ * unscoped question, which is the right one when the flow has produced nothing.
  */
-async function hasExistingWork(userId: string): Promise<boolean> {
+async function hasExistingWork(userId: string, createdBefore: Date | null): Promise<boolean> {
   const db = getDb();
 
   const [resume] = await db
     .select({ id: resumes.id })
     .from(resumes)
-    .where(eq(resumes.userId, userId))
+    .where(
+      createdBefore
+        ? and(eq(resumes.userId, userId), lt(resumes.uploadedAt, createdBefore))
+        : eq(resumes.userId, userId)
+    )
     .limit(1);
   if (resume) {
     return true;
@@ -175,7 +185,11 @@ async function hasExistingWork(userId: string): Promise<boolean> {
   const [application] = await db
     .select({ id: applications.id })
     .from(applications)
-    .where(eq(applications.userId, userId))
+    .where(
+      createdBefore
+        ? and(eq(applications.userId, userId), lt(applications.createdAt, createdBefore))
+        : eq(applications.userId, userId)
+    )
     .limit(1);
   return application !== undefined;
 }
@@ -191,15 +205,21 @@ export async function shouldShowOnboarding(userId: string): Promise<boolean> {
     return false;
   }
 
-  // Mid-flow: the user is working through the steps right now. Their resume and
-  // application history is a *product* of the flow, so the AC-10 check below would
-  // eject them from their own onboarding the moment they uploaded a first resume.
+  // Mid-flow: the user has driven the flow at least one step. Work created *after*
+  // their status row is the flow's own output, so probing it unscoped would eject
+  // them from their own onboarding the moment step 3 uploaded a first resume. But
+  // engagement is not consent either — an established user who got the modal over
+  // their populated dashboard and clicked "Get Started" or "Skip for now" once is
+  // still the AC-10 cohort. Work that predates the status row cannot have come from
+  // the flow, so it is what separates the two.
   if (status && hasEngagedWithOnboarding(status)) {
-    return true;
+    return !(await hasExistingWork(userId, status.startedAt));
   }
 
   // No row, or a pristine auto-created one — we have never seen this user in the
   // flow. WIC-238 AC-10: a user who already has a resume or an application is a
-  // returning user, and onboarding is not for them.
-  return !(await hasExistingWork(userId));
+  // returning user, and onboarding is not for them. Unscoped on purpose: scoping
+  // here would re-show onboarding to a new user who dismissed at `welcome` and then
+  // created an application by hand.
+  return !(await hasExistingWork(userId, null));
 }
