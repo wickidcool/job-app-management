@@ -133,10 +133,24 @@ single-user local-development case. Both are set in production, so production al
 requires a valid JWT. If Supabase is not configured, the `/api/auth/*` endpoints
 themselves return `503 NOT_CONFIGURED`.
 
-> Some `curl` examples further down this document use the local dev base URL and omit the
-> `Authorization` header, which only works under that local bypass. To run any of them
-> against production, swap the host for `https://app.careerpin.app` **and** add
-> `-H "Authorization: Bearer <jwt>"`.
+### Running the `curl` examples
+
+Every `curl` example below is written against two shell variables, so the host is chosen
+in one place rather than baked into each example:
+
+```bash
+export API_BASE="https://app.careerpin.app/api"   # or a Base URL row above
+export TOKEN="<jwt>"                               # from POST /api/auth/login
+```
+
+`$TOKEN` is required against any environment where Supabase is configured — which is every
+environment except the local bypass described above. It is sent on every example rather
+than only the ones that would fail without it: an example that omits the header documents
+an endpoint as unauthenticated, and none of these are.
+
+> The four `https://api.example.com/v1/...` examples in [Applications](#applications) are
+> a separate, older surface and are left as-is; they already carry an `Authorization`
+> header.
 
 ## Common Response Codes
 
@@ -993,7 +1007,8 @@ interface ApplyDiffResponse {
 **Example**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/diffs/01HXK5R3J7/apply" \
+curl -X POST "$API_BASE/catalog/diffs/01HXK5R3J7/apply" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "action": "partial",
@@ -1414,7 +1429,11 @@ The `recommendation` field is computed as follows:
 - `moderate_fit`: 50-79% of required skills matched, ≤3 critical gaps  
 - `stretch`: 30-49% of required skills matched, or seniority mismatch
 - `low_fit`: <30% of required skills matched
-- `null`: Catalog is empty (see `catalogEmpty: true`)
+- `null`: the analysis ran but could not score. Two distinct causes: the catalog is empty (returned
+  with `catalogEmpty: true`), **or** no required skills were found in the job description
+  (`catalogEmpty: false`, and `parsedJd.requiredStack` is empty). Clients must not read `null` as
+  "no analysis" — it is a result. The by-fit-tier report names this state `unscored` and keeps it
+  separate from `not_analyzed`; see `GET /api/reports/by-fit-tier`.
 
 Partial matches (alias/related) count at 0.5x weight toward match percentage.
 
@@ -1429,7 +1448,8 @@ Partial matches (alias/related) count at 0.5x weight toward match percentage.
 **Example Request (text)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionText": "Senior Software Engineer at Acme Corp...\n\nRequirements:\n- 5+ years TypeScript/JavaScript\n- React or Vue experience\n- PostgreSQL or MySQL\n- AWS or GCP cloud experience\n\nNice to have:\n- GraphQL\n- Kubernetes"
@@ -1439,7 +1459,8 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 **Example Request (URL)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionUrl": "https://boards.greenhouse.io/acme/jobs/12345"
@@ -1720,7 +1741,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/generate" \
+curl -X POST "$API_BASE/cover-letters/generate" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
@@ -1827,7 +1849,8 @@ interface ReviseCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "instructions": "Make the opening more enthusiastic and add a sentence about my passion for developer tooling",
@@ -1939,7 +1962,8 @@ interface OutreachMessage {
 **Example Request (LinkedIn)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "linkedin",
@@ -1971,7 +1995,8 @@ curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
 **Example Request (Email)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "email",
@@ -2066,7 +2091,8 @@ interface ExportCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "format": "docx",
@@ -2236,6 +2262,115 @@ The cover letter generation system enforces these constraints:
    - Email: max 1000 characters
 
 ---
+
+---
+
+### Reports (UC-5)
+
+Pipeline reports over the user's applications. The full set is mounted in
+`packages/api/src/routes/reports.ts` — `pipeline`, `needs-action`, `stale`, `closed-loop`, and
+`by-fit-tier`. Only `by-fit-tier` is specified below, because it is the one that consumes a UC-3
+value and therefore has a cross-use-case contract to state (WIC-1298); the other four are
+single-source reports whose shapes are given by `PipelineReportResponse` and friends in
+`packages/api/src/types/index.ts`.
+
+#### `GET /api/reports/by-fit-tier`
+
+Groups the user's applications by the fit verdict UC-3 reached for each.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `includeTerminal` | `'true' \| 'false'` | `false` | Include `offer` / `rejected` / `withdrawn` applications |
+| `sortBy` | `'updatedAt' \| 'createdAt'` | `updatedAt` | Sort field within each group |
+| `sortOrder` | `'asc' \| 'desc'` | `desc` | Sort direction |
+
+**Response**: `200 OK`
+
+```typescript
+interface ByFitTierReportResponse {
+  groups: {
+    tier: FitTier;
+    count: number;
+    applications: {
+      id: string;
+      jobTitle: string;
+      company: string;
+      status: ApplicationStatus;
+      fitTier: FitTier;
+      updatedAt: string;          // ISO 8601
+    }[];
+  }[];
+  summary: {
+    total: number;
+    analyzed: number;             // applications an analysis has run for — includes `unscored`
+    notAnalyzed: number;          // the `not_analyzed` count, i.e. no analysis exists
+    byTier: Partial<Record<FitTier, number>>;
+  };
+  generatedAt: string;            // ISO 8601
+}
+```
+
+`groups` is always present for every tier, in the order below, including tiers with `count: 0`.
+
+**`FitTier` and its relationship to `recommendation`**
+
+`FitTier` is **`recommendation` plus the two states an analysis result can be in when it carries no
+verdict**. The two are one judgement, reported at one granularity — a report does not coarsen the
+analysis:
+
+```typescript
+type FitTier =
+  | 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'   // = AnalyzeJobFitResponse['recommendation']
+  | 'unscored'                                              // an analysis ran; it produced no verdict
+  | 'not_analyzed';                                         // no analysis has ever been run
+```
+
+The mapping is total and lossless. `recommendationToFitTier()` in
+`packages/api/src/services/reports.service.ts` is the only place it is applied:
+
+| Stored analysis | `recommendation` | `fitTier` |
+|--------|--------|--------|
+| present | `'strong_fit'` | `strong_fit` |
+| present | `'moderate_fit'` | `moderate_fit` |
+| present | `'stretch'` | `stretch` |
+| present | `'low_fit'` | `low_fit` |
+| present | `null` | `unscored` |
+| **absent** | — | `not_analyzed` |
+
+Two distinctions the table is load-bearing for:
+
+- **`stretch` is not a magnitude, so it is not merged into `low_fit`.** Per the scoring algorithm
+  under `POST /api/catalog/job-fit/analyze`, `stretch` fires on a *seniority* mismatch even at a good
+  skill match. A client that treats `stretch` as "weak" tells the user their skills are short when
+  the finding was that the level is wrong, and those call for opposite actions.
+- **`unscored` is not `not_analyzed`.** `recommendation: null` means the analysis ran and could not
+  score — an empty catalog (`catalogEmpty: true`), or a JD in which no required skills were found.
+  `not_analyzed` means no analysis exists for that application. The first is answered by fixing the
+  catalog or the JD; the second by running the analysis.
+
+> **History (WIC-1298).** `FitTier` was previously an independent union
+> `'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed'`, agreeing with `recommendation` at
+> the top and diverging at the bottom, with the relationship written down nowhere. `weak_fit` merged
+> `stretch` and `low_fit`; `not_analyzed` also absorbed `recommendation: null`. Both members changed
+> in the same revision. Because UC-3 analyses are not persisted yet, this endpoint had never emitted
+> a non-zero `weak_fit` count — every application returns `not_analyzed` — so no client can have
+> depended on the removed member. Once UC-3 persistence lands, the same change would be a genuine
+> breaking revision.
+
+**Both `FitTier` and `recommendation` are wire values.** Adding or removing a member of either
+versions this endpoint and `POST /api/catalog/job-fit/analyze`. Because `FitTier` is *defined* as
+`FitRecommendation | 'unscored' | 'not_analyzed'` in `packages/api/src/types/index.ts`, a change to
+`recommendation` propagates here by construction and fails the build at `FIT_TIER_ORDER` until the
+new member is ranked — the two cannot silently drift apart again. Display labels are a separate
+concern and do not version anything (`packages/web/src/constants/fitLevel.ts`; see the note under
+the UC-3 scoring algorithm).
+
+**Current limitation**: UC-3 analyses are not persisted — there is no `job_fit_analyses` table and
+`applications` carries no analysis reference — so every application currently reports
+`not_analyzed`, `analyzed: 0`. The contract above is what the endpoint returns once that lands; only
+the data source changes.
 
 ---
 
@@ -2425,7 +2560,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps" \
+curl -X POST "$API_BASE/interview-preps" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
@@ -2686,7 +2822,8 @@ interface UpdateInterviewPrepResponse {
 **Example Request**:
 
 ```bash
-curl -X PATCH "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+curl -X PATCH "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "storyUpdates": [
@@ -2784,7 +2921,8 @@ interface ExportQuickReferenceResponse {
 **Example Request**:
 
 ```bash
-curl -X GET "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+curl -X GET "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+  -H "Authorization: Bearer $TOKEN" \
   -o interview-prep.pdf
 ```
 
@@ -2865,7 +3003,8 @@ interface LogPracticeSessionResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+curl -X POST "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "full_interview",
