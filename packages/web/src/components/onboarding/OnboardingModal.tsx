@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '../../contexts/OnboardingContext';
 import { OnboardingProgressIndicator } from './OnboardingProgressIndicator';
@@ -40,19 +40,14 @@ export function OnboardingModal() {
   const { data: personalInfoData } = usePersonalInfo();
   const updatePersonalInfo = useUpdatePersonalInfo();
 
-  // Auto-save progress to localStorage
-  useEffect(() => {
-    if (showOnboarding && currentStep > 0) {
-      localStorage.setItem(
-        'onboarding_progress',
-        JSON.stringify({
-          step: currentStep,
-          timestamp: new Date().toISOString(),
-          resumeUploaded: !!uploadedResume,
-        })
-      );
-    }
-  }, [currentStep, uploadedResume, showOnboarding]);
+  // WIC-1382 (D-9): an effect here used to write `onboarding_progress` to
+  // localStorage on every step change. Nothing ever read it back — resumption is
+  // driven entirely by the server record, via STEP_TO_NUMBER[status.currentStep]
+  // in OnboardingContext. It was removed rather than wired up, because it read
+  // like a resume mechanism and the next reader to believe that would have given
+  // the app a second, staler source of truth for which step you are on. If
+  // client-side resumption is ever wanted it has to be reconciled against the
+  // server record deliberately.
 
   if (!showOnboarding) {
     return null;
@@ -87,6 +82,7 @@ export function OnboardingModal() {
   const handleSkipResume = async () => {
     await updateProgress({
       resumeStepSkipped: true,
+      resumeStepCompleted: false,
     });
     nextStep();
   };
@@ -116,6 +112,7 @@ export function OnboardingModal() {
       setPersonalInfoCompleted(true);
       await updateProgress({
         personalInfoStepCompleted: true,
+        personalInfoStepSkipped: false,
       });
       nextStep();
     } catch (err) {
@@ -123,9 +120,16 @@ export function OnboardingModal() {
     }
   };
 
+  // WIC-1382 (D-5): every progress patch that sets one member of a
+  // completed/skipped pair also clears the other. The two flags exist to tell
+  // "done" apart from "skipped" apart from "not yet reached"; steps 2 and 3 both
+  // render a Back button, so skip -> Next -> Back -> submit used to leave both
+  // true and collapse the model back to a single "touched" bit. The API enforces
+  // this too (updateOnboardingProgress), so a stale client cannot reintroduce it.
   const handleSkipPersonalInfo = async () => {
     await updateProgress({
       personalInfoStepSkipped: true,
+      personalInfoStepCompleted: false,
     });
     nextStep();
   };
