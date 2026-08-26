@@ -719,7 +719,7 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;
+  responseRate: number;     // 0-1, percentage of applications with response
 }
 
 export interface ActivityItem {
