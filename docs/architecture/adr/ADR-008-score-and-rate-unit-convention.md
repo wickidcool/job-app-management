@@ -117,16 +117,39 @@ export type Percent = number & { readonly __unit: 'percent-0-100' };
 ```
 
 with explicit, checked constructors and one conversion in each direction
-(`packages/api/src/types/units.ts`, mirrored at `packages/web/src/types/units.ts`). A `Ratio` is
-then not assignable to a `Percent` or to a bare `number` parameter expecting the other, and the
-conversion has to be written down.
+(`packages/api/src/types/units.ts`, mirrored at `packages/web/src/types/units.ts`). `Ratio` and
+`Percent` are then mutually non-assignable, and a bare `number` is assignable to neither — so a
+conversion has to be written down. The reverse direction stays open on purpose: both brands
+remain assignable *to* `number`, which is what keeps ordinary arithmetic working (and is also
+why the brand does not survive it — see below).
+
+**What the brand actually catches is _assignment_, and only assignment.** Arithmetic and
+rendering both erase the brand: `Ratio` is assignable to `number`, so `score >= 80` is a
+well-typed relational comparison, and `{score}%` in JSX is a well-typed `ReactNode`. Both
+compile. Measured against `packages/web/tsconfig.app.json` at this ADR's own commit — a probe
+containing exactly those two expressions produced no error, while a bare `number` passed to
+`formatRatioAsPercent` produced `TS2345` in the same run.
+
+This matters because it is the *cross-layer assignment* — a `Percent`, or a bare `number` off a
+wire parse, landing in a `Ratio` field — that carries the defect class this ADR exists to stop.
+That is real and it is what the brand is for. It is not a general guarantee that a mis-united
+value cannot be *used*.
 
 Scope of what this catches, stated so the type is not mistaken for full coverage:
 
 - **Catches WIC-1514.** `DashboardStats` would have to accept a `Percent`; `dashboard.service.ts`
   returns a `Ratio`; the assignment fails to compile.
-- **Catches the `StarEntryPicker` instance.** `entry.relevanceScore` typed `Ratio` makes
-  `>= 80` and the raw `%` render both type errors.
+- **Catches the `StarEntryPicker` instance _at its assignment_, not at its uses.** Typing
+  `entry.relevanceScore` as `Ratio` makes it a compile error to populate that field from the
+  0-100 interview-prep population — which is the day the latent bug fires. It does **not** make
+  the existing `>= 80` split or the raw `{score}%` render type errors; both compile, as above.
+  - A **render** can be forced to a compile error, but only by routing it through a function
+    that takes the brand: `formatRatioAsPercent(r: Ratio)`. Deleting the brand then yields
+    `TS2345` at the call site. Treat that as a design instruction — *convert through `units.ts`,
+    never with a hand-written `* 100`* — and not as a property of the type.
+  - A **threshold** has no such mechanism. Nothing in the type system distinguishes `>= 0.8`
+    from `>= 80`. That line is held by a test and only by a test, so **a field that carries a
+    threshold needs one**; typing it is not a substitute.
 - **Does not catch WIC-1515.** That is a *semantic* disagreement about what the metric counts,
   not a unit disagreement. Both sides would be `Ratio` and both would compile. Branding units
   does not brand meaning.
@@ -171,8 +194,9 @@ ratio is worse than no comment, because it actively asserts the wrong unit.
 - One rule, stated once, that covers every score and rate rather than a per-field comment.
 - The deviation cases are self-describing at the call site (`Pct` suffix) instead of requiring a
   document lookup.
-- The two defect classes above become compile errors once the branded types are adopted at the
-  affected boundaries.
+- The two defect classes above become compile errors *at the assignment* once the branded types
+  are adopted at the affected boundaries — which is the point at which a wrong-unit value enters
+  a field. Uses of an already-wrong value (thresholds especially) still need a test; §3.
 - Ratios compose arithmetically; percents do not.
 
 **Negative / costs**
