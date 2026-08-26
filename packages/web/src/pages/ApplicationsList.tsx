@@ -6,7 +6,7 @@ import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
-import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useApplicationCollection, useUpdateApplicationStatus } from '../hooks/useApplications';
 import type { Application, ApplicationStatus } from '../types/application';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
@@ -53,7 +53,14 @@ export function ApplicationsList() {
     [filters.status, filters.search]
   );
 
-  const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
+  const { data: collection, isLoading } = useApplicationCollection(apiFilters);
+  // Memoised so the `?? []` fallback does not hand a fresh array to the
+  // downstream useMemo deps on every render.
+  const rawApplications = useMemo(() => collection?.applications ?? [], [collection]);
+  // The service pages `GET /api/applications` to exhaustion; `truncated` is only
+  // set if it ran out of page budget first. Say so rather than presenting a
+  // prefix of the account as if it were the whole thing.
+  const isPartialView = collection?.truncated ?? false;
   const updateStatusMutation = useUpdateApplicationStatus();
 
   // Client-side filtering for multiple companies and activeOnly (API doesn't support these)
@@ -112,6 +119,16 @@ export function ApplicationsList() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
       </div>
+
+      {isPartialView && (
+        <div
+          role="status"
+          className="mb-6 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm text-warning-800"
+        >
+          Showing the first {rawApplications.length} of {collection?.totalCount} applications. The
+          counts below cover only what is shown — narrow the filters to see the rest.
+        </div>
+      )}
 
       {/* Pipeline Stats Summary */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
