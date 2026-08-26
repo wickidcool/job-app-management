@@ -40,13 +40,23 @@
  * ## Fail-closed by construction
  *
  * Operators this parser does not model (`ilike`, ranges, `exists`, …) and columns
- * belonging to another table evaluate to **true** — the most permissive value.
- * That is deliberate and it is the safe direction: an unmodelled term can only
- * ever make the predicate look *more* leaky, never less, so `expectScopedTo`
- * cannot be talked into passing by an operator it failed to understand. It also
- * means a term on the wrong table is invisible as a constraint, which is what
- * makes `expectScopedTo` catch the wrong-table predicate that table-qualified
- * substring matching misses.
+ * belonging to another table evaluate to **UNKNOWN** — a genuine third value,
+ * propagated by three-valued (Kleene) logic and resolved to the permissive
+ * "admits" exactly once, at the top, in `predicateFor`.
+ *
+ * The one-value-at-a-time shortcut — "unmodelled means `true`" — is what makes
+ * this safe *until* the term sits under a `not`, which inverts it to `false`, the
+ * most **restrictive** value. A leaky predicate then reads as perfectly scoped
+ * and the `and`→`or` check inverts in both directions. That was a real fail-open
+ * bug (WIC-1529); keeping UNKNOWN distinct all the way up the tree is what
+ * closes it, so do not collapse it early. `not(<unmodelled>)` stays UNKNOWN and
+ * therefore still admits — an unmodelled term can only ever make the predicate
+ * look *more* leaky, never less, so `expectScopedTo` cannot be talked into
+ * passing by an operator it failed to understand.
+ *
+ * It also means a term on the wrong table is invisible as a constraint, which is
+ * what makes `expectScopedTo` catch the wrong-table predicate that
+ * table-qualified substring matching misses.
  *
  * The `and`→`or` mutation is a standing check in `tenancy.helper.test.ts`. If
  * this evaluator is ever weakened back into a presence check, that file is what
@@ -341,29 +351,47 @@ function readColumn(row: ProbeRow, ref: ColumnRef): { known: boolean; value: unk
 
 const same = (a: unknown, b: unknown): boolean => (a ?? null) === (b ?? null);
 
+/** `undefined` is UNKNOWN — a genuine third value, never a shorthand for `true`. */
+type Ternary = boolean | undefined;
+
 /**
  * Does `row` satisfy `node`?
  *
  * `table` names the table the row belongs to. A term on any *other* table is
- * opaque here: this evaluator models one table's rows, and a predicate that
+ * UNKNOWN here: this evaluator models one table's rows, and a predicate that
  * constrains a different table constrains nothing about this row — which is
  * precisely the wrong-table defect, surfaced as "admits the foreign row".
+ *
+ * Three-valued (Kleene) on purpose. UNKNOWN must stay UNKNOWN all the way up the
+ * tree and be resolved exactly once, at the top, in `predicateFor` — see the
+ * "Fail-closed by construction" note in the file header for why collapsing it to
+ * `true` here is a fail-*open* bug under `not`.
  */
-function evaluate(node: Node, row: ProbeRow, table: string): boolean {
+function evaluate(node: Node, row: ProbeRow, table: string): Ternary {
   switch (node.kind) {
-    case 'and':
-      return node.children.every((c) => evaluate(c, row, table));
-    case 'or':
-      return node.children.some((c) => evaluate(c, row, table));
-    case 'not':
-      return !evaluate(node.child, row, table);
+    case 'and': {
+      // Any false ⇒ false; else any unknown ⇒ unknown; else true.
+      const vs = node.children.map((c) => evaluate(c, row, table));
+      if (vs.some((v) => v === false)) return false;
+      return vs.some((v) => v === undefined) ? undefined : true;
+    }
+    case 'or': {
+      // Any true ⇒ true; else any unknown ⇒ unknown; else false.
+      const vs = node.children.map((c) => evaluate(c, row, table));
+      if (vs.some((v) => v === true)) return true;
+      return vs.some((v) => v === undefined) ? undefined : false;
+    }
+    case 'not': {
+      const v = evaluate(node.child, row, table);
+      return v === undefined ? undefined : !v;
+    }
     case 'opaque':
-      return true;
+      return undefined;
     case 'cmp': {
-      if (node.column === null) return true;
-      if (node.column.table !== null && node.column.table !== table) return true;
+      if (node.column === null) return undefined;
+      if (node.column.table !== null && node.column.table !== table) return undefined;
       const { known, value } = readColumn(row, node.column);
-      if (!known) return true;
+      if (!known) return undefined;
       switch (node.op) {
         case '=':
           return same(value, node.values[0]);
@@ -387,7 +415,9 @@ export function predicateFor(clause: unknown, table: string): (row: ProbeRow) =>
   const { sql, params } = renderClause(clause);
   if (sql.trim() === '') return () => true;
   const node = parse(tokenize(sql), params);
-  return (row: ProbeRow) => evaluate(node, row, table);
+  // UNKNOWN resolves to "admits" — the permissive value — here and only here,
+  // where no further negation can be applied to it.
+  return (row: ProbeRow) => evaluate(node, row, table) !== false;
 }
 
 /**
@@ -445,10 +475,15 @@ export interface ScopeExpectation {
   /** Primary-key column, if the table does not use `id`. */
   idKey?: string;
   /**
-   * Extra columns to put on every probe row. Needed when the predicate also
-   * constrains a column the probe rows would otherwise not model — an unmodelled
-   * column is permissive, so omitting this can only under-report, never
-   * over-report.
+   * Extra columns to put on every probe row. Supply these when the predicate
+   * also constrains a column the probe rows would otherwise not model — a column
+   * the row does not carry evaluates to UNKNOWN, which resolves permissively, so
+   * omitting this can only under-report, never over-report.
+   *
+   * That guarantee holds because UNKNOWN survives negation as UNKNOWN. Before
+   * WIC-1529 it did not: an absent column under a `not` became `false`, and
+   * `or(eq(userId, caller), not(eq(impactCategory, 'perf')))` — no exotic
+   * operator required — read as scoped while leaking the whole table.
    */
   extra?: ProbeRow;
 }
@@ -474,6 +509,12 @@ function describeClause(clause: unknown): string {
  * expect(sql).toContain('"quantified_bullets"."user_id" = $');
  * expect(params).toContain(userId);
  * ```
+ *
+ * **Not for the anonymous-caller path.** Probe 3 asserts that orphan
+ * (`ownerKey IS NULL`) rows are rejected, so this is deliberately the wrong
+ * assertion for the ADR-003 anonymous reads that legitimately emit
+ * `isNull(userId)` (#153 / #161). Those tests should keep asserting the clause
+ * directly rather than forcing this helper and concluding it is broken.
  */
 export function expectScopedTo(clause: unknown, expectation: ScopeExpectation): void {
   const { table, userId, ids, ownerKey = 'userId', idKey = 'id', extra = {} } = expectation;
