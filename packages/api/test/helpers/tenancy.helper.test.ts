@@ -102,6 +102,35 @@ const SHAPES: Shape[] = [
       ),
   },
   {
+    // WIC-1529. An unmodelled operator *underneath a NOT*. `opaque` is UNKNOWN,
+    // and UNKNOWN must stay UNKNOWN through the negation: resolve it to `true`
+    // early and `not(...)` yields `false` — the most *restrictive* value — so
+    // the `or` mutant reads as perfectly scoped while Postgres returns the
+    // union. This cell is red on the pre-Kleene evaluator in both directions.
+    name: 'eq(userId) + not(unmodelled operator)',
+    table: 'quantified_bullets',
+    extra: { rawText: 'anything' },
+    build: (join) =>
+      join(
+        eq(quantifiedBullets.userId, CALLER),
+        not(ilike(quantifiedBullets.rawText, '%latency%'))
+      ),
+  },
+  {
+    // WIC-1529, second mechanism — no exotic operator needed. The operator here
+    // *is* modelled; the probe row simply does not carry `impact_category`, so
+    // the term is UNKNOWN for the absent-column reason. `extra` is omitted on
+    // purpose: this cell is what makes `ScopeExpectation.extra`'s "omitting this
+    // can only under-report, never over-report" an enforced promise.
+    name: 'eq(userId) + not(eq(<column absent from the probe row>))',
+    table: 'quantified_bullets',
+    build: (join) =>
+      join(
+        eq(quantifiedBullets.userId, CALLER),
+        not(eq(quantifiedBullets.impactCategory, 'performance'))
+      ),
+  },
+  {
     name: 'cover_letters: eq(id) + eq(userId)',
     table: 'cover_letters',
     ids: [ID_A],
