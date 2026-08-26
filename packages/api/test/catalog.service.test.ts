@@ -8,8 +8,10 @@ vi.mock('../src/services/extraction.service.js', () => ({
 
 import { getDb } from '../src/db/client.js';
 import { processCatalogChange } from '../src/services/extraction.service.js';
+import type { ListDiffsOptions } from '../src/services/catalog.service.js';
 import {
   generateDiff,
+  listDiffs,
   mergeCompanies,
   mergeJobFitTags,
   mergeTechStackTags,
@@ -603,5 +605,102 @@ describe('generateDiff tenancy', () => {
     await expect(generateDiff('resume', '01HZ_RESUME_001', CALLER)).rejects.toThrow(
       new NotFoundError('CatalogDiff')
     );
+  });
+});
+
+// ── WIC-1407: listDiffs tenancy ───────────────────────────────────────────────
+// GET /api/catalog/diffs already scopes to the caller in the service, but
+// nothing pinned it: deleting `eq(catalogDiffs.userId, userId)` from listDiffs
+// left this file and catalog.routes.test.ts at 80/80 green, so a regression
+// that lets any caller page another user's diffs would ship unnoticed.
+//
+// The predicate is a compound — tenancy AND status — and the assertions below
+// match the whole rendered clause rather than one conjunct. Asserting a single
+// half is what let four mutations survive in WIC-1378, and `params` alone never
+// says which *column* a value was bound to; pinning the exact SQL alongside the
+// exact params does, by position.
+
+/** db double for listDiffs: select().from().where().orderBy().limit().offset(). */
+function stubListDiffsDb(rows: unknown[]) {
+  const where = vi.fn();
+  const offset = vi.fn().mockResolvedValue(rows);
+  const orderBy = vi.fn().mockReturnValue({ limit: vi.fn().mockReturnValue({ offset }) });
+  where.mockReturnValue({ orderBy });
+  const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere: where };
+}
+
+/** As stubListDiffsDb, but the page actually honours the where-clause. */
+function stubListDiffsOwnedRow(row: { userId: string }) {
+  const offset = vi.fn();
+  const where = vi.fn((clause: unknown) => {
+    const { sql, params } = queryFor(clause);
+    const visible = !sql.includes('user_id') || params.includes(row.userId);
+    offset.mockResolvedValueOnce(visible ? [row] : []);
+    return { orderBy: () => ({ limit: () => ({ offset }) }) };
+  });
+  const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere: where };
+}
+
+const SCOPED_DIFF_CLAUSE = '("catalog_diffs"."user_id" = $1 and "catalog_diffs"."status" = $2)';
+
+describe('listDiffs tenancy', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ['the default pending filter', {} as ListDiffsOptions, 'pending'],
+    ['an explicit status filter', { status: 'approved' } as ListDiffsOptions, 'approved'],
+  ])('scopes the page to the caller alongside %s', async (_name, opts, status) => {
+    const { selectWhere } = stubListDiffsDb([]);
+
+    await listDiffs(opts, CALLER);
+
+    // Both conjuncts, table-qualified, with each value pinned to the column
+    // that binds it: $1 is the tenancy term, $2 the status term. A mutation
+    // that drops either half — or swaps which column a value lands on —
+    // changes one of these two lines.
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
+    expect(params).toEqual([CALLER, status]);
+  });
+
+  it('binds the caller it was handed, not a fixed owner', async () => {
+    const { selectWhere } = stubListDiffsDb([]);
+
+    await listDiffs({}, OTHER_USER);
+
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
+    expect(params).toEqual([OTHER_USER, 'pending']);
+  });
+
+  it('leaves the page unscoped in single-user mode', async () => {
+    const { selectWhere } = stubListDiffsDb([]);
+
+    await listDiffs({}, undefined);
+
+    // No tenancy term — and the status half survives its removal, which a bare
+    // `not.toContain('user_id')` would not have shown.
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe('"catalog_diffs"."status" = $1');
+    expect(params).toEqual(['pending']);
+  });
+
+  it("does not page another user's diffs", async () => {
+    // The exploit itself, not just the shape of the SQL: stubListDiffsDb
+    // resolves its canned rows whatever predicate it is handed, so only a
+    // double that honours the clause can show that dropping the tenancy term
+    // makes a foreign diff readable.
+    const { selectWhere } = stubListDiffsOwnedRow(
+      diffRow({ userId: OTHER_USER, status: 'pending' })
+    );
+
+    const { diffs } = await listDiffs({}, CALLER);
+
+    expect(diffs).toEqual([]);
+    expect(selectWhere).toHaveBeenCalledTimes(1);
   });
 });
