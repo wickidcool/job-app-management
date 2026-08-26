@@ -382,10 +382,10 @@ test.describe('Job Fit Analysis page', () => {
   });
 
   // TC-6: Gaps are visually prominent
-  // FIXME: Test is flaky in CI - gap severity styling may vary
-  test.skip('TC-6: gaps are displayed prominently with severity-coded styling', async ({
-    page,
-  }) => {
+  // Previously skipped as flaky ("gap severity styling may vary") — the variance was real:
+  // three disagreeing severity ramps rendered the same value differently. WIC-1146 put both
+  // render sites on the single GAP_SEVERITY map, so the classes below are now deterministic.
+  test('TC-6: gaps are displayed prominently with severity-coded styling', async ({ page }) => {
     await mockJobFitApi(page, MOCK_ANALYSIS_RESPONSE);
 
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
@@ -396,14 +396,28 @@ test.describe('Job Fit Analysis page', () => {
     });
 
     await expect(page.getByText('❌ Gaps (2)')).toBeVisible();
-    // Critical gap has red background
-    await expect(page.locator('.border-red-500').first()).toBeVisible();
-    await expect(page.getByText('CRITICAL')).toBeVisible();
-    await expect(page.getByText('MODERATE')).toBeVisible();
-    // Critical gaps show 🔴 icon
-    await expect(
-      page.getByText(/🔴.*aws/i).or(page.locator('[class*="border-red-500"]').first())
-    ).toBeVisible();
+
+    // The tokenised scale: critical is the red step, moderate the orange one.
+    // `mark` on the left border, `surface` on the card. See DESIGN_SYSTEM.md "Gap Severity Scale".
+    const criticalCard = page.locator('.border-red-900.bg-red-50');
+    const moderateCard = page.locator('.border-orange-700.bg-orange-50');
+    await expect(criticalCard).toHaveCount(1);
+    await expect(moderateCard).toHaveCount(1);
+
+    // The word is the mandatory carrier of severity — colour never carries it alone (WCAG 1.4.1).
+    // Scoped to each card, which also pins the word to the right colour step. Page-scoped matching
+    // is wrong here: "moderate" is also a fit level ("Moderate fit") elsewhere on this same screen,
+    // and Playwright's default text match is a case-insensitive substring, so it collides.
+    //
+    // Sentence case, not the raw wire value: WIC-1122 de-shouted this site, so the label now comes
+    // from `GAP_SEVERITY[...].label` rather than `<span className="uppercase">{gap.severity}</span>`.
+    // `exact: true` is case-sensitive, so these assertions pin the casing decision too.
+    await expect(criticalCard.getByText('Critical', { exact: true })).toBeVisible();
+    await expect(moderateCard.getByText('Moderate', { exact: true })).toBeVisible();
+
+    // No severity emoji survive. They were the second, contradicting signal on the same card:
+    // this page called `minor` green while GapMitigationPanel called it yellow.
+    await expect(page.locator('body')).not.toContainText(/🔴|🟠|🟡|🟢/u);
   });
 
   // TC-2: Submit JD URL → receive fit assessment
