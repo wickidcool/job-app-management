@@ -23,6 +23,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { eq, and, inArray } from 'drizzle-orm';
 import { quantifiedBullets } from '../src/db/schema.js';
 import { _resetConfig } from '../src/config.js';
+import { applyTenancyPredicate, expectEveryReadScopedTo } from './helpers/tenancy.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -93,25 +94,34 @@ const coverLetterRows = [
 
 const dialect = new PgDialect();
 
-/** Filter `rows` by actually rendering and interpreting the drizzle predicate. */
-function applyPredicate<T extends { id: string; userId: string }>(
+/**
+ * Filter `rows` by the predicate the service really built (WIC-1502).
+ *
+ * This delegates to the shared harness (WIC-1491). The local `applyPredicate`
+ * that used to live here decided each constraint with its own independent regex
+ * and then applied both *conjunctively* — so the conjunction was the test's
+ * assumption rather than the query's structure, and flipping any `and(id, owner)`
+ * to `or(id, owner)` left this file green. Measured on `fd37a8e`: all seven
+ * tenancy predicates in `cover-letter.service.ts` flipped to `or` and the suite
+ * still reported 16/16. `applyTenancyPredicate` parses the rendered SQL into a
+ * real boolean tree and evaluates `or` as `or`, so that mutation now goes red.
+ */
+const applyPredicate = <T extends { id: string; userId: string }>(
   rows: T[],
   clause: unknown,
   table: 'quantified_bullets' | 'cover_letters'
-): T[] {
-  if (!clause) return rows;
-  const { sql: text, params } = dialect.sqlToQuery(clause as any);
-  const constrainsId = new RegExp(`"${table}"\\."id"\\s*(=|in\\s*\\()`).test(text);
-  const scopesOwner = new RegExp(`"${table}"\\."user_id"\\s*=`).test(text);
-  return rows.filter((r) => {
-    if (constrainsId && !params.includes(r.id)) return false;
-    if (scopesOwner && !params.includes(r.userId)) return false;
-    return true;
-  });
-}
+): T[] => applyTenancyPredicate(rows, clause, table);
 
-/** Records which tables were read and with what rendered SQL, for assertions. */
-let readLog: { table: string; sql: string; params: readonly unknown[] }[] = [];
+/** Records which tables were read and with what clause, for assertions. */
+let readLog: {
+  table: string;
+  clause: unknown;
+  sql: string;
+  params: readonly unknown[];
+}[] = [];
+
+/** Records write-side predicates (update/delete), so a write leak is visible too. */
+let deleteLog: { table: string; clause: unknown; op: 'update' | 'delete'; ids?: string[] }[] = [];
 
 function tableNameOf(table: any): 'quantified_bullets' | 'cover_letters' | 'other' {
   const name = table?.[Symbol.for('drizzle:Name')] ?? table?.[Symbol.for('drizzle:BaseName')];
@@ -134,7 +144,7 @@ function makeFakeDb() {
         const build = (clause: unknown) => {
           if (clause) {
             const q = dialect.sqlToQuery(clause as any);
-            readLog.push({ table: name, sql: q.sql, params: q.params });
+            readLog.push({ table: name, clause, sql: q.sql, params: q.params });
           }
           const result = applyPredicate(source as any[], clause, name as any);
           const thenable: any = {
@@ -164,10 +174,31 @@ function makeFakeDb() {
           ]),
       }),
     }),
-    update: (_table: any) => ({
+    // Predicate-honest, like `select`. The previous stub resolved
+    // `[{...coverLetterRows[0], ...vals}]` for *any* predicate, so the
+    // not-found branch below it was unreachable and its owner term was never
+    // exercised by anything.
+    update: (table: any) => ({
       set: (vals: any) => ({
-        where: () => ({ returning: () => Promise.resolve([{ ...coverLetterRows[0], ...vals }]) }),
+        where: (clause: unknown) => ({
+          returning: () => {
+            const name = tableNameOf(table);
+            const matched = applyPredicate(coverLetterRows as any[], clause, name as any);
+            deleteLog.push({ table: name, clause, op: 'update' });
+            return Promise.resolve(
+              matched.map((r) => ({ ...r, ...vals, version: (r as any).version + 1 }))
+            );
+          },
+        }),
       }),
+    }),
+    delete: (table: any) => ({
+      where: (clause: unknown) => {
+        const name = tableNameOf(table);
+        const matched = applyPredicate(coverLetterRows as any[], clause, name as any);
+        deleteLog.push({ table: name, clause, op: 'delete', ids: matched.map((r) => r.id) });
+        return Promise.resolve(matched);
+      },
     }),
   };
 }
@@ -203,6 +234,9 @@ import {
   generateOutreach,
   reviseCoverLetter,
   getCoverLetter,
+  updateCoverLetter,
+  deleteCoverLetter,
+  exportCoverLetter,
 } from '../src/services/cover-letter.service.js';
 import { CoverLetterError } from '../src/types/index.js';
 
@@ -212,6 +246,7 @@ const allPrompts = () => prompts.join('\n---\n');
 beforeEach(() => {
   prompts = [];
   readLog = [];
+  deleteLog = [];
   createMock.mockClear();
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key-for-tenancy-suite';
   _resetConfig();
@@ -288,17 +323,20 @@ describe('WIC-1437 defect 1 — STAR entries are scoped to the caller', () => {
     expect(leaked).not.toContain(BULLET_VICTIM);
   });
 
-  it('the quantified_bullets read carries a user_id predicate', async () => {
+  it('the quantified_bullets read is structurally scoped to the caller', async () => {
     await generateCoverLetter(
       { ...baseInput, selectedStarEntryIds: [BULLET_ATTACKER] } as any,
       ATTACKER
     );
-    const bulletReads = readLog.filter((r) => r.table === 'quantified_bullets');
-    expect(bulletReads.length).toBeGreaterThan(0);
-    for (const read of bulletReads) {
-      expect(read.sql).toMatch(/"quantified_bullets"\."user_id"\s*=/);
-      expect(read.params).toContain(ATTACKER);
-    }
+    // Was a presence check (`sql` matches `user_id =`, `params` contains the
+    // caller). That passes identically under `or(idTerm, ownerTerm)`, which
+    // returns the union. `expectEveryReadScopedTo` evaluates the real boolean
+    // tree against probe rows, and fails loudly if no such read was recorded.
+    expectEveryReadScopedTo(readLog, {
+      table: 'quantified_bullets',
+      userId: ATTACKER,
+      ids: [BULLET_ATTACKER],
+    });
   });
 
   it('the caller still gets their OWN STAR entries back', async () => {
@@ -367,20 +405,106 @@ describe('WIC-1437 defect 2 — outreach cover-letter lookup is scoped to the ca
     expect(allPrompts()).not.toContain('VICTIM_LETTER_SECRET');
   });
 
-  it('the cover_letters read carries a user_id predicate', async () => {
+  it('the cover_letters read is structurally scoped to the caller', async () => {
     await generateOutreach({ platform: 'linkedin', coverLetterId: CL_ATTACKER } as any, ATTACKER);
-    const clReads = readLog.filter((r) => r.table === 'cover_letters');
-    expect(clReads.length).toBeGreaterThan(0);
-    for (const read of clReads) {
-      expect(read.sql).toMatch(/"cover_letters"\."user_id"\s*=/);
-      expect(read.params).toContain(ATTACKER);
-    }
+    expectEveryReadScopedTo(readLog, {
+      table: 'cover_letters',
+      userId: ATTACKER,
+      ids: [CL_ATTACKER],
+    });
   });
 
   it("the caller's OWN cover letter still becomes outreach context", async () => {
     await generateOutreach({ platform: 'linkedin', coverLetterId: CL_ATTACKER } as any, ATTACKER);
     expect(createMock).toHaveBeenCalled();
     expect(allPrompts()).toContain(ATTACKER_CL_CONTENT.slice(0, 40));
+  });
+});
+
+// ── Every id-addressed cover_letters predicate ───────────────────────────────
+//
+// WIC-1502. Adopting the shared evaluator made the `and`→`or` mutation
+// detectable, but detectable is not detected: a predicate is only pinned where
+// some test actually asks for a row the caller does not own. Mutating each of
+// the seven `and(id, owner)` sites in `cover-letter.service.ts` *alone* showed
+// only `:130` (fetchStarEntries) and `:610` (generateOutreach) going red. The
+// other five survived — not because the evaluator missed them, but because
+// nothing here ever addressed them with a foreign id:
+//
+//   :342 getCoverLetter     — only ever called with the caller's own id, and
+//                             `.limit(1)` hid the union the `or` admitted
+//   :446 updateCoverLetter  — branch was unreachable behind a stub `update`
+//                             that resolved a row for any predicate
+//   :461 deleteCoverLetter  — never exercised (there was no `delete` stub)
+//   :481 reviseCoverLetter  — only ever called with the caller's own id
+//   :715 exportCoverLetter  — never exercised
+//
+// One negative case each. All five now go red under `or`, which is what the
+// acceptance criterion on WIC-1502 asks for.
+
+describe('WIC-1502 — every id-addressed cover_letters read rejects a foreign id', () => {
+  const VERSION = 1;
+
+  it('getCoverLetter refuses another user’s letter', async () => {
+    const err = await getCoverLetter(CL_VICTIM, ATTACKER).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toMatch(/not found/i);
+    expectEveryReadScopedTo(readLog, {
+      table: 'cover_letters',
+      userId: ATTACKER,
+      ids: [CL_VICTIM],
+    });
+  });
+
+  it('updateCoverLetter refuses another user’s letter, and reports it as not-found', async () => {
+    const err = await updateCoverLetter(
+      CL_VICTIM,
+      { version: VERSION, title: 'pwned' } as any,
+      ATTACKER
+    ).catch((e) => e);
+    // Must be NotFoundError, NOT VersionConflictError: a conflict would mean the
+    // fallback lookup found the victim's row and merely disagreed on version,
+    // which is the `or` shape leaking existence.
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toMatch(/not found/i);
+    // and nothing was written to a row the attacker does not own
+    for (const w of deleteLog.filter((w) => w.op === 'update')) {
+      expect(applyPredicate(coverLetterRows as any[], w.clause, 'cover_letters')).toEqual([]);
+    }
+  });
+
+  it('deleteCoverLetter refuses another user’s letter and deletes nothing', async () => {
+    const err = await deleteCoverLetter(CL_VICTIM, ATTACKER).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toMatch(/not found/i);
+    expect(deleteLog.filter((w) => w.op === 'delete').flatMap((w) => w.ids ?? [])).toEqual([]);
+  });
+
+  it('reviseCoverLetter refuses another user’s letter', async () => {
+    const err = await reviseCoverLetter(
+      CL_VICTIM,
+      { revisionInstructions: 'punchier' } as any,
+      ATTACKER
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toMatch(/not found/i);
+    expect(allPrompts()).not.toContain(VICTIM_CL_CONTENT);
+  });
+
+  it('exportCoverLetter refuses another user’s letter', async () => {
+    const err = await exportCoverLetter(CL_VICTIM, { format: 'docx' } as any, ATTACKER).catch(
+      (e) => e
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toMatch(/not found/i);
+  });
+
+  it('the caller’s own letter still works on each of those paths', async () => {
+    await expect(getCoverLetter(CL_ATTACKER, ATTACKER)).resolves.toBeTruthy();
+    await expect(
+      updateCoverLetter(CL_ATTACKER, { version: VERSION, title: 'mine' } as any, ATTACKER)
+    ).resolves.toBeTruthy();
+    await expect(deleteCoverLetter(CL_ATTACKER, ATTACKER)).resolves.toBeUndefined();
   });
 });
 
