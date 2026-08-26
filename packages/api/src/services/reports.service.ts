@@ -1,6 +1,7 @@
 import { eq, and, inArray, notInArray, lte, lt, gte, asc, desc, isNotNull } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
+import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import type {
   ApplicationStatus,
   ActiveStatus,
@@ -65,18 +66,6 @@ export function recommendationToFitTier(
 ): FitTier {
   if (!analysis) return 'not_analyzed';
   return analysis.recommendation ?? 'unscored';
-}
-
-function decodeCursor(cursor: string): number {
-  try {
-    return parseInt(Buffer.from(cursor, 'base64url').toString('utf-8'), 10);
-  } catch {
-    return 0;
-  }
-}
-
-function encodeCursor(offset: number): string {
-  return Buffer.from(String(offset)).toString('base64url');
 }
 
 export async function getPipelineReport(
@@ -156,7 +145,7 @@ export async function getNeedsActionReport(
   const days = Math.min(Math.max(params.days ?? 7, 1), 365);
   const includeOverdue = params.includeOverdue !== false;
   const limit = Math.min(params.limit ?? 50, 100);
-  const offset = params.cursor ? decodeCursor(params.cursor) : 0;
+  const offset = parseCursor(params.cursor);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -242,7 +231,7 @@ export async function getStaleReport(
   const db = getDb();
   const staleDays = Math.min(Math.max(params.days ?? 14, 1), 365);
   const limit = Math.min(params.limit ?? 50, 100);
-  const offset = params.cursor ? decodeCursor(params.cursor) : 0;
+  const offset = parseCursor(params.cursor);
 
   const VALID_STATUSES: ApplicationStatus[] = [
     'saved',
@@ -346,7 +335,7 @@ export async function getClosedLoopReport(
 ): Promise<ClosedLoopReportResponse> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 50, 100);
-  const offset = params.cursor ? decodeCursor(params.cursor) : 0;
+  const offset = parseCursor(params.cursor);
 
   const VALID_TERMINAL: Array<'offer' | 'rejected' | 'withdrawn'> = [
     'offer',
