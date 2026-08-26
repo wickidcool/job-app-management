@@ -18,11 +18,19 @@ back to the variant; anything with neither aborts the run before a byte is writt
 """
 import json
 import os
+import textwrap
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = "551963"
 HOST = "https://us.posthog.com"
+
+# Second input, alongside insight-payloads.json. WIC-1389/WIC-1392 added a mandatory
+# synthetic-exclusion step to the runbook by hand, which broke the "regenerating the pack
+# reproduces the committed files" invariant #109 exists to hold -- the next regeneration
+# would have silently deleted the safety section. Everything those commits added now lives
+# here, and every probe fact in it is derived from the registry rather than transcribed.
+REGISTRY = "probe-registry.json"
 
 DASHBOARDS = [
     ("Dashboard A — Upload Health",
@@ -90,12 +98,48 @@ def resolve_all(payloads):
     return [(p, desc, query) for p, (desc, query) in resolved]
 
 
+def load_registry():
+    """Load probe-registry.json and check it still accounts for every lifetime event.
+
+    The runbook's day-one section tells a human that excluding the registry makes every
+    tile read 0. That claim is only true while the registry covers the whole project, so
+    it is asserted here rather than assumed: if a probe is added without its `event_uuids`,
+    or organic traffic arrives and `lifetime_event_count_at_verification` is bumped without
+    a matching probe entry, the generator refuses instead of shipping a false promise.
+    """
+    reg = json.load(open(os.path.join(HERE, REGISTRY)))
+    lifetime = reg["lifetime_event_count_at_verification"]
+    organic = reg["organic_event_count_at_verification"]
+    accounted = sum(len(p["event_uuids"]) for p in reg["probes"])
+    if accounted + organic != lifetime:
+        raise SystemExit(
+            f"refusing to generate: {REGISTRY} does not account for the project.\n"
+            f"  lifetime_event_count_at_verification = {lifetime}\n"
+            f"  organic_event_count_at_verification  = {organic}\n"
+            f"  event_uuids across {len(reg['probes'])} probes = {accounted}\n"
+            "Re-run `python3 docs/analytics/organic_watch.py --audit` and reconcile the "
+            "registry before regenerating the pack."
+        )
+    return reg
+
+
+def probe_breakdown(reg):
+    """`WIC-889 x1, WIC-996 x3, ...` -- the registry's composition, not a transcription."""
+    parts = []
+    for p in reg["probes"]:
+        label = p["ticket"] or f"unticketed {p['when'][:10]} probe"
+        parts.append(f"{label} ×{len(p['event_uuids'])}")
+    return ", ".join(parts)
+
+
 def main():
     all_payloads = json.load(open(os.path.join(HERE, "insight-payloads.json")))
     # Mirrors build_dashboards.py: `_enabled: false` entries are authored and validated
     # but deliberately not built yet, so all three routes agree on which tiles exist.
     payloads = [p for p in all_payloads if p.get("_enabled", True)]
     resolved = resolve_all(payloads)
+    reg = load_registry()
+    lifetime = reg["lifetime_event_count_at_verification"]
 
     templates = []
     for name, description in DASHBOARDS:
@@ -204,6 +248,59 @@ def main():
     w("")
     w("---")
     w("")
+    w("## Before you paste anything: exclude synthetic traffic (MANDATORY)")
+    w("")
+    w("_Added 2026-08-26 (WIC-1389 / WIC-1392). The 17 queries below were authored when "
+      f"{PROJECT} held")
+    w("nothing but probes, so they deliberately carry **no** exclusion — every tile counted the")
+    w("synthetic events on purpose, to prove the query ran. **On build day that is no longer what you")
+    w("want**, because by definition you are building because organic traffic arrived, and the probes")
+    w("are still in there permanently._")
+    w("")
+    w(f"Every known synthetic actor is recorded in `docs/analytics/{REGISTRY}`. Print the")
+    w("current exclusion predicate with:")
+    w("")
+    w("```bash")
+    w("python3 docs/analytics/organic_watch.py --audit     # prints SYNTHETIC_PREDICATE")
+    w("```")
+    w("")
+    w("Then add one line to **every** query below, immediately after its existing `WHERE`:")
+    w("")
+    w("```sql")
+    w("  AND NOT ( <paste SYNTHETIC_PREDICATE here> )")
+    w("```")
+    w("")
+    w("That covers **Route 3**. **Routes 1 and 2 carry no exclusion at all** — they build from")
+    w("`insight-payloads.json` / `dashboard-templates.json`, which are deliberately unfiltered (the")
+    w("queries were authored to prove they ran against probe data). After an API build or a JSON")
+    w("import, open each of the 17 tiles and add the same `AND NOT (...)` line, or the panels will")
+    w("read probe residue as product usage.")
+    w("")
+    w("Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source")
+    w("of record. If a probe fires between now and build day, the regenerated predicate covers it and a")
+    w("hand-copied one does not.")
+    w("")
+    w("### Two funnel-reading corrections (from DevOps, WIC-1389)")
+    w("")
+    w("Both will produce wrong panels if ignored, and neither is visible from the query text:")
+    w("")
+    w("1. **Never read `resume_upload_failed` as the failure count** (affects **A9**, and any failure")
+    w("   rate derived from it). `track()` delivers over `fetch()`, and a `fetch` is a subrequest — so")
+    w("   during a subrequest-exhaustion outage (WIC-1386) the failure capture is itself dropped")
+    w("   (WIC-1387). A failure panel therefore reads **0 during a total outage**, which is")
+    w("   indistinguishable from perfect health, and it is *most* wrong exactly when you need it most.")
+    w("   Derive failures from `resume_upload_submitted` with **no matching terminal event** in the")
+    w("   session, and treat A9 as a breakdown of the failures you already know about, not a count.")
+    w("")
+    w("2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**")
+    w("   WIC-996 emitted all three upload legs 0.3 s apart including `completed` *and* `failed` for one")
+    w("   session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling")
+    w("   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of")
+    w(f"   the {lifetime} lifetime events, both terminal events and both `submitted` are probes. Any funnel")
+    w("   conversion you compute today is an artefact. Exclude first, then read.")
+    w("")
+    w("---")
+    w("")
     w("## The 17 queries")
     w("")
     for p, desc, query in resolved:
@@ -220,9 +317,20 @@ def main():
     w("")
     w("## What these dashboards will show on day one")
     w("")
-    w("**Mostly zeros, and that is correct.** PostHog project "
-      f"`{PROJECT}` holds 5 lifetime events, all synthetic")
-    w("(3 from the WIC-996 server smoke test, 2 QA probes). Zero organic traffic has ever reached it.")
+    # Wrapped here rather than as fixed `w()` lines: the breakdown is registry-derived, so its
+    # length changes with the data and hand-placed line breaks would drift past printWidth.
+    for line in textwrap.wrap(
+        f"**Mostly zeros, and that is correct.** PostHog project `{PROJECT}` holds "
+        f"**{lifetime} lifetime events, all synthetic** ({probe_breakdown(reg)}). Zero organic "
+        f"traffic has ever reached it — last verified {reg['last_verified']} by "
+        f"{reg['last_verified_by']}. All {lifetime} are itemised in "
+        f"`docs/analytics/{REGISTRY}`; apply the exclusion above and every tile reads **0**, "
+        "which is the honest day-one picture. The counts described in the next paragraph are "
+        "what you see _without_ the exclusion, i.e. probe residue.",
+        width=98, break_long_words=False, break_on_hyphens=False,
+    ):
+        w(line)
+    w("")
     w("Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the")
     w("app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the")
     w("client transport is broken — WIC-1012 proved the client capture leg round-trips.")

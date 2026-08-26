@@ -115,6 +115,12 @@ Then add one line to **every** query below, immediately after its existing `WHER
   AND NOT ( <paste SYNTHETIC_PREDICATE here> )
 ```
 
+That covers **Route 3**. **Routes 1 and 2 carry no exclusion at all** — they build from
+`insight-payloads.json` / `dashboard-templates.json`, which are deliberately unfiltered (the
+queries were authored to prove they ran against probe data). After an API build or a JSON
+import, open each of the 17 tiles and add the same `AND NOT (...)` line, or the panels will
+read probe residue as product usage.
+
 Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source
 of record. If a probe fires between now and build day, the regenerated predicate covers it and a
 hand-copied one does not.
@@ -127,12 +133,12 @@ Both will produce wrong panels if ignored, and neither is visible from the query
    rate derived from it). `track()` delivers over `fetch()`, and a `fetch` is a subrequest — so
    during a subrequest-exhaustion outage (WIC-1386) the failure capture is itself dropped
    (WIC-1387). A failure panel therefore reads **0 during a total outage**, which is
-   indistinguishable from perfect health, and it is *most* wrong exactly when you need it most.
+   indistinguishable from perfect health, and it is _most_ wrong exactly when you need it most.
    Derive failures from `resume_upload_submitted` with **no matching terminal event** in the
    session, and treat A9 as a breakdown of the failures you already know about, not a count.
 
 2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**
-   WIC-996 emitted all three upload legs 0.3 s apart including `completed` *and* `failed` for one
+   WIC-996 emitted all three upload legs 0.3 s apart including `completed` _and_ `failed` for one
    session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling
    `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of
    the 6 lifetime events, both terminal events and both `submitted` are probes. Any funnel
@@ -395,11 +401,12 @@ ORDER BY cohort
 ## What these dashboards will show on day one
 
 **Mostly zeros, and that is correct.** PostHog project `551963` holds **6 lifetime events, all
-synthetic** (3 from the WIC-996 server smoke test, 2 QA probes, and — since 2026-08-26 — 1 from the
-WIC-967 end-to-end probe). Zero organic traffic has ever reached it. All 6 are itemised in
-`docs/analytics/probe-registry.json`; apply the exclusion above and every tile reads **0**, which is
-the honest day-one picture. The counts described in the next paragraph are what you see *without*
-the exclusion, i.e. probe residue.
+synthetic** (WIC-889 ×1, WIC-996 ×3, unticketed 2026-08-19 probe ×1, WIC-967 ×1). Zero organic
+traffic has ever reached it — last verified 2026-08-26T07:20:00Z by DevOps Engineer (288abc97),
+HogQL over all lifetime events. All 6 are itemised in `docs/analytics/probe-registry.json`; apply
+the exclusion above and every tile reads **0**, which is the honest day-one picture. The counts
+described in the next paragraph are what you see _without_ the exclusion, i.e. probe residue.
+
 Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the
 app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the
 client transport is broken — WIC-1012 proved the client capture leg round-trips.
