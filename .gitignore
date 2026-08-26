@@ -43,3 +43,7 @@ test-results/
 # TypeScript build info
 *.tsbuildinfo
 packages/api/coverage/
+
+# Python bytecode (docs/analytics/ helper scripts)
+__pycache__/
+*.pyc

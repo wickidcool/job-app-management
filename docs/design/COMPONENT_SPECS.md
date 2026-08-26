@@ -2,6 +2,96 @@
 
 This document defines all reusable UI components with their states, variants, props, and behaviors.
 
+## Reading the wireframes: casing
+
+The ASCII wireframes below depict **rendered output**, not source strings. An all-caps label in a
+wireframe is therefore *either* the **Overline** token (`DESIGN_SYSTEM.md` §Typography — 10px / 600 /
+all-caps labels) applied as `text-transform: uppercase` in `className`, *or* a wireframe that is lying
+about what the component actually ships. The two are visually identical here, so the wireframes mark
+which one they mean.
+
+The distinction matters for accessibility: caps spelled into the DOM are what the accessibility tree
+receives, and some screen readers — VoiceOver notably — spell short all-caps strings out letter by letter.
+`uppercase` renders the caps visually while leaving the accessible name normal-cased. This is known-good
+practice rather than a WCAG conformance requirement; no success criterion fails either way.
+
+### The rule
+
+> **A caps label in a wireframe is a defect unless its line carries a trailing marker.**
+
+Markers sit outside the closing box border, so they cost no alignment work:
+
+```
+│ OVERVIEW                                    🟢 Strong │   ‹overline›
+```
+
+| Marker | Meaning | What to do |
+|---|---|---|
+| `‹overline›` | Source ships the string **mixed case** with a CSS `uppercase` class. The wireframe is drawing the Overline correctly. | Leave both alone. Do **not** "fix" the source string. |
+| `‹sample›` | Not a UI label — placeholder, example content, acronym, or a wireframe annotation. | Leave alone. Not governed by the casing standard. |
+| `‹deferred›` | Known-wrong, but resolution is owned by another ticket (see the table below). | Leave alone; do not file a new card. |
+| *(no marker)* | The caps are a defect. | De-shout the wireframe to the string the source ships, preserving display width. |
+
+That is the whole rule. It requires no judgement and no trip to the component source, which is what the
+previous version of this note demanded and what made the defect recur — see "Why this note is shaped
+this way" below.
+
+**What counts as a caps label is positional: it opens its box row.** A label starts the row's content
+(after any leading emoji, bullet or box padding) and is followed by nothing but trailing space, a colon,
+or a right-aligned badge. Caps appearing *inside* a sentence or list item are acronyms or inline status
+words, not labels, and need no marker — `STAR`, `PDF`, `DOCX`, `TXT`, `LINKED`, `FAILED`. Bracketed
+placeholders (`[VALUE]`, `[LABEL]`) are likewise exempt.
+
+Do **not** use word length to make this call. An earlier draft of this note excluded "runs in which no
+word reaches four letters" as acronyms; `STAR` and `DOCX` are four letters, so that rule demanded markers
+on ~20 acronym lines while `TASK` — a real label — is also four. Position separates them cleanly and
+length never does.
+
+`docs/design/wireframe-casing-audit.py` implements exactly this rule. Run it from the repo root; it
+exits non-zero and prints file:line for any unmarked caps label, so the convention is checkable rather
+than merely written down.
+
+### Fixing an unmarked caps line
+
+1. **Read the source string.** If the component ships mixed case *with* a `uppercase` class, the line was
+   mismarked — add `‹overline›` rather than de-shouting. `pages/ResumeVariantDetail.tsx:195/:203/:215/:242`
+   is the model case: four `<h3>`s carrying `uppercase tracking-wide`. They render in caps and are
+   **correct** — the caps never reach the accessibility tree. De-shouting those source strings, which the
+   previous version of this note would have told you to do, is the mirror-image defect.
+2. **If the source string ends in a colon**, it is an inline field label introducing the content beneath
+   it, not an Overline. De-shout it and add **no** `uppercase` class. (`Key phrases:`, `Redirect to:` —
+   WIC-1205.) Apply this test to the *source string*, never to the wireframe glyphs: `🔴 CRITICAL:` at
+   §26 draws a separator colon the source does not contain, which is why it keeps its caps.
+3. **If the source string is literal caps**, that is a live accessibility defect (WIC-1069 class). Fix the
+   source first, then mark or de-shout the wireframe to match.
+4. **If no component implements it yet**, default to sentence case — it is a heading until proven a badge.
+5. **Preserve display width.** The box-drawing characters and emoji are multi-byte; measure with an
+   East-Asian-width-aware function, never `len()`.
+
+A `‹overline›` marker on a line whose source string ends in a colon is a contradiction by rule 2, so the
+convention checks itself rather than only being looked up.
+
+### Deferred lines
+
+| Lines | What | Owner |
+|---|---|---|
+| §13 `MODERATE FIT` | Runtime `.toUpperCase()` in `JobFitAnalysis.tsx` | WIC-1125, WIC-1288 |
+| StoryEditor / answer-composer `SITUATION` `TASK` `ACTION` `RESULT` | Wireframes depict an unbuilt component; `wizard/STARInput.tsx` ships different strings | Resolve when StoryEditor is built |
+| §26 `KEY PHRASES:` `REDIRECT TO:` | `GapMitigationPanel.tsx:211/:227` still ships literal caps. De-shout the wireframe once the source lands, per rule 2 — no `uppercase` class. | WIC-1205 (PR #103) |
+
+The QuickReferenceExport Main View, Mobile Preview and PDF Layout wireframes are no longer listed here:
+PR #98, PR #100 and PR #102 have all merged, so those lines now match the strings the component ships.
+
+### Why this note is shaped this way
+
+The previous version split caps into "heading" (a bug) versus "badge" (intentional) and asked the reader
+to work out which. An ASCII wireframe renders both as the same glyphs — `WHY THEY ASK` and `CRITICAL` are
+indistinguishable inside a box — so every reader re-derived the split by hand and some derived it wrong.
+That produced four tickets finding the same defect further down the same file (WIC-1069 → WIC-1184 →
+WIC-1187 → WIC-1195). It also stated that a shouted heading must always be de-shouted, which is too
+strong: a heading uppercased by a CSS class is correct, because the caps never reach the accessibility
+tree. Marking intent per line removes the derivation, and with it the recurrence (WIC-1195).
+
 ---
 
 ## 1. ApplicationCard
@@ -576,8 +666,38 @@ interface EmptyStateProps {
 
 ### Accessibility
 
-- **Focus:** Action button receives focus
-- **ARIA Live:** Announce when empty state appears (e.g., after filter)
+The container is a **plain `<div>` with no ARIA** — no `aria-live`, no `role`, no `aria-label`.
+This is a correction: the two directives that used to sit here were both wrong, and one of
+them shipped as a real defect (WIC-1155). They are recorded below so they are not re-derived.
+
+- **No live region.** This content is static per `variant` and never updates in place, so
+  there is nothing for a live region to announce. It also does not work: the component is
+  *inserted* by a load-state branch (`{items.length === 0 ? <EmptyState /> : …}`), and a
+  live region that arrives already populated is not reliably announced — assistive tech
+  watches for mutations *within* a region that was already present.
+  It is not merely inert, it is harmful. The `aria-hidden` package Radix Dialog uses to hide
+  the background behind a modal [deliberately exempts `[aria-live]` elements](https://github.com/theKashey/aria-hidden/issues/10),
+  and an exempt node keeps its descendants **and its whole ancestor chain** reachable. Because
+  this container wraps the action button, `aria-live="polite"` here left `#root`, `<main>` and
+  a live control exposed behind every open dialog.
+  If a variant ever needs to announce a *change* — e.g. "No matching results" after a filter
+  edit — the live region belongs on the **results container that swaps between states**, which
+  is present across the swap, not on the empty state itself.
+- **No `region` landmark.** A `region` is a navigable landmark, reserved for major structural
+  areas. An icon, a heading, one sentence and at most one button is not one — and this block is
+  the only content inside `<main>` when it renders, so the landmark wrapped the sole contents of
+  another landmark. The heading is the entry point users actually navigate by, and
+  "No documents found" describes the content far better than `aria-label="Empty state"`, which
+  was the component's name leaking into the accessibility tree. Note the two cannot be split:
+  `aria-label` on a role-less `<div>` maps to `generic`, which does not support an accessible
+  name, so the label is dropped by most AT and flagged by axe as `aria-prohibited-attr`.
+- **Do not move focus.** An empty state renders as the *result* of something the user did —
+  a filter edit, a delete, a load. Focusing the action button on appearance would yank focus
+  out of the control they are still using (typically the filter input they are mid-way through
+  typing into). The button is reachable in normal tab order, which is the correct affordance.
+  It keeps a visible `focus:ring-2` style; that is the requirement here, not autofocus.
+- **The icon is decorative** and carries `aria-hidden="true"` — the heading and message already
+  say everything the emoji does, and emoji names read poorly in a screen reader.
 
 ---
 
@@ -852,7 +972,7 @@ When user clicks Download, show dropdown:
 │ ⬇ Download as│
 ├──────────────┤
 │ ○ Markdown   │
-│ ○ PDF        │
+│ ○ PDF        │   ‹sample›
 │ ○ Word (DOCX)│
 └──────────────┘
 ```
@@ -995,7 +1115,7 @@ The Job Fit Analysis is a full-page view with three distinct stages: Input, Anal
 │  │                                                   │ │
 │  └───────────────────────────────────────────────────┘ │
 │                                                         │
-│  ─── OR ───                                             │
+│  ─── OR ───                                             │   ‹sample›
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
 │  │  Job Posting URL                                  │ │
@@ -1038,7 +1158,7 @@ The Job Fit Analysis is a full-page view with three distinct stages: Input, Anal
 │  Job Fit Analysis Results                               │
 │                                                         │
 │  ┌─────────────────────────────────────────────┐       │
-│  │ Overall Fit: MODERATE FIT                   │       │
+│  │ Overall Fit: MODERATE FIT                   │       │   ‹deferred›
 │  │ ●●●○○  60% Match                            │       │
 │  │                                             │       │
 │  │ Senior Full Stack Engineer at TechCo        │       │
@@ -3049,18 +3169,18 @@ interface BulletTrace {
 │ [Edit Mode] [View Mode] [Print]                          │
 │ ──────────────────────────────────────────────────────── │
 │                                                          │
-│ YOUR NAME                                                │
+│ YOUR NAME                                                │   ‹sample›
 │ email@example.com · 555-1234-5678                        │
 │ linkedin.com/in/yourname                                 │
 │                                                          │
-│ PROFESSIONAL SUMMARY                                     │
+│ PROFESSIONAL SUMMARY                                     │   ‹overline›
 │                                                          │
 │ Full Stack Engineer with 5 years building scalable      │
 │ React/Node.js applications. Led frontend migration      │
 │ reducing load time by 2s. Optimized APIs handling       │
 │ 10k req/sec.                                             │
 │                                                          │
-│ EXPERIENCE                                               │
+│ EXPERIENCE                                               │   ‹overline›
 │                                                          │
 │ Senior Engineer · StartupCo                              │
 │ Mar 2024 - Present · San Francisco, CA                  │
@@ -3157,10 +3277,10 @@ interface BulletTrace {
 ┌─────────────────────────────────────┬──────────────────────┐
 │ Markdown Editor                     │ Live Preview         │
 │ ─────────────────────────────────── │ ──────────────────── │
-│ # YOUR NAME                         │ YOUR NAME            │
+│ # YOUR NAME                         │ YOUR NAME            │   ‹sample›
 │ email@example.com                   │ email@example.com    │
 │                                     │                      │
-│ ## PROFESSIONAL SUMMARY             │ PROFESSIONAL SUMMARY │
+│ ## PROFESSIONAL SUMMARY             │ PROFESSIONAL SUMMARY │   ‹overline›
 │                                     │                      │
 │ Full Stack Engineer with 5 years... │ Full Stack Engineer...│
 │                                     │                      │
@@ -3387,20 +3507,20 @@ type Theme = {
 │ ★  Led React Migration Project                    95%  🟢  │
 │    ─────────────────────────────────────────────────────── │
 │                                                             │
-│ SITUATION                                                   │
+│ SITUATION                                                   │   ‹deferred›
 │ Our e-commerce platform was built on jQuery with growing    │
 │ performance issues and developer velocity problems...       │
 │                                                             │
-│ TASK                                                        │
+│ TASK                                                        │   ‹deferred›
 │ Lead the migration to React while maintaining zero downtime │
 │ and improving team productivity...                          │
 │                                                             │
-│ ACTION                                                      │
+│ ACTION                                                      │   ‹deferred›
 │ • Designed incremental migration strategy                   │
 │ • Created component library with design system              │
 │ • Mentored 4 junior developers on React patterns...         │
 │                                                             │
-│ RESULT                                                      │
+│ RESULT                                                      │   ‹deferred›
 │ • 40% improvement in page load time                         │
 │ • 60% faster feature delivery                               │
 │ • Zero production incidents during 6-month migration        │
@@ -3547,29 +3667,29 @@ type PracticeRating = 'needs_work' | 'good' | 'great'
 │  team conflict."                                            │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ WHY THEY ASK                                                │
+│ Why They Ask                                                │
 │ They want to assess your interpersonal skills, emotional    │
 │ intelligence, and ability to navigate workplace tensions... │
 │                                                             │
-│ WHAT THEY WANT TO HEAR                                      │
+│ What They Want to Hear                                      │
 │ • Specific situation with clear stakes                      │
 │ • Your role in resolving (not escalating)                   │
 │ • Positive outcome or lessons learned                       │
 │                                                             │
-│ ANSWER FRAMEWORK                                            │
+│ Answer Framework                                            │
 │ 1. Set the scene briefly (who, what, why it mattered)       │
 │ 2. Describe your approach and actions                       │
 │ 3. Highlight the resolution and relationship outcome        │
 │ 4. Share what you learned                                   │
 │                                                             │
-│ SUGGESTED STORIES                                           │
+│ Suggested Stories                                           │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ ○ Mediated Design Dispute (92% match)           [Use]  │ │
 │ │ ○ Cross-Team Priority Conflict (87% match)      [Use]  │ │
 │ │ ● Led React Migration (85% match) ← LINKED     [Unlink]│ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ MY NOTES                                                    │
+│ My Notes                                                    │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ Remember to emphasize the 1:1 conversations I had...    │ │
 │ └─────────────────────────────────────────────────────────┘ │
@@ -3678,7 +3798,7 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 │                                                             │
 │ Your profile strongly matches the role requirements.        │
 │                                                             │
-│ KEY STRENGTHS TO HIGHLIGHT                                  │
+│ Key strengths to highlight                                  │
 │ • React/TypeScript expertise (exact match)                  │
 │ • Team leadership experience                                │
 │ • E-commerce domain knowledge                               │
@@ -3690,7 +3810,7 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 **Collapsed Gap Card:**
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 🔴 CRITICAL: Kubernetes Experience                          │
+│ 🔴 CRITICAL: Kubernetes Experience                          │   ‹overline›
 │ ─────────────────────────────────────────────────────────── │
 │ Required for production deployment workflows                │
 │                                                             │
@@ -3702,25 +3822,25 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 **Expanded Gap Card:**
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 🔴 CRITICAL: Kubernetes Experience                          │
+│ 🔴 CRITICAL: Kubernetes Experience                          │   ‹overline›
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ WHY THIS MATTERS                                            │
+│ Why This Matters                                            │
 │ The role requires hands-on Kubernetes management for        │
 │ microservices deployment. They may probe for specific       │
 │ cluster management experience.                              │
 │                                                             │
-│ RESPONSE STRATEGIES                                         │
+│ Response Strategies                                         │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ ● Acknowledge & Pivot                                   │ │
 │ │   "While I haven't managed Kubernetes clusters          │ │
 │ │   directly, I've deployed containerized apps with       │ │
 │ │   Docker and worked closely with DevOps teams..."       │ │
 │ │                                                         │ │
-│ │   KEY PHRASES: "containerized applications",            │ │
+│ │   KEY PHRASES: "containerized applications",            │ │   ‹deferred›
 │ │   "Docker experience", "DevOps collaboration"           │ │
 │ │                                                         │ │
-│ │   REDIRECT TO: Docker & CI/CD expertise                 │ │
+│ │   REDIRECT TO: Docker & CI/CD expertise                 │ │   ‹deferred›
 │ │   [Copy Script] [Practice]                              │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────────────────┐ │
@@ -3734,7 +3854,7 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 │ │   orchestration challenges..."                          │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ RELATED STORIES                                             │
+│ Related Stories                                             │
 │ • CI/CD Pipeline Overhaul (Docker expertise)                │
 │ • AWS Migration Project (cloud orchestration)               │
 │                                                             │
@@ -3842,12 +3962,12 @@ interface CompanyFact {
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ SENIOR ENGINEER INTERVIEW                               │ │
+│ │ Senior Engineer interview                               │ │
 │ │ TechCorp | May 1, 2026 at 2:00 PM                       │ │
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ TOP STORIES                                             │ │
+│ │ Top stories                                             │ │
 │ │ 1. React Migration (Leadership, 95%)                    │ │
 │ │    "Led migration of legacy app, 40% perf gain..."     │ │
 │ │ 2. CI/CD Pipeline (Technical, 92%)                      │ │
@@ -3856,23 +3976,23 @@ interface CompanyFact {
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ KEY QUESTIONS & ANSWERS                                 │ │
+│ │ Key questions & answers                                 │ │
 │ │ Q: Tell me about handling conflict...                   │ │
 │ │ A: Use "Mediated Design Dispute" story                  │ │
 │ │ [2 more...]                                             │ │
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ GAP TALKING POINTS                                      │ │
+│ │ Gap talking points                                      │ │
 │ │ • Kubernetes: "Docker + DevOps collab experience..."    │ │
 │ │                                                         │ │
 │ │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │ │
 │ │                                                         │ │
-│ │ COMPANY FACTS TO MENTION                                │ │
+│ │ Company facts to mention                                │ │
 │ │ ★ "Recent Series B, expanding to Europe"                │ │
 │ │ ★ "Tech blog on scalability impressed me"               │ │
 │ │                                                         │ │
-│ │ QUESTIONS TO ASK                                        │ │
+│ │ Questions to ask                                        │ │
 │ │ ? "How does the team approach technical debt?"          │ │
 │ │ ? "What does success look like in 90 days?"             │ │
 │ └─────────────────────────────────────────────────────────┘ │
@@ -3880,7 +4000,7 @@ interface CompanyFact {
 │ [Customize Content]                                         │
 │                                                             │
 │ ┌───────────┐ ┌───────────┐ ┌───────────┐                  │
-│ │ 📄 PDF    │ │ 📝 MD     │ │ 🖨️ Print  │                  │
+│ │ 📄 PDF    │ │ 📝 MD     │ │ 🖨️ Print  │                  │   ‹sample›
 │ │ Download  │ │ Download  │ │ Dialog    │                  │
 │ └───────────┘ └───────────┘ └───────────┘                  │
 └─────────────────────────────────────────────────────────────┘
@@ -3892,7 +4012,7 @@ interface CompanyFact {
 │ Customize Quick Reference                    [Done]         │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ SECTIONS (drag to reorder)                                  │
+│ SECTIONS (drag to reorder)                                  │   ‹overline›
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ ☰  ✓ Top Stories                            [Edit ▾]   │ │
 │ │     ✓ React Migration                                   │ │
@@ -3917,11 +4037,11 @@ interface CompanyFact {
 ```
 ┌────────────────────────┐
 │  ┌──────────────────┐  │
-│  │ SENIOR ENGINEER  │  │
+│  │ Senior Engineer  │  │
 │  │ TechCorp         │  │
 │  │ ───────────────  │  │
 │  │                  │  │
-│  │ TOP STORIES      │  │
+│  │ Top stories      │  │
 │  │ ← Swipe →        │  │
 │  │ ┌──────────────┐ │  │
 │  │ │ 1. React     │ │  │
@@ -3949,19 +4069,19 @@ interface CompanyFact {
 ┌──────────────────────────────────────────────────┐
 │                    Page 1                        │
 │ ┌──────────────────────────────────────────────┐ │
-│ │           INTERVIEW QUICK REFERENCE          │ │
+│ │           Interview quick reference          │ │
 │ │                                              │ │
 │ │ Senior Engineer | TechCorp                   │ │
 │ │ May 1, 2026 at 2:00 PM                       │ │
 │ │                                              │ │
 │ │ ═══════════════════════════════════════════  │ │
 │ │                                              │ │
-│ │ YOUR TOP 5 STORIES                           │ │
+│ │ Your top 5 stories                           │ │
 │ │ [Full content...]                            │ │
 │ │                                              │ │
 │ │ ═══════════════════════════════════════════  │ │
 │ │                                              │ │
-│ │ KEY QUESTIONS & SUGGESTED ANSWERS            │ │
+│ │ Key questions & suggested answers            │ │
 │ │ [Full content...]                            │ │
 │ └──────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────┘
@@ -4046,20 +4166,20 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 │ Generate Interview Prep                          [Step 1/2] │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ INTERVIEW DETAILS                                           │
+│ Interview details                                           │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ Job Title: Senior Engineer                              │ │
 │ │ Company: TechCorp                                        │ │
 │ │ Interview Date: May 1, 2026 (optional)                  │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ INTERVIEW TYPE                                              │
+│ Interview type                                              │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ ○ Behavioral    ○ Technical                             │ │
 │ │ ● Mixed (Recommended)  ○ Case Study                     │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ TIME AVAILABLE FOR PREP                                     │
+│ Time available for prep                                     │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ ○ 30 minutes (Quick review)                             │ │
 │ │ ● 1 hour (Recommended)                                  │ │
@@ -4079,7 +4199,7 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 │ Generate Interview Prep                          [Step 2/2] │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ FOCUS AREAS                                                 │
+│ Focus areas                                                 │
 │ Select themes to emphasize (based on fit analysis)          │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────────┐ │
@@ -4091,14 +4211,14 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 │ │ ○ Innovation             🔴 Limited (1 story)           │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ TIME-BOXED DELIVERY FORMATS                                 │
+│ Time-boxed delivery formats                                 │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ ✓ 1 minute (Elevator pitch version)                     │ │
 │ │ ✓ 2 minutes (Standard interview response)               │ │
 │ │ ✓ 5 minutes (Detailed storytelling)                     │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ PREVIEW                                                     │
+│ Preview                                                     │
 │ • 18 STAR stories across 3 themes                           │
 │ • ~20 anticipated questions                                 │
 │ • 2 skill gaps with talking points                          │
@@ -4123,7 +4243,7 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 │ Required minimum: 3 entries                                  │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ WHAT TO DO                                               │ │
+│ │ WHAT TO DO                                               │ │   ‹overline›
 │ │ 1. Upload your resume to extract STAR achievements      │ │
 │ │ 2. Add manual entries for projects not on resume        │ │
 │ │ 3. Return here to generate prep materials               │ │
@@ -4142,12 +4262,12 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 │ Interview prep works best when we know how your background  │
 │ matches the role requirements.                               │
 │                                                             │
-│ WITH FIT ANALYSIS:                                          │
+│ With fit analysis:                                          │
 │ • Tailored question predictions                             │
 │ • Gap-specific talking points                               │
 │ • Relevance-scored story recommendations                    │
 │                                                             │
-│ WITHOUT FIT ANALYSIS:                                       │
+│ Without fit analysis:                                       │
 │ • Generic interview questions                               │
 │ • All STAR stories (no scoring)                             │
 │ • Basic preparation only                                    │
@@ -4277,7 +4397,7 @@ interface GenerationError {
 │ ✓ Step 5: Creating gap mitigation points                   │
 │ ✓ Step 6: Building time-boxed responses                    │
 │                                                             │
-│ YOUR PREP INCLUDES:                                         │
+│ Your prep includes:                                         │
 │ • 18 STAR stories organized by theme                        │
 │ • 24 anticipated questions with answers                     │
 │ • 2 gap talking points                                      │
@@ -4419,10 +4539,10 @@ interface InterviewPrepDashboardProps {
 │ ← Back to Application                                             │
 │ ═════════════════════════════════════════════════════════════════ │
 │                                                                   │
-│ 🎤 INTERVIEW PREP: SENIOR ENGINEER AT TECHCORP                    │
+│ 🎤 INTERVIEW PREP: SENIOR ENGINEER AT TECHCORP                    │   ‹sample›
 │                                                                   │
 │ ┌─────────────────────────────────────────────────────────────┐   │
-│ │ OVERVIEW                                          🟢 Strong │   │
+│ │ OVERVIEW                                          🟢 Strong │   │   ‹overline›
 │ │ ───────────────────────────────────────────────────────────  │   │
 │ │                                                             │   │
 │ │  ┌─────────┐                                                │   │
@@ -4442,7 +4562,7 @@ interface InterviewPrepDashboardProps {
 │                                                                   │
 │ ┌─────────────────────────────────────────────────────────────┐   │
 │ │                                                             │   │
-│ │                  STORY BANK TAB CONTENT                     │   │
+│ │                  STORY BANK TAB CONTENT                     │   │   ‹sample›
 │ │              (STARStoryBank component)                      │   │
 │ │                                                             │   │
 │ │                                                             │   │
@@ -4464,7 +4584,7 @@ interface InterviewPrepDashboardProps {
 **Interview Today Banner**
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│ 🚨 INTERVIEW TODAY in 4 hours                                     │
+│ 🚨 INTERVIEW TODAY in 4 hours                                     │   ‹sample›
 │ ───────────────────────────────────────────────────────────────── │
 │ Quick actions: [View Top 5 Stories] [Export Quick Ref] [Practice]│
 └───────────────────────────────────────────────────────────────────┘
@@ -4577,7 +4697,7 @@ interface PracticeSummary {
 │ Practice Mode: Single Question                   [Exit] │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ QUESTION 1 OF 1                                             │
+│ QUESTION 1 OF 1                                             │   ‹overline›
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ "Tell me about a time you handled a difficult team     │ │
 │ │  conflict."                                             │ │
@@ -4603,27 +4723,27 @@ interface PracticeSummary {
 │ Practice Mode: Single Question                   [Exit] │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ SUGGESTED ANSWER                                            │
+│ Suggested answer                                            │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ Use: "Mediated Design Dispute" (92% match)              │ │
 │ │                                                         │ │
-│ │ SITUATION: Two senior designers disagreed on UX         │ │
+│ │ SITUATION: Two senior designers disagreed on UX         │ │   ‹deferred›
 │ │ approach for checkout redesign, blocking sprint...      │ │
 │ │                                                         │ │
-│ │ TASK: Resolve conflict and get project back on track   │ │
+│ │ TASK: Resolve conflict and get project back on track   │ │   ‹deferred›
 │ │                                                         │ │
-│ │ ACTION:                                                 │ │
+│ │ ACTION:                                                 │ │   ‹deferred›
 │ │ • Held 1:1s to understand each perspective              │ │
 │ │ • Facilitated data-driven design review                 │ │
 │ │ • Proposed A/B test to validate both approaches         │ │
 │ │                                                         │ │
-│ │ RESULT: Merged best of both designs, 15% conversion     │ │
+│ │ RESULT: Merged best of both designs, 15% conversion     │ │   ‹deferred›
 │ │ lift, improved team collaboration                       │ │
 │ │                                                         │ │
 │ │ 🕐 Target: 2 minutes                                    │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ HOW DID YOU DO?                                             │
+│ How did you do?                                             │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │  [😟 Needs Work]  [😊 Good]  [🎯 Great]                │ │
 │ └─────────────────────────────────────────────────────────┘ │
@@ -4638,7 +4758,7 @@ interface PracticeSummary {
 │ Practice Mode: Timed Response (2 min)            [Exit] │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ STORY: Led React Migration Project                          │
+│ Story: Led React Migration Project                          │
 │                                                             │
 │                   ⏱️  01:47 remaining                       │
 │            ▓▓▓▓▓▓▓▓▓▓▓▓░░░  (11% over target)              │
@@ -4648,7 +4768,7 @@ interface PracticeSummary {
 │ │                                                         │ │
 │ │ Timer started when you clicked "Start Practice".        │ │
 │ │                                                         │ │
-│ │ TARGET VERSION:                                         │ │
+│ │ Target version:                                         │ │
 │ │ "I led a React migration for our e-commerce platform    │ │
 │ │ which had performance issues. I designed an incremental │ │
 │ │ strategy, mentored the team, and delivered 40% faster   │ │
@@ -4665,23 +4785,23 @@ interface PracticeSummary {
 │ Practice Session Complete! 🎉                                │
 │ ─────────────────────────────────────────────────────────── │
 │                                                             │
-│ SESSION STATS                                               │
+│ Session stats                                               │
 │ • 5 questions practiced                                      │
 │ • 18 minutes total                                           │
 │ • Average: ~3.6 min per question                            │
 │                                                             │
-│ CONFIDENCE DISTRIBUTION                                     │
+│ Confidence distribution                                     │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ 🎯 Great: ████████ (3 questions)                        │ │
 │ │ 😊 Good: ████ (1 question)                              │ │
 │ │ 😟 Needs Work: ████ (1 question)                        │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │                                                             │
-│ AREAS TO FOCUS                                              │
+│ Areas to focus                                              │
 │ • Behavioral questions (1 needs work)                        │
 │ • Gap-probing questions (1 needs work)                       │
 │                                                             │
-│ NEXT STEPS                                                  │
+│ Next steps                                                  │
 │ ✓ Practice gap-probing questions more                        │
 │ ✓ Review behavioral talking points                           │
 │                                                             │

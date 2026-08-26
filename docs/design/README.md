@@ -118,6 +118,28 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 ---
 
+### 6. [Content Style](./CONTENT_STYLE.md)
+**Purpose:** Define how UI strings are written, so casing stops being decided per-string.
+
+**Contents:**
+- The house rule: sentence case for every UI string, no opt-out classes
+- Closed exception list (proper nouns, acronyms, user/API data)
+- Why feature names and nav labels are *not* exceptions, plus the four ruled boundary cases
+- Casing by slot — the per-element matrix (buttons, headings, badges, table headers…)
+- ALL CAPS as a CSS treatment, never baked into content
+- Terminal punctuation by element type
+- How to write test selectors that survive a copy change
+- Migration staging and its real test cost
+
+**Key Requirements:**
+- Buttons, headings, labels, toasts, empty states — all sentence case
+- Uppercase via the Overline token / `uppercase` class, never by retyping the string
+- Match UI copy in tests with a case-insensitive regex, never a bare string
+- New strings follow this standard even in unmigrated areas
+- Status: proposed, pending board sign-off (WIC-1066)
+
+---
+
 ## Quick Start for Frontend Developer
 
 ### 1. Read Documents in This Order
@@ -126,6 +148,7 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 3. **WIREFRAMES.md** — See screen layouts
 4. **COMPONENT_SPECS.md** — Build components
 5. **ACCESSIBILITY.md** — Test compliance
+6. **CONTENT_STYLE.md** — Write the strings
 
 ### 2. Setup Design Tokens
 

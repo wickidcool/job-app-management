@@ -39,7 +39,13 @@ export interface R2Bucket {
   head(key: string): Promise<R2Object | null>;
 }
 
+/** Cloudflare static-assets binding (`assets.binding` in wrangler.jsonc). */
+export interface AssetsBinding {
+  fetch(request: Request): Promise<Response>;
+}
+
 export interface Env {
+  ASSETS?: AssetsBinding;
   HYPERDRIVE?: { connectionString: string };
   DATABASE_URL?: string;
   R2_BUCKET?: R2Bucket;
@@ -48,6 +54,8 @@ export interface Env {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   NODE_ENV?: string;
+  /** Opt in to trusting `x-forwarded-proto` for the HTTPS redirect (WIC-1011). */
+  TRUST_PROXY_PROTO?: string;
 }
 
 export interface HonoVariables {

@@ -35,6 +35,7 @@ import { ResumeVariantsList } from './pages/ResumeVariantsList';
 import { ResumeVariantDetail } from './pages/ResumeVariantDetail';
 import { ResumeVariantNew } from './pages/ResumeVariantNew';
 import { InterviewPrepPage } from './pages/InterviewPrepPage';
+import { NotFound } from './pages/NotFound';
 import { useApplications } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
@@ -85,6 +86,10 @@ function App() {
                     <main className="pb-20 md:pb-0">
                       <Routes>
                         <Route path="/" element={<Dashboard />} />
+                        {/* `/dashboard` shipped in nav links and is in real bookmarks and
+                            browser histories. `replace` keeps the dead URL out of history so
+                            the back button does not lead into it. */}
+                        <Route path="/dashboard" element={<Navigate to="/" replace />} />
                         <Route path="/applications" element={<ApplicationsList />} />
                         <Route path="/applications/new" element={<ApplicationNew />} />
                         <Route path="/applications/:id" element={<ApplicationDetail />} />
@@ -101,6 +106,7 @@ function App() {
                         <Route path="/resumes" element={<ResumeManager />} />
                         <Route path="/resumes/upload" element={<ResumeUpload />} />
                         <Route path="/resumes/exports" element={<ResumeExports />} />
+                        <Route path="/resumes/:resumeId/exports" element={<ResumeExports />} />
                         <Route path="/catalog" element={<CatalogPage />} />
                         <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
                         <Route path="/cover-letters/new" element={<CoverLetterNew />} />
@@ -117,6 +123,9 @@ function App() {
                           element={<ProjectFileEditor />}
                         />
                         <Route path="/settings" element={<Settings />} />
+                        {/* Must stay last: catches every in-app path with no route
+                            so an unmatched URL shows a 404 page, not an empty <main>. */}
+                        <Route path="*" element={<NotFound />} />
                       </Routes>
                     </main>
 

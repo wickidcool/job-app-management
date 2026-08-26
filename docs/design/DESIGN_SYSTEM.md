@@ -7,13 +7,14 @@ This design system provides a consistent visual language and reusable tokens for
 ## Table of Contents
 
 1. [Color Palette](#color-palette)
-2. [Typography](#typography)
-3. [Spacing & Layout](#spacing--layout)
-4. [Shadows & Elevation](#shadows--elevation)
-5. [Border Radius](#border-radius)
-6. [Breakpoints](#breakpoints)
-7. [Z-Index Scale](#z-index-scale)
-8. [Transitions](#transitions)
+2. [Scale Vocabulary](#scale-vocabulary)
+3. [Typography](#typography)
+4. [Spacing & Layout](#spacing--layout)
+5. [Shadows & Elevation](#shadows--elevation)
+6. [Border Radius](#border-radius)
+7. [Breakpoints](#breakpoints)
+8. [Z-Index Scale](#z-index-scale)
+9. [Transitions](#transitions)
 
 ---
 
@@ -76,6 +77,12 @@ This design system provides a consistent visual language and reusable tokens for
   --color-info-100: #cffafe;
   --color-info-500: #06b6d4;     /* Saved status */
   --color-info-700: #0e7490;
+
+  /* Caution (Orange) */
+  --color-caution-50: #fff7ed;
+  --color-caution-100: #ffedd5;
+  --color-caution-500: #f97316;  /* Phone-screen status */
+  --color-caution-700: #c2410c;
 }
 ```
 
@@ -86,13 +93,66 @@ This design system provides a consistent visual language and reusable tokens for
   /* Application Status Colors */
   --status-saved: var(--color-info-500);          /* Blue */
   --status-applied: var(--color-warning-500);     /* Yellow */
-  --status-phone-screen: #f97316;                 /* Orange */
+  --status-phone-screen: var(--color-caution-500); /* Orange */
   --status-interview: #a855f7;                    /* Purple */
   --status-offer: var(--color-success-500);       /* Green */
   --status-rejected: var(--color-error-500);      /* Red */
   --status-withdrawn: var(--color-neutral-400);   /* Gray */
 }
 ```
+
+### Gap Severity Scale
+
+The canonical, and only, colour scale for the `GapSeverity` field (`critical` / `moderate` /
+`minor`). Decided in WIC-1146; supersedes the three ad-hoc ramps previously inlined in
+`JobFitAnalysis` and `GapMitigationPanel`.
+
+> **Colour is never the sole carrier of severity.** A red→orange→yellow ramp is not
+> distinguishable under colour-vision deficiency — at a uniform `-700` step, `moderate` and
+> `minor` simulate to `#7a7a00` and `#797900` under deuteranopia, a separation of 1.01:1. The
+> steps below are tuned to recover what ordering this hue range permits (worst case 1.41:1 across
+> the three dichromacies), but the **text label is mandatory at every render site** and does the
+> actual work (WCAG 1.4.1). Do not add a swatch, dot, chip, or emoji as an additional colour-only
+> mark — emoji in particular cannot be tokenised, since the platform font owns their hue.
+
+```css
+:root {
+  /* critical — highest severity */
+  --gap-severity-critical-surface: var(--color-error-50);   /* #fef2f2 */
+  --gap-severity-critical-mark: #7f1d1d;                    /* border / graphical mark */
+  --gap-severity-critical-text: var(--color-error-700);     /* #b91c1c */
+
+  /* moderate */
+  --gap-severity-moderate-surface: var(--color-caution-50); /* #fff7ed */
+  --gap-severity-moderate-mark: var(--color-caution-700);   /* #c2410c */
+  --gap-severity-moderate-text: var(--color-caution-700);   /* #c2410c */
+
+  /* minor — lowest severity, but still a gap: never green */
+  --gap-severity-minor-surface: #fffbeb;                    /* amber-50 */
+  --gap-severity-minor-mark: #d97706;                       /* amber-600 */
+  --gap-severity-minor-text: #b45309;                       /* amber-700 */
+}
+```
+
+`minor` is **amber, not yellow**: yellow-700 is the value that collapses against `moderate` under
+deuteranopia, and yellow-500 is 1.92:1 on white — below the 3:1 non-text bar.
+
+**Roles.** `surface` tints the card. `mark` is for the left border and any non-text graphical
+indicator; it meets 3:1 (WCAG 1.4.11). `text` is for the severity label; it meets 4.5:1 (WCAG
+1.4.3). Verified against both `#ffffff` and the level's own `surface`:
+
+| Level | mark vs white | mark vs surface | text vs white | text vs surface |
+|---|---|---|---|---|
+| `critical` | 10.02:1 | 9.16:1 | 6.47:1 | 5.91:1 |
+| `moderate` | 5.18:1 | 4.88:1 | 5.18:1 | 4.88:1 |
+| `minor` | 3.19:1 | 3.07:1 | 5.02:1 | 4.84:1 |
+
+**Never use `success` / green for any severity level.** Every gap is a shortfall; a low-severity
+gap is still a gap, and green reads as "resolved".
+
+Because the text label carries severity, it is also load-bearing *copy*: `critical` / `moderate` /
+`minor` are words this scale owns and no other scale on the same screen may spell. See
+[Scale Vocabulary](#scale-vocabulary).
 
 ### Background & Surface Colors
 
@@ -134,6 +194,103 @@ This design system provides a consistent visual language and reusable tokens for
   --border-error: var(--color-error-500);
 }
 ```
+
+---
+
+## Scale Vocabulary
+
+Colour tokens keep two scales from being drawn the same way. This section keeps them from being
+*worded* the same way — the failure the Gap Severity Scale above cannot catch, because a colour
+token has nothing to say about the word next to it.
+
+### The rule
+
+> **A word may not carry two meanings on one screen.**
+
+Recurrence is fine when the meaning and the direction are identical: "Strong fit" alongside a
+"Strong matches" section is the same claim about the same axis. It is not fine across axes. On
+`JobFitAnalysis`, `recommendation: 'moderate_fit'` rendered "moderate" near the top of the results
+and `GapSeverity: 'moderate'` rendered "moderate" on each gap card below — one a verdict about the
+whole application, the other one shortfall's severity, pointing in opposite directions, separated
+only by position on the page. Colour could not rescue it: gap severity's ramp is explicitly
+demoted to reinforcement (see "Gap Severity Scale"), and the fit value carries no colour at all.
+
+It surfaced as a Playwright strict-mode violation — `getByText('MODERATE')` resolved to two
+elements. **If a locator cannot disambiguate two words, neither can a person skimming.** Treat that
+class of test failure as a copy finding, not a test-scoping problem.
+
+### Fit Level Labels
+
+The canonical, and only, display labels for the overall fit level. Decided in WIC-1288; defined in
+`packages/web/src/constants/fitLevel.ts`.
+
+| Wire value (`recommendation`) | Label | Reads as |
+|---|---|---|
+| `strong_fit` | **Strong fit** | yes |
+| `moderate_fit` | **Possible fit** | maybe |
+| `stretch` | **Stretch** | reaching |
+| `low_fit` | **Unlikely fit** | no |
+| `null` | **No recommendation** | not scored — empty catalog, or no required skills found |
+
+**Fit level is a verdict, not a magnitude.** That is what separates it from the two magnitude
+scales it shares a screen with, and it is why "Possible fit" is the right shape of answer where
+"Moderate fit" was not. The screen already spends its magnitude adjectives twice over — gap
+severity owns `critical` / `moderate` / `minor`, analysis confidence owns `high` / `medium` /
+`low` — so **any** magnitude adjective chosen for fit level is one refactor away from the same
+collision. `low_fit` was renamed for that reason and not because it collides today: "Low fit" and
+"Confidence: low" render two lines apart in the same card, and only an implementation detail of
+the scoring service (a `low_fit` verdict requires a non-empty required stack, which forces
+confidence to `medium` or `high`) keeps them from ever appearing together.
+
+Rejected alternatives, for the same rule:
+
+- **"Partial fit"** — collides with the "Partial matches" section on the same screen, where
+  "partial" describes a *match type*, a different axis again.
+- **"Weak fit"** — that string is already the label of `FitTier: 'weak_fit'`, a different enum
+  with a different wire value, in the by-fit-tier report.
+
+**Labels are display strings; the wire values are unchanged.** `recommendation` is an API contract
+value (`docs/architecture/API_CONTRACTS.md`, `POST /api/catalog/job-fit/analyze`), so the rename is
+a presentation-layer remap and nothing crosses the network differently. Never render a
+`Recommendation` or `FitTier` value directly.
+
+#### The ladder is not ordinal in its words
+
+The four labels do not rank themselves. "Stretch" is the only rung that is not `<adjective> fit`,
+so a reader cannot order it by form and has to order it by meaning — and "stretch role" is
+idiomatically *aspirational*, while "possible" is the weakest modality word in English. One reader
+gets maybe → reaching; another gets hedged → go for it. Both readings are defensible.
+
+That is survivable today **only because the ladder is never displayed.** One analysis renders one
+rung: no legend, no sort, no filter, no adjacent tier. Each label only has to be self-sufficient in
+isolation, and all four are.
+
+> **Ordering becomes load-bearing the moment fit level becomes a sort key, a filter chip, or a
+> grouped list.** If that ships, it must carry the order in position, rank, or count — not in the
+> words. The typecheck guard below cannot catch this one; it checks disjointness, not sequence.
+
+Until then the joint is better repaired one line lower, in the summary sentence beneath the label,
+which already does interpretive work for `stretch` and `low_fit` and does none for `moderate_fit`.
+That is API copy — tracked in **WIC-1301**, sequenced after this change.
+
+Two distinctions worth protecting, both easy to mistake for redundancy:
+
+- **"No recommendation" ≠ "Not analyzed."** The first means the analysis ran and could not score
+  (`recommendation: null`, empty required stack); the second means it never ran. Do not unify them.
+- **`FitTier` and `Recommendation` have started diverging in register**, not just in resolution:
+  `FIT_TIER_LABELS` reads Strong fit / Possible fit / **Weak fit** / Not analyzed — two verdicts and
+  a magnitude, with magnitude subtitles beneath. Defensible as title = verdict, subtitle =
+  magnitude, but whoever reconciles the two enums is now facing a vocabulary question as well as a
+  granularity one.
+
+### Enforcement
+
+`fitLevel.ts` derives the reserved vocabulary from the `GapSeverity` and `Confidence` unions and
+fails `npm run typecheck` naming the offending word if a fit label ever reuses one. Adding a member
+to either scale extends the guard automatically. Extend the same guard before introducing a third
+scale to this screen — in particular, the fit-quality colour ramp still open in
+`JOBFIT_CAPS_DECISION_WIC1122.md` §3a should not be designed against labels that have not passed
+it.
 
 ---
 
@@ -514,6 +671,12 @@ module.exports = {
           withdrawn: '#9ca3af',
         }
       },
+      // Gap severity (WIC-1146) needs no custom colors — the scale maps onto
+      // stock Tailwind shades. Consume it via the shared GAP_SEVERITY map, not
+      // by writing these classes inline:
+      //   critical -> bg-red-50    border-red-900    text-red-700
+      //   moderate -> bg-orange-50 border-orange-700 text-orange-700
+      //   minor    -> bg-amber-50  border-amber-600  text-amber-700
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],

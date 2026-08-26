@@ -44,21 +44,12 @@ description = "Google OAuth access token"
 regex = '''ya29\.[A-Za-z0-9_\-]{20,}'''
 keywords = ["ya29."]
 
-# WIC-1130 / Rev 6.2 §A.2 — DB/broker connection string carrying an embedded credential
-# in the userinfo form. gitleaks' 222-rule default set has no rule for this class, and
-# the only two schemes it names (`mysql`, `mongodb`) appear as *stopwords* inside
-# `generic-api-key`'s allowlist, which makes detection strictly worse. `generic-api-key`
-# does fire on the libpq `password=` form and on `?password=`; it misses
-# `scheme://user:pass@host` because that form presents the credential with no adjacent
-# keyword — and that is exactly the form Supabase hands you under "Connection string".
-#
-# Allowlist is STRUCTURAL ONLY (Rev 6.2 §A.2.2): every entry exempts on the SHAPE of the
-# match — an unresolved interpolation token or a placeholder cannot be a credential
-# value. No corpus-derived entries; those go in the Layer 0 baseline or, for the
-# tree-scoped Layer 1 gate only, in the REPO-LOCAL allowlists at the foot of this file.
-#
-# Validated 2026-08-19 against real gitleaks 8.28.0 (Go RE2, the version both Layer 0 and
-# Layer 1 pin): 8 positive / 9 negative fixtures, 17/17.
+# WIC-1130 / ADR-0001 Addendum A Rev 6.2 §A.2 — DB/broker connection string with an
+# embedded credential (userinfo form). gitleaks' 222-rule default set has no rule for
+# this class; `generic-api-key` covers the libpq `password=` and `?password=` forms but
+# misses `scheme://user:pass@host`, which is exactly the form Supabase hands you.
+# Allowlist is STRUCTURAL ONLY (Rev 6.2 §A.2.2) — corpus-derived suppression belongs in
+# the per-repo redacted baseline, never in fleet-distributed config.
 [[rules]]
 id = "pc-db-connection-string"
 description = "Database/broker connection string with an embedded credential (userinfo form)"

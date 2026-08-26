@@ -86,7 +86,7 @@ export function QuickReferenceExport({
           <div className="border rounded-lg p-6 bg-gray-50">
             {/* Header Section */}
             <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">INTERVIEW QUICK REFERENCE</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Interview quick reference</h1>
               <p className="text-lg font-semibold text-gray-800">
                 {application.jobTitle} | {application.company}
               </p>
@@ -108,7 +108,7 @@ export function QuickReferenceExport({
             {topStories.length > 0 && (
               <div className="mb-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-3 pb-2 border-b">
-                  YOUR TOP {topStories.length} STORIES
+                  Your top {topStories.length} stories
                 </h2>
                 <div className="space-y-3">
                   {topStories.map((story, idx) => (
@@ -137,7 +137,7 @@ export function QuickReferenceExport({
             {keyQuestions.length > 0 && (
               <div className="mb-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-3 pb-2 border-b">
-                  KEY QUESTIONS & SUGGESTED ANSWERS
+                  Key questions & suggested answers
                 </h2>
                 <div className="space-y-3">
                   {keyQuestions.map((question) => (
@@ -161,7 +161,7 @@ export function QuickReferenceExport({
             {gapPoints.length > 0 && (
               <div className="mb-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-3 pb-2 border-b">
-                  GAP TALKING POINTS
+                  Gap talking points
                 </h2>
                 <div className="space-y-2">
                   {gapPoints.map((gap) => (
