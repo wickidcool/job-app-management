@@ -1451,7 +1451,7 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 ```json
 {
   "recommendation": "moderate_fit",
-  "summary": "You match 4 of 6 required skills. Gaps in AWS/GCP cloud experience and PostgreSQL are addressable with your Azure and MongoDB experience.",
+  "summary": "You match 4 of 6 required skills. This role is within reach. Gaps in AWS/GCP cloud experience, PostgreSQL.",
   "confidence": "high",
   "parsedJd": {
     "roleTitle": "Senior Software Engineer",

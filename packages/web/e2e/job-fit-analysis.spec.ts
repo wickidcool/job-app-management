@@ -74,7 +74,7 @@ Responsibilities:
 
 const MOCK_ANALYSIS_RESPONSE = {
   recommendation: 'moderate_fit',
-  summary: 'You match 4 of 6 required skills.',
+  summary: 'You match 4 of 6 required skills. This role is within reach.',
   confidence: 'high',
   parsedJd: {
     roleTitle: 'Senior Full Stack Engineer',
@@ -174,7 +174,7 @@ const MOCK_EMPTY_CATALOG_RESPONSE = {
 // LLM understands prose context (e.g. "team of five" → teamScope, implied required skills).
 const MOCK_LLM_ANALYSIS_RESPONSE = {
   recommendation: 'strong_fit',
-  summary: 'Strong match — you meet 5 of 6 required skills.',
+  summary: 'You match 5 of 6 required skills.',
   confidence: 'high',
   parsedJd: {
     roleTitle: 'Staff Infrastructure Engineer',
@@ -342,7 +342,9 @@ test.describe('Job Fit Analysis page', () => {
     // vocabulary — it deliberately shares no word with gap severity or confidence
     // (WIC-1288), so this page-scoped locator cannot collide with a gap card.
     await expect(page.getByText('Possible fit')).toBeVisible();
-    await expect(page.getByText('You match 4 of 6 required skills.')).toBeVisible();
+    await expect(
+      page.getByText('You match 4 of 6 required skills. This role is within reach.')
+    ).toBeVisible();
 
     // Parsed requirements section
     await expect(page.getByText('Senior Full Stack Engineer')).toBeVisible();
@@ -588,7 +590,7 @@ test.describe('Job Fit Analysis page', () => {
     });
 
     await expect(page.getByText('Strong fit')).toBeVisible();
-    await expect(page.getByText('Strong match — you meet 5 of 6 required skills.')).toBeVisible();
+    await expect(page.getByText('You match 5 of 6 required skills.')).toBeVisible();
     await expect(page.getByText('Staff Infrastructure Engineer')).toBeVisible();
     await expect(page.getByText('Remote (US/EU)')).toBeVisible();
     await expect(page.getByText('$200,000 - $240,000')).toBeVisible();
