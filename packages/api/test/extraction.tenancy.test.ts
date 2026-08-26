@@ -48,8 +48,15 @@ vi.mock('../src/services/resume.service.js', async (importOriginal) => {
 
 const { processCatalogChange } = await import('../src/services/extraction.service.js');
 const { applyDiff } = await import('../src/services/catalog.service.js');
-const { companyCatalog, techStackTags, recurringThemes, applications, resumes, catalogDiffs } =
-  await import('../src/db/schema.js');
+const {
+  companyCatalog,
+  techStackTags,
+  jobFitTags,
+  recurringThemes,
+  applications,
+  resumes,
+  catalogDiffs,
+} = await import('../src/db/schema.js');
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -311,6 +318,84 @@ describe("WIC-1404 AC-1 — one tenant's tag does not suppress another's", () =>
     await processCatalogChange(resumeEvent('01RESUME_A2', USER_A));
 
     const rows = await db.select().from(techStackTags).where(eq(techStackTags.tagSlug, 'react'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].mentionCount).toBe(2);
+    expect([...rows[0].sourceIds].sort()).toEqual(['01RESUME_A1', '01RESUME_A2']);
+  });
+});
+
+/**
+ * WIC-1406 — `job_fit_tags` is the fourth entity `processCatalogChange` dedups
+ * and `applyChangeToDb` updates, and it was the one entity the WIC-1404 suite
+ * never exercised. `RESUME_TEXT` trips a tech tag and a theme but no JOB_FIT
+ * pattern, so zero job-fit rows existed in any test: reverting *both* jobFit
+ * predicates (the `existingJobFitSlugs` read and the `update` WHERE) left all
+ * nine tests green. Measured, not assumed — the mutation was run.
+ *
+ * The text below trips `software-engineering` (role) and `senior` (seniority).
+ */
+const JOB_FIT_TEXT = 'Senior software engineer building dashboards in React.';
+
+describe('WIC-1406 — job_fit_tags dedup and update are per tenant', () => {
+  it("gives user B their own job-fit row and leaves user A's byte-identical", async () => {
+    await seedResume('01RESUME_A', USER_A);
+    await seedResume('01RESUME_B', USER_B);
+
+    await processCatalogChange(resumeEvent('01RESUME_A', USER_A, JOB_FIT_TEXT));
+
+    const aBefore = await db.select().from(jobFitTags).where(eq(jobFitTags.userId, USER_A));
+    const aSwe = aBefore.find((t) => t.tagSlug === 'software-engineering');
+    expect(
+      aSwe,
+      'user A should own a software-engineering tag after their own upload'
+    ).toBeDefined();
+    expect(aSwe!.sourceIds).toEqual(['01RESUME_A']);
+    expect(aSwe!.mentionCount).toBe(1);
+
+    await processCatalogChange(resumeEvent('01RESUME_B', USER_B, JOB_FIT_TEXT));
+
+    // With the unscoped read, B's slug is already "taken" globally, so B takes
+    // the update branch and ends up with no row of their own at all.
+    const bTags = await db.select().from(jobFitTags).where(eq(jobFitTags.userId, USER_B));
+    const bSwe = bTags.find((t) => t.tagSlug === 'software-engineering');
+    expect(bSwe, 'user B must get their own row, not be silently skipped').toBeDefined();
+    expect(bSwe!.sourceIds).toEqual(['01RESUME_B']);
+    expect(bSwe!.mentionCount).toBe(1);
+
+    // ...and with the unscoped UPDATE, that update branch lands on A's row.
+    const [aAfter] = (
+      await db.select().from(jobFitTags).where(eq(jobFitTags.userId, USER_A))
+    ).filter((t) => t.tagSlug === 'software-engineering');
+    expect(aAfter.mentionCount).toBe(aSwe!.mentionCount);
+    expect(aAfter.sourceIds).toEqual(aSwe!.sourceIds);
+    expect(aAfter.version).toBe(aSwe!.version);
+    expect(aAfter.updatedAt.getTime()).toBe(aSwe!.updatedAt.getTime());
+  });
+
+  it("user A's job-fit sourceIds never name a document user A does not own", async () => {
+    await seedResume('01RESUME_A', USER_A);
+    await seedResume('01RESUME_B', USER_B);
+    await processCatalogChange(resumeEvent('01RESUME_A', USER_A, JOB_FIT_TEXT));
+    await processCatalogChange(resumeEvent('01RESUME_B', USER_B, JOB_FIT_TEXT));
+
+    const aTags = await db.select().from(jobFitTags).where(eq(jobFitTags.userId, USER_A));
+    expect(aTags.length, 'the run must actually produce job-fit tags').toBeGreaterThan(0);
+    for (const tag of aTags) {
+      expect(tag.sourceIds, `${tag.tagSlug} leaked a foreign source`).not.toContain('01RESUME_B');
+    }
+  });
+
+  it("a second upload by the same user still increments that user's own row", async () => {
+    // Single-tenant control: scoping must not break legitimate dedup.
+    await seedResume('01RESUME_A1', USER_A);
+    await seedResume('01RESUME_A2', USER_A);
+    await processCatalogChange(resumeEvent('01RESUME_A1', USER_A, JOB_FIT_TEXT));
+    await processCatalogChange(resumeEvent('01RESUME_A2', USER_A, JOB_FIT_TEXT));
+
+    const rows = await db
+      .select()
+      .from(jobFitTags)
+      .where(eq(jobFitTags.tagSlug, 'software-engineering'));
     expect(rows).toHaveLength(1);
     expect(rows[0].mentionCount).toBe(2);
     expect([...rows[0].sourceIds].sort()).toEqual(['01RESUME_A1', '01RESUME_A2']);
