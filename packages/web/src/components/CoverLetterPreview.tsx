@@ -54,7 +54,16 @@ export function CoverLetterPreview({
       {/* Header */}
       {showExportActions && (
         <div className="flex items-center justify-between p-4 border-b bg-gray-50">
-          <h3 className="text-lg font-semibold text-gray-900">Cover Letter Preview</h3>
+          {/* h2, not h3 (WIC-1563). This heading only exists when `showExportActions` is
+              true, and `CoverLetterDetail` is the only call site that passes it — there
+              the preview is the page's sole content under an <h1>, so h3 skipped a level.
+              The other call site (`CoverLetterGenerator`, which would want h3 beside its
+              own "📝 Editor" h3) passes `showExportActions={false}` and renders no heading
+              at all, so there is exactly one depth to be correct at and a `headingLevel`
+              prop would have no call site that could pass a non-default value.
+              If this header is ever shown in the generator, the level becomes a host
+              decision and the prop is the right answer then — see WIC-1566. */}
+          <h2 className="text-lg font-semibold text-gray-900">Cover Letter Preview</h2>
           <div className="flex gap-2">
             <button
               onClick={handleCopy}
