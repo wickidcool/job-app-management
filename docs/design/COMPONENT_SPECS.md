@@ -77,10 +77,12 @@ convention checks itself rather than only being looked up.
 |---|---|---|
 | §13 `MODERATE FIT` | Runtime `.toUpperCase()` in `JobFitAnalysis.tsx` | WIC-1125, WIC-1288 |
 | StoryEditor / answer-composer `SITUATION` `TASK` `ACTION` `RESULT` | Wireframes depict an unbuilt component; `wizard/STARInput.tsx` ships different strings | Resolve when StoryEditor is built |
-| §26 `KEY PHRASES:` `REDIRECT TO:` | `GapMitigationPanel.tsx:211/:227` still ships literal caps. De-shout the wireframe once the source lands, per rule 2 — no `uppercase` class. | WIC-1205 (PR #103) |
 
 The QuickReferenceExport Main View, Mobile Preview and PDF Layout wireframes are no longer listed here:
 PR #98, PR #100 and PR #102 have all merged, so those lines now match the strings the component ships.
+The §26 `KEY PHRASES:` / `REDIRECT TO:` rows are likewise gone: this change ships the
+`GapMitigationPanel.tsx:211/:227` source fix, so per rule 3 the wireframe is de-shouted to match in the
+same commit rather than left marked against a merged ticket.
 
 ### Why this note is shaped this way
 
@@ -3807,10 +3809,10 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 │ │   directly, I've deployed containerized apps with       │ │
 │ │   Docker and worked closely with DevOps teams..."       │ │
 │ │                                                         │ │
-│ │   KEY PHRASES: "containerized applications",            │ │   ‹deferred›
+│ │   Key phrases: "containerized applications",            │ │
 │ │   "Docker experience", "DevOps collaboration"           │ │
 │ │                                                         │ │
-│ │   REDIRECT TO: Docker & CI/CD expertise                 │ │   ‹deferred›
+│ │   Redirect to: Docker & CI/CD expertise                 │ │
 │ │   [Copy Script] [Practice]                              │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────────────────┐ │
