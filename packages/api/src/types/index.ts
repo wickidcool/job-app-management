@@ -91,6 +91,16 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
+  /**
+   * Share of applications that drew a response, as a **ratio in [0, 1]**,
+   * rounded to two decimal places. `0.75` means 75%.
+   *
+   * The ratio is the contract (`docs/architecture/API_CONTRACTS.md`,
+   * `GET /dashboard`) and consumers convert for display. Do not scale to 0-100
+   * here: the web client brands this field as `Ratio` and multiplies by 100 at
+   * its render site, so a percentage sent from here renders 100x too large
+   * (WIC-1514).
+   */
   responseRate: number;
 }
 

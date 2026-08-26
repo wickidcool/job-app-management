@@ -3,6 +3,8 @@
  * These types match the backend API response structure
  */
 
+import type { Ratio } from '../../types/units';
+
 export type ApplicationStatus =
   | 'saved'
   | 'applied'
@@ -139,7 +141,17 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;
+  /**
+   * Share of applications that drew a response, as a **ratio in [0, 1]** —
+   * `0.75` means 75%. Source of record for the unit is
+   * `docs/architecture/API_CONTRACTS.md` (`GET /dashboard`), which is what the
+   * API actually ships.
+   *
+   * Branded so it cannot be rendered as though it were already a percentage;
+   * convert with `toPercent` from `../../types/units` at the display site
+   * (WIC-1514).
+   */
+  responseRate: Ratio;
 }
 
 /**
