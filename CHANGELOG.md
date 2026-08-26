@@ -20,6 +20,17 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Docs — Changelog entries have an insertion convention, because the union driver never reached GitHub (2026-08-26)
+
+`CHANGELOG.md` has carried `merge=union` since the driver was added, and the `.gitattributes` comment says it "keeps both sides' entries instead of conflicting". That is true of the *local* three-way merge and of nothing else: GitHub computes mergeability without consulting `.gitattributes`, so PRs kept reporting `CONFLICTING / DIRTY` on a file every local tool called clean. `CLAUDE.md` now has a `## Changelog conventions` section stating the rule, the mechanism behind it, and how to reproduce what GitHub sees (WIC-1543).
+
+- **The rule is one line: new `[Unreleased]` entries go below the current top `### ` entry, not above it.** Entries inside a release are same-day and effectively unordered, so ordering is not lost.
+- **Why the top of the section is a *guaranteed* collision, not a likely one.** Every conflict measured is the same insertion collision at the first `### ` heading under the backfill note, with an **empty merge base** and pure additions on both sides — hence "keep both", hence the recurrence. That anchor is branch-point independent: the backfill note has sat above it since `1ea6186`, so every open PR resolves "top of `[Unreleased]`" to the same line regardless of when it was cut.
+- **Why a lower anchor actually helps, and its limit.** "Below the current top entry" resolves to a different line per branch point, so only PRs cut from the identical `main` can still collide. It reduces the collision set; it does not abolish it, and the section says so rather than overselling the rule. Measured on PR #174 — it edited `CHANGELOG.md` alongside three open PRs and added zero new conflicts, where #169, #170 and #172 each took the top anchor and #170 alone broke #165 and #166.
+- **The diagnosis recipe is included because the obvious tools lie.** `git merge`, `git merge-tree` and `git pull` all apply the union driver and report clean. Only `git merge-file` on extracted blobs reproduces GitHub's verdict, and only with a positive control — a wrong path or a stale `origin` otherwise produces a convincing false "clean". Re-confirmed against `main` at `94375c1` while writing this: #165 and #166 each show exactly one conflict hunk, control clean.
+- **Resolution guidance is carried with it** — keep both sides, merge `main` in, never rebase, because many open PRs here are stacked and rebasing a parent invalidates every child.
+- **This entry is itself anchored below the top entry**, not above it. Docs-only; no runtime, schema, or wire change.
+
 ### Docs — Every `curl` example in API_CONTRACTS.md now sends a token, against a chosen host (2026-08-26)
 
 Twelve of the sixteen `curl` examples in `docs/architecture/API_CONTRACTS.md` were hardcoded to `http://localhost:3000` and sent **no `Authorization` header** — a combination that only runs under the local auth bypass, which needs **both** `SUPABASE_URL` and `SUPABASE_JWT_SECRET` absent. Copied against any real environment all twelve return `401`. This closes the residue WIC-1330 deliberately deferred: at the time four in-flight PRs held hunks in the same file and the note said so rather than fixing it.
