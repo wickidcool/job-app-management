@@ -76,8 +76,20 @@ export interface CatalogRow {
   rawText: string;
   impactCategory: string;
   sourceId: string;
-  userId: string | null;
+  /**
+   * Non-nullable, matching `quantifiedBullets.userId` (`.notNull()` since
+   * migration 0017). WIC-1465 review: this was `string | null`, and two tests
+   * used that slack to seed a NULL-owned row and assert it came back — a row
+   * shape the database rejects with `23502`, so those cases asserted behaviour
+   * that cannot occur. A fixture the schema forbids is now a type error rather
+   * than a green test. Use the `00000000-…-0` placeholder 0017 writes if you
+   * need to model a pre-0017 orphan.
+   */
+  userId: string;
 }
+
+/** The owner 0017 Step 1 assigned to rows that had no `user_id` before it ran. */
+export const ORPHAN_OWNER = '00000000-0000-0000-0000-000000000000';
 
 export interface RecordedRead {
   table: unknown;
