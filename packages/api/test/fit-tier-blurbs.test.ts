@@ -8,14 +8,18 @@ import type { FitMatchDTO, FitGapDTO } from '../src/services/job-fit.service.js'
 /**
  * The by-fit-tier report's tiles print a one-line blurb under each tier name.
  * Those blurbs are a *claim about the scoring rule*, so they can be false — and
- * they were: WIC-1309 measured 32 of 252 reachable scoring inputs landing in a
- * tier whose blurb did not hold for them, because every blurb restated only the
+ * they were: WIC-1309 measured 81 of the 574 reachable scoring inputs in the
+ * grid below landing in a tier whose blurb did not hold for them (the original
+ * report's 32/252 was a coarser grid), because every blurb restated only the
  * match-percentage arm of `computeRecommendation`'s four-way cascade while the
  * cascade also branches on the critical-gap count and the seniority flag.
  *
  * The rule this file enforces: **each blurb must be a necessary condition of
  * its tier.** Not sufficient — a tile has no room to restate a whole cascade,
- * and it does not need to. It needs to never contradict the number beside it.
+ * and it does not need to. It needs to never state something the tier it labels
+ * can violate — e.g. captioning a 20-of-20 skill match "50–79% of required
+ * skills", which is what the user then sees contradicted by `computeSummary`
+ * on drill-in.
  *
  * Two halves, and both matter:
  *  1. `TIER_CLAIMS` pairs the exact shipped string with a predicate that encodes

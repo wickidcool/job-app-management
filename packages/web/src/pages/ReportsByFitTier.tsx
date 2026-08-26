@@ -12,14 +12,19 @@ import type { FitTier } from '../services/api/reportsService';
  * Each blurb states a **necessary** condition of its tier — never a sufficient
  * one. `computeRecommendation` is a four-way cascade over three variables (match
  * percentage, critical-gap count, seniority flag), and a tile has no room to
- * restate a cascade. What it must never do is contradict the count printed
- * beside it.
+ * restate a cascade. What it must never do is contradict the tier it labels.
+ *
+ * (The number beside each blurb is `byTier[tier]` — how many applications fall
+ * in that tier. It is not a skill-match count, and no skill-match count is
+ * rendered on this page.)
  *
  * These originally restated the match-percentage arm alone, which made them
- * false for 12.7% of reachable scoring inputs: 100% of required skills matched
- * with 3 critical gaps returns `moderate_fit`, so "50–79% of required skills"
- * appeared above a match count of 20/20 (WIC-1309). Every blurb below therefore
- * carries the gap and seniority conditions that can pull a tier down.
+ * false for 14.1% of reachable scoring inputs: 100% of required skills matched
+ * with 3 critical gaps returns `moderate_fit`, so the tier was captioned
+ * "50–79% of required skills" — contradicting both its own definition and the
+ * "You match 20 of 20 required skills" the user reads on drill-in
+ * (`computeSummary`, `job-fit.service.ts`) (WIC-1309). Every blurb below
+ * therefore carries the gap and seniority conditions that can pull a tier down.
  *
  * `packages/api/test/fit-tier-blurbs.test.ts` reads these exact strings and
  * checks each one against the real `computeRecommendation` over every reachable
