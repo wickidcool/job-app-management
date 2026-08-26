@@ -73,6 +73,13 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      # WIC-1195: the wireframes drifted out of sync with the components they
+      # describe four times (WIC-1127, -1184, -1187, -1205), each time caught by
+      # a reader rather than a check. This fails the build on a new unmarked
+      # all-caps label instead, so the next one is a red check, not ticket five.
+      - name: Audit wireframe casing
+        run: python3 docs/design/wireframe-casing-audit.py
+
       - name: Run tests
         run: npm run test
 
@@ -211,11 +218,19 @@ jobs:
     # each other, and because GitHub keeps only ONE pending run per group
     # (queueing a third cancels the second), it would also silently drop preview
     # deploys under load. So the group is constant only for the PRs that can
-    # actually collide; every other PR keeps a per-PR group and full parallelism.
+    # actually collide on the DATABASE; every other PR keeps a per-PR group.
     #
     # cancel-in-progress is false on purpose: cancelling a migration mid-flight
     # is the failure this is meant to prevent. Superseding repeated pushes to one
     # PR is already handled by the workflow-level group (WIC-1095).
+    #
+    # WIC-1343 — SCOPE CORRECTION. This key protects the shared dev *database*
+    # only. The shared `jobtrail-preview` *Worker* is a second contended resource
+    # that `touches_db` cannot see, and non-DB PRs land in distinct groups and hit
+    # it concurrently by design. It is deliberately NOT folded into this group:
+    # widening the constant group to every PR would reintroduce exactly the
+    # silent-preview-drop failure described above. The Worker race is handled
+    # where it happens instead — see the deploy/secret-sync steps below.
     concurrency:
       group: ${{ needs.detect-db-changes.outputs.touches_db == 'true' && 'preview-db-migrate' || format('preview-deploy-{0}', github.event.pull_request.number) }}
       cancel-in-progress: false
@@ -324,6 +339,90 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # WIC-1343: the secret push is split out of wrangler-action's `secrets:`
+      # input and run as a pair of explicit steps around the deploy. Why:
+      #
+      # wrangler-action uploads secrets BEFORE it runs `command`, and
+      # `wrangler secret bulk` is a PATCH to
+      # /accounts/{a}/workers/scripts/jobtrail-preview/settings — the *version
+      # settings* API, which edits the latest version in place and therefore
+      # requires the latest version to be the currently-deployed one. Meanwhile
+      # `wrangler deploy` is upload-then-deploy, so between another job's upload
+      # and its deployment (~3s of an ~8s deploy, measured on run 32921346762)
+      # the Worker legitimately has latest != deployed. A concurrent
+      # `secret bulk` landing in that window fails with:
+      #
+      #   Script edit failed. You attempted to deploy the latest version with
+      #   modified settings, but the latest version isn't currently deployed.
+      #   [code: 10214]
+      #
+      # That is what killed run 32922501694 while four sibling PRs deployed.
+      # Because the old ordering put secrets first, the failure ALSO aborted the
+      # job before its own `wrangler deploy` — so a run cancelled mid-deploy (the
+      # workflow-level group cancels PR runs in progress) could leave the shared
+      # Worker with an undeployed latest version and no run left to clear it.
+      #
+      # The fix is ordering, not serialization:
+      #   1. try the secret sync first (advisory) so the happy path is unchanged
+      #      and code never runs ahead of a rotated secret;
+      #   2. deploy unconditionally — upload+deploy always leaves
+      #      latest == deployed, which HEALS the state 10214 complains about;
+      #   3. if and only if step 1 failed, re-sync with backoff. By now our own
+      #      deploy has restored a consistent version state, so the retry only
+      #      has to survive another job's ~3s window.
+      #
+      # `wrangler deploy` preserves existing secret_text bindings, so step 2
+      # running before a successful secret sync cannot strip the Worker's
+      # secrets. The production job is intentionally left alone: it only runs on
+      # push/dispatch against refs/heads/main, which the workflow-level
+      # concurrency group already serializes, so it has no concurrent writer.
+      - name: Sync preview Worker secrets (advisory, pre-deploy)
+        id: secrets_pre
+        continue-on-error: true
+        run: |
+          # Builds the same payload wrangler-action's `secrets:` input used to
+          # build, and pipes it to the same `wrangler secret bulk --env preview`
+          # on stdin — so nothing is written to disk and nothing is echoed.
+          # ANTHROPIC_API_KEY is optional by design (AI features degrade when it
+          # is unset), so an empty value is dropped with a warning rather than
+          # failing; the other four are already hard-gated by the
+          # "Validate required secrets" step above.
+          payload=$(python3 -c '
+          import json, os, sys
+          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL")
+          out = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          for k in keys:
+              if k not in out:
+                  print("::warning::preview secret %s is empty - not pushed to the Worker" % k, file=sys.stderr)
+          json.dump(out, sys.stdout)
+          ')
+          attempt=1
+          delay=5
+          while :; do
+            if printf %s "$payload" | npx wrangler secret bulk --env preview; then
+              echo "::notice::Preview Worker secrets synced on attempt ${attempt}/${ATTEMPTS}."
+              exit 0
+            fi
+            if [ "$attempt" -ge "$ATTEMPTS" ]; then
+              break
+            fi
+            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}). Cloudflare 10214 on the shared jobtrail-preview Worker is transient version contention (another PR's deploy is mid-flight); retrying in ${delay}s."
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+          echo "::error::Preview Worker secrets failed to sync after ${ATTEMPTS} attempt(s)."
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ATTEMPTS: '1'
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
       - name: Deploy preview to Cloudflare Workers
         id: deploy
         uses: cloudflare/wrangler-action@v3
@@ -332,14 +431,55 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           environment: preview
           command: deploy
-          secrets: |
-            SUPABASE_URL
-            SUPABASE_ANON_KEY
-            SUPABASE_JWT_SECRET
-            ANTHROPIC_API_KEY
-            DATABASE_URL
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
+      # Only runs when the pre-deploy attempt failed. This is the authoritative
+      # one: if it cannot get the secrets on after our own deploy has restored a
+      # consistent version state, the contention is not transient and the job
+      # should go red.
+      - name: Re-sync preview Worker secrets (retried, post-deploy)
+        if: steps.secrets_pre.outcome == 'failure'
+        run: |
+          # Byte-identical to the pre-deploy step except for ATTEMPTS. Kept
+          # inline rather than in .github/scripts/ on purpose: skip-ci-guard's
+          # allowlist is docs/ + *.md + .github/workflows/ only, so a helper
+          # script would put this change outside the repo's own no-deploy path.
+          payload=$(python3 -c '
+          import json, os, sys
+          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL")
+          out = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          for k in keys:
+              if k not in out:
+                  print("::warning::preview secret %s is empty - not pushed to the Worker" % k, file=sys.stderr)
+          json.dump(out, sys.stdout)
+          ')
+          attempt=1
+          delay=5
+          while :; do
+            if printf %s "$payload" | npx wrangler secret bulk --env preview; then
+              echo "::notice::Preview Worker secrets synced on attempt ${attempt}/${ATTEMPTS}."
+              exit 0
+            fi
+            if [ "$attempt" -ge "$ATTEMPTS" ]; then
+              break
+            fi
+            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}). Cloudflare 10214 on the shared jobtrail-preview Worker is transient version contention (another PR's deploy is mid-flight); retrying in ${delay}s."
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+          echo "::error::Preview Worker secrets failed to sync after ${ATTEMPTS} attempt(s)."
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ATTEMPTS: '4'
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
