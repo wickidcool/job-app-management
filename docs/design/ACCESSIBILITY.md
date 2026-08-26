@@ -155,6 +155,10 @@ Use ARIA live regions to announce dynamic changes without moving focus.
 </div>
 ```
 
+> A toast host is an **app-level** live region, so *where* you mount it matters as much as
+> what you put in it. See [Where app-level live regions must be mounted](#where-app-level-live-regions-must-be-mounted)
+> before adding one.
+
 **Announcement Examples:**
 - "Application saved successfully"
 - "Status changed to Interview"
@@ -171,6 +175,63 @@ Use ARIA live regions to announce dynamic changes without moving focus.
 **Politeness Levels:**
 - `polite`: Non-urgent updates (success messages, status changes)
 - `assertive`: Urgent updates (errors, warnings)
+
+#### Where app-level live regions must be mounted
+
+> **Rule.** An app-level live region — a toast host, a route-change announcer, a save-status
+> region, anything that outlives one screen — must be **portalled to `document.body` as a
+> sibling of `#root`**, never rendered in place inside the tree.
+
+**Why.** `aria-hidden` (the package Radix uses to hide the background behind a modal) treats
+every `[aria-live]` element as something it must *not* hide — and it exempts that element's
+**entire ancestor chain** along with it. A live region rendered at `#root > … > div[aria-live]`
+therefore puts `#root` itself on the keep-list, and `#root` never receives `aria-hidden` when a
+dialog opens. Verified in `aria-hidden@1.2.6` (`dist/es2015/index.js`): `:133` collects every
+`[aria-live]` under the parent node into `targets`, and `:48–52` walks each target up its whole
+`parentNode` chain into `elementsToKeep`.
+
+This is not a warning about a control leaking — an in-place announcer that wraps nothing
+focusable leaks nothing, because sibling subtrees are still hidden correctly. The cost is that
+**`#root[aria-hidden]` silently stops being true**, and that is the check most people reach for
+to prove the background *is* hidden. The dialog still opens, focus still traps, and nothing
+looks wrong.
+
+**Worked example — this has already cost a test run.** PR #115 added a post-delete announcer to
+`ResumeManager` and rendered it in place. It immediately broke the existing `#root[aria-hidden]`
+assertion shipped in **PR #95**, on the first run. The fix was to portal the announcer to
+`<body>`; there it is exempted on its own account and hides nothing.
+
+```tsx
+import { createPortal } from 'react-dom';
+
+// ✅ App-level announcer — outside #root
+return createPortal(
+  <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+    {message}
+  </div>,
+  document.body,
+);
+
+// ❌ Same markup rendered in place inside #root
+//    → #root never gets aria-hidden behind any dialog, app-wide
+```
+
+**Two things authors get wrong:**
+
+- **Mount it permanently and change only its text.** Assistive tech announces *updates* to a
+  region already in the accessibility tree. A region that mounts at the same moment its message
+  appears may not be announced at all.
+- **Never put a focusable element inside a live region.** That is a separate and worse failure —
+  the control stays operable behind every dialog, which is a real focus-trap escape. It cost us
+  `EmptyState` once (WIC-1155).
+
+**Component-local** live regions (a progress indicator, a board's drag announcer) may stay in
+place — they are content, not app chrome. But they still suppress the `#root` attribute while
+mounted, so on a page that renders one, do not use `#root[aria-hidden]` as your
+background-hiding assertion; assert on the specific background subtree instead.
+
+Full rationale, including the discriminator against the WIC-1155 failure, lives in
+`MODAL_FOCUS_MANAGEMENT_SPEC.md` → *Rule — app-level live regions belong outside `#root`*.
 
 ---
 
@@ -486,6 +547,9 @@ Provide "Load More" button as alternative to infinite scroll for keyboard/screen
 - [ ] Modals trap focus correctly
 - [ ] Escape closes modals/dropdowns
 - [ ] No keyboard traps
+- [ ] With a dialog open, `#root` actually carries `aria-hidden` — an app-level live region
+      left inside `#root` silently removes it ([rule](#where-app-level-live-regions-must-be-mounted)).
+      Check this on an **empty-list** state too, not just a populated fixture
 
 #### Screen Reader Testing
 
