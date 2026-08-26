@@ -35,6 +35,41 @@ Creates a preview deployment for each PR:
 - Deploys to Cloudflare Pages on a branch-specific URL
 - Posts the preview URL as a PR comment
 
+#### Verifying a preview as QA (WIC-1022)
+
+Every PR deploys to the **same** preview Worker, `jobtrail-preview`, reachable at
+`https://jobtrail-preview.al-23f.workers.dev`. Two things make that hostname
+unusable for acceptance testing:
+
+1. It sits behind **Cloudflare Access** — every path `302`s to
+   `https://al-23f.cloudflareaccess.com/...`, so anyone without an Access
+   identity or service token cannot reach the Worker at all.
+2. It is **last-writer-wins**. With several PRs open, the build serving that
+   hostname is whichever PR deployed most recently, not necessarily yours.
+
+Use the **per-version preview URL** instead. Cloudflare exposes every uploaded
+Worker version at `https://<first-8-chars-of-version-id>-<worker>.<subdomain>.workers.dev`.
+That hostname is **not** Access-gated and is pinned to one specific build, so it
+solves both problems at once.
+
+The Deploy Preview job posts it on the PR as **QA / no-login URL**. If you need
+to recover it by hand:
+
+```bash
+# The version ID printed by the deploy step of that PR's run
+gh run view <run-id> --log | grep 'Current Version ID:'
+#   Deploy Preview  Deploy preview to Cloudflare Workers  Current Version ID: c7827847-3ff7-...
+
+curl -sI https://c7827847-jobtrail-preview.al-23f.workers.dev/dashboard
+```
+
+Take the version ID from the **`Deploy preview to Cloudflare Workers`** step
+specifically. The `wrangler secret bulk` upload earlier in the same job also
+creates a version, but that one re-uses the *previously deployed* code and will
+not contain the PR's changes.
+
+Production stays behind Access; this only applies to preview hostnames.
+
 ### 3. Deploy Production (main branch only)
 
 Deploys to production with safeguards:
