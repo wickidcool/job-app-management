@@ -8,6 +8,14 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Fixed — The route-integrity allowlist had gone entirely dead (2026-08-26)
+
+Merging current `main` into this branch after PRs #82 and #87 landed made all four `KNOWN_DEAD_LINKS` entries stale at once, in two different ways: `/dashboard` and `/resumes/${resume.id}/exports` became genuinely routed, and the `/applications/${id}/prep/practice` and `/resume-manager` link sites were deleted outright. The list is now empty (WIC-1213).
+
+- **A dead entry is not untidy, it is a permanent hole.** Per-string suppression means the entry keeps covering its target forever, so re-breaking that exact link is undetectable. Measured: deleting the `/resumes/:resumeId/exports` route from `App.tsx` left the entire web suite green (45 passed) while the entry was present, and turns it red now that it is gone.
+- **The original comment argued against a staleness check** on the grounds it would start failing the moment an owning PR merged. That is the signal wanted — it fires on the ticket that can act, inside the close-out window, which is the only point at which the entry is cheap to remove. `has no stale entries in KNOWN_DEAD_LINKS` is that check: an entry is valid only while its link site still exists *and* still matches no route.
+- **Mutation-proved, 5 cells.** Baseline green; route dropped → red; stale now-routed entry re-added → red; entry with no link site re-added → red; and the pre-fix combination (stale entry present *and* route dropped) → green, which is the residual hole recorded in-file. Closing that one would need review, not a test: it takes a deliberate re-add, and the standing rule that every entry names its owning ticket is what stands against it.
+
 ### Fixed — Every match and gap row states whether the skill is required (2026-08-26)
 
 The three per-skill sections on the Job Fit Analysis screen disclosed the same `isRequired` flag three different ways at row level: gap rows named both branches, strong-match rows carried a red `Required` badge **or nothing**, and partial-match rows said nothing at all. This is the residue of the WIC-1528 entry below, not a regression from it — that change fixed the section *headings*, and this is what was left one level down (WIC-1534).
