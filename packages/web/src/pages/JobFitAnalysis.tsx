@@ -6,6 +6,7 @@ import { useApplication } from '../hooks/useApplications';
 import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../types/jobFit';
 import { FIT_LEVEL_LABELS, NO_FIT_LEVEL_LABEL } from '../constants/fitLevel';
 import { GAP_SEVERITY } from '../constants/gapSeverity';
+import { formatSkillCount } from '../constants/skillCount';
 import { APIError } from '../services/api/apiClient';
 
 interface JobFitFormData {
@@ -209,7 +210,7 @@ export function JobFitAnalysis() {
           {results.strongMatches.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
               <h3 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-                ✅ Strong Matches ({results.strongMatches.length})
+                ✅ Strong Matches ({formatSkillCount(results.strongMatches)})
               </h3>
               <div className="space-y-3">
                 {results.strongMatches.map((match, idx) => (
@@ -233,7 +234,7 @@ export function JobFitAnalysis() {
           {results.partialMatches.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
               <h3 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-                ⚠️ Partial Matches ({results.partialMatches.length})
+                ⚠️ Partial Matches ({formatSkillCount(results.partialMatches)})
               </h3>
               <div className="space-y-3">
                 {results.partialMatches.map((match, idx) => (
@@ -252,7 +253,7 @@ export function JobFitAnalysis() {
           {results.gaps.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
               <h3 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-                ❌ Gaps ({results.gaps.length})
+                ❌ Gaps ({formatSkillCount(results.gaps)})
               </h3>
               <div className="space-y-3">
                 {results.gaps.map((gap, idx) => {

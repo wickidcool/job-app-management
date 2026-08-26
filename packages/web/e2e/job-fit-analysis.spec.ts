@@ -109,6 +109,18 @@ const MOCK_ANALYSIS_RESPONSE = {
       matchType: 'exact',
       isRequired: true,
     },
+    // WIC-1528: the fixture's nice-to-have match. Every mock pinning this screen used
+    // to be all-`isRequired`, the one shape where "count of matches" and "count of
+    // required matches" coincide — which is how `Strong Matches (7)` above "5 of 6
+    // required skills" stayed invisible through WIC-1288 and WIC-1301. Drawn from
+    // `parsedJd.niceToHaveStack` above, so the fixture stays internally consistent.
+    {
+      type: 'tech_stack',
+      catalogEntry: 'graphql',
+      jdRequirement: 'graphql',
+      matchType: 'exact',
+      isRequired: false,
+    },
   ],
   partialMatches: [
     {
@@ -131,6 +143,15 @@ const MOCK_ANALYSIS_RESPONSE = {
       jdRequirement: 'redis',
       isRequired: true,
       severity: 'moderate',
+    },
+    // The other half of WIC-1528's mixed shape, and the only `minor` on any fixture.
+    // `gapSeverity()` in job-fit.service.ts returns `minor` for every non-required gap,
+    // so this pairing is the one the API can actually produce.
+    {
+      type: 'tech_stack',
+      jdRequirement: 'terraform',
+      isRequired: false,
+      severity: 'minor',
     },
   ],
   recommendedStarEntries: [
@@ -362,7 +383,11 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    await expect(page.getByText('✅ Strong Matches (3)')).toBeVisible();
+    // WIC-1528: the heading names the populations it counts. It deliberately does NOT
+    // agree with the summary's "You match 4 of 6 required skills" — `computeSummary`
+    // counts required strong *plus* required partial (3 + 1), while this counts strong
+    // only. Two labelled subtotals, not a restatement. Do not "fix" them into equality.
+    await expect(page.getByText('✅ Strong Matches (3 required, 1 nice-to-have)')).toBeVisible();
     // Strong match entries have green left border
     const strongMatchCards = page.locator('.border-green-500');
     await expect(strongMatchCards.first()).toBeVisible();
@@ -379,7 +404,8 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    await expect(page.getByText('⚠️ Partial Matches (1)')).toBeVisible();
+    // Single-population case: the zero term is omitted, not rendered as "0 nice-to-have".
+    await expect(page.getByText('⚠️ Partial Matches (1 required)')).toBeVisible();
     const partialCards = page.locator('.border-yellow-500');
     await expect(partialCards.first()).toBeVisible();
     await expect(page.getByText(/Partially matches:/)).toBeVisible();
@@ -399,7 +425,7 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    await expect(page.getByText('❌ Gaps (2)')).toBeVisible();
+    await expect(page.getByText('❌ Gaps (2 required, 1 nice-to-have)')).toBeVisible();
 
     // The tokenised scale: critical is the red step, moderate the orange one.
     // `mark` on the left border, `surface` on the card. See DESIGN_SYSTEM.md "Gap Severity Scale".
@@ -594,8 +620,10 @@ test.describe('Job Fit Analysis page', () => {
     await expect(page.getByText('Staff Infrastructure Engineer')).toBeVisible();
     await expect(page.getByText('Remote (US/EU)')).toBeVisible();
     await expect(page.getByText('$200,000 - $240,000')).toBeVisible();
-    await expect(page.getByText('✅ Strong Matches (5)')).toBeVisible();
-    await expect(page.getByText('❌ Gaps (1)')).toBeVisible();
+    // Left all-required on purpose: this fixture pins LLM extraction, and the mixed
+    // required/nice-to-have shape is covered by MOCK_ANALYSIS_RESPONSE (WIC-1528).
+    await expect(page.getByText('✅ Strong Matches (5 required)')).toBeVisible();
+    await expect(page.getByText('❌ Gaps (1 required)')).toBeVisible();
   });
 
   // TC-LLM-2: LLM unavailable — regex fallback produces degraded results, UI stays stable
