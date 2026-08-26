@@ -81,7 +81,12 @@ and the 3-step funnel is empty even with the breakdown removed. The cause is the
 
 `C1`'s definition changed with the node: the HogQL version measured "share of uploaders with ≥2 uploads in
 30d", the retention node gives a full weekly first-time-retention cohort grid. The original HogQL is preserved
-on each swapped payload under `_hogql_equivalent` if the single-number form is ever wanted back.
+on each swapped payload under `_hogql_variant` (its own description plus a full `DataTableNode`/`HogQLQuery`
+node), which is what keeps this file the single source of truth for all three build routes: `build_dashboards.py`
+(Route 1) uses the native node, `make_console_pack.py` (Routes 2/3) falls back to the variant because a native
+node cannot be pasted as SQL. **A1 and C1 are therefore the same tile name computing different numbers**
+depending on the route — the other 15 tiles are byte-identical across all three. Nothing else diverges; the
+native `A3n` is `_enabled: false`, so no route builds it and A3 is the HogQL form everywhere.
 
 ## Event coverage gap (blocks meaningful dashboards, not the build)
 
