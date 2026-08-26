@@ -405,12 +405,53 @@ nice-to-have gap. Because a fixture is a mock and can only disagree quietly, the
 unit-tested directly in `packages/web/src/constants/skillCount.test.ts`, which runs in
 `npm run test`.
 
-#### Known residue
+### Per-row required-ness
 
-Per-row disclosure is asymmetric. Strong-match rows carry a `Required` badge and gap rows read
-"Required skill" / "Nice-to-have skill", but partial-match rows say nothing, and on the strong-match
-rows the *absence* of a badge is what means "nice-to-have". The heading now states the split, so a
-reader can reconcile any single section by counting — accepted for now, tracked separately.
+The qualifier on each individual row of the three per-skill sections. Decided in WIC-1534, closing
+the residue left by WIC-1528 above; formatted by `packages/web/src/constants/requirementLabel.ts`.
+
+> **Required-ness is stated on every row, in both branches. An absence is never the signal.**
+
+The three sections used to disclose the same boolean three different ways:
+
+| Section | Was | Now |
+|---|---|---|
+| Gaps | `Critical - Required skill` / `- Nice-to-have skill` | `Critical — Required skill` |
+| Strong Matches | a red `Required` badge, **or nothing** | `Matches: graphql (exact) — Nice-to-have skill` |
+| Partial Matches | nothing at all | `Partially matches: postgresql (alias) — Required skill` |
+
+Two distinct faults, not one:
+
+- **A negative was doing positive work.** On a strong-match row, no badge meant "nice-to-have" —
+  indistinguishable from a row where the flag was simply not rendered. An absence of chrome cannot
+  be read as a statement, and no fixture can catch it: a mock that renders nothing and a component
+  that renders nothing agree.
+- **Partial-match rows carried no signal.** The heading states the split, so the *counts* are known;
+  but with more than one row of each kind, **which** row is which was unrecoverable.
+
+#### A text qualifier, not a badge on every row
+
+Extending the strong-match badge to all three sections was the rejected alternative. It fails twice:
+
+- **Colour.** The badge was `bg-red-100 text-red-800` — red, on a green-bordered card that means
+  good news, to mean "important" rather than "bad". Gap severity owns red on this screen
+  (WIC-1146); this was already a cross-axis reuse, and copying it to two more sections would have
+  spent the colour three times over. The badge is removed rather than propagated.
+- **Density.** Three sections x N rows is a lot of chrome for one boolean.
+
+The qualifier reuses the one pattern already proven here — gap rows have always named both branches
+— so no new chrome is introduced. `REQUIREMENT_SEPARATOR` (a spaced em dash) is exported alongside
+the labels and read by all three sections, so they cannot drift apart on punctuation the way they
+drifted apart on disclosure. Gap rows moved from a hyphen onto it.
+
+#### The noun is carried on the row and elided in the heading
+
+`skillCount.ts` emits `2 required, 1 nice-to-have` with no noun, because the heading supplies it. A
+row has no such supplier, so it carries "skill" itself. Same vocabulary at two altitudes, not two
+vocabularies — and neither reaches for "fit", which the verdict axis owns (WIC-1301), nor for a
+reserved scale word (WIC-1146). `requirementLabel.test.ts` asserts both formatters agree on which
+word names which branch, so a re-wording of either fails rather than letting a section quietly
+contradict the heading above it.
 
 ### Enforcement
 

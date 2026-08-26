@@ -391,6 +391,22 @@ test.describe('Job Fit Analysis page', () => {
     // Strong match entries have green left border
     const strongMatchCards = page.locator('.border-green-500');
     await expect(strongMatchCards.first()).toBeVisible();
+
+    // WIC-1534: every row states its required-ness, in both branches. This used to be a
+    // `Required` badge *or nothing*, so "nice-to-have" was carried by the absence of
+    // chrome — indistinguishable from the flag simply not being rendered.
+    await expect(page.getByText('Matches: typescript (exact) — Required skill')).toBeVisible();
+    await expect(page.getByText('Matches: graphql (exact) — Nice-to-have skill')).toBeVisible();
+
+    // No row is left unlabelled: one qualifier per strong-match card, 4 cards.
+    await expect(strongMatchCards).toHaveCount(4);
+    await expect(strongMatchCards.getByText(/(Required|Nice-to-have) skill/)).toHaveCount(4);
+
+    // The red `Required` badge is gone. It was `bg-red-100 text-red-800` on a
+    // green-bordered card, spending gap severity's colour (WIC-1146) on the requirement
+    // axis to mean "important" rather than "bad". Scoped to the strong-match cards
+    // because `bg-red-100` is legitimately used by the error `<pre>` elsewhere on this page.
+    await expect(page.locator('.border-green-500 .bg-red-100')).toHaveCount(0);
   });
 
   // TC-5: Partial matches display correctly
@@ -409,6 +425,14 @@ test.describe('Job Fit Analysis page', () => {
     const partialCards = page.locator('.border-yellow-500');
     await expect(partialCards.first()).toBeVisible();
     await expect(page.getByText(/Partially matches:/)).toBeVisible();
+
+    // WIC-1534: partial-match rows used to carry no required-ness signal at all. The
+    // heading states the split, but with more than one row of each kind, *which* row is
+    // which was unrecoverable from the counts alone.
+    await expect(
+      page.getByText('Partially matches: postgresql (alias) — Required skill')
+    ).toBeVisible();
+    await expect(partialCards.getByText(/(Required|Nice-to-have) skill/)).toHaveCount(1);
   });
 
   // TC-6: Gaps are visually prominent
@@ -444,6 +468,16 @@ test.describe('Job Fit Analysis page', () => {
     // `exact: true` is case-sensitive, so these assertions pin the casing decision too.
     await expect(criticalCard.getByText('Critical', { exact: true })).toBeVisible();
     await expect(moderateCard.getByText('Moderate', { exact: true })).toBeVisible();
+
+    // WIC-1534: gap rows always named both branches — they are the pattern the match rows
+    // were brought onto, not the thing being fixed. What changed is the separator: a
+    // spaced em dash from `REQUIREMENT_SEPARATOR`, shared with the two match sections so
+    // one qualifier shape serves all three. Card-scoped for the same "Moderate fit"
+    // substring collision noted above.
+    const minorCard = page.locator('.border-amber-600.bg-amber-50');
+    await expect(criticalCard.getByText('Critical — Required skill')).toBeVisible();
+    await expect(moderateCard.getByText('Moderate — Required skill')).toBeVisible();
+    await expect(minorCard.getByText('Minor — Nice-to-have skill')).toBeVisible();
 
     // No severity emoji survive. They were the second, contradicting signal on the same card:
     // this page called `minor` green while GapMitigationPanel called it yellow.
