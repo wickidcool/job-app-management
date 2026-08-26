@@ -112,6 +112,21 @@ Fired when the upload or server-side processing returns an error.
 | `error_code`  | string                                                               | HTTP status or application error code |
 | `error_stage` | `"upload"` \| `"extraction"` \| `"parsing"` \| `"export_generation"` | Where the failure occurred            |
 
+> **⚠ This event is DIAGNOSTIC ONLY — never the count of failures.** It is delivered by a `fetch`,
+> which is a Cloudflare subrequest, from the catch block in `resume.service.ts`. When an upload fails
+> *because* the Worker exhausted its subrequest budget, this capture is silently dropped — so the
+> event goes missing in a way that is **correlated with the incident**, and a panel built on it reads
+> toward 0 during a real outage. Measured in prod 2026-08-26: a real authenticated upload returned
+> 500 and emitted **no** `resume_upload_failed` at all (WIC-967 / WIC-1386 / WIC-1387).
+>
+> Count failures from the **gap** instead — a `resume_upload_submitted` with no matching terminal
+> event *is* a failure; `_submitted` is emitted before any dependency work and survives the
+> pressure. Read this event only for `error_code` / `error_stage` attribution, as a lower bound and a
+> biased sample. **Do not "fix" delivery with `ctx.waitUntil()`** — the subrequest cap is per
+> *invocation*, so a deferred `fetch` is charged to the same exhausted budget; only a Tail Worker or
+> Logpush is genuinely out-of-band. Full rule, live evidence, alert query and known biases:
+> `dashboard-spec.md` §6 (WIC-1476 / ADR-007 §4).
+
 #### `resume_upload_cta_clicked`
 
 Fired when user clicks "View Details" or "Upload New" after a completed upload.

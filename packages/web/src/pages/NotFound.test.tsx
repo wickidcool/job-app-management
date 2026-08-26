@@ -96,10 +96,10 @@ describe('NotFound', () => {
    * same reason §1 gave for keeping them off this page, plus the modal-hiding leak.
    * That is the defect being fixed at the source rather than the control going
    * stale, but it does leave the two D1 assertions above with nothing that can
-   * falsify them. The fixture below is exactly the wrapper WIC-1155 deleted
-   * (EmptyState.tsx before 6435d79/3f12bb0), kept solely to kill that vacuity: if
-   * someone reintroduces a nested landmark on this page, the sibling test fails and
-   * this test proves the failure was reachable.
+   * falsify them — this control renders the real `EmptyState`, which now satisfies
+   * them too. So only the D2 assertions below still discriminate, and the D1 half of
+   * the sibling test is kept as a plain regression guard on NotFound's own markup
+   * rather than as a comparison against the rejected option.
    */
   it('negative control: the rejected EmptyState reuse would fail those assertions', () => {
     render(<EmptyState variant="no-results" />);
