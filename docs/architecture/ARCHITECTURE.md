@@ -2,400 +2,210 @@
 
 ## Executive Summary
 
-This document describes the local-first backend architecture for the Job Application Manager. The application runs entirely on the user's machine with a Node.js/Fastify backend, PostgreSQL database, and local filesystem storage for documents. This design prioritizes simplicity, offline capability, and data privacy.
+CareerPin (the Job Application Manager) is a **cloud-hosted, multi-tenant web application**. The API is a [Hono](https://hono.dev) app running on **Cloudflare Workers**; persistence is **Supabase Postgres** reached through Drizzle ORM; documents live in **Cloudflare R2**; and authentication is a **Supabase-issued JWT presented as a bearer token**.
 
-## Architecture Diagram
+The application was originally designed local-first — a Node.js/Fastify server, a PostgreSQL instance on `localhost`, and documents on the local filesystem. **None of that is still true.** There is no Fastify dependency in the tree, no local data directory, and no session-cookie auth. See [Historical note](#historical-note-the-local-first-origins) for where that design is recorded.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         User's Local Machine                                 │
-│                                                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                     Frontend (React/Vite)                              │  │
-│  │                     http://localhost:5173                              │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                         │
-│                                    │ HTTP (localhost)                        │
-│                                    ▼                                         │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                     Backend (Node.js/Fastify)                          │  │
-│  │                     http://localhost:3000/api                          │  │
-│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐  │  │
-│  │  │/applications│ │  /status    │ │/cover-letters│ │   /dashboard   │  │  │
-│  │  │   CRUD      │ │ transitions │ │  (existing) │ │  aggregations  │  │  │
-│  │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                    │                              │
-│              ┌───────────┘                    └───────────┐                  │
-│              ▼                                            ▼                  │
-│  ┌─────────────────────────────┐          ┌─────────────────────────────┐   │
-│  │        PostgreSQL           │          │     Local Filesystem         │   │
-│  │   localhost:5432            │          │     ./data/                  │   │
-│  │                             │          │     ├── resumes/             │   │
-│  │   Tables:                   │          │     ├── cover-letters/       │   │
-│  │   - applications            │          │     └── projects/            │   │
-│  │   - status_history          │          │                              │   │
-│  │   - users (optional)        │          │                              │   │
-│  └─────────────────────────────┘          └─────────────────────────────┘   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+## Scope of this document
 
-## Technology Stack
+This is the **current-state** overview: what runs in production today, and how a request flows through it.
 
-| Layer | Technology | Rationale |
-|-------|------------|-----------|
-| **Frontend** | React 18, TypeScript, Vite | Existing scaffold, hot reload for development |
-| **Backend** | Node.js 20, Fastify, TypeScript | Fast, low-overhead, excellent TypeScript support |
-| **Database** | PostgreSQL 15+ | Robust, relational, excellent for structured data |
-| **ORM** | Drizzle ORM | Type-safe, lightweight, SQL-like syntax |
-| **Documents** | Local filesystem | Simple, no external dependencies, user owns data |
-| **Dev Server** | Vite (frontend) + tsx (backend) | Fast iteration with hot reload |
+Two neighbouring documents are deliberately *not* superseded by this one:
 
-## Design Decisions
+| Document | What it is |
+|---|---|
+| [CLOUDFLARE_WORKERS_ARCHITECTURE.md](./CLOUDFLARE_WORKERS_ARCHITECTURE.md) | The **migration plan** — Fastify→Hono route patterns, phases, rollback. A historical record of the move, not of the destination. |
+| [API_CONTRACTS.md](./API_CONTRACTS.md) | The **endpoint specification** — request/response shapes, status codes, pagination. |
 
-### Why Local-First?
+Where this document and the source disagree, the source wins; please fix this document.
 
-1. **Privacy**: User data never leaves their machine
-2. **Offline**: Works without internet connection
-3. **Simplicity**: No cloud infrastructure to manage or pay for
-4. **Speed**: No network latency for API calls
-5. **Ownership**: Users have full control of their data
+## System topology
 
-### Why PostgreSQL?
-
-1. **Relational model**: Natural fit for applications with status history
-2. **ACID transactions**: Safe status transitions with history logging
-3. **Rich queries**: Complex filtering, sorting, and aggregations
-4. **Mature ecosystem**: Excellent tooling, backups, migrations
-5. **Local installation**: Easy setup via Docker or native install
-
-See [ADR-001: Database Selection](./adr/ADR-001-database-selection.md) for full analysis.
-
-### Why Fastify?
-
-1. **Performance**: Fastest Node.js framework
-2. **TypeScript**: First-class support with type providers
-3. **Schema validation**: Built-in JSON Schema validation
-4. **Plugin system**: Modular, testable architecture
-5. **Existing codebase**: Aligns with current project patterns
-
-### Why Filesystem for Documents?
-
-1. **Existing feature**: Resume/cover letter storage already file-based
-2. **Simplicity**: No blob storage configuration needed
-3. **Portability**: Easy backup (just copy the folder)
-4. **Direct access**: Users can browse/edit files directly if needed
-
-## Component Details
-
-### Backend Server
-
-**Framework**: Fastify 4.x with TypeScript
-
-**Project Structure**:
+Three hostnames on the `careerpin.app` Cloudflare zone:
 
 ```
-backend/
-├── src/
-│   ├── index.ts                 # Server entry point
-│   ├── app.ts                   # Fastify app configuration
-│   ├── config.ts                # Environment configuration
-│   ├── db/
-│   │   ├── client.ts            # PostgreSQL connection
-│   │   ├── schema.ts            # Drizzle schema definitions
-│   │   └── migrations/          # SQL migrations
-│   ├── routes/
-│   │   ├── applications.ts      # /api/applications routes
-│   │   ├── dashboard.ts         # /api/dashboard routes
-│   │   └── cover-letters.ts     # /api/cover-letters routes
-│   ├── services/
-│   │   ├── application.service.ts
-│   │   ├── status.service.ts
-│   │   └── dashboard.service.ts
-│   └── types/
-│       └── index.ts             # Shared TypeScript types
-├── package.json
-├── tsconfig.json
-└── drizzle.config.ts
+                            ┌──────────────────────────┐
+   careerpin.app            │  Marketing site          │
+   www.careerpin.app  ─────▶│  packages/marketing      │  static HTML/CSS/JS
+                            │  (+ _worker.js)          │
+                            └──────────────────────────┘
+
+                            ┌──────────────────────────────────────────────┐
+                            │  Cloudflare Workers  —  worker `jobtrail`    │
+                            │                                              │
+                            │  ┌────────────────────────────────────────┐  │
+   app.careerpin.app ──────▶│  │ Static asset router (binding `ASSETS`) │  │
+                            │  │ `/`, `/assets/*`, `/favicon.svg`       │  │
+                            │  │ serves packages/web/dist (React SPA)   │  │
+                            │  │ — answers BEFORE the Worker runs       │  │
+                            │  └────────────────────────────────────────┘  │
+                            │                    │ everything else         │
+                            │                    ▼                         │
+                            │  ┌────────────────────────────────────────┐  │
+                            │  │ Worker: packages/api/src/worker.ts     │  │
+                            │  │   securityHeaders() → httpsRedirect()  │  │
+                            │  │   → cors → GET /health                 │  │
+                            │  │   → /api/* (authMiddleware → routes)   │  │
+                            │  │   → notFound: SPA shell or JSON 404    │  │
+                            │  └────────────────────────────────────────┘  │
+                            └──────────────────────────────────────────────┘
+                                      │                          │
+                          ┌───────────┘                          └───────────┐
+                          ▼                                                  ▼
+              ┌───────────────────────────┐                    ┌───────────────────────────┐
+              │  Supabase Postgres        │                    │  Cloudflare R2            │
+              │  drizzle-orm/postgres-js  │                    │  binding `R2_BUCKET`      │
+              │  (Hyperdrive-ready)       │                    │  resumes, cover letters,  │
+              │  + Supabase Auth (JWT)    │                    │  generated documents      │
+              └───────────────────────────┘                    └───────────────────────────┘
 ```
 
-**Key Dependencies**:
+The asset router answering `/` and `/assets/*` **before** the Worker is load-bearing, not a detail: response headers for those paths cannot be set in Worker code, which is why `packages/web/public/_headers` exists and why the zone-level `Always Use HTTPS` setting had to close the first-contact gap. See the "App-host transport hardening" entry in [CHANGELOG.md](../../CHANGELOG.md).
 
-```json
-{
-  "dependencies": {
-    "fastify": "^4.26.0",
-    "@fastify/cors": "^9.0.0",
-    "drizzle-orm": "^0.29.0",
-    "postgres": "^3.4.0",
-    "zod": "^3.22.0",
-    "ulid": "^2.3.0"
-  },
-  "devDependencies": {
-    "drizzle-kit": "^0.20.0",
-    "tsx": "^4.7.0",
-    "@types/node": "^20.0.0",
-    "typescript": "^5.3.0"
-  }
-}
-```
+## Repository layout
 
-### PostgreSQL Database
+An npm-workspaces monorepo (`"workspaces": ["packages/*"]`):
 
-**Connection**: `postgresql://localhost:5432/job_app_manager`
+| Path | Workspace | Contents |
+|---|---|---|
+| `packages/api` | `@wic/api` | Hono API, Worker entry, Drizzle schema + migrations, services |
+| `packages/web` | `@wic/web` | React 18 + Vite SPA; `dist/` is the Worker's `assets.directory`, exposed as the `ASSETS` binding |
+| `packages/marketing` | — | Static marketing site for the apex/`www` hosts (plain HTML/CSS/JS + `_worker.js`) |
+| `packages/infra` | — | `redirect-worker/` and `redirect-pages/` — hostname redirect shims |
 
-**Tables**:
+`packages/marketing` and `packages/infra` have no `package.json`; they are deployed as static assets, not built as workspaces.
 
-| Table | Purpose |
-|-------|---------|
-| `applications` | Core job application records |
-| `status_history` | Audit trail of status changes |
-| `app_settings` | User preferences (optional) |
+## Technology stack
 
-See [DATA_MODEL.md](./DATA_MODEL.md) for full schema definitions.
+| Layer | Technology | Notes |
+|---|---|---|
+| **Runtime** | Cloudflare Workers | `compatibility_date` `2026-05-05`, `compatibility_flags: ["nodejs_compat"]` |
+| **API framework** | Hono 4.7 | `@hono/node-server` for the local Node path |
+| **Frontend** | React 18, TypeScript, Vite | Served as Worker static assets |
+| **Database** | Supabase Postgres | `postgres` (postgres-js) driver |
+| **ORM** | Drizzle ORM 0.30 | Migrations via `drizzle-kit` |
+| **Connection pooling** | Cloudflare Hyperdrive | Bound in `preview` only; production uses the Supabase transaction pooler (see below) |
+| **Document storage** | Cloudflare R2 | Native binding, with an S3-API fallback |
+| **Auth** | Supabase Auth + `jose` 6 | JWT verified in the Worker |
+| **Validation** | Zod 3 | |
+| **Identifiers** | ULID | |
+| **LLM** | `@anthropic-ai/sdk` | Resume parsing, cover letters, job-fit, interview prep |
+| **Document parsing** | `pdf-parse`, `pdfjs-dist`, `mammoth`, `docx` | PDF/DOCX in and out |
+| **Tests** | Vitest (unit), Playwright (E2E) | |
 
-### Local Filesystem Structure
+## Request lifecycle
 
-```
-data/
-├── resumes/
-│   └── {userId}/
-│       └── {resumeId}.pdf
-├── cover-letters/
-│   └── {userId}/
-│       └── {coverLetterId}.md
-└── projects/
-    └── {projectId}/
-        └── notes.md
-```
+`packages/api/src/worker.ts` is the Worker entry point; `packages/api/src/app.ts` builds the Hono app.
 
-## API Design
+1. **Worker fetch handler** wraps every request in `runWithEnv(env, …)`, which establishes a per-request context holding the Workers `env` and a cached SQL connection.
+2. **Hyperdrive-timeout retry** — the handler retries up to **3 attempts** on a recognised Hyperdrive timeout, backing off `50ms × attempt`. Each attempt gets a *fresh* request context, so a retry never reuses a broken connection. On exhaustion it returns `503` with `{"error":{"code":"SERVICE_UNAVAILABLE"}}` and `Retry-After: 1`.
+3. **`securityHeaders()`** then **`httpsRedirect()`**, both on `*`, run before any handler.
+4. **CORS** middleware.
+5. **`GET /health`** is registered on the root app — **outside** the `/api` mount, and therefore unauthenticated. It reports `{ status, hyperdrive, db }`, returning `200` when healthy and `503` when degraded. The database is probed only when a `HYPERDRIVE` binding or `DATABASE_URL` is present; otherwise `db` is `"not_applicable"` so local and test runs do not fail the check.
+6. **`/api/*`** is a sub-app with `authMiddleware` on `*`, into which thirteen route modules are mounted at `/`: `auth`, `applications`, `dashboard`, `cover-letters`, `resumes`, `projects`, `dialogue`, `catalog`, `reports`, `resume-variants`, `interview-preps`, `onboarding`, `personal-info`.
+7. **`app.notFound`** is the SPA fallback (WIC-1004), and it is more careful than "serve index.html":
+   - Unmatched `/api` or `/api/*` returns JSON `404 NOT_FOUND` — API paths never receive HTML.
+   - With no `ASSETS` binding, or for a method other than `GET`/`HEAD`, it returns a plain-text `404`.
+   - Otherwise it calls `ASSETS.fetch()`, then explicitly retries `/index.html` on a miss, so the shell is still served if `not_found_handling` ever drifts.
+   - It **refuses** the shell for build-owned paths and for file-extension subresource requests that are not navigations. This matters: under `single-page-application` handling a miss comes back as the shell with `200`, so a stale hashed bundle still referenced by a cached `index.html` would blank the page on the browser's module MIME check instead of failing cleanly — and would never appear as a `404` in monitoring. Those requests get a real `404` instead.
 
-### Base URL
+## Authentication
 
-```
-http://localhost:3000/api
-```
+Implemented in `packages/api/src/middleware/auth.ts`.
 
-### Endpoints
+- Callers present a Supabase JWT as **`Authorization: Bearer <token>`**. A missing or non-`Bearer` header is `401 UNAUTHORIZED`.
+- **Public paths** — `/api/auth/login`, `/api/auth/register`, `/api/auth/logout` — skip verification. `GET /health` is exempt by construction, being outside the `/api` mount.
+- **Verification** uses `jose`. Remote JWKS fetchers are cached per issuer (`<issuer>/.well-known/jwks.json`) so the fetcher is not rebuilt per request.
+- **Local bypass** — auth is skipped, with `userId` set to `null`, only when **both** `SUPABASE_URL` **and** `SUPABASE_JWT_SECRET` are absent. Supplying just one does *not* disable auth. This exists so `npm run dev:api` works without Supabase credentials.
+- Verified requests carry `userId` for the rest of the request; tenant scoping is enforced in the service layer and by Postgres Row-Level Security.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/applications` | List all applications |
-| GET | `/applications/:id` | Get single application |
-| POST | `/applications` | Create application |
-| PATCH | `/applications/:id` | Update application |
-| DELETE | `/applications/:id` | Delete application |
-| POST | `/applications/:id/status` | Update status |
-| GET | `/dashboard` | Get dashboard stats |
-| GET | `/cover-letters` | List available cover letters |
+## Data layer
 
-See [API_CONTRACTS.md](./API_CONTRACTS.md) for full specification.
+`packages/api/src/db/client.ts` resolves a connection through three paths, in order:
 
-## Development Setup
+| Condition | Behaviour |
+|---|---|
+| `env.HYPERDRIVE` present | `postgres(HYPERDRIVE.connectionString, { prepare: false })` — Hyperdrive owns pooling |
+| `env.DATABASE_URL` present | `postgres(DATABASE_URL, { prepare: false, ssl: 'require' })` — one connection per request, cached on the request context and reused across service calls |
+| Neither (Node.js) | Module-level singleton; `ssl: 'require'` and `max: 10` for Supabase hosts, otherwise `ssl: false` and `max: 5` for local Docker |
 
-### Prerequisites
+`prepare: false` is required on both Workers paths — prepared statements do not survive a pooled/serverless connection.
 
-1. **Node.js 20+**: JavaScript runtime
-2. **PostgreSQL 15+**: Database (via Docker or native)
-3. **pnpm** (recommended): Package manager
+**Which path runs where:** the `preview` environment declares a real `HYPERDRIVE` binding in `wrangler.jsonc`, so preview takes path 1. **Production declares no Hyperdrive binding** and therefore takes path 2, with `deploy.yml` supplying a `DATABASE_URL` that points at the Supabase **transaction pooler on port 6543**. Path 3 is local `npm run dev:api` only.
 
-### Quick Start
+Schema and table documentation live in [DATA_MODEL.md](./DATA_MODEL.md).
+
+## Document storage
+
+`packages/api/src/services/storage.service.ts` writes resumes, cover letters and generated documents to R2 by one of two paths:
+
+- **Workers** — the native `R2_BUCKET` binding (`.put()` / `.get()` / `.delete()` / `.list()`).
+- **Node.js / local** — an `S3Client` against R2's S3-compatible API, with `@aws-sdk/s3-request-presigner` for signed URLs (default expiry 3600s).
+
+`isR2Configured()` / `isStorageAvailable()` let callers degrade gracefully when neither path is available.
+
+## Environments
+
+**The deployed configuration is the repository-root [`wrangler.jsonc`](../../wrangler.jsonc).** `deploy.yml` invokes `cloudflare/wrangler-action` with `command: deploy` from the repo root and no `--config`, so that file — not `packages/api/wrangler.toml` — is what ships:
+
+| Environment | Worker name | R2 bucket | Hyperdrive |
+|---|---|---|---|
+| production (top level) | `jobtrail` | `jobtrail-documents` | none — Supabase pooler via `DATABASE_URL` |
+| `preview` (PR deploys) | `jobtrail-preview` | `jobtrail-documents-dev` | bound |
+
+> ⚠️ `packages/api/wrangler.toml` is a **second, divergent config that never deploys**. It names different Workers (`jobapp-api`, `jobapp-api-dev`, `jobapp-api-staging`), pins `compatibility_date = "2024-01-01"`, declares no static assets, and carries Hyperdrive only as a commented-out template. Read the root `wrangler.jsonc` for anything authoritative.
+
+Non-secret config lives in `vars` — `NODE_ENV`, and the analytics sink `ANALYTICS_SINK: "posthog"` with `POSTHOG_HOST` (WIC-821). Workers observability is enabled.
+
+Secrets are never in `vars`; they are injected at deploy time by `wrangler-action` and stored with `wrangler secret put` / `secret bulk`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `POSTHOG_API_KEY`. If `POSTHOG_API_KEY` is unset, `config.ts` and `analytics.service.ts` fall back to a no-op sink with a warning rather than failing. The credential rules are binding — see [ADR-0001](./adr/ADR-0001-fleet-secrets-credential-management.md), [CREDENTIAL_PRECEDENCE.md](./CREDENTIAL_PRECEDENCE.md) and [CLOUD_ENV_SECRETS.md](./CLOUD_ENV_SECRETS.md).
+
+CI/CD lives in `.github/workflows/` — `deploy.yml` (lint/test, preview deploys, production deploy plus migrations, and a manual dispatch lever for rollback) and `deploy-marketing.yml`, alongside secret-scanning and Supabase-keepalive workflows. See [CI_CD.md](./CI_CD.md).
+
+## Local development
 
 ```bash
-# 1. Start PostgreSQL (Docker)
-docker run -d \
-  --name job-app-postgres \
-  -e POSTGRES_DB=job_app_manager \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -p 5432:5432 \
-  postgres:15
+npm install
 
-# 2. Install dependencies
-pnpm install
+npm run dev          # SPA (Vite) — packages/web
+npm run dev:api      # API on Node via @hono/node-server
+npm run dev:worker   # API on workerd via `wrangler dev` (closest to production)
 
-# 3. Run database migrations
-pnpm db:migrate
-
-# 4. Start backend
-pnpm dev:backend   # Runs on http://localhost:3000
-
-# 5. Start frontend (separate terminal)
-pnpm dev           # Runs on http://localhost:5173
+npm run db:migrate   # Drizzle migrations
+npm run typecheck    # tsc -b packages/web packages/api --noEmit
+npm run test         # Vitest across workspaces
+npm run test:e2e     # Playwright
 ```
 
-### Environment Variables
+`npm run dev:api` runs without Supabase credentials — see the local bypass rule under [Authentication](#authentication). Use `dev:worker` when behaviour depends on bindings, since only workerd provides `R2_BUCKET` and `HYPERDRIVE`.
 
-```bash
-# .env.local
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/job_app_manager
-DATA_DIR=./data
-PORT=3000
-```
+> `npm run format` is scoped to `packages/**` on purpose. Do **not** run Prettier over `docs/`; it reflows every table and manufactures merge conflicts.
 
-## Data Flow
-
-### Create Application
-
-```
-Frontend                    Backend                     PostgreSQL
-   │                          │                            │
-   │  POST /api/applications  │                            │
-   │─────────────────────────▶│                            │
-   │                          │  BEGIN TRANSACTION         │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │                          │  INSERT application        │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │                          │  INSERT status_history     │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │                          │  COMMIT                    │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │  201 { application }     │                            │
-   │◀─────────────────────────│                            │
-```
-
-### Update Status (with validation)
-
-```
-Frontend                    Backend                     PostgreSQL
-   │                          │                            │
-   │  POST /status            │                            │
-   │─────────────────────────▶│                            │
-   │                          │                            │
-   │                          │  Validate transition       │
-   │                          │  (saved → applied OK)      │
-   │                          │  (saved → offer INVALID)   │
-   │                          │                            │
-   │                          │  BEGIN TRANSACTION         │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │                          │  UPDATE application.status │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │                          │  INSERT status_history     │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │                          │  COMMIT                    │
-   │                          │───────────────────────────▶│
-   │                          │                            │
-   │  200 { application }     │                            │
-   │◀─────────────────────────│                            │
-```
-
-## Security Considerations
-
-### Local-First Security Model
-
-Since this is a local application, security focuses on:
+## Security posture
 
 | Concern | Approach |
-|---------|----------|
-| **Data at rest** | Filesystem permissions, optional encryption |
-| **Database access** | Local-only binding (localhost:5432) |
-| **API access** | Local-only binding (localhost:3000) |
-| **Input validation** | Zod schemas on all inputs |
-| **SQL injection** | Parameterized queries via Drizzle ORM |
+|---|---|
+| **Transport** | `httpsRedirect()` (`301`/`308`) plus zone-level `Always Use HTTPS`; HSTS `max-age=31536000; includeSubDomains`, `preload` withheld |
+| **Response headers** | `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `CSP: frame-ancestors 'none'` — from the Worker and from `_headers` for asset-router paths |
+| **Authentication** | Supabase JWT, verified per request in the Worker |
+| **Tenant isolation** | `userId` scoping in the service layer **and** Postgres Row-Level Security |
+| **Input validation** | Zod schemas at the route boundary |
+| **SQL injection** | Parameterised queries via Drizzle |
+| **Secret handling** | `wrangler secret put` only; CI secret-scanning; ADR-0001 prohibits secret material in client/build vars |
 
-### Optional: Multi-User Mode
+## Historical note: the local-first origins
 
-For shared machines, an optional authentication layer can be added:
+Through 2026-04 the application was a local-first desktop-style tool: Fastify on `localhost:3000`, PostgreSQL on `localhost:5432`, documents under `./data/`, and optional cookie-session auth. The cloud migration (WIC-217, WIC-222, WIC-223) replaced all of it in 2026-05.
 
-- Simple username/password stored in PostgreSQL
-- Session-based auth with secure cookies
-- User ID scoping on all queries
-
-## Testing Strategy
-
-### Unit Tests
-
-```bash
-pnpm test:unit
-```
-
-- Service layer logic
-- Status transition validation
-- Data transformation functions
-
-### Integration Tests
-
-```bash
-pnpm test:integration
-```
-
-- API endpoint testing with supertest
-- Database operations with test database
-- Full request/response validation
-
-### E2E Tests
-
-```bash
-pnpm test:e2e
-```
-
-- Playwright tests against running app
-- Critical user flows (create, update status, filter)
-
-## Backup & Data Portability
-
-### Manual Backup
-
-```bash
-# Database backup
-pg_dump job_app_manager > backup.sql
-
-# Documents backup
-cp -r ./data ./data-backup
-
-# Full backup
-tar -czf job-app-backup-$(date +%Y%m%d).tar.gz backup.sql data/
-```
-
-### Restore
-
-```bash
-# Database restore
-psql job_app_manager < backup.sql
-
-# Documents restore
-cp -r ./data-backup ./data
-```
-
-### Export to JSON
-
-For data portability, an export endpoint provides all data as JSON:
-
-```bash
-GET /api/export
-# Returns: { applications: [...], statusHistory: [...] }
-```
-
-## Future Considerations
-
-### Phase 2+ Features
-
-| Feature | Implementation |
-|---------|---------------|
-| **Reminders (US-7.1)** | node-cron for local scheduling, system notifications |
-| **Notes (US-8.1)** | New `notes` table, rich text with Markdown |
-| **Contacts (US-8.2)** | New `contacts` table, linked to applications |
-| **Cloud sync (optional)** | Future consideration for multi-device users |
-
-### Potential Enhancements
-
-- **Electron wrapper**: Desktop app with system tray
-- **SQLite option**: Even simpler single-file database
-- **Browser extension**: Quick-save jobs from listing sites
+That design is not preserved here — this file now documents the deployed system. The migration itself is recorded in [CLOUDFLARE_WORKERS_ARCHITECTURE.md](./CLOUDFLARE_WORKERS_ARCHITECTURE.md), [ADR-004: Cloud migration](./adr/ADR-004-cloud-migration-supabase-cloudflare.md) and [ADR-006: Hono on Workers](./adr/ADR-006-hono-framework-workers.md); the pre-migration reasoning survives in [ADR-001: Database Selection](./adr/ADR-001-database-selection.md), whose "local installation" rationale should be read as history.
 
 ## References
 
 - [API Contracts](./API_CONTRACTS.md)
 - [Data Model](./DATA_MODEL.md)
-- [ADR-001: Database Selection](./adr/ADR-001-database-selection.md)
-- [Requirements Plan (WIC-15)](/WIC/issues/WIC-15#document-plan)
-- [UI/UX Design Specs](../design/)
+- [Cloudflare Workers migration](./CLOUDFLARE_WORKERS_ARCHITECTURE.md)
+- [CI/CD](./CI_CD.md)
+- [Cloud environment secrets](./CLOUD_ENV_SECRETS.md)
+- [Authentication guide](../AUTHENTICATION.md)
+- [ADR-004: Cloud migration to Supabase + Cloudflare](./adr/ADR-004-cloud-migration-supabase-cloudflare.md)
+- [ADR-006: Hono framework on Workers](./adr/ADR-006-hono-framework-workers.md)
+- [UI/UX design specs](../design/)
