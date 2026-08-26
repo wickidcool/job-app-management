@@ -86,14 +86,37 @@ describe('NotFound', () => {
    * Without this, "no region named Empty state" passes for any markup at all,
    * including markup with no assertions worth making. Rendering the component the
    * spec rejected (§1, Option 1: a `'not-found'` variant on `EmptyState`) shows the
-   * three defects are real and that the assertions above can actually fail.
+   * defects are real and that the assertions above can actually fail.
+   *
+   * D2 (an h3 with no h1 above it) is still live in `EmptyState`, so it is still
+   * controlled for by rendering the real component.
+   *
+   * D1 (a region landmark named "Empty state") is not: WIC-1155 removed
+   * `role="region"`/`aria-live`/`aria-label` from `EmptyState` outright — for the
+   * same reason §1 gave for keeping them off this page, plus the modal-hiding leak.
+   * That is the defect being fixed at the source rather than the control going
+   * stale, but it does leave the two D1 assertions above with nothing that can
+   * falsify them. The fixture below is exactly the wrapper WIC-1155 deleted
+   * (EmptyState.tsx before 6435d79/3f12bb0), kept solely to kill that vacuity: if
+   * someone reintroduces a nested landmark on this page, the sibling test fails and
+   * this test proves the failure was reachable.
    */
   it('negative control: the rejected EmptyState reuse would fail those assertions', () => {
     render(<EmptyState variant="no-results" />);
 
-    expect(screen.getByRole('region')).toHaveAccessibleName('Empty state'); // D1
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument(); // D2
     expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument(); // D2
+  });
+
+  it('negative control: the landmark WIC-1155 removed would fail the D1 assertions', () => {
+    render(
+      <div role="region" aria-live="polite" aria-label="Empty state">
+        <h3>No results found</h3>
+      </div>
+    );
+
+    expect(screen.getByRole('region')).toHaveAccessibleName('Empty state'); // D1
+    expect(screen.getByLabelText('Empty state')).toBeInTheDocument(); // D1
   });
 
   // §7.4 — the keyboard user's first Tab from page load lands on the primary action.
