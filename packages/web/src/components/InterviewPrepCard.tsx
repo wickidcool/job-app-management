@@ -1,8 +1,6 @@
-import { useNavigate } from 'react-router-dom';
 import type { InterviewPrep, ApplicationSummary } from '../types/interviewPrep';
 
 interface InterviewPrepCardProps {
-  applicationId: string;
   application: ApplicationSummary & {
     interviewDate?: string;
     fitLevel?: 'strong' | 'moderate' | 'weak';
@@ -11,20 +9,21 @@ interface InterviewPrepCardProps {
     lastUpdated: string;
   };
   onGeneratePrep: () => void;
-  onViewPrep: (prepId: string) => void;
+  /** Omitted by hosts that already render the prep detail, which hides the button. */
+  onViewPrep?: (prepId: string) => void;
   onExportQuickRef: (prepId: string) => void;
+  /** Practice lives on the host page's Questions tab; there is no practice route. */
+  onPractice: (prepId: string) => void;
 }
 
 export function InterviewPrepCard({
-  applicationId,
   application,
   prep,
   onGeneratePrep,
   onViewPrep,
   onExportQuickRef,
+  onPractice,
 }: InterviewPrepCardProps) {
-  const navigate = useNavigate();
-
   const getCountdownInfo = () => {
     if (!application.interviewDate) {
       return null;
@@ -194,12 +193,14 @@ export function InterviewPrepCard({
       </div>
 
       <div className="flex gap-2">
-        <button
-          onClick={() => onViewPrep(prep.id)}
-          className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
-        >
-          View Prep
-        </button>
+        {onViewPrep && (
+          <button
+            onClick={() => onViewPrep(prep.id)}
+            className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
+          >
+            View Prep
+          </button>
+        )}
         <button
           onClick={() => onExportQuickRef(prep.id)}
           className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 transition-colors"
@@ -207,7 +208,7 @@ export function InterviewPrepCard({
           Quick Reference
         </button>
         <button
-          onClick={() => navigate(`/applications/${applicationId}/prep/practice`)}
+          onClick={() => onPractice(prep.id)}
           className="flex-1 px-4 py-2 bg-green-100 text-green-700 text-sm font-medium rounded-md hover:bg-green-200 transition-colors"
         >
           Practice
