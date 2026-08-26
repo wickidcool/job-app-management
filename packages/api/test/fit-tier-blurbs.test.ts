@@ -8,15 +8,19 @@ import type { FitMatchDTO, FitGapDTO } from '../src/services/job-fit.service.js'
 /**
  * The by-fit-tier report's tiles print a one-line blurb under each tier name.
  * Those blurbs are a *claim about the scoring rule*, so they can be false — and
- * they were: 81 of the 574 inputs in the grid below land in a tier whose
- * pre-WIC-1309 blurb did not hold for them (14.1%), because those blurbs
- * restated only the match-percentage arm of `computeRecommendation`'s four-way
- * cascade while the cascade also branches on the critical-gap count and the
- * seniority flag. All 81 were in `moderate_fit` (18) and `stretch` (63).
+ * they were: 81 of the 574 reachable scoring inputs in the grid below land in
+ * a tier whose pre-WIC-1309 blurb did not hold for them (14.1%; the original
+ * report's 32/252 was a coarser grid), because those blurbs restated only the
+ * match-percentage arm of `computeRecommendation`'s four-way cascade while the
+ * cascade also branches on the critical-gap count and the seniority flag. All
+ * 81 were in `moderate_fit` (18) and `stretch` (63).
  *
  * The rule this file enforces: **each blurb must be a necessary condition of
  * its tier.** Not sufficient — a tile has no room to restate a whole cascade,
- * and it does not need to. It needs to never contradict the number beside it.
+ * and it does not need to. It needs to never state something the tier it labels
+ * can violate — e.g. captioning a 20-of-20 skill match "50–79% of required
+ * skills", which is what the user then sees contradicted by `computeSummary`
+ * on drill-in.
  *
  * Two halves, and both matter:
  *  1. `TIER_CLAIMS` pairs the exact shipped string with a predicate that encodes
@@ -197,8 +201,26 @@ describe('by-fit-tier tile blurbs', () => {
     const source = readFileSync(page, 'utf8');
 
     const shipped = new Map<string, string>();
-    const entry = /tier:\s*'(strong_fit|moderate_fit|stretch|low_fit)',\s*\n\s*blurb:\s*'([^']*)'/g;
-    for (const [, tier, blurb] of source.matchAll(entry)) shipped.set(tier, blurb);
+    // Quote-agnostic on purpose. `.prettierrc` sets `singleQuote: true`, which
+    // means prettier flips a string to *double* quotes the moment it contains an
+    // apostrophe — and "isn't" / "doesn't" / "you're" is exactly what a copy pass
+    // over these four strings (WIC-1318) introduces. A single-quote-only pattern
+    // would silently drop that tier from the map, and the deep-equal below would
+    // then report `low_fit: undefined` — byte-identical to a genuine drift
+    // failure, and readable as "the blurb went missing", which invites weakening
+    // this check rather than fixing the pattern.
+    const entry =
+      /tier:\s*'(strong_fit|moderate_fit|stretch|low_fit)',\s*\n\s*blurb:\s*(['"])((?:(?!\2).)*)\2/g;
+    for (const [, tier, , blurb] of source.matchAll(entry)) shipped.set(tier, blurb);
+
+    // Arity before content, so an extraction failure is distinguishable from
+    // real copy drift: this line fires when a tier could not be read at all.
+    expect([...shipped.keys()].sort()).toEqual([
+      'low_fit',
+      'moderate_fit',
+      'stretch',
+      'strong_fit',
+    ]);
 
     expect(Object.fromEntries(TIER_CLAIMS.map((c) => [c.tier, shipped.get(c.tier)]))).toEqual(
       Object.fromEntries(TIER_CLAIMS.map((c) => [c.tier, c.blurb]))
