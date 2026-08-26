@@ -269,9 +269,8 @@ isolation, and all four are.
 > grouped list.** If that ships, it must carry the order in position, rank, or count — not in the
 > words. The typecheck guard below cannot catch this one; it checks disjointness, not sequence.
 
-Until then the joint is better repaired one line lower, in the summary sentence beneath the label,
-which already does interpretive work for `stretch` and `low_fit` and does none for `moderate_fit`.
-That is API copy — tracked in **WIC-1301**, sequenced after this change.
+Until then the joint is repaired one line lower, in the summary sentence beneath the label — see
+"Fit Level Summary" below. That was **WIC-1301**, sequenced after this change and now shipped.
 
 Two distinctions worth protecting, both easy to mistake for redundancy:
 
@@ -282,6 +281,68 @@ Two distinctions worth protecting, both easy to mistake for redundancy:
   a magnitude, with magnitude subtitles beneath. Defensible as title = verdict, subtitle =
   magnitude, but whoever reconciles the two enums is now facing a vocabulary question as well as a
   granularity one.
+
+### Fit Level Summary
+
+The sentence rendered directly beneath the fit level label. Generated server-side by
+`computeSummary` (`packages/api/src/services/job-fit.service.ts`); decided in WIC-1301.
+
+| Wire value | Summary |
+|---|---|
+| `strong_fit` | You match N of M required skills. |
+| `moderate_fit` | You match N of M required skills. **This role is within reach.** |
+| `stretch` | You match N of M required skills. **This role may be a stretch.** |
+| `low_fit` | You match N of M required skills. **Consider building more experience before applying.** |
+| `null` | Unable to compute fit score — no required skills found in the job description. |
+
+A critical, required gap appends ` Gap(s) in X, Y and N more.` to any of the first four.
+
+#### The summary never restates the verdict
+
+The label is the only place the verdict is worded. `strong_fit` used to open **"Strong match — "**,
+which broke that twice over. It duplicated the "Strong fit" label three lines above it, and it
+borrowed **"match"** — the noun the per-skill sections own — to mean something else entirely:
+
+```
+label:    Strong fit                                    ← verdict, whole application
+summary:  Strong match — you meet 5 of 6 required…      ← verdict, wearing the other axis's noun
+heading:  ✅ Strong Matches (7)                          ← classification, one skill (MatchType)
+```
+
+> **The verdict axis owns "fit". The match-classification axis owns "match".**
+
+This is the "Scale Vocabulary" rule applied to a noun rather than an adjective, and it is why
+"Strong fit" beside "Strong matches" is *fine* while "Strong match" beside it was not: the first
+recurrence keeps the word on one axis, the second moves it across two.
+
+The numbers made it concrete. `matchCount` counts required strong **and** partial matches; the
+heading counts every strong match **including nice-to-haves**. So "Strong match — you meet 5 of 6"
+could render above "Strong Matches (7)". They agree only in the e2e fixture (5 strong, 0 partial,
+all required), which is what kept this invisible until WIC-1297 read the copy. With the verdict
+prefix gone, the two lines no longer claim to be the same quantity — "required skills" against
+"Strong Matches" — and the qualifier does the disambiguating.
+
+#### The trailing clause is a caveat, so the top rung has none
+
+The ladder reads **nothing to add / within reach / a stretch / not yet.** `moderate_fit` previously
+had no clause, which left the ladder's weakest joint — "Possible fit" vs "Stretch" — to be ordered
+by two labels that demonstrably do not order themselves (see "The ladder is not ordinal in its
+words"). "Within reach" and "a stretch" are the same distance metaphor at two settings, so they
+order each other without needing the labels to.
+
+Two constraints on any future clause:
+
+- **State the verdict's stance, never a fact about the data.** `strong_fit` admits one critical
+  required gap (`computeRecommendation`: `matchPct >= 0.8 && criticalGaps <= 1`), so a clause like
+  *"your profile covers the core requirements"* would render immediately above " Gap in AWS." A
+  stance stays true in every branch, including when `gaps` is empty.
+- **No magnitude adjectives.** Gap severity owns `critical`/`moderate`/`minor` and confidence owns
+  `high`/`medium`/`low`. This is the same reservation the labels are held to, but the typecheck
+  guard below does not cover the summary — these strings live in the API package, and the guard
+  derives from `fitLevel.ts`. Copy review is the only check here, which is why `computeSummary` is
+  exported and unit-tested (`packages/api/test/job-fit.service.test.ts`) rather than asserted only
+  through fixtures. Every other surface that pins these strings is a mock, and a mock cannot
+  disagree with a generator loudly enough to be noticed.
 
 ### Enforcement
 
