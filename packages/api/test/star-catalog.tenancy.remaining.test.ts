@@ -60,7 +60,6 @@ import {
   stubDb,
   stubAnthropic,
   expectScopedTo,
-  ownerParamOf,
   render,
   type CatalogRow,
 } from './helpers/star-catalog-stub.js';
@@ -286,7 +285,17 @@ describe('generateCoverLetter tenancy (D5 — fetchStarEntries ignores the calle
     // Ships as `.where(inArray(quantifiedBullets.id, ids))` — a lone `inArray`
     // carries no owner term, which is precisely the case `toHaveBeenCalled()`
     // on `where` would wave through.
-    expect(ownerParamOf(stub.catalogClauses()[0])).toBe(CALLER);
+    //
+    // WIC-1502: this asserted `ownerParamOf(...) === CALLER`. `ownerParamOf`
+    // answers "which owner id appears in the rendered SQL", and that question
+    // cannot separate `and(idTerm, ownerTerm)` from `or(idTerm, ownerTerm)` —
+    // both render `"quantified_bullets"."user_id" = $n` and bind the caller.
+    // Measured: threading the caller through `fetchStarEntries` with `or(...)`
+    // made this assertion pass, firing the trip-wire and inviting the documented
+    // `it.fails` -> `it` conversion — which yields a green suite over a live
+    // IDOR. `expectScopedTo` evaluates the real boolean tree, so the `or` shape
+    // throws and this wire stays green until the read is *actually* scoped.
+    expectScopedTo(stub.catalogClauses()[0], CALLER, ['01HZ_BUL_MINE']);
   });
 
   it.fails("rejects another user's STAR entry id as STAR_ENTRY_NOT_FOUND", async () => {
