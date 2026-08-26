@@ -672,8 +672,38 @@ interface EmptyStateProps {
 
 ### Accessibility
 
-- **Focus:** Action button receives focus
-- **ARIA Live:** Announce when empty state appears (e.g., after filter)
+The container is a **plain `<div>` with no ARIA** — no `aria-live`, no `role`, no `aria-label`.
+This is a correction: the two directives that used to sit here were both wrong, and one of
+them shipped as a real defect (WIC-1155). They are recorded below so they are not re-derived.
+
+- **No live region.** This content is static per `variant` and never updates in place, so
+  there is nothing for a live region to announce. It also does not work: the component is
+  *inserted* by a load-state branch (`{items.length === 0 ? <EmptyState /> : …}`), and a
+  live region that arrives already populated is not reliably announced — assistive tech
+  watches for mutations *within* a region that was already present.
+  It is not merely inert, it is harmful. The `aria-hidden` package Radix Dialog uses to hide
+  the background behind a modal [deliberately exempts `[aria-live]` elements](https://github.com/theKashey/aria-hidden/issues/10),
+  and an exempt node keeps its descendants **and its whole ancestor chain** reachable. Because
+  this container wraps the action button, `aria-live="polite"` here left `#root`, `<main>` and
+  a live control exposed behind every open dialog.
+  If a variant ever needs to announce a *change* — e.g. "No matching results" after a filter
+  edit — the live region belongs on the **results container that swaps between states**, which
+  is present across the swap, not on the empty state itself.
+- **No `region` landmark.** A `region` is a navigable landmark, reserved for major structural
+  areas. An icon, a heading, one sentence and at most one button is not one — and this block is
+  the only content inside `<main>` when it renders, so the landmark wrapped the sole contents of
+  another landmark. The heading is the entry point users actually navigate by, and
+  "No documents found" describes the content far better than `aria-label="Empty state"`, which
+  was the component's name leaking into the accessibility tree. Note the two cannot be split:
+  `aria-label` on a role-less `<div>` maps to `generic`, which does not support an accessible
+  name, so the label is dropped by most AT and flagged by axe as `aria-prohibited-attr`.
+- **Do not move focus.** An empty state renders as the *result* of something the user did —
+  a filter edit, a delete, a load. Focusing the action button on appearance would yank focus
+  out of the control they are still using (typically the filter input they are mid-way through
+  typing into). The button is reachable in normal tab order, which is the correct affordance.
+  It keeps a visible `focus:ring-2` style; that is the requirement here, not autofocus.
+- **The icon is decorative** and carries `aria-hidden="true"` — the heading and message already
+  say everything the emoji does, and emoji names read poorly in a screen reader.
 
 ---
 
