@@ -620,7 +620,7 @@ export async function uploadResume(
       userId
     );
 
-    // Generate per-company/project markdown files under data/projects/{projectSlug}/
+    // Generate per-company/project markdown files under projects/{userId}/{slug}/
     // Projects are created as independent entities in the database
     // Try AI parsing first, fall back to heuristic parsing
     let usedAI = false;
