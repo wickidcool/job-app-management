@@ -234,10 +234,14 @@ export type Percent = number & { readonly __unit: 'percent-0-100' };
 export const toPercent = (r: Ratio): Percent => Math.round(r * 100) as Percent;
 ```
 
-`Ratio` and `Percent` are not assignable to each other, so mixing the two populations is a
-compile error rather than a rendering bug. Adoption is incremental — a bare `number` is
-still legal — so a declaration below may not yet be branded even though the unit rule
-already applies to it.
+`Ratio` and `Percent` are not assignable to each other, so *feeding one population's value into
+a field declared as the other* is a compile error rather than a rendering bug. Note the precise
+scope: the brand is checked on **assignment**, and arithmetic and rendering erase it — `score >= 80`
+and `{score}%` on a `Ratio` both compile. Convert for display through `formatRatioAsPercent`, and
+cover thresholds with a test; see ADR-008 §3.
+
+Adoption is incremental — a bare `number` is still legal — so a declaration below may not yet be
+branded even though the unit rule already applies to it.
 
 Two consequences worth stating outright:
 
