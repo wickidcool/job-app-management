@@ -1,0 +1,30 @@
+# Cloudflare Workers static-asset headers (WIC-1011).
+#
+# The asset router answers `/`, `/assets/*` and `/favicon.svg` *before* the Worker runs,
+# so the Hono middleware in packages/api/src/middleware/security.ts never sees them.
+# This file is how those responses get hardened. Vite copies public/ verbatim into
+# dist/, which is the `assets.directory` in wrangler.jsonc; Cloudflare consumes
+# `_headers` at upload time rather than serving it.
+#
+# Keep the two lists in sync with SECURITY_HEADERS in that middleware.
+
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: frame-ancestors 'none'
+
+# Vite fingerprints everything under /assets/, so the content can never change under a
+# given URL. The default is `public, max-age=0, must-revalidate`, which costs a
+# revalidation round-trip per asset per page load.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# index.html is NOT fingerprinted — it must keep revalidating or clients pin to a stale
+# build and request asset hashes that no longer exist.
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
