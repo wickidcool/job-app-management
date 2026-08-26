@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '../../contexts/OnboardingContext';
 import { OnboardingProgressIndicator } from './OnboardingProgressIndicator';
 import { OnboardingStep } from './OnboardingStep';
@@ -29,6 +30,8 @@ export function OnboardingModal() {
     nextStep,
     previousStep,
   } = useOnboarding();
+
+  const navigate = useNavigate();
 
   const [uploadedResume, setUploadedResume] = useState<Resume | null>(null);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
@@ -94,6 +97,17 @@ export function OnboardingModal() {
     } else {
       nextStep();
     }
+  };
+
+  // The completion step's two shortcuts have to finish onboarding the same way the
+  // footer button does before they leave. Reaching step 6 only advances local state —
+  // STEP_MAP has no entry for it, so the server still reads `first_application` with a
+  // null `completedAt`. A plain link out of here therefore reloaded into a fresh
+  // OnboardingProvider that re-fetched that untouched status and reopened the modal at
+  // step 5. Navigating in-router also keeps the session's cache and auth state.
+  const handleFinishAndGo = async (to: string) => {
+    await completeOnboarding();
+    navigate(to);
   };
 
   const handlePersonalInfoSubmit = async (formData: UpdatePersonalInfoRequest) => {
@@ -474,18 +488,22 @@ export function OnboardingModal() {
                 </div>
 
                 <div className="flex gap-3">
-                  <a
-                    href="/dashboard"
+                  {/* Dashboard is mounted at "/" (App.tsx), not "/dashboard" — that path
+                      matches no route and renders an empty content area. */}
+                  <button
+                    type="button"
+                    onClick={() => void handleFinishAndGo('/')}
                     className="flex-1 rounded-md bg-primary-600 px-6 py-3 text-center text-sm font-medium text-white hover:bg-primary-700"
                   >
                     Go to Dashboard
-                  </a>
-                  <a
-                    href="/applications"
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleFinishAndGo('/applications')}
                     className="flex-1 rounded-md border border-neutral-300 bg-white px-6 py-3 text-center text-sm font-medium text-neutral-700 hover:bg-neutral-50"
                   >
                     View Applications
-                  </a>
+                  </button>
                 </div>
               </div>
             </OnboardingStep>
