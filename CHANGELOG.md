@@ -20,6 +20,17 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Docs — `parseCursor`'s rationale no longer cites an encoding the API contract stopped publishing (2026-08-26)
+
+`packages/api/src/lib/pagination.ts` justified rejecting a malformed cursor with a `400` by pointing at `API_CONTRACTS.md`: the catalog endpoints' encoding was *published* rather than called opaque, so a hand-crafted base64url offset was a legitimate input that still worked, and the `400` therefore only ever caught broken clients. PR #120 (`172802b`) removed that published encoding. The citation has been wrong on `main` ever since (WIC-1567).
+
+- **The premise died; the conclusion got stronger.** With the encoding unpublished, a hand-crafted cursor is not a supported input *at all* — `API_CONTRACTS.md` § Pagination now says "a cursor this API did not issue is not a supported input: it may return an error rather than a page of results". The docstring quotes that sentence instead of the old inference, so the argument is now grounded in text a reader can go and check.
+- **Why a comment was worth a PR.** This is the load-bearing rationale for the status code, not a stray aside. A maintainer who follows the citation finds it false, and the maintainer who doubts the citation is exactly the one who then doubts the `400`.
+- **The catalog is no longer singled out, because nothing makes it special now.** All six `cursor` rows read identically; the old wording's "even for the catalog endpoints" survives only as a one-line note on what the paragraph used to argue, so the removed reasoning is not helpfully "restored" by someone who remembers it.
+- **Verified as the only carrier.** `git grep` over `packages/`, `docs/`, `CLAUDE.md` and `.claude/` finds no other source or doc asserting the cursor encoding is published; the two remaining `base64url` mentions in `API_CONTRACTS.md` are file-upload fields. `.claude/CLAUDE.md` still describes the encoding, correctly — it is an internal implementation reference, not the client-facing contract.
+- **Comment-only.** No behaviour, no wire values, no test expectations change. `pagination.test.ts`'s leak guard scans `src/services/`, not `src/lib/`, so it is untouched either way.
+- Mirror of WIC-1566, which fixes the same drift from the other end: PR #112's changelog claims two encoding-leak edits that #120 in fact landed first.
+
 ### Docs — Changelog entries have an insertion convention, because the union driver never reached GitHub (2026-08-26)
 
 `CHANGELOG.md` has carried `merge=union` since the driver was added, and the `.gitattributes` comment says it "keeps both sides' entries instead of conflicting". That is true of the *local* three-way merge and of nothing else: GitHub computes mergeability without consulting `.gitattributes`, so PRs kept reporting `CONFLICTING / DIRTY` on a file every local tool called clean. `CLAUDE.md` now has a `## Changelog conventions` section stating the rule, the mechanism behind it, and how to reproduce what GitHub sees (WIC-1543).
