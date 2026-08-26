@@ -52,7 +52,7 @@ packages/
   marketing/    Static marketing site (careerpin.app landing/pricing)
   infra/        Redirect Worker / Pages config
 
-wrangler.jsonc            Worker config: assets (SPA), R2, Hyperdrive, preview env
+wrangler.jsonc            Worker config: assets (SPA), R2, vars; Hyperdrive under env.preview only
 docs/
   architecture/           ARCHITECTURE.md (current-state overview — start here),
                           CLOUDFLARE_WORKERS_ARCHITECTURE.md (migration record, historical),
@@ -63,19 +63,22 @@ docs/
 
 ## Runtime & Bindings
 
-The Worker uses **Cloudflare bindings** instead of `process.env`. Because Workers are stateless, the database client and env are created per-request (`runWithEnv` in `db/context.ts`) rather than as a global singleton. Bindings are declared in `wrangler.jsonc` and typed in `src/types/env.ts`:
+The Worker prefers **Cloudflare bindings** over `process.env`. Because Workers are stateless, the database client and env are created per-request (`runWithEnv` in `db/context.ts`) rather than as a global singleton. Bindings are declared in `wrangler.jsonc` and typed in `src/types/env.ts`:
 
 | Binding | Purpose |
 |---|---|
-| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`) |
-| `R2_BUCKET` | Document storage bucket (`jobtrail-documents`) |
+| `ASSETS` | Built React SPA (`packages/web/dist`), `not_found_handling: "single-page-application"` |
+| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`). **Declared under `env.preview` only** — production has no Hyperdrive binding and uses the `DATABASE_URL` secret instead |
+| `R2_BUCKET` | Document storage bucket (`jobtrail-documents` in production, `jobtrail-documents-dev` in preview) |
+
+`db/client.ts` resolves in order: `HYPERDRIVE` → `DATABASE_URL` → Node singleton. Preview takes path 1; **production and bare `wrangler dev` take path 2** (`npm run dev:worker` passes no `--env`, so it loads the top-level config, which declares no Hyperdrive).
 
 ## Key Commands
 
 ```bash
 npm install                   # Install all workspace deps
 npm run dev                   # Frontend dev server (localhost:5173)
-npm run dev:worker            # API as a Worker via wrangler dev (R2/Hyperdrive emulation)
+npm run dev:worker            # API as a Worker via wrangler dev (top-level config: assets + R2, no Hyperdrive)
 npm run dev:api               # API on Node.js via tsx (localhost:3000) — faster iteration
 npm run build                 # Build all packages
 npm run typecheck             # tsc -b web + api --noEmit
@@ -131,10 +134,14 @@ Status enum: `saved → applied → phone_screen → interview → offer | rejec
 
 Local dev secrets: copy `.dev.vars.example` → `.dev.vars` (loaded by `wrangler dev`). Production: `wrangler secret put`. Binding/var names are typed in `packages/api/src/types/env.ts`.
 
+Object bindings are only reachable off the request `env`; text vars and secrets are reachable both there **and** on `process.env` (`nodejs_compat` is enabled), which is what `config.ts` reads. Call sites usually do `c.env?.X ?? getConfig().x`.
+
 | Variable | Scope | Description |
 |---|---|---|
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_JWT_SECRET` | Worker | Supabase auth. `/api/*` is unguarded only if `SUPABASE_URL` and `SUPABASE_JWT_SECRET` are **both** absent |
-| `ANTHROPIC_API_KEY` | Worker | Claude API; AI features disabled when unset |
+| `ANTHROPIC_API_KEY` | Worker | Claude API; AI features disabled when unset. `LLM_MODEL` overrides the model (default `claude-sonnet-4-6`) |
+| `POSTHOG_API_KEY` | Production Worker | PostHog write key, pushed as a **secret** by `deploy.yml`; unset ⇒ analytics degrades to the noop sink with a warning |
+| `ANALYTICS_SINK` / `POSTHOG_HOST` | Worker | Non-secret, set in `wrangler.jsonc` `vars` (`posthog` / `https://us.i.posthog.com`) |
 | `NODE_ENV` | Worker | Set in `wrangler.jsonc` |
 | `DATABASE_URL` | Production Worker + migrations | Supabase transaction-pooler URL (6543). Pushed as a production Worker secret by `deploy.yml` and read by `db:migrate`. Preview uses the `HYPERDRIVE` binding instead |
 | `VITE_API_BASE_URL` | Web build | API base; defaults to `/api` (same-origin) |
