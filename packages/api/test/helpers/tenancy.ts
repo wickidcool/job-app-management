@@ -173,7 +173,15 @@ type Node =
   | { kind: 'cmp'; column: ColumnRef | null; op: Op; values: unknown[] }
   | { kind: 'opaque' };
 
-type Op = '=' | '<>' | 'is null' | 'is not null' | 'in' | 'not in' | 'opaque';
+/**
+ * Every operator `interpret` can put on a `cmp` node. An operator outside this
+ * set never becomes a `cmp` at all — it parses to `{ kind: 'opaque' }`, which
+ * `evaluate` admits. Keeping `'opaque'` out of this union is deliberate: it
+ * makes the operator switch in `evaluate` exhaustive by type, so there is no
+ * unreachable `default:` arm that a mutation could silently flip fail-open and
+ * that no test could ever pin.
+ */
+type Op = '=' | '<>' | 'is null' | 'is not null' | 'in' | 'not in';
 
 const isWord = (tk: Token | undefined, v: string): boolean =>
   tk !== undefined && tk.t === 'word' && tk.v === v;
@@ -369,8 +377,6 @@ function evaluate(node: Node, row: ProbeRow, table: string): boolean {
           return node.values.some((v) => same(value, v));
         case 'not in':
           return !node.values.some((v) => same(value, v));
-        default:
-          return true;
       }
     }
   }

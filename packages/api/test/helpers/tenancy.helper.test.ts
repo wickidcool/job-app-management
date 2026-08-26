@@ -23,7 +23,7 @@
  * instead of by a sweep.
  */
 import { describe, it, expect } from 'vitest';
-import { eq, and, or, inArray, isNull, isNotNull, gte, ilike, ne } from 'drizzle-orm';
+import { eq, and, or, not, inArray, isNull, isNotNull, gte, ilike, ne } from 'drizzle-orm';
 import { quantifiedBullets, coverLetters, catalogDiffs } from '../../src/db/schema.js';
 import {
   expectScopedTo,
@@ -457,5 +457,61 @@ describe('tenancy harness — supporting API', () => {
     expect(admits({ id: ID_A, userId: CALLER, impactCategory: 'performance' })).toBe(true);
     expect(admits({ id: ID_A, userId: CALLER, impactCategory: 'other' })).toBe(false);
     expect(admits({ id: ID_A, userId: OTHER, impactCategory: 'performance' })).toBe(false);
+  });
+});
+
+/**
+ * `evaluate` answers "does this row satisfy the predicate" and returns `true`
+ * for anything it cannot model — an unknown operator, a term on another table,
+ * a column the fixture row does not carry. `true` means "admits the row", so an
+ * unmodelled term makes the read look *wider* and the assertion fails. Flipping
+ * any of those defaults to `false` makes the read look *narrower*, i.e. scoped,
+ * which is the fail-open direction and the whole defect class this file exists
+ * to end.
+ *
+ * A mutation sweep of the four defaults found `opaque` pinned and the other
+ * three not: M6 (wrong table) still went red under `foreign-table → false`, but
+ * for the wrong reason — the clause then matched *nothing*, which a different
+ * assertion rejects. Red for the wrong reason is not a pin. These test each
+ * default directly, at the `predicateFor` level, where nothing else can carry
+ * the failure.
+ */
+describe('tenancy harness — the fail-closed defaults are load-bearing', () => {
+  const scope = { table: 'quantified_bullets', userId: CALLER, ids: [ID_A] } as const;
+
+  it('a term on another table admits the row — it constrains nothing here', () => {
+    // Scoping `cover_letters.user_id` while reading `quantified_bullets` scopes
+    // nothing; the foreign owner's bullet must still come back.
+    const admits = predicateFor(eq(coverLetters.userId, CALLER), 'quantified_bullets');
+    expect(admits({ id: ID_A, userId: OTHER })).toBe(true);
+  });
+
+  it('a column the fixture row does not model admits the row', () => {
+    // "row does not carry user_id" is not "row has a null user_id" — the former
+    // is unmodelled and must not be read as an exclusion.
+    const admits = predicateFor(eq(quantifiedBullets.userId, CALLER), 'quantified_bullets');
+    expect(admits({ id: ID_A })).toBe(true);
+    // …and the column being present and wrong still excludes, as ever.
+    expect(admits({ id: ID_A, userId: OTHER })).toBe(false);
+  });
+
+  it('NOT (...) really negates its child', () => {
+    const admits = predicateFor(not(eq(quantifiedBullets.userId, CALLER)), 'quantified_bullets');
+    expect(admits({ id: ID_A, userId: CALLER })).toBe(false);
+    expect(admits({ id: ID_A, userId: OTHER })).toBe(true);
+  });
+
+  it('M10 rejects a scope inverted by NOT (...)', () => {
+    // `not (user_id = $caller)` is the worst predicate in the family: it returns
+    // every row *except* the caller's. Drops of the `not` node read it as the
+    // correctly scoped form and report green.
+    expect(
+      fails(() =>
+        expectScopedTo(
+          and(eq(quantifiedBullets.id, ID_A), not(eq(quantifiedBullets.userId, CALLER))),
+          scope
+        )
+      )
+    ).toBe(true);
   });
 });
