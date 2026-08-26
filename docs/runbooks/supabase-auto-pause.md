@@ -48,8 +48,18 @@ This is the single most expensive lesson from the 2026-08-25 incident, and it bu
 **A paused Supabase project presents exactly the same way a deleted one does.** `db.<ref>.supabase.co`
 goes NXDOMAIN when a project is *paused*; the DNS record is not a liveness signal and its absence
 is not evidence of deletion. WIC-1283 filed the outage as a project deletion with a retention
-clock ticking, and escalated on that basis. It was wrong — production recovered **unattended in
-about two hours**, which a deleted project cannot do.
+clock ticking, and escalated on that basis. It was wrong: Supabase's own pause email for
+`fnmuvgnkxdeupprcyvdt`, timestamped `2026-08-25T17:19:29Z`, is documentary proof that what happened
+was a **pause**. Check the owner's inbox before theorising from DNS.
+
+> ⚠️ Do **not** repeat the "it recovered unattended, so it can't have been deleted" argument. A
+> paused free-tier project **never un-pauses itself** — restore is always an account-owner click.
+> The reasoning is wrong even though its conclusion happened to be right, and believing in
+> self-healing is what makes this runbook's prevention look optional.
+
+Measure the outage from the **pause**, not from the first failed deploy: 17:19Z → restore, about
+**6.5 hours**, not the ~2h you get by bracketing `deploy.yml` failures. A deploy-failure bracket
+only measures when you happened to be deploying.
 
 The counter-example was already in hand and got under-weighted: WIC-1285 observed `db.<ref>`
 NXDOMAIN on the *demonstrably alive* dev project.
@@ -73,10 +83,16 @@ The fastest authoritative check is just to run the keep-alive workflow (above): 
 
 ## 3. When a project has already paused
 
-**Only the Supabase account owner can restore it, from the console.** No automation we currently
-hold can do it — there is no `SUPABASE_ACCESS_TOKEN` provisioned, so no agent can call
-`POST /v1/projects/{ref}/restore`. Escalate to Allan (`al@wickidcool.com`) with the project ref
-and expect roughly a day of turnaround based on prior incidents.
+**Only the Supabase account owner can restore it, from the console.** It will not recover on its
+own, and no automation we currently hold can do it — there is no `SUPABASE_ACCESS_TOKEN`
+provisioned, so no agent can call `POST /v1/projects/{ref}/restore` (tracked as WIC-1349). Escalate
+to Allan (`al@wickidcool.com`) with the project ref. **MTTR is bounded entirely by one human's
+availability, with no automatic floor.**
+
+Urgency is about downtime, not data loss: the pause email grants a **90-day** window to restore
+before data is at risk (for the 08-25 pause that would have been 2026-11-23). So there *is* a
+retention clock — it is simply nowhere near operative, and it should not be used to inflate the
+severity of a pause.
 
 Supabase emails `al@wickidcool.com` a **warning about 24.6 hours before** it pauses a project.
 That inbox is the earliest reliable signal we have, and searching it is how WIC-1281 was cracked.
