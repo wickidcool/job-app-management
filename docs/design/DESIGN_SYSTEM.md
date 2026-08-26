@@ -7,13 +7,14 @@ This design system provides a consistent visual language and reusable tokens for
 ## Table of Contents
 
 1. [Color Palette](#color-palette)
-2. [Typography](#typography)
-3. [Spacing & Layout](#spacing--layout)
-4. [Shadows & Elevation](#shadows--elevation)
-5. [Border Radius](#border-radius)
-6. [Breakpoints](#breakpoints)
-7. [Z-Index Scale](#z-index-scale)
-8. [Transitions](#transitions)
+2. [Scale Vocabulary](#scale-vocabulary)
+3. [Typography](#typography)
+4. [Spacing & Layout](#spacing--layout)
+5. [Shadows & Elevation](#shadows--elevation)
+6. [Border Radius](#border-radius)
+7. [Breakpoints](#breakpoints)
+8. [Z-Index Scale](#z-index-scale)
+9. [Transitions](#transitions)
 
 ---
 
@@ -149,6 +150,10 @@ indicator; it meets 3:1 (WCAG 1.4.11). `text` is for the severity label; it meet
 **Never use `success` / green for any severity level.** Every gap is a shortfall; a low-severity
 gap is still a gap, and green reads as "resolved".
 
+Because the text label carries severity, it is also load-bearing *copy*: `critical` / `moderate` /
+`minor` are words this scale owns and no other scale on the same screen may spell. See
+[Scale Vocabulary](#scale-vocabulary).
+
 ### Background & Surface Colors
 
 ```css
@@ -189,6 +194,103 @@ gap is still a gap, and green reads as "resolved".
   --border-error: var(--color-error-500);
 }
 ```
+
+---
+
+## Scale Vocabulary
+
+Colour tokens keep two scales from being drawn the same way. This section keeps them from being
+*worded* the same way — the failure the Gap Severity Scale above cannot catch, because a colour
+token has nothing to say about the word next to it.
+
+### The rule
+
+> **A word may not carry two meanings on one screen.**
+
+Recurrence is fine when the meaning and the direction are identical: "Strong fit" alongside a
+"Strong matches" section is the same claim about the same axis. It is not fine across axes. On
+`JobFitAnalysis`, `recommendation: 'moderate_fit'` rendered "moderate" near the top of the results
+and `GapSeverity: 'moderate'` rendered "moderate" on each gap card below — one a verdict about the
+whole application, the other one shortfall's severity, pointing in opposite directions, separated
+only by position on the page. Colour could not rescue it: gap severity's ramp is explicitly
+demoted to reinforcement (see "Gap Severity Scale"), and the fit value carries no colour at all.
+
+It surfaced as a Playwright strict-mode violation — `getByText('MODERATE')` resolved to two
+elements. **If a locator cannot disambiguate two words, neither can a person skimming.** Treat that
+class of test failure as a copy finding, not a test-scoping problem.
+
+### Fit Level Labels
+
+The canonical, and only, display labels for the overall fit level. Decided in WIC-1288; defined in
+`packages/web/src/constants/fitLevel.ts`.
+
+| Wire value (`recommendation`) | Label | Reads as |
+|---|---|---|
+| `strong_fit` | **Strong fit** | yes |
+| `moderate_fit` | **Possible fit** | maybe |
+| `stretch` | **Stretch** | reaching |
+| `low_fit` | **Unlikely fit** | no |
+| `null` | **No recommendation** | not scored — empty catalog, or no required skills found |
+
+**Fit level is a verdict, not a magnitude.** That is what separates it from the two magnitude
+scales it shares a screen with, and it is why "Possible fit" is the right shape of answer where
+"Moderate fit" was not. The screen already spends its magnitude adjectives twice over — gap
+severity owns `critical` / `moderate` / `minor`, analysis confidence owns `high` / `medium` /
+`low` — so **any** magnitude adjective chosen for fit level is one refactor away from the same
+collision. `low_fit` was renamed for that reason and not because it collides today: "Low fit" and
+"Confidence: low" render two lines apart in the same card, and only an implementation detail of
+the scoring service (a `low_fit` verdict requires a non-empty required stack, which forces
+confidence to `medium` or `high`) keeps them from ever appearing together.
+
+Rejected alternatives, for the same rule:
+
+- **"Partial fit"** — collides with the "Partial matches" section on the same screen, where
+  "partial" describes a *match type*, a different axis again.
+- **"Weak fit"** — that string is already the label of `FitTier: 'weak_fit'`, a different enum
+  with a different wire value, in the by-fit-tier report.
+
+**Labels are display strings; the wire values are unchanged.** `recommendation` is an API contract
+value (`docs/architecture/API_CONTRACTS.md`, `POST /api/catalog/job-fit/analyze`), so the rename is
+a presentation-layer remap and nothing crosses the network differently. Never render a
+`Recommendation` or `FitTier` value directly.
+
+#### The ladder is not ordinal in its words
+
+The four labels do not rank themselves. "Stretch" is the only rung that is not `<adjective> fit`,
+so a reader cannot order it by form and has to order it by meaning — and "stretch role" is
+idiomatically *aspirational*, while "possible" is the weakest modality word in English. One reader
+gets maybe → reaching; another gets hedged → go for it. Both readings are defensible.
+
+That is survivable today **only because the ladder is never displayed.** One analysis renders one
+rung: no legend, no sort, no filter, no adjacent tier. Each label only has to be self-sufficient in
+isolation, and all four are.
+
+> **Ordering becomes load-bearing the moment fit level becomes a sort key, a filter chip, or a
+> grouped list.** If that ships, it must carry the order in position, rank, or count — not in the
+> words. The typecheck guard below cannot catch this one; it checks disjointness, not sequence.
+
+Until then the joint is better repaired one line lower, in the summary sentence beneath the label,
+which already does interpretive work for `stretch` and `low_fit` and does none for `moderate_fit`.
+That is API copy — tracked in **WIC-1301**, sequenced after this change.
+
+Two distinctions worth protecting, both easy to mistake for redundancy:
+
+- **"No recommendation" ≠ "Not analyzed."** The first means the analysis ran and could not score
+  (`recommendation: null`, empty required stack); the second means it never ran. Do not unify them.
+- **`FitTier` and `Recommendation` have started diverging in register**, not just in resolution:
+  `FIT_TIER_LABELS` reads Strong fit / Possible fit / **Weak fit** / Not analyzed — two verdicts and
+  a magnitude, with magnitude subtitles beneath. Defensible as title = verdict, subtitle =
+  magnitude, but whoever reconciles the two enums is now facing a vocabulary question as well as a
+  granularity one.
+
+### Enforcement
+
+`fitLevel.ts` derives the reserved vocabulary from the `GapSeverity` and `Confidence` unions and
+fails `npm run typecheck` naming the offending word if a fit label ever reuses one. Adding a member
+to either scale extends the guard automatically. Extend the same guard before introducing a third
+scale to this screen — in particular, the fit-quality colour ramp still open in
+`JOBFIT_CAPS_DECISION_WIC1122.md` §3a should not be designed against labels that have not passed
+it.
 
 ---
 
