@@ -6,7 +6,7 @@ Multi-user job application tracking app running on **Cloudflare Workers + Supaba
 
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 3, TanStack Query 5, React Router 7, React Hook Form, Radix UI, @dnd-kit
 - **Backend**: Hono 4 on Cloudflare Workers (Node.js fallback via `@hono/node-server`), TypeScript, Drizzle ORM
-- **Database**: Supabase PostgreSQL, reached from the Worker through a Cloudflare Hyperdrive connection pool; migrations via drizzle-kit
+- **Database**: Supabase PostgreSQL via Drizzle ORM + postgres-js; migrations via drizzle-kit. Preview reaches it through a Cloudflare Hyperdrive pool; **production has no Hyperdrive binding** and connects to the Supabase transaction pooler (port 6543) via a `DATABASE_URL` secret
 - **Storage**: Cloudflare R2 (`jobtrail-documents`) for resumes/cover letters, S3-compatible presigned URLs via the AWS SDK
 - **Auth**: Supabase Auth (multi-user); JWTs verified server-side with `jose`
 - **AI**: Anthropic Claude (`@anthropic-ai/sdk`); PDF/DOCX extraction via `pdfjs-dist`, `mammoth`, `docx`
@@ -54,7 +54,9 @@ packages/
 
 wrangler.jsonc            Worker config: assets (SPA), R2, Hyperdrive, preview env
 docs/
-  architecture/           CLOUDFLARE_WORKERS_ARCHITECTURE.md, API_CONTRACTS.md, DATA_MODEL.md, CI_CD.md, ADRs
+  architecture/           ARCHITECTURE.md (current-state overview — start here),
+                          CLOUDFLARE_WORKERS_ARCHITECTURE.md (migration record, historical),
+                          API_CONTRACTS.md, DATA_MODEL.md, CI_CD.md, ADRs
   AUTHENTICATION.md       Supabase auth
   design/                 DESIGN_SYSTEM.md, COMPONENT_SPECS.md, USER_FLOWS.md, WIREFRAMES.md
 ```
@@ -89,9 +91,9 @@ npm run db:push               # Push schema changes directly (dev only)
 
 - **Edge-native, stateless**: DB client + env are per-request; no global singletons (`runWithEnv`)
 - **Hono over Fastify** for Workers compatibility (`ADR-006-hono-framework-workers`)
-- **Hyperdrive** pools the Supabase Postgres connection at the edge; the fetch handler retries on Hyperdrive connection timeouts
+- **Hyperdrive** pools the Supabase Postgres connection at the edge **in `preview` only**; production falls back to a `DATABASE_URL` pointed at the Supabase transaction pooler. The fetch handler retries up to 3 times on Hyperdrive connection timeouts, then returns `503`
 - **R2 storage** for documents, keyed `{userId}/{type}/{filename}`; presigned URLs via AWS SDK (`ADR-004-cloudflare-r2-storage`)
-- **Multi-user auth**: when `SUPABASE_JWT_SECRET` is set, all `/api/*` routes require a valid JWT (`userId` from the `sub` claim); unset → auth bypassed for single-user/local (`ADR-003-multi-user-auth`)
+- **Multi-user auth**: all `/api/*` routes require a valid Supabase JWT as `Authorization: Bearer` (`userId` from the `sub` claim). Auth is bypassed only when **both** `SUPABASE_URL` **and** `SUPABASE_JWT_SECRET` are absent (`ADR-003-multi-user-auth`)
 - **ES modules** throughout (`"type": "module"`)
 - **ULIDs** for primary keys (via `ulid`)
 - **Optimistic locking** — mutable records have a `version` column; updates require the current version
@@ -131,10 +133,10 @@ Local dev secrets: copy `.dev.vars.example` → `.dev.vars` (loaded by `wrangler
 
 | Variable | Scope | Description |
 |---|---|---|
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_JWT_SECRET` | Worker | Supabase auth; JWT secret gates `/api/*` |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_JWT_SECRET` | Worker | Supabase auth. `/api/*` is unguarded only if `SUPABASE_URL` and `SUPABASE_JWT_SECRET` are **both** absent |
 | `ANTHROPIC_API_KEY` | Worker | Claude API; AI features disabled when unset |
 | `NODE_ENV` | Worker | Set in `wrangler.jsonc` |
-| `DATABASE_URL` | Migrations only | Supabase pooler URL for `db:migrate` (Worker uses `HYPERDRIVE` instead) |
+| `DATABASE_URL` | Production Worker + migrations | Supabase transaction-pooler URL (6543). Pushed as a production Worker secret by `deploy.yml` and read by `db:migrate`. Preview uses the `HYPERDRIVE` binding instead |
 | `VITE_API_BASE_URL` | Web build | API base; defaults to `/api` (same-origin) |
 
 ## Design System
