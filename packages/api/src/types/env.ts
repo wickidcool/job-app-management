@@ -54,6 +54,8 @@ export interface Env {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   NODE_ENV?: string;
+  /** Opt in to trusting `x-forwarded-proto` for the HTTPS redirect (WIC-1011). */
+  TRUST_PROXY_PROTO?: string;
 }
 
 export interface HonoVariables {
