@@ -56,7 +56,12 @@ INTERNAL_ERROR` indistinguishable from a broken query.
    failure rates from the gap between a `_submitted` event and its terminal
    event, rather than trusting a `_failed` event that fires after the resource
    pressure that caused it. `_submitted` fires before any dependency work and so
-   survives. (Consequence for WIC-1387; not implemented here.)
+   survives. (Consequence for WIC-1387. **Landed 2026-08-26 as `29f0d09` on
+   `main` via WIC-1476** — the gap-derived definition is now the specified basis
+   for the failure panels in `docs/analytics/dashboard-spec.md`. Note that
+   `ctx.waitUntil()` was evaluated as an alternative and **rejected**: it defers
+   work past the response but keeps it inside the same invocation, so it draws on
+   the same exhausted subrequest budget and does not rescue the event.)
 
 ## Consequences
 
@@ -88,13 +93,41 @@ does not exist — 401 unauthenticated, 404 authenticated. **Point the monitor a
 
 ## Open decision
 
+**Still live as of 2026-08-26T12:51Z.** Re-measured this heartbeat, both origins:
+
+```
+GET https://app.careerpin.app/health          -> 503  (3.9s)
+GET https://jobtrail.al-23f.workers.dev/health -> 503  (4.1s)
+{"status":"degraded","hyperdrive":false,
+ "db":"Too many subrequests by single Worker invocation. …"}
+```
+
+`GET /api/applications` still returns a clean `401`, so the Worker is routing and
+only the data path is down. `hyperdrive:false` confirms prod takes the
+`DATABASE_URL` branch (`db/client.ts:19`), which on `main` still passes no `max`
+— i.e. the pool of 10 described above is what production is running right now.
+
+**Unresolved conflict — read before choosing option 1.** PR #156 (merged to
+`main` 2026-08-26T12:39Z) now documents production as connecting to *"the
+Supabase transaction pooler (port 6543) using the `DATABASE_URL` secret."* If
+that is accurate, option 1 is a **no-op** and choosing it would spend a
+production deploy without restoring service. #156 verified that prod resolves to
+the `DATABASE_URL` branch — which is not in dispute — but the *host that secret
+names* is not readable from the repository or the CF API, so that half of the
+claim is inference, not measurement. It is contradicted by the observed
+behaviour: a reachable IPv4 pooler would not fail in `connect`.
+
+**Therefore the host must be confirmed from the console before either option is
+actioned.** This is a human-only step; no agent can read the secret.
+
 Two ways to make prod reachable, for the board:
 
 1. **Repoint `DATABASE_URL` at the IPv4 pooler**
    (`aws-1-us-east-2.pooler.supabase.com`) rather than `db.<ref>.supabase.co`.
-   Cheapest, and most likely sufficient. `DATABASE_URL` is `secret_text` and
-   unreadable via the CF API, so someone with console access must confirm which
-   host it currently names.
+   Cheapest, and sufficient *only if the secret does not already name that host*
+   — see the conflict above. `DATABASE_URL` is `secret_text` and unreadable via
+   the CF API, so someone with console access must confirm which host it
+   currently names before this option is chosen.
 2. **Give prod a Hyperdrive binding, as preview has.** Hyperdrive terminates the
    connection outside the invocation, so the per-request connect disappears
    entirely and the failure mode above becomes unreachable rather than merely
