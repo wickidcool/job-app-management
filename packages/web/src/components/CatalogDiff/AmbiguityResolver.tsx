@@ -10,19 +10,19 @@ interface AmbiguityResolverProps {
 const typeConfig = {
   ambiguous_tag: {
     icon: '⚠️',
-    title: 'AMBIGUOUS TAG',
+    title: 'Ambiguous tag',
     bgColor: 'bg-warning-50',
     borderColor: 'border-warning-300',
   },
   unresolved_wikilink: {
     icon: '🔗',
-    title: 'UNRESOLVED WIKILINK',
+    title: 'Unresolved wikilink',
     bgColor: 'bg-neutral-50',
     borderColor: 'border-neutral-300',
   },
   fuzzy_match: {
     icon: '🔍',
-    title: 'FUZZY MATCH',
+    title: 'Fuzzy match',
     bgColor: 'bg-info-50',
     borderColor: 'border-info-300',
   },

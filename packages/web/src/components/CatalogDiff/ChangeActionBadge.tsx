@@ -9,19 +9,19 @@ const actionConfig = {
   create: {
     bgColor: 'bg-success-50',
     textColor: 'text-success-700',
-    label: 'CREATE',
+    label: 'Create',
     icon: '➕',
   },
   update: {
     bgColor: 'bg-info-50',
     textColor: 'text-info-700',
-    label: 'UPDATE',
+    label: 'Update',
     icon: '✏️',
   },
   delete: {
     bgColor: 'bg-error-50',
     textColor: 'text-error-700',
-    label: 'DELETE',
+    label: 'Delete',
     icon: '🗑️',
   },
 } as const;
@@ -44,7 +44,7 @@ export function ChangeActionBadge({ action, size = 'md' }: ChangeActionBadgeProp
       className={`inline-flex items-center gap-1 rounded font-medium ${config.bgColor} ${config.textColor} ${sizeClass}`}
     >
       <span aria-hidden="true">{config.icon}</span>
-      {config.label}
+      <span className="uppercase tracking-wider">{config.label}</span>
     </span>
   );
 }

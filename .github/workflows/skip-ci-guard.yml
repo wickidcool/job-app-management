@@ -1,0 +1,132 @@
+name: Skip-CI Guard
+
+# WIC-1212. `[skip ci]` (and its siblings) suppress BOTH the `push` and the
+# `pull_request` event. A PR whose head commit carries one therefore reports
+# zero check runs, which GitHub renders as MERGEABLE — and if its base is not
+# `main` it also escapes REVIEW_REQUIRED, so it reads MERGEABLE / CLEAN: the
+# most merge-ready-looking state in the repo, with no build evidence behind it.
+#
+# The `[skip ci]` route is deliberate and stays supported — it is how #94
+# (9640312), #82 (82b6b85), #86, #91, #96 and 8e19705 all merged without firing
+# a deploy. This guard does not tax it. It only fires when a skip marker is
+# combined with a change to runtime code, which is the one combination that is
+# never legitimate.
+#
+# WHY `pull_request_target` AND WHY A SEPARATE FILE:
+# GitHub's skip directive applies to `push` and `pull_request` only. If this job
+# lived in deploy.yml, the very commits it exists to catch would suppress it.
+# `pull_request_target` is not skippable, so the guard always produces a check
+# run — which is also what stops these PRs from reading as zero-check at all.
+#
+# SECURITY: `pull_request_target` runs in the context of the BASE branch with
+# access to secrets. This job therefore NEVER checks out or executes PR head
+# code — there is no actions/checkout step and no run: step touching the PR. It
+# reads only the changed-file list and the head commit message over the API, and
+# it downgrades its own token to read-only below.
+
+on:
+  pull_request_target:
+    # `branches:` filters the BASE branch. `['**']` so stacked PRs are covered
+    # too (same lesson as WIC-1138 / #94).
+    branches: ['**']
+    # `edited` is included on purpose: it is the only event emitted when a PR is
+    # retargeted to a new base, and a retarget emits no push/synchronize, so
+    # without it a retargeted PR would keep a stale verdict.
+    types: [opened, synchronize, reopened, edited]
+
+# Read-only. `pull_request_target` would otherwise hand this job a write token.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: skip-ci-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Skip-CI vs runtime code
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check for a skip marker on a runtime-code change
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+
+            // GitHub's documented skip keywords, plus the `skip-checks` trailer.
+            // Matched ANYWHERE in the commit message, not just the subject:
+            // measured 2026-08-20 on PR #100 head fd77ddb2, whose subject was
+            // clean but whose body mentioned `[skip ci]` in prose (inside
+            // backticks, 26 lines down) — 0 workflow runs, 0 check suites. The
+            // marker is not confined to the first line, so neither is this.
+            const SKIP_PATTERNS = [
+              /\[\s*skip[ _-]?ci\s*\]/i,
+              /\[\s*ci[ _-]?skip\s*\]/i,
+              /\[\s*no[ _-]?ci\s*\]/i,
+              /\[\s*skip[ _-]?actions\s*\]/i,
+              /\[\s*actions[ _-]?skip\s*\]/i,
+              /\*\*\*NO_CI\*\*\*/i,
+              /^\s*skip-checks:\s*true\s*$/im,
+            ];
+
+            // Paths that may legitimately ship under a skip marker: they have no
+            // runtime surface, so there is nothing for CI to have proven.
+            // `.github/workflows/**` is here because a workflow-only change is
+            // exactly the no-deploy merge route this repo relies on.
+            const ALLOWED = [
+              (p) => p.startsWith('docs/'),
+              (p) => p.endsWith('.md'),
+              (p) => p.startsWith('.github/workflows/'),
+            ];
+
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner, repo, ref: pr.head.sha,
+            });
+            const message = commit.commit.message || '';
+            const marker = SKIP_PATTERNS.find((re) => re.test(message));
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number: pr.number, per_page: 100,
+            });
+            const paths = files.map((f) => f.filename);
+            const runtime = paths.filter((p) => !ALLOWED.some((ok) => ok(p)));
+
+            const list = (xs) => xs.map((p) => `- \`${p}\``).join('\n');
+            const summary = core.summary
+              .addHeading('Skip-CI Guard', 2)
+              .addRaw(`Head commit: \`${pr.head.sha.slice(0, 8)}\`\n\n`)
+              .addRaw(`Skip marker: ${marker ? `**present** (\`${message.match(marker)[0]}\`)` : 'absent'}\n\n`)
+              .addRaw(`Changed files: ${paths.length} (${runtime.length} outside the allowlist)\n\n`);
+
+            if (!marker) {
+              summary.addRaw('No skip marker on the head commit, so this PR is built by the normal `pull_request` workflows. Nothing to enforce.\n');
+              await summary.write();
+              core.info(`PASS: no skip marker on ${pr.head.sha}.`);
+              return;
+            }
+
+            if (runtime.length === 0) {
+              summary.addRaw('Skip marker present, but every changed path is docs/markdown/workflow-only — the deliberate no-deploy merge route. Allowed.\n');
+              await summary.write();
+              core.info(`PASS: skip marker present but all ${paths.length} changed path(s) are allowlisted.`);
+              return;
+            }
+
+            summary
+              .addRaw('### Blocked\n\n')
+              .addRaw('This PR carries a CI skip marker **and** changes runtime code, so it would merge with no build evidence at all — zero check runs, which GitHub renders as mergeable.\n\n')
+              .addRaw('Paths outside the allowlist:\n\n')
+              .addRaw(`${list(runtime)}\n\n`)
+              .addRaw('Fix: amend the head commit to drop the skip marker and force-push, then let the normal checks run. Note the marker is matched anywhere in the message — including prose inside backticks — so remove it from the body too, or spell it without the brackets.\n');
+            await summary.write();
+
+            core.setFailed(
+              `Head commit ${pr.head.sha.slice(0, 8)} carries a CI skip marker ` +
+              `("${message.match(marker)[0]}") while changing ${runtime.length} ` +
+              `runtime path(s): ${runtime.join(', ')}. ` +
+              `A skipped PR has zero check runs and still reports as mergeable. ` +
+              `Drop the marker (anywhere in the message, body included) and force-push.`
+            );

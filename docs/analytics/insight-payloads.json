@@ -32,7 +32,16 @@
         }
       }
     },
-    "_hogql_equivalent": "SELECT\n  countIf(event = 'resume_upload_submitted') AS submitted,\n  countIf(event = 'resume_upload_completed') AS completed,\n  round(100.0 * countIf(event = 'resume_upload_completed')\n        / nullIf(countIf(event = 'resume_upload_submitted'), 0), 2) AS success_rate_pct\nFROM events\nWHERE event IN ('resume_upload_submitted','resume_upload_completed')\n  AND timestamp > now() - INTERVAL 7 DAY"
+    "_hogql_variant": {
+      "description": "submitted -> completed conversion. Target >=95% (warn <97, crit <93).",
+      "query": {
+        "kind": "DataTableNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "SELECT\n  countIf(event = 'resume_upload_submitted') AS submitted,\n  countIf(event = 'resume_upload_completed') AS completed,\n  round(100.0 * countIf(event = 'resume_upload_completed')\n        / nullIf(countIf(event = 'resume_upload_submitted'), 0), 2) AS success_rate_pct\nFROM events\nWHERE event IN ('resume_upload_submitted','resume_upload_completed')\n  AND timestamp > now() - INTERVAL 7 DAY"
+        }
+      }
+    }
   },
   {
     "_key": "A2_validation_error_rate",
@@ -291,7 +300,16 @@
         }
       }
     },
-    "_hogql_equivalent": "SELECT\n  count() AS uploaders_30d,\n  countIf(uploads >= 2) AS returning_uploaders,\n  round(100.0 * countIf(uploads >= 2) / nullIf(count(), 0), 2) AS return_upload_rate_pct\nFROM (\n  SELECT person_id, count() AS uploads\n  FROM events\n  WHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 30 DAY\n  GROUP BY person_id\n)"
+    "_hogql_variant": {
+      "description": "users with >=2 completed uploads in 30d.",
+      "query": {
+        "kind": "DataTableNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "SELECT\n  count() AS uploaders_30d,\n  countIf(uploads >= 2) AS returning_uploaders,\n  round(100.0 * countIf(uploads >= 2) / nullIf(count(), 0), 2) AS return_upload_rate_pct\nFROM (\n  SELECT person_id, count() AS uploads\n  FROM events\n  WHERE event = 'resume_upload_completed' AND timestamp > now() - INTERVAL 30 DAY\n  GROUP BY person_id\n)"
+        }
+      }
+    }
   },
   {
     "_key": "C2_uploads_per_active_user_7d",

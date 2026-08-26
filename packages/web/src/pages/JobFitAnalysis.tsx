@@ -148,7 +148,9 @@ export function JobFitAnalysis() {
             <div className="text-center">
               <div className="text-xl font-semibold text-neutral-900 mb-2">
                 Overall Fit:{' '}
-                {results.recommendation?.toUpperCase().replace('_', ' ') || 'NO RECOMMENDATION'}
+                <span className="uppercase">
+                  {results.recommendation?.replace('_', ' ') || 'No recommendation'}
+                </span>
               </div>
               <p className="text-neutral-700 mb-4">{results.summary}</p>
               <div className="text-sm text-neutral-500">Confidence: {results.confidence}</div>
@@ -268,7 +270,7 @@ export function JobFitAnalysis() {
                         {gap.jdRequirement}
                       </div>
                       <div className="text-sm text-neutral-700 mt-1">
-                        {gap.severity.toUpperCase()} -{' '}
+                        <span className="uppercase">{gap.severity}</span> -{' '}
                         {gap.isRequired ? 'Required skill' : 'Nice-to-have skill'}
                       </div>
                     </div>

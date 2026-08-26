@@ -1,0 +1,142 @@
+# WIC-1293 — Supabase free-tier keep-alive.
+#
+# WHY THIS EXISTS
+#   Supabase free-tier projects auto-pause after ~7 consecutive days with no
+#   database activity. When the production project paused, it took down ALL
+#   product authentication: the browser calls the same-origin `/api/*` Worker,
+#   the Worker calls Supabase, and every login returned
+#   `AUTH_ERROR` with an empty `{}` message (WIC-1281, a total user-facing
+#   outage). Restoring it required the account owner in the Supabase console --
+#   no agent could self-heal it. Prevention is therefore the only real fix.
+#
+#   This workflow keeps both projects out of the idle window by opening a real
+#   Postgres connection and running a single read-only `SELECT 1` on a cadence
+#   comfortably shorter than the pause threshold.
+#
+# THIS IS NOT A DEPLOY
+#   The only statement executed is `SELECT 1`. No migration, no schema change,
+#   no writes, no artifact published, nothing promoted to any environment. It is
+#   a read-only liveness touch, which is why it is safe to run unattended.
+#
+# CADENCE
+#   `*/3` on day-of-month yields days 1,4,...,28,31 -> the largest gap between
+#   consecutive runs is 3 days (including across month boundaries, where 31 -> 1
+#   is only 1 day). That is a >2x margin against the ~7-day pause window, so a
+#   single skipped or failed run still cannot let a project lapse.
+#
+# TWO IMPORTANT CAVEATS
+#   1. `schedule:` only fires from the repository's DEFAULT branch. Until this
+#      file is merged to `main` it is completely inert -- living on a feature
+#      branch registers nothing (same trap as WIC-1113).
+#   2. GitHub automatically disables scheduled workflows in repositories with
+#      60 days of no activity. This repo is active, but if it ever goes quiet,
+#      this protection goes quiet with it.
+#
+# CREDENTIALS
+#   Requires no new secret. Both the `dev` and `production` environments already
+#   carry `SUPABASE_DATABASE_PASSWORD` plus the `SUPABASE_URL` /
+#   `SUPABASE_POOLER_REGION` variables, which is everything needed to rebuild the
+#   transaction-pooler URL exactly the way deploy.yml already does.
+
+name: Supabase keep-alive
+
+on:
+  schedule:
+    # 06:17 UTC, every third day. Offset off the hour to avoid the
+    # top-of-hour scheduling congestion that delays GitHub cron runs.
+    - cron: '17 6 */3 * *'
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-keepalive
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    name: keep-alive (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Never let one dead project stop the other from being kept alive.
+      # While production was paused, dev still needed its own touch.
+      fail-fast: false
+      matrix:
+        env: [dev, production]
+    environment: ${{ matrix.env }}
+    timeout-minutes: 5
+
+    steps:
+      - name: Ensure psql is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            echo "psql not present on the runner image; installing postgresql-client"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql --version
+
+      - name: Touch the database (read-only SELECT 1)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
+        run: |
+          set -euo pipefail
+
+          # Rebuild the transaction-pooler URL from known parts, mirroring the
+          # migration steps in deploy.yml. PROJECT_REF is derived from the
+          # https:// REST SUPABASE_URL var; SUPABASE_DATABASE_URL is frequently
+          # still the REST URL rather than a postgresql:// DSN, so the password
+          # path is preferred and the DSN is only a fallback.
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "::error::SUPABASE_URL variable is not set for the '${{ matrix.env }}' environment"
+            exit 1
+          fi
+
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+
+          if [ -n "${SUPABASE_DATABASE_PASSWORD:-}" ]; then
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "${SUPABASE_DATABASE_URL:-}" == postgresql://* ]]; then
+            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            echo "::error::No usable Supabase DB credentials for '${{ matrix.env }}' — set SUPABASE_DATABASE_PASSWORD or a postgresql:// SUPABASE_DATABASE_URL"
+            exit 1
+          fi
+
+          echo "Project ref : ${PROJECT_REF}"
+          echo "Pooler host : ${PREFIX}-${REGION}.pooler.supabase.com:6543"
+
+          # Capture output so a paused project can be reported distinctly from a
+          # rotated password or a network fault. Never echo DATABASE_URL: it
+          # embeds the password.
+          set +e
+          OUT=$(psql "$DATABASE_URL" \
+                  --no-psqlrc --quiet --tuples-only --no-align \
+                  -v ON_ERROR_STOP=1 \
+                  -c 'SELECT 1;' 2>&1)
+          RC=$?
+          set -e
+
+          if [ "$RC" -eq 0 ]; then
+            echo "✅ ${{ matrix.env }} (${PROJECT_REF}) is awake — SELECT 1 returned: ${OUT}"
+            exit 0
+          fi
+
+          # `Tenant or user not found` is what the shared regional pooler returns
+          # for a project that is paused (or whose ref/password no longer
+          # resolves). This is the exact error that killed every production
+          # migration during WIC-1281, so name it explicitly.
+          if echo "$OUT" | grep -qi 'tenant or user not found'; then
+            echo "::error::${{ matrix.env }} (${PROJECT_REF}) is PAUSED or its credentials no longer resolve — the pooler reported 'Tenant or user not found'. Only the Supabase account owner can restore a paused project from the console; no automation can. See WIC-1281."
+          else
+            echo "::error::${{ matrix.env }} (${PROJECT_REF}) keep-alive failed: ${OUT}"
+          fi
+          exit 1
