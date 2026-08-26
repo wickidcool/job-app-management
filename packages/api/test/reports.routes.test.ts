@@ -79,7 +79,9 @@ const mockByFitTierResponse = {
   groups: [
     { tier: 'strong_fit', count: 0, applications: [] },
     { tier: 'moderate_fit', count: 0, applications: [] },
-    { tier: 'weak_fit', count: 0, applications: [] },
+    { tier: 'stretch', count: 0, applications: [] },
+    { tier: 'low_fit', count: 0, applications: [] },
+    { tier: 'unscored', count: 0, applications: [] },
     {
       tier: 'not_analyzed',
       count: 1,

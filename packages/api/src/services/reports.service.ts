@@ -4,6 +4,7 @@ import { applications, statusHistory } from '../db/schema.js';
 import type {
   ApplicationStatus,
   ActiveStatus,
+  FitRecommendation,
   FitTier,
   PipelineReportResponse,
   NeedsActionReportResponse,
@@ -24,7 +25,47 @@ import type {
 const ACTIVE_STATUSES: ActiveStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
 const TERMINAL_STATUSES: ApplicationStatus[] = ['offer', 'rejected', 'withdrawn'];
 const PIPELINE_STATUS_ORDER: ActiveStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
-const FIT_TIER_ORDER: FitTier[] = ['strong_fit', 'moderate_fit', 'weak_fit', 'not_analyzed'];
+/**
+ * Best fit first, then the two tiers that carry no verdict. Fixes the order of
+ * `groups` in the by-fit-tier report response.
+ */
+const FIT_TIER_ORDER = [
+  'strong_fit',
+  'moderate_fit',
+  'stretch',
+  'low_fit',
+  'unscored',
+  'not_analyzed',
+] as const satisfies readonly FitTier[];
+
+// Ranking every tier is not optional — an unranked tier would silently vanish
+// from `groups` and from `summary.byTier`, i.e. applications would go missing
+// from a report that claims to cover the pipeline. Because `FitTier` is defined
+// as `FitRecommendation | ...`, adding a recommendation member (in
+// `types/index.ts`, a UC-3 change) breaks this line rather than this report.
+type UnrankedFitTiers = Exclude<FitTier, (typeof FIT_TIER_ORDER)[number]>;
+export const _FIT_TIER_ORDER_IS_EXHAUSTIVE: [UnrankedFitTiers] extends [never]
+  ? true
+  : ['FIT_TIER_ORDER does not rank every FitTier:', UnrankedFitTiers] = true;
+
+/**
+ * The single place `FitRecommendation` (UC-3, one analysis) becomes `FitTier`
+ * (UC-5, a pipeline report). Total and lossless — see the `FitTier` doc comment
+ * in `types/index.ts` and the mapping table in `docs/architecture/API_CONTRACTS.md`.
+ *
+ * The distinction the argument encodes is the whole point: **absence of an
+ * analysis** is not the same as **an analysis that could not score**.
+ *
+ * @param analysis The application's stored fit analysis, or `null` when no
+ *   analysis has ever been run for it. A stored analysis whose `recommendation`
+ *   is `null` (empty catalog, or a JD with no required skills) is `unscored`.
+ */
+export function recommendationToFitTier(
+  analysis: { recommendation: FitRecommendation | null } | null | undefined
+): FitTier {
+  if (!analysis) return 'not_analyzed';
+  return analysis.recommendation ?? 'unscored';
+}
 
 function decodeCursor(cursor: string): number {
   try {
@@ -471,13 +512,17 @@ export async function getByFitTierReport(
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(orderBy);
 
-  // UC-3 integration not yet implemented — all apps are 'not_analyzed'
+  // UC-3 analyses are not persisted yet — there is no `job_fit_analyses` table
+  // and `applications` carries no analysis reference, so nothing can be loaded
+  // and every application takes the `no analysis has ever run` arm. When UC-3
+  // persistence lands, load the analysis per application and pass it here; the
+  // rest of this function, and the report's contract, do not change.
   const allApps: FitTierApplication[] = rows.map((r) => ({
     id: r.id,
     jobTitle: r.jobTitle,
     company: r.company,
     status: r.status as ApplicationStatus,
-    fitTier: 'not_analyzed' as FitTier,
+    fitTier: recommendationToFitTier(null),
     updatedAt: r.updatedAt.toISOString(),
   }));
 
@@ -490,12 +535,18 @@ export async function getByFitTierReport(
     Record<FitTier, number>
   >;
 
+  // `analyzed` counts applications an analysis has run for, which includes
+  // `unscored` — the analysis ran, it just could not produce a verdict. Only
+  // `not_analyzed` means no analysis exists. Derived rather than hardcoded so
+  // the two counters stay correct once UC-3 persistence lands.
+  const notAnalyzed = byTier['not_analyzed'] ?? 0;
+
   return {
     groups,
     summary: {
       total: allApps.length,
-      analyzed: 0,
-      notAnalyzed: allApps.length,
+      analyzed: allApps.length - notAnalyzed,
+      notAnalyzed,
       byTier,
     },
     generatedAt: new Date().toISOString(),
