@@ -406,10 +406,14 @@ test.describe('Job Fit Analysis page', () => {
 
     // The word is the mandatory carrier of severity — colour never carries it alone (WCAG 1.4.1).
     // Scoped to each card, which also pins the word to the right colour step. Page-scoped matching
-    // is wrong here: "moderate" is also a fit level ("moderate fit") elsewhere on this same screen,
+    // is wrong here: "moderate" is also a fit level ("Moderate fit") elsewhere on this same screen,
     // and Playwright's default text match is a case-insensitive substring, so it collides.
-    await expect(criticalCard.getByText('critical', { exact: true })).toBeVisible();
-    await expect(moderateCard.getByText('moderate', { exact: true })).toBeVisible();
+    //
+    // Sentence case, not the raw wire value: WIC-1122 de-shouted this site, so the label now comes
+    // from `GAP_SEVERITY[...].label` rather than `<span className="uppercase">{gap.severity}</span>`.
+    // `exact: true` is case-sensitive, so these assertions pin the casing decision too.
+    await expect(criticalCard.getByText('Critical', { exact: true })).toBeVisible();
+    await expect(moderateCard.getByText('Moderate', { exact: true })).toBeVisible();
 
     // No severity emoji survive. They were the second, contradicting signal on the same card:
     // this page called `minor` green while GapMitigationPanel called it yellow.
