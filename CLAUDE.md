@@ -84,3 +84,35 @@ npm run db:push            # Push schema directly (dev only)
 ## Deployment
 
 GitHub Actions (`.github/workflows/deploy.yml`): PRs get a preview Worker deploy; merges to `main` run DB migrations over the Supabase pooler, validate secrets, and `wrangler deploy` to production. See `docs/architecture/CI_CD.md`.
+
+## Changelog conventions
+
+Every change gets an entry under `## [Unreleased]` in `CHANGELOG.md`.
+
+**Add your entry _below_ the current top `### ` entry, not above it.** Entries inside a release are same-day and effectively unordered, so being first buys nothing — and being first is what causes conflicts.
+
+`.gitattributes` marks `CHANGELOG.md merge=union`. That auto-resolves the merge **locally**, and only locally: GitHub computes mergeability without the driver, so a changelog the driver "fixed" for you still reports `CONFLICTING / DIRTY` on the PR page and still blocks the merge button. The driver hides the conflict from you and not from GitHub, which is why these show up late.
+
+Every one of those conflicts is the same conflict: an insertion collision on the **first `### ` heading under the `[Unreleased]` backfill note**. The merge base at that point is *empty* and both sides are pure additions, which is why the resolution is always "keep both" and why it always comes back. That anchor is also **branch-point independent** — the backfill note has sat directly above it since `1ea6186` (2026-08-04), so every open PR resolves "the top of `[Unreleased]`" to the same line no matter when it was cut. A guaranteed collision, by construction.
+
+Anchoring below the top entry breaks that. "Below the current top entry" resolves to a *different* line depending on which `main` you branched from, so only PRs cut from the identical commit can still collide. Measured on PR #174: it edited `CHANGELOG.md` while #111, #165 and #166 were open and added **zero** new conflicts to any of them, where #169, #170 and #172 each took the top anchor and #170 alone broke both #165 and #166.
+
+### Diagnosing one
+
+`git merge`, `git merge-tree` and a local `git pull` all apply the union driver, so they report **clean** on a PR GitHub calls `CONFLICTING`. They are not wrong; they are answering a different question. `git merge-file` is the low-level three-way merge and does not read `.gitattributes`, so it is the one that reproduces what GitHub sees:
+
+```bash
+BR=origin/your-branch
+D=$(mktemp -d)
+B=$(git merge-base origin/main $BR)
+git show "$B":CHANGELOG.md        > "$D/base.md"
+git show origin/main:CHANGELOG.md > "$D/main.md"
+git show "$BR":CHANGELOG.md       > "$D/head.md"
+
+git merge-file -p --diff3 "$D/head.md" "$D/base.md" "$D/main.md"   # non-zero exit = real conflict
+git merge-file -p          "$D/main.md" "$D/base.md" "$D/main.md"  # positive control: MUST exit 0
+```
+
+Always run the control. Without it, a wrong path or a stale `origin` yields a silent "clean" that you will believe.
+
+**Resolving:** keep both sides, and **merge `main` in — never rebase.** Many open PRs here are stacked (a PR whose base is another PR's branch), and rebasing a stack parent invalidates every child.
