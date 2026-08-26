@@ -213,7 +213,7 @@ describe('getResumeVariant re-hydration tenancy (UC-6)', () => {
 
     const result = await getResumeVariant('01HZ_VAR_001', CALLER);
 
-    expectScopedTo(stub.catalogClauses()[0], CALLER);
+    expectScopedTo(stub.catalogClauses()[0], CALLER, ['01HZ_BUL_MINE']);
     expect(result.usedBullets.map((b) => b.id)).toEqual(['01HZ_BUL_MINE']);
     expect(result.usedBullets.map((b) => b.rawText)).not.toContain(THEIRS);
   });
@@ -290,7 +290,7 @@ describe('getResumeVariant re-hydration tenancy (UC-6)', () => {
       CALLER
     );
 
-    expectScopedTo(stub.catalogClauses()[0], CALLER);
+    expectScopedTo(stub.catalogClauses()[0], CALLER, ['01HZ_BUL_MINE']);
     expect(result.usedBullets.map((b) => b.id)).toEqual(['01HZ_BUL_MINE']);
     expect(result.usedBullets.map((b) => b.rawText)).not.toContain(THEIRS);
   });
