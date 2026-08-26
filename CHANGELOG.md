@@ -20,6 +20,18 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Tests — The by-fit-tier empty state is guarded by a test instead of a comment (2026-08-26)
+
+Nothing in `packages/web/src` or `packages/web/e2e` referenced `ReportsByFitTier` or any of its copy, so the WIC-1297 §4 ruling — the dependency notice must not enumerate the fit tiers, because the notice and the tier cards render in one `return` block and every label named in the notice is a label rendered twice on one page — was held up by a source comment alone. That ruling was already on the record when PR #111 rewrote the exact line it governs and grew the parenthetical from three labels to four; review caught it, CI had no opinion (WIC-1557).
+
+- **`packages/web/src/pages/ReportsByFitTier.test.tsx` (new, 7 cases on `main`).** Mocks `useReportsByFitTier`, renders the empty state, and asserts every `FIT_TIER_LABELS` value occurs exactly once in the page text, plus that the notice block itself enumerates none of them.
+- **The obvious version of this test passes on the broken page, so it is not the version here.** `expect(screen.getAllByText(label)).toHaveLength(1)` matches an element's whole normalised text, and the enumeration sat mid-sentence inside a `<p>`, so only the tier-card `<h3>` ever matched and the count was 1 in both directions — **measured: 6 passed against the page carrying the defect.** The assertion is an occurrence count over `container.textContent` instead.
+- **The two assertions are not redundant, and that was measured too.** Deleting a tier card while *keeping* it named in the notice leaves every count at exactly one and still violates §4; only the notice-scoped assertion goes red on it.
+- **Written over the label table, not over hardcoded copy**, so it keeps its meaning across the `FitTier` change in flight on PR #111 — it reads 4 labels on `main` and 6 on `main` + #111, green on both with no edit.
+- **Guards on the guard.** A table-driven test can go vacuous without going red, so the table is separately pinned as non-empty with distinct labels (an emptied table would contribute zero cases), and no label may be a substring of another (which is the precondition the occurrence count depends on).
+- **Negative controls, all four run.** Pre-fix page at `93e8847` on `main` + #111 → **5 failed / 4 passed**, red on exactly `strong_fit` / `moderate_fit` / `stretch` / `low_fit` and correctly green on `unscored` / `not_analyzed`, which were never enumerated. The same defect rebuilt on `main`'s own three-tier shape → **4 failed / 3 passed**. Enumeration-in / tier-card-out → **1 failed**, the notice assertion alone. Unmodified trees → 7 green on `main`, 9 green merged with #111.
+- Test-only. No component, route, endpoint, schema, or wire value changes; `ReportsByFitTier.tsx` is untouched.
+
 ### Docs — Changelog entries have an insertion convention, because the union driver never reached GitHub (2026-08-26)
 
 `CHANGELOG.md` has carried `merge=union` since the driver was added, and the `.gitattributes` comment says it "keeps both sides' entries instead of conflicting". That is true of the *local* three-way merge and of nothing else: GitHub computes mergeability without consulting `.gitattributes`, so PRs kept reporting `CONFLICTING / DIRTY` on a file every local tool called clean. `CLAUDE.md` now has a `## Changelog conventions` section stating the rule, the mechanism behind it, and how to reproduce what GitHub sees (WIC-1543).
