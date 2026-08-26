@@ -1,0 +1,221 @@
+# WIC-1344 — Supabase project status / restore via the Management API.
+#
+# WHY THIS EXISTS
+#   A paused Supabase project and a DELETED one are indistinguishable from the
+#   outside: both give NXDOMAIN on `db.<ref>.supabase.co`, and both give a 401
+#   from the auth endpoint. On 2026-08-25 that ambiguity was resolved by
+#   guessing, the guess was "deleted", and a P0 with a data-retention clock was
+#   filed against what was actually a routine free-tier auto-pause (WIC-1283).
+#
+#   `GET /v1/projects/{ref}` answers the question outright. It returns the real
+#   lifecycle status -- `INACTIVE` for paused, `ACTIVE_HEALTHY` for alive -- and
+#   404 only when the project genuinely is not there. No amount of DNS probing
+#   can produce that answer.
+#
+#   `POST /v1/projects/{ref}/restore` then closes the loop: every one of the
+#   three production pauses in the five weeks to 2026-08-26 ended only when a
+#   human clicked Restore in the console, so MTTR was bounded by one person's
+#   availability with no automatic floor.
+#
+# THIS IS NOT A DEPLOY
+#   `status` mode is a pair of authenticated GETs and changes nothing.
+#   `restore-if-paused` mode changes the running state of a project that is
+#   already down; it cannot touch code, schema, or data. See the guard below.
+#
+# THE RESTORE GUARD
+#   Restore only ever fires when the status call has just returned exactly
+#   `INACTIVE`. A healthy project is refused, loudly, before any POST is made --
+#   which is the structural version of "do not test-fire restore against a
+#   healthy production project" (WIC-1344 AC#3). Restore is also opt-in per run:
+#   the default mode is read-only `status`.
+#
+# CREDENTIAL
+#   `SUPABASE_ACCESS_TOKEN` -- a Supabase Management API personal access token
+#   (`sbp_...`) for the account that owns org `lnkenselppaqxstglvqq`. A PAT is
+#   account-wide, so ONE repository-level secret covers both projects; an
+#   environment-scoped secret of the same name also works and takes precedence.
+#   Until it is provisioned this workflow fails on its first step with an
+#   explicit message rather than a confusing 401.
+#
+#   The token is never echoed. It is passed to curl through the environment and
+#   GitHub masks registered secrets in logs regardless.
+
+name: Supabase project status
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'status = read-only. restore-if-paused = also restore, but ONLY if the project reports INACTIVE.'
+        type: choice
+        required: true
+        default: status
+        options:
+          - status
+          - restore-if-paused
+      target:
+        description: 'Which project(s) to act on.'
+        type: choice
+        required: true
+        default: both
+        options:
+          - both
+          - dev
+          - production
+
+concurrency:
+  group: supabase-project-status
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  project-status:
+    name: ${{ inputs.mode }} (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Never let one project's outcome cancel the other's report. During
+      # WIC-1281 production was paused while dev was healthy, and the whole
+      # point of this workflow is being able to see that asymmetry.
+      fail-fast: false
+      matrix:
+        env: [dev, production]
+    environment: ${{ matrix.env }}
+    timeout-minutes: 5
+
+    steps:
+      # The `target` filter lives on the STEP, not on `jobs.<id>.if`: the
+      # `matrix` context is not available to a job-level `if`, so filtering
+      # there would silently evaluate `matrix.env` to empty and skip both legs.
+      - name: Query the Management API
+        if: ${{ inputs.target == 'both' || inputs.target == matrix.env }}
+        env:
+          # Interpolated into `env:`, never into the script body, so nothing
+          # from the dispatch inputs is ever spliced into shell source.
+          ENV_NAME: ${{ matrix.env }}
+          MODE: ${{ inputs.mode }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Overridable so the script can be exercised against a stub server in
+          # tests without a live credential. Defaults to the real API.
+          API="${SUPABASE_API_BASE:-https://api.supabase.com}"
+
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN is not set for '${ENV_NAME}'. This workflow cannot run until the Supabase account owner (al@wickidcool.com) creates a Management API personal access token at https://supabase.com/dashboard/account/tokens and stores it as a repository secret named SUPABASE_ACCESS_TOKEN. Tracked as WIC-1344."
+            exit 1
+          fi
+
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "::error::SUPABASE_URL variable is not set for the '${ENV_NAME}' environment"
+            exit 1
+          fi
+
+          # Derive the project ref from the REST URL rather than hardcoding it,
+          # so this stays correct if a project is ever re-created.
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          echo "Environment : ${ENV_NAME}"
+          echo "Project ref : ${PROJECT_REF}"
+          echo "Mode        : ${MODE}"
+
+          BODY="$(mktemp)"
+          CODE=$(curl -sS -o "$BODY" -w '%{http_code}' \
+                   -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+                   -H 'Accept: application/json' \
+                   "${API}/v1/projects/${PROJECT_REF}" || echo 000)
+
+          case "$CODE" in
+            200)
+              STATUS=$(jq -r '.status // "UNKNOWN"' "$BODY")
+              NAME=$(jq -r '.name // "?"' "$BODY")
+              ;;
+            401|403)
+              echo "::error::${ENV_NAME} (${PROJECT_REF}): the Management API rejected the token (HTTP ${CODE}). The PAT is invalid, revoked, or belongs to an account without access to org lnkenselppaqxstglvqq. This says NOTHING about whether the project is up."
+              exit 1
+              ;;
+            404)
+              # 404 is the only response that can mean "really gone" -- but it
+              # ALSO means "this token cannot see that org". Disambiguate before
+              # anyone attaches a data-loss clock to it again.
+              LIST="$(mktemp)"
+              LCODE=$(curl -sS -o "$LIST" -w '%{http_code}' \
+                        -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+                        -H 'Accept: application/json' \
+                        "${API}/v1/projects" || echo 000)
+              if [ "$LCODE" = "200" ]; then
+                VISIBLE=$(jq -r '[.[].id] | join(", ")' "$LIST" 2>/dev/null || echo '<unparseable>')
+                echo "::error::${ENV_NAME} (${PROJECT_REF}): HTTP 404 from the Management API, and the token CAN list projects (it sees: ${VISIBLE}). The project is genuinely absent from this account — this is the one signal that actually supports a deletion diagnosis."
+              else
+                echo "::error::${ENV_NAME} (${PROJECT_REF}): HTTP 404, but listing projects also failed (HTTP ${LCODE}) — so this is a token/scope problem, NOT evidence of deletion. Do not escalate as data loss."
+              fi
+              exit 1
+              ;;
+            000)
+              echo "::error::${ENV_NAME} (${PROJECT_REF}): could not reach ${API} at all. Network fault on the runner — no conclusion about the project."
+              exit 1
+              ;;
+            *)
+              echo "::error::${ENV_NAME} (${PROJECT_REF}): unexpected HTTP ${CODE} from the Management API. Body: $(head -c 400 "$BODY")"
+              exit 1
+              ;;
+          esac
+
+          echo "Project name: ${NAME}"
+          echo "Status      : ${STATUS}"
+          {
+            echo "### ${ENV_NAME} — \`${PROJECT_REF}\`"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| name | ${NAME} |"
+            echo "| status | \`${STATUS}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$STATUS" in
+            ACTIVE_HEALTHY)
+              echo "✅ ${ENV_NAME} (${PROJECT_REF}) is ACTIVE_HEALTHY."
+              ;;
+            INACTIVE)
+              echo "::warning::${ENV_NAME} (${PROJECT_REF}) is INACTIVE — the project is PAUSED. It is not deleted and no data is at risk; free-tier pauses carry a 90-day restore window."
+              ;;
+            *)
+              echo "::warning::${ENV_NAME} (${PROJECT_REF}) reports transitional/unknown status '${STATUS}'. COMING_UP / RESTORING mean a restore is already in flight — wait, do not re-fire."
+              ;;
+          esac
+
+          if [ "$MODE" != "restore-if-paused" ]; then
+            echo "Read-only mode; nothing further to do."
+            exit 0
+          fi
+
+          # --- the guard -------------------------------------------------
+          # Restore is only ever attempted against a project that has JUST
+          # reported INACTIVE. Anything else is refused without a POST.
+          if [ "$STATUS" != "INACTIVE" ]; then
+            echo "Refusing to call /restore on ${ENV_NAME} (${PROJECT_REF}): status is '${STATUS}', not INACTIVE. Restore is only valid for a paused project."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Restore **not** attempted — status was \`${STATUS}\`, not \`INACTIVE\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "${ENV_NAME} (${PROJECT_REF}) is INACTIVE — requesting restore."
+          RBODY="$(mktemp)"
+          RCODE=$(curl -sS -o "$RBODY" -w '%{http_code}' -X POST \
+                    -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+                    -H 'Content-Type: application/json' \
+                    -H 'Accept: application/json' \
+                    -d '{}' \
+                    "${API}/v1/projects/${PROJECT_REF}/restore" || echo 000)
+
+          if [ "$RCODE" = "200" ] || [ "$RCODE" = "201" ] || [ "$RCODE" = "204" ]; then
+            echo "✅ Restore accepted for ${ENV_NAME} (${PROJECT_REF}) (HTTP ${RCODE})."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Restore **accepted** (HTTP ${RCODE}). Supabase brings a project back over several minutes; re-run in \`status\` mode until it reads \`ACTIVE_HEALTHY\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "::error::${ENV_NAME} (${PROJECT_REF}): restore failed with HTTP ${RCODE}. Body: $(head -c 400 "$RBODY"). A 403 here means the PAT lacks project-write permission — fall back to the console (al@wickidcool.com)."
+          exit 1
