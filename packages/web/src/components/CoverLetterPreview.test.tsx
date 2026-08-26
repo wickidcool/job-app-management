@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 import { CoverLetterPreview } from './CoverLetterPreview';
 import { describeOutline, findOutlineSkips, getOutline } from '../test/headingOutline';
+import generatorSource from './CoverLetterGenerator.tsx?raw';
+import detailSource from '../pages/CoverLetterDetail.tsx?raw';
 
 /**
  * Heading-level cover for `CoverLetterPreview`, following the criterion PR #182 / WIC-1417
@@ -32,6 +34,43 @@ import { describeOutline, findOutlineSkips, getOutline } from '../test/headingOu
  */
 
 const LETTER = 'Dear Hiring Manager,\n\nI am writing to apply.\n\nSincerely,\nA. Candidate';
+
+/**
+ * The level each host actually passes, read from the host's source.
+ *
+ * Everything above this line renders `CoverLetterPreview` directly, in a hand-built
+ * approximation of each host's shape. That proves the component obeys the prop; it cannot
+ * prove the host *passes* it. Deleting `headingLevel={3}` from `CoverLetterGenerator`
+ * leaves every other test in this file green, which is the whole failure mode — an
+ * assertion named after the acceptance criterion, sitting one layer away from the code the
+ * criterion is about.
+ *
+ * Rendering the real `CoverLetterGenerator` is not a cheap alternative: the preview pane
+ * lives at the end of a multi-step wizard behind API calls and generation state. Reading
+ * the call site is, and `route-integrity.test.ts` already establishes `?raw` source audits
+ * as how this repo guards exactly this class of gap.
+ *
+ * Comments are stripped before matching, deliberately. The JSX comment above the generator's
+ * call site contains the literal string `headingLevel={3}` to explain it, so a naive regex
+ * over the raw file would match the *explanation* and keep passing after the real attribute
+ * was deleted — a guard that silently stops guarding.
+ */
+function headingLevelPassedBy(source: string): number {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  const callSites = withoutComments.match(/<CoverLetterPreview\b[\s\S]*?\/>/g) ?? [];
+
+  // Exactly one call site per host is part of the claim. Two would mean this function is
+  // reporting one of them and silently ignoring the other.
+  expect(callSites).toHaveLength(1);
+
+  const explicit = callSites[0].match(/\bheadingLevel=\{(\d)\}/);
+  // No attribute means the host relies on the default, which is 2. That is the intended
+  // shape for `CoverLetterDetail`, so it has to read as a real answer, not as "not found".
+  return explicit ? Number(explicit[1]) : 2;
+}
 
 describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
   it('renders h2 by default, leaving no gap in CoverLetterDetail s outline', () => {
@@ -130,6 +169,14 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     expect(bar).not.toBeNull();
     expect(bar).toHaveClass('px-4', 'py-3');
     expect(bar).not.toHaveClass('p-4');
+  });
+
+  it('is asked for h3 by CoverLetterGenerator and h2 by CoverLetterDetail', () => {
+    // The acceptance criterion is about the two hosts, so it is asserted about the two
+    // hosts. The generator nests the pane under its own <h2> beside the "Editor" <h3>;
+    // the detail page renders it as the sole content under its <h1>.
+    expect(headingLevelPassedBy(generatorSource)).toBe(3);
+    expect(headingLevelPassedBy(detailSource)).toBe(2);
   });
 
   it('adds no skip to the generator s outline in the shape that page renders', () => {
