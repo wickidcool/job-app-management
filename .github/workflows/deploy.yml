@@ -250,6 +250,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # WIC-1357: give each PR its own preview Worker (jobtrail-preview-pr<N>) so a
+      # reviewer opening the preview URL is guaranteed to see THIS PR's build, not
+      # whichever PR deployed to the shared `jobtrail-preview` Worker last (the real
+      # cost WIC-1343 left standing — it made contention survivable, not absent).
+      # We rewrite the preview env's `name` in wrangler.jsonc in place; every
+      # downstream wrangler call (`secret bulk --env preview`, `deploy --env
+      # preview`, the derived workers.dev host) then targets the per-PR script.
+      # preview-teardown.yml deletes it on `pull_request: closed` so per-PR Workers
+      # do not accumulate toward the account script cap (measured 2026-08-26: 3
+      # scripts total, cap >= 100, ~29 open PRs -> ample headroom, but teardown is
+      # the load-bearing guard against unbounded growth over time).
+      - name: Name preview Worker per-PR
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          name="jobtrail-preview-pr${PR_NUMBER}"
+          # Exactly one occurrence in wrangler.jsonc — the preview env's `name`.
+          # (The top-level Worker is "jobtrail".) If that stops being true — e.g. a
+          # future rename makes the anchor ambiguous — fail loudly rather than
+          # silently templating the wrong field.
+          count=$(grep -c '"name": "jobtrail-preview"' wrangler.jsonc)
+          if [ "$count" != "1" ]; then
+            echo "::error::Expected exactly one \"jobtrail-preview\" name in wrangler.jsonc, found ${count}. Refusing to template an ambiguous preview config."
+            exit 1
+          fi
+          sed -i "s/\"name\": \"jobtrail-preview\"/\"name\": \"${name}\"/" wrangler.jsonc
+          echo "::notice::Preview Worker for this run: ${name}"
+          grep '"name": "'"${name}"'"' wrangler.jsonc
+
       - name: Validate required secrets
         run: |
           missing=""
@@ -339,6 +369,17 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # WIC-1357 update: with per-PR Workers the cross-PR 10214 race this block was
+      # built to survive is gone (distinct scripts share no version state). But the
+      # deploy-first / secrets-after ordering is now load-bearing for a NEW reason:
+      # a per-PR Worker does not exist until this run's own `wrangler deploy`
+      # creates it, and `wrangler secret bulk` on a not-yet-created script fails.
+      # So the pre-deploy sync is advisory (it no-ops on a PR's first run), the
+      # deploy creates the script, and the post-deploy re-sync is the authoritative
+      # one. Keep this structure; do NOT fold secrets back into wrangler-action's
+      # `secrets:` input, which uploads before `command` and would fail every PR's
+      # first deploy.
+      #
       # WIC-1343: the secret push is split out of wrangler-action's `secrets:`
       # input and run as a pair of explicit steps around the deploy. Why:
       #
@@ -406,7 +447,7 @@ jobs:
             if [ "$attempt" -ge "$ATTEMPTS" ]; then
               break
             fi
-            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}). Cloudflare 10214 on the shared jobtrail-preview Worker is transient version contention (another PR's deploy is mid-flight); retrying in ${delay}s."
+            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}) on the per-PR preview Worker. WIC-1357 gives each PR its own script, so this is no longer cross-PR 10214 contention — the likely cause is a just-created Worker whose settings API is not yet consistent right after its first deploy; retrying in ${delay}s."
             sleep "$delay"
             attempt=$((attempt + 1))
             delay=$((delay * 2))
@@ -469,7 +510,7 @@ jobs:
             if [ "$attempt" -ge "$ATTEMPTS" ]; then
               break
             fi
-            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}). Cloudflare 10214 on the shared jobtrail-preview Worker is transient version contention (another PR's deploy is mid-flight); retrying in ${delay}s."
+            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}) on the per-PR preview Worker. WIC-1357 gives each PR its own script, so this is no longer cross-PR 10214 contention — the likely cause is a just-created Worker whose settings API is not yet consistent right after its first deploy; retrying in ${delay}s."
             sleep "$delay"
             attempt=$((attempt + 1))
             delay=$((delay * 2))
