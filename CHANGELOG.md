@@ -20,6 +20,16 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Docs — Every `curl` example in API_CONTRACTS.md now sends a token, against a chosen host (2026-08-26)
+
+Twelve of the sixteen `curl` examples in `docs/architecture/API_CONTRACTS.md` were hardcoded to `http://localhost:3000` and sent **no `Authorization` header** — a combination that only runs under the local auth bypass, which needs **both** `SUPABASE_URL` and `SUPABASE_JWT_SECRET` absent. Copied against any real environment all twelve return `401`. This closes the residue WIC-1330 deliberately deferred: at the time four in-flight PRs held hunks in the same file and the note said so rather than fixing it.
+
+- **The header is on all twelve, not just the ones that would 401 loudest.** An example that omits `Authorization` documents its endpoint as unauthenticated, and none of these are — `/api/*` is wrapped by the JWT middleware at `app.ts:103`, with only the three `/api/auth/*` routes exempt.
+- **The host moved into `$API_BASE`, and the token into `$TOKEN`**, defined once in a new "Running the `curl` examples" block under Authentication. Previously the host was baked into twelve URLs, so "run these against production" meant twelve edits and the document had no single place to state which host it meant. `$API_BASE` carries the `/api` prefix, matching the rows of the Base URL table exactly, so any row can be pasted in unchanged.
+- **This replaces a caveat with a fix.** The paragraph added by WIC-1330 told the reader to swap the host *and* add the header themselves. That was honest while the file was contended, but it documented the defect instead of removing it.
+- **The four `https://api.example.com/v1/...` examples under Applications are deliberately untouched** — a separate older surface, and they already carry an `Authorization` header. Noted inline so the inconsistency reads as scoped rather than missed.
+- **Verified as shell, not by eye.** All twelve blocks were extracted and parsed with `bash -n`, and the variable expansion checked, so no line-continuation or quoting was broken by the rewrite. Docs-only; no endpoint, schema, or wire value changes.
+
 ### Fixed — Match and gap section headings now name the skills they count (2026-08-26)
 
 `✅ Strong Matches (7)` counted **nice-to-have** skills without saying so, while the fit summary a few rows above it counted required skills only. So the screen could show "You match 5 of 6 required skills." above "✅ Strong Matches (7)" — 7 > 6, with nothing on screen to explain it. `⚠️ Partial Matches` and `❌ Gaps` had the identical defect. This is the residue of the WIC-1301 entry below, not a regression from it: before that change the summary opened "Strong match — ", so the two lines shared a noun and read as two statements of one quantity that **disagreed**; removing the prefix left the fault **undisclosed** rather than contradictory (WIC-1528).
