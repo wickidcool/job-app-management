@@ -9,6 +9,7 @@ export function OutreachNew() {
   const [platform, setPlatform] = useState<OutreachPlatform>('linkedin');
 
   const applicationId = searchParams.get('applicationId') || undefined;
+  const coverLetterId = searchParams.get('coverLetterId') || undefined;
   const fitAnalysisId = searchParams.get('jobFitAnalysisId') || undefined;
   const company = searchParams.get('company') || '';
   const jobTitle = searchParams.get('jobTitle') || '';
@@ -58,6 +59,7 @@ export function OutreachNew() {
 
         <OutreachComposer
           platform={platform}
+          coverLetterId={coverLetterId}
           fitAnalysisId={fitAnalysisId}
           prefillContext={
             company && jobTitle
