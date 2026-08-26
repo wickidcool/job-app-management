@@ -36,12 +36,17 @@ no other signal. Do not re-derive the condition on the client — see
 for the shipped rule. In summary:
 
 - A user who has completed onboarding is never shown it again.
-- A user who has **engaged** with the flow — moved off `welcome`, or completed or skipped
-  any step — is shown it, and their resume and application history is not consulted. This
-  matters because the resume-upload step *creates* a resume; checking history first would
-  eject a new user from the flow the moment their first upload succeeded.
-- Only for a user we have never seen in the flow does the returning-user bypass apply:
-  zero resumes **and** zero applications means show it, otherwise do not.
+- The returning-user bypass is keyed on **when** the user's resumes and applications were
+  created, not on whether they have any. The discriminator is `onboarding_status.started_at`:
+  work that predates the status row cannot have come from the flow.
+- For a user who has **engaged** with the flow — moved off `welcome`, or completed or
+  skipped any step — only work created *before* `started_at` counts against them. This
+  matters because the resume-upload step *creates* a resume; an unbounded check would eject
+  a new user from the flow the moment their first upload succeeded.
+- For a user we have never seen in the flow — no row, or a pristine `welcome` one — the
+  probe is unbounded: zero resumes **and** zero applications means show it, otherwise do not.
+  Bounding it here would re-show onboarding to a new user who dismissed at `welcome` and
+  then created an application by hand.
 
 There is no "explicitly dismissed" state. The product ships no dismiss endpoint and no
 `dismissed` status; a user who leaves the flow keeps an incomplete row and is shown it

@@ -3042,23 +3042,34 @@ wins:
 | Status row | `shouldShow` | Reasoning |
 |------------|--------------|-----------|
 | `currentStep === 'completed'`, or `completedAt` is stamped | `false` | The user finished. |
-| **Engaged**: `currentStep` is anything other than `welcome`, **or** any one of the six `*Completed`/`*Skipped` flags is `true` | `true` | The user is mid-flow. Resume and application history is **not** consulted. |
-| No row at all, or a pristine `welcome` row with nothing completed or skipped | `false` if the user has **any** resume or **any** application, otherwise `true` | We have never seen this user in the flow, so WIC-238 AC-10 applies. |
+| **Engaged**: `currentStep` is anything other than `welcome`, **or** any one of the six `*Completed`/`*Skipped` flags is `true` | `false` if the user has a resume uploaded **before** `startedAt`, or an application created **before** `startedAt`; otherwise `true` | The user has driven the flow at least one step, so work created *after* the row may be the flow's own output and cannot count against them. Work that predates the row can. |
+| No row at all, or a pristine `welcome` row with nothing completed or skipped | `false` if the user has **any** resume or **any** application, at any time; otherwise `true` | We have never seen this user in the flow, so there is no flow output to exclude and the probe is deliberately unbounded. |
 
-**The AC-10 returning-user bypass is scoped to that third row, not blanket.** AC-10 reads
-"a user with at least one resume or application is never shown onboarding", and the
-tempting implementation is to check that first and short-circuit. That is wrong here:
-onboarding's resume-upload step *produces* a resume, so a blanket rule would eject a
-genuine new user from the flow the instant their first upload succeeded. The engagement
-check runs first for exactly that reason.
+**The AC-10 returning-user bypass is scoped in time, not blanket — and not by engagement
+either.** AC-10 reads "a user with at least one resume or application is never shown
+onboarding", and the tempting implementation is to check that first and short-circuit.
+That is wrong here: onboarding's resume-upload step *produces* a resume, so a blanket rule
+would eject a genuine new user from the flow the instant their first upload succeeded.
 
-"Pristine" is load-bearing. Because `GET /status` auto-initializes, an established user
-who merely opened the app has a `welcome` row that carries no intent whatsoever, and it
-must not be read as "mid-onboarding". Engagement is the signal; a bare row is not.
+Treating any engagement as an unconditional `true` is the equal and opposite error, and it
+fails in the same direction as the original defect. The flow ships as a modal, so an
+established user who was wrongly shown it and pressed "Get Started" or "Skip for now" once
+has POSTed progress — an engagement short-circuit would then show them onboarding over a
+populated dashboard forever. `startedAt` is what separates the two cases, because work
+created before the status row existed cannot have come from the flow.
 
-The history probe is existence-only (`LIMIT 1` against `resumes`, then `applications`)
-and runs only when the status row cannot settle the question on its own — a completed or
-engaged user costs a single query.
+"Pristine" is load-bearing. Because `GET /status` auto-initializes, an established user who
+merely opened the app has a `welcome` row that carries no intent whatsoever, and it must
+not be read as "mid-onboarding".
+
+The `startedAt` bound is applied on the engaged branch only. On the pristine branch the
+probe stays unbounded on purpose: bounding it there would drag a genuine new user back into
+onboarding after they dismissed at `welcome` and then created an application by hand.
+
+The history probe is existence-only (`LIMIT 1` against `resumes`, then `applications`, the
+resume probe short-circuiting the second round trip). Query cost: 1 for a completed user, 2
+when a resume probe hits, 3 otherwise. Only the completed row is settled without touching
+history.
 
 ---
 
