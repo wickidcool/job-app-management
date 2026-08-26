@@ -175,7 +175,12 @@ export async function updateJobFitTag(
   userId?: string
 ) {
   const db = getDb();
-  const [existing] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, id));
+  // Scope the read so another user's tag reports NotFound rather than falling
+  // through to the version check and reporting a misleading version conflict.
+  const scoped = userId
+    ? and(eq(jobFitTags.id, id), eq(jobFitTags.userId, userId))
+    : eq(jobFitTags.id, id);
+  const [existing] = await db.select().from(jobFitTags).where(scoped);
   if (!existing) throw new NotFoundError('JobFitTag');
 
   if (
@@ -199,7 +204,10 @@ export async function updateJobFitTag(
       updatedAt: new Date(),
       version: existing.version + 1,
     })
-    .where(and(eq(jobFitTags.id, id), eq(jobFitTags.version, patch.version)))
+    // Re-assert the tenancy term on the write itself: the read above and this
+    // update are separate statements, so an id-only predicate here is still
+    // exploitable on its own.
+    .where(and(scoped, eq(jobFitTags.version, patch.version)))
     .returning();
 
   if (!updated) throw new NotFoundError('JobFitTag (version conflict)');
@@ -304,7 +312,10 @@ export async function updateTechStackTag(
   userId?: string
 ) {
   const db = getDb();
-  const [existing] = await db.select().from(techStackTags).where(eq(techStackTags.id, id));
+  const scoped = userId
+    ? and(eq(techStackTags.id, id), eq(techStackTags.userId, userId))
+    : eq(techStackTags.id, id);
+  const [existing] = await db.select().from(techStackTags).where(scoped);
   if (!existing) throw new NotFoundError('TechStackTag');
 
   if (
@@ -328,7 +339,7 @@ export async function updateTechStackTag(
       updatedAt: new Date(),
       version: existing.version + 1,
     })
-    .where(and(eq(techStackTags.id, id), eq(techStackTags.version, patch.version)))
+    .where(and(scoped, eq(techStackTags.version, patch.version)))
     .returning();
 
   if (!updated) throw new NotFoundError('TechStackTag (version conflict)');
@@ -839,22 +850,31 @@ export async function generateDiff(
   userId?: string
 ) {
   const db = getDb();
+  // processCatalogChange reads the owner off event.metadata.userId (the shape
+  // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
+  // and every catalog row auto-applied alongside it — with user_id null, which
+  // no scoped reader (listDiffs / getDiff / applyDiff) can ever see again.
   await processCatalogChange({
     id: ulid(),
     sourceType,
     sourceId,
     changeType: 'created',
     timestamp: new Date().toISOString(),
+    metadata: { userId: userId ?? null },
   });
+  const conditions = [
+    eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'),
+    eq(catalogDiffs.triggerId, sourceId),
+  ];
+  // Without this, a caller naming another user's resume/application id gets
+  // back whichever diff is newest for that trigger. processCatalogChange bails
+  // early when the source yields no text, so the row this call would otherwise
+  // have inserted need not exist — the lookup then falls through to the owner's.
+  if (userId) conditions.push(eq(catalogDiffs.userId, userId));
   const [diff] = await db
     .select()
     .from(catalogDiffs)
-    .where(
-      and(
-        eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'),
-        eq(catalogDiffs.triggerId, sourceId)
-      )
-    )
+    .where(and(...conditions))
     .orderBy(desc(catalogDiffs.createdAt))
     .limit(1);
   if (!diff) throw new NotFoundError('CatalogDiff');

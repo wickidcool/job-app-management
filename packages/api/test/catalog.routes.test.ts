@@ -822,6 +822,47 @@ describe('Catalog merge routes thread the authenticated user id', () => {
     expect(catalogService[fn]).toHaveBeenCalledWith(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER_SUB);
   });
 
+  // ── WIC-1373 ──────────────────────────────────────────────────────────────
+  // Same contract on the tag PATCH routes and generate-diff. These services
+  // also took `userId` and dropped it; pin that the caller's sub reaches them.
+
+  it.each([
+    ['job-fit', 'updateJobFitTag'],
+    ['tech-stack', 'updateTechStackTag'],
+  ] as const)('passes the caller sub to %s tag update', async (type, fn) => {
+    vi.mocked(catalogService[fn]).mockResolvedValue({ ...mockTag, displayName: 'Renamed' });
+
+    const response = await app.request(`/api/catalog/tags/${type}/01HZ_TAG_001`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ displayName: 'Renamed', version: 1 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService[fn]).toHaveBeenCalledWith(
+      '01HZ_TAG_001',
+      { displayName: 'Renamed', version: 1 },
+      CALLER_SUB
+    );
+  });
+
+  it('passes the caller sub to generateDiff', async () => {
+    vi.mocked(catalogService.generateDiff).mockResolvedValue(mockDiff);
+
+    const response = await app.request('/api/catalog/generate-diff', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ sourceType: 'resume', sourceId: '01HZ_RESUME_001' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(catalogService.generateDiff).toHaveBeenCalledWith(
+      'resume',
+      '01HZ_RESUME_001',
+      CALLER_SUB
+    );
+  });
+
   it.each([
     ['/api/catalog/companies/merge', { sourceCompanyIds: ['01HZ_CO_002'], targetCompanyId: 'x' }],
     ['/api/catalog/tags/job-fit/merge', { sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'x' }],

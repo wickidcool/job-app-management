@@ -2,12 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
+vi.mock('../src/services/extraction.service.js', () => ({
+  processCatalogChange: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { getDb } from '../src/db/client.js';
+import { processCatalogChange } from '../src/services/extraction.service.js';
 import {
+  generateDiff,
   mergeCompanies,
   mergeJobFitTags,
   mergeTechStackTags,
+  updateJobFitTag,
+  updateTechStackTag,
 } from '../src/services/catalog.service.js';
 import { NotFoundError } from '../src/types/index.js';
 
@@ -32,9 +39,18 @@ import { NotFoundError } from '../src/types/index.js';
  * The returned `where` spies hold the Drizzle predicate objects the service
  * built, which is what the tenancy tests below assert on — see `queryFor`.
  */
-function stubDb(selectResults: unknown[][]) {
+function stubDb(selectResults: unknown[][], updateResults: unknown[][] = []) {
   const where = vi.fn();
   for (const rows of selectResults) where.mockResolvedValueOnce(rows);
+
+  // Top-level (non-transactional) update chain, used by the tag PATCH services:
+  // db.update(t).set(...).where(...).returning().
+  const returning = vi.fn();
+  for (const rows of updateResults) returning.mockResolvedValueOnce(rows);
+  returning.mockResolvedValue([]);
+  const updateWhere = vi.fn().mockReturnValue({ returning });
+  const updateSet = vi.fn().mockReturnValue({ where: updateWhere });
+  const update = vi.fn().mockReturnValue({ set: updateSet });
 
   // One shared spy across every update in the transaction, so a test can read
   // the predicate of each write in call order.
@@ -50,12 +66,16 @@ function stubDb(selectResults: unknown[][]) {
 
   const db = {
     select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }),
+    update,
     transaction,
   };
   vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
 
   return {
     selectWhere: where,
+    update,
+    updateSet,
+    updateWhere,
     txSet,
     txUpdate,
     txUpdateWhere,
@@ -419,5 +439,169 @@ describe('merge tenancy scoping', () => {
       expectUnscoped(txUpdateWhere.mock.calls[0][0]);
       expectUnscoped(txDeleteWhere.mock.calls[0][0]);
     });
+  });
+});
+
+// ── WIC-1373: tag PATCH + generate-diff tenancy ───────────────────────────────
+// Same defect class as the merge scoping above, on the endpoints
+// PATCH /api/catalog/tags/{job-fit,tech-stack}/:id and POST
+// /api/catalog/generate-diff. The routes thread c.get('userId') through
+// correctly; the services declared the parameter and never referenced it, so
+// any authenticated caller holding a tag's ULID and its current version (1 for
+// any tag never edited) could rename, recategorise or flip needsReview on
+// another user's tag.
+
+const OTHER_USER = '2c9e7f31-5a4b-4c8d-9e1f-6b3a8d2c4e70';
+
+/**
+ * A one-row db double that actually honours the where-clause, so a query the
+ * service failed to scope finds the row exactly as Postgres would.
+ *
+ * Visibility rule, for the single row this holds: a predicate carrying no
+ * user_id term matches it (that is the unscoped query the fix removes), and a
+ * predicate carrying one matches only if the bound value is the row's owner.
+ */
+function stubOwnedRow(row: { userId: string }) {
+  const visible = (clause: unknown) => {
+    const { sql, params } = queryFor(clause);
+    return !sql.includes('user_id') || params.includes(row.userId);
+  };
+  const selectWhere = vi.fn((clause: unknown) => Promise.resolve(visible(clause) ? [row] : []));
+  const updateWhere = vi.fn((clause: unknown) => ({
+    returning: () => Promise.resolve(visible(clause) ? [row] : []),
+  }));
+  const db = {
+    select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: selectWhere }) }),
+    update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: updateWhere }) }),
+  };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere, updateWhere };
+}
+
+describe('tag update tenancy scoping', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  describe.each([
+    ['updateJobFitTag', updateJobFitTag, 'JobFitTag'] as const,
+    ['updateTechStackTag', updateTechStackTag, 'TechStackTag'] as const,
+  ])('%s', (_name, update, resource) => {
+    const patch = { displayName: 'Renamed', version: 1 };
+
+    it('scopes both the read and the write to the caller', async () => {
+      const { selectWhere, updateWhere } = stubDb([[tagRow()]], [[tagRow()]]);
+
+      await update('01HZ_TAG_001', patch, CALLER);
+
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+      // The update is a separate statement from the read, so an id-only
+      // predicate here stays exploitable on its own even once the read is fixed.
+      expect(updateWhere).toHaveBeenCalledTimes(1);
+      expectScopedTo(updateWhere.mock.calls[0][0], CALLER);
+      // ...and it must still carry the optimistic lock.
+      expect(queryFor(updateWhere.mock.calls[0][0]).sql).toContain('"version" = $');
+    });
+
+    it("reports not found — not a version conflict — for another user's tag", async () => {
+      // stubDb's `where` spy resolves its canned rows whatever predicate it is
+      // handed, so it cannot express "the row exists but the caller may not see
+      // it" — the case that matters here. stubOwnedRow honours the predicate.
+      const { selectWhere } = stubOwnedRow(tagRow({ userId: OTHER_USER }));
+
+      await expect(update('01HZ_TAG_001', patch, CALLER)).rejects.toThrow(
+        new NotFoundError(resource)
+      );
+      // This is the exploit itself, not just a bad error message. The tag is on
+      // version 1 (any tag never edited is), so the optimistic lock the caller
+      // supplies matches and the unscoped write *succeeds* — reverting the fix
+      // turns this case from a rejection into a completed rename.
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+    });
+
+    it('leaves both predicates unscoped in single-user mode', async () => {
+      const { selectWhere, updateWhere } = stubDb([[tagRow()]], [[tagRow()]]);
+
+      await update('01HZ_TAG_001', patch, undefined);
+
+      expectUnscoped(selectWhere.mock.calls[0][0]);
+      expectUnscoped(updateWhere.mock.calls[0][0]);
+    });
+  });
+});
+
+/** db double for generateDiff: select().from().where().orderBy().limit(). */
+function stubDiffDb(rows: unknown[]) {
+  const where = vi.fn();
+  const orderBy = vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue(rows) });
+  where.mockReturnValue({ orderBy });
+  const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere: where };
+}
+
+function diffRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '01HZ_DIFF_001',
+    userId: CALLER,
+    triggerSource: 'resume_upload',
+    triggerId: '01HZ_RESUME_001',
+    summary: '2 new entries',
+    changes: [],
+    pendingReview: [],
+    status: 'approved',
+    expiresAt: null,
+    resolvedAt: new Date('2026-06-01T00:00:00.000Z'),
+    createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+describe('generateDiff tenancy', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('hands the caller to processCatalogChange so the diff row is owned', async () => {
+    // The owner is read off event.metadata.userId (the shape resume.service.ts
+    // uses when it enqueues). Omitting it wrote catalog_diffs.user_id = null,
+    // which no scoped reader — listDiffs, getDiff, applyDiff — can see again.
+    stubDiffDb([diffRow()]);
+
+    await generateDiff('resume', '01HZ_RESUME_001', CALLER);
+
+    expect(processCatalogChange).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(processCatalogChange).mock.calls[0][0]).toMatchObject({
+      sourceType: 'resume',
+      sourceId: '01HZ_RESUME_001',
+      metadata: { userId: CALLER },
+    });
+  });
+
+  it('scopes the lookup to the caller', async () => {
+    // processCatalogChange bails early when the source yields no text, so the
+    // row this call would otherwise have inserted need not exist — an unscoped
+    // lookup then returns whichever diff is newest for that trigger id, which
+    // for a foreign sourceId is the owner's.
+    const { selectWhere } = stubDiffDb([diffRow()]);
+
+    await generateDiff('resume', '01HZ_RESUME_001', CALLER);
+
+    expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+  });
+
+  it('leaves the lookup unscoped in single-user mode', async () => {
+    const { selectWhere } = stubDiffDb([diffRow()]);
+
+    await generateDiff('resume', '01HZ_RESUME_001', undefined);
+
+    expectUnscoped(selectWhere.mock.calls[0][0]);
+    expect(vi.mocked(processCatalogChange).mock.calls[0][0]).toMatchObject({
+      metadata: { userId: null },
+    });
+  });
+
+  it('reports not found when no diff is visible to the caller', async () => {
+    stubDiffDb([]);
+
+    await expect(generateDiff('resume', '01HZ_RESUME_001', CALLER)).rejects.toThrow(
+      new NotFoundError('CatalogDiff')
+    );
   });
 });
