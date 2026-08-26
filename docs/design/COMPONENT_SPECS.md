@@ -741,16 +741,27 @@ here rather than merely tidy.
   `EmptyState` (fixed in WIC-1417), `CoverLetterPreview` and `ApplicationCard` (below), and
   `PersonalInfoForm` and `ApplicationForm`, which were already correct at both of their depths.
 - **The criterion is where the *heading* renders, not where the *component* mounts** (WIC-1563).
-  These come apart whenever the heading sits behind a conditional. `CoverLetterPreview` mounts
-  at two depths, which reads like a clear case for the prop — but its header is inside
-  `{showExportActions && …}`, and the nested host (`CoverLetterGenerator`) is precisely the one
-  that passes `false`. Exactly one rendering has a heading, so the prop would have had **no call
-  site able to pass a non-default value**: ceremony, and worse than ceremony, because
-  `headingLevel={3}` alongside `showExportActions={false}` is a dead assignment that reads as a
-  fix. It was corrected in place (`h3` → `h2`) instead. Count the *renderings of the heading*
-  before reaching for the prop, and pin the count with a test — `CoverLetterPreview.test.tsx`
-  asserts the component contributes no heading in the suppressed configuration, so the day that
-  changes the suite goes red and says the prop is now owed (WIC-1569).
+  These come apart whenever the heading sits behind a conditional, and `CoverLetterPreview` is
+  the worked example in both directions. It mounts at two depths, which reads like a clear case
+  for the prop — but its header was inside `{showExportActions && …}`, and the nested host
+  (`CoverLetterGenerator`) is precisely the one that passes `false`. Exactly one rendering had a
+  heading, so the prop would have had **no call site able to pass a non-default value**:
+  ceremony, and worse than ceremony, because `headingLevel={3}` alongside
+  `showExportActions={false}` is a dead assignment that reads as a fix. So count the *renderings
+  of the heading*, not the mount sites — and **pin the count with a test**, which is the part
+  that paid off here. `CoverLetterPreview.test.tsx` asserted the component contributed no
+  heading in the suppressed configuration; WIC-1569 then ruled that the generator's preview pane
+  must be labelled, that assertion went red, and the red was the design telling us the prop had
+  become owed rather than a regression. Both halves of this bullet stand: the component is
+  correct in place until its heading lands at a second depth, and the test is what tells you the
+  day it does.
+- **`CoverLetterPreview` is the second component in this class** (WIC-1569). It renders at `h2`
+  as the sole content of `CoverLetterDetail` and at `h3` as one half of `CoverLetterGenerator`'s
+  editor/preview split, so it takes the same optional `headingLevel` defaulting to `2`. Note the
+  order of operations: it qualified only *after* a design ruling put a heading on the generator's
+  preview pane. Before that the heading rendered at one depth and the prop would have been
+  unearned — which is the criterion working, not a near-miss. A component does not earn this prop
+  by being shared; it earns it by having its heading land at more than one depth.
 
 #### Kanban headings (WIC-1563)
 

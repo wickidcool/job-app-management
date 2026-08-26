@@ -5,29 +5,39 @@ import { CoverLetterPreview } from './CoverLetterPreview';
 import { describeOutline, findOutlineSkips, getOutline } from '../test/headingOutline';
 
 /**
- * Regression cover for WIC-1563 (heading-level skip), following the criterion PR #182 /
- * WIC-1417 wrote into `docs/design/COMPONENT_SPECS.md` §10 → Accessibility → Heading level.
+ * Heading-level cover for `CoverLetterPreview`, following the criterion PR #182 / WIC-1417
+ * wrote into `docs/design/COMPONENT_SPECS.md` §10 → Accessibility → Heading level.
  *
- * `CoverLetterPreview` rendered its header as `<h3>`. It has two call sites:
+ * This file previously asserted the opposite of what it asserts now, and the reversal is
+ * the point rather than churn. WIC-1563 measured the component as rendering its heading at
+ * exactly **one** depth: the header lived inside `{showExportActions && ...}`, and the only
+ * nested call site (`CoverLetterGenerator:590`) passes `false`. One depth means no host
+ * decision to delegate, so §10 says correct the tag in place and do not add a prop — a
+ * `headingLevel` with no call site able to pass a non-default value is a dead assignment
+ * that reads as a fix. `describes the pane only when the export header is shown` pinned
+ * that premise precisely so it would go red the day the premise stopped holding.
  *
- *   - `CoverLetterDetail:161` — page `<h1>` "Cover Letter", then straight to this heading.
- *     `showExportActions={true}`, so the header renders. **h1 -> h3, a real skip.**
- *   - `CoverLetterGenerator:590` — nested under that component's own `<h2>`, so h3 would
- *     be right. But it passes `showExportActions={false}`, and the header lives inside
- *     `{showExportActions && ...}`, so **no heading renders there at all.**
+ * WIC-1569 then ruled that the generator's preview pane must be labelled, which hoists the
+ * heading out of the conditional and puts it at two depths for real. The old test went red,
+ * which is the tripwire working, not a regression. What replaces it:
  *
- * That second fact is why this is a tag correction and not a `headingLevel` prop. The
- * heading is rendered at exactly one depth, so a prop would have no call site able to pass
- * a non-default value — the "single call site → correct it in place" boundary in §10.
- * `describes the pane only when the export header is shown` below is what pins that
- * premise, so the ruling stops being an assumption the moment the generator changes.
+ *   - `CoverLetterDetail:161` — page `<h1>` "Cover Letter", preview is its sole content.
+ *     Takes the default, `h2`.
+ *   - `CoverLetterGenerator:590` — nested under that component's `<h2>` at `:181`, beside
+ *     the "📝 Editor" `<h3>` at `:561`. Passes `headingLevel={3}`.
+ *
+ * The `showExportActions={false}` case now asserts **both halves** of the split — heading
+ * present, buttons absent — because a single-sided assertion lets the next person quietly
+ * re-merge the two and re-create the conflation WIC-1569 fixed.
  */
 
 const LETTER = 'Dear Hiring Manager,\n\nI am writing to apply.\n\nSincerely,\nA. Candidate';
 
-describe('CoverLetterPreview — heading level (WIC-1563)', () => {
-  it('renders h2 under the page h1, leaving no gap in CoverLetterDetail s outline', () => {
+describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
+  it('renders h2 by default, leaving no gap in CoverLetterDetail s outline', () => {
     // The `CoverLetterDetail` shape: the preview is the sole content beneath the page h1.
+    // `headingLevel` is omitted deliberately — that call site relies on the default, so the
+    // default is what this has to exercise.
     const { container } = render(
       <>
         <h1>Cover Letter</h1>
@@ -60,36 +70,92 @@ describe('CoverLetterPreview — heading level (WIC-1563)', () => {
     expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
   });
 
-  it('describes the pane only when the export header is shown', () => {
-    // The load-bearing premise of the fix above. `CoverLetterGenerator` passes
-    // `showExportActions={false}`, so the component contributes no heading to that page's
-    // outline and there is only one depth to be correct at. If this ever goes red, the
-    // heading has become a host decision and §10 says it earns a `headingLevel` prop
-    // (h2 for the detail page, h3 beside the generator's "📝 Editor") — see WIC-1569.
-    const { container } = render(<CoverLetterPreview content={LETTER} showExportActions={false} />);
+  it('renders h3 when the host asks for it', () => {
+    render(<CoverLetterPreview content={LETTER} showExportActions={false} headingLevel={3} />);
 
-    expect(getOutline(container)).toEqual([]);
-    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Cover Letter Preview' })).toHaveProperty(
+      'tagName',
+      'H3'
+    );
+  });
+
+  it('names the pane even when export actions are suppressed, without offering them', () => {
+    // WIC-1569, and the whole of it: `showExportActions` gates the buttons and nothing else.
+    // Both halves are asserted together on purpose. "Heading renders" alone would still pass
+    // if someone moved the buttons back out of the conditional, and "buttons absent" alone
+    // would still pass if they moved the heading back in — which is the exact defect this
+    // replaced. Splitting these into two `it`s would lose that, so they stay in one.
+    render(<CoverLetterPreview content={LETTER} showExportActions={false} onCopy={() => {}} />);
+
+    expect(screen.getByRole('heading', { name: 'Cover Letter Preview' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /download/i })).toBeNull();
+  });
+
+  it('keeps the heading s rendered size independent of its level', () => {
+    // §10: semantic depth is the host's decision, visual weight is the component's, and the
+    // two must move independently. The level was hardcoded in the first place precisely
+    // because the tag was standing in for the size (WIC-1417); this is what stops that
+    // coupling being reintroduced through the new prop.
+    const levels = [2, 3, 4, 5, 6] as const;
+
+    const classLists = levels.map((level) => {
+      const { unmount } = render(
+        <CoverLetterPreview content={LETTER} showExportActions={false} headingLevel={level} />
+      );
+      const heading = screen.getByRole('heading', { name: 'Cover Letter Preview' });
+      expect(heading.tagName).toBe(`H${level}`);
+      const className = heading.className;
+      unmount();
+      return className;
+    });
+
+    expect(new Set(classLists).size).toBe(1);
+    expect(classLists[0]).toContain('text-lg');
+    expect(classLists[0]).toContain('font-semibold');
+  });
+
+  it('keeps the header bar padding matched to the generator s editor pane', () => {
+    // The visual half of WIC-1569, and the half with no other cover. In the generator both
+    // bars are `py-3` + a heading line-box and neither has buttons, so they are pixel
+    // identical at 3.25rem; `p-4` here leaves the two panes 8px out of true, which is the
+    // misalignment the ruling was filed on. Nothing else in the suite would notice a revert,
+    // so it is asserted directly against the editor bar's literal classes
+    // (`CoverLetterGenerator:560`) rather than left to review.
+    const { container } = render(
+      <CoverLetterPreview content={LETTER} showExportActions={false} headingLevel={3} />
+    );
+
+    const bar = container.querySelector('.border-b');
+    expect(bar).not.toBeNull();
+    expect(bar).toHaveClass('px-4', 'py-3');
+    expect(bar).not.toHaveClass('p-4');
   });
 
   it('adds no skip to the generator s outline in the shape that page renders', () => {
     // The `CoverLetterGenerator` shape end to end: its own h2, the "Editor" pane heading,
-    // then the preview pane beside it. Asserted as a whole outline rather than as "the
-    // preview has no heading", so that whatever the preview does contribute stays legal.
+    // then the labelled preview pane beside it. Asserted as a whole outline rather than as a
+    // per-component tag check, because the defect this closes was never visible in one
+    // component's tag — it was the relationship between two panes.
     const { container } = render(
       <>
         <h2>Generate Cover Letter</h2>
         <div>
-          <h3>📝 Editor</h3>
+          <h3>
+            <span aria-hidden="true">📝</span> Editor
+          </h3>
         </div>
         <div>
-          <CoverLetterPreview content={LETTER} showExportActions={false} />
+          <CoverLetterPreview content={LETTER} showExportActions={false} headingLevel={3} />
         </div>
       </>
     );
 
     const outline = getOutline(container);
     expect(findOutlineSkips(outline)).toEqual([]);
-    expect(outline.map((h) => h.level)).toEqual([2, 3]);
+    expect(outline.map((h) => h.level)).toEqual([2, 3, 3]);
+    expect(describeOutline(outline)).toBe(
+      'h2 "Generate Cover Letter" -> h3 "📝 Editor" -> h3 "Cover Letter Preview"'
+    );
   });
 });
