@@ -86,9 +86,22 @@ const VERDICT_TIERS = [
  *
  * Both halves matter. `VerdictTier` is derived by exclusion rather than by
  * listing four names, so a new `Recommendation` member joins it automatically
- * and lands here as an error; `as const` keeps the entry literals, without
- * which `(typeof VERDICT_TIERS)[number]['tier']` would widen to the whole union
- * and the check below would be vacuous.
+ * and lands here as an error.
+ *
+ * **Do not give `VERDICT_TIERS` an explicit type annotation.** This check reads
+ * `typeof VERDICT_TIERS`, so it only sees the entry literals while that type is
+ * *inferred*. An annotation replaces the inferred type, widening every entry's
+ * `tier` to the whole union — `UntiledVerdictTier` becomes `never`, the check
+ * passes vacuously, and the build stays clean. `satisfies` constrains the shape
+ * without replacing the inferred type; that is why it is used here instead.
+ *
+ * Measured, adding a fifth `Recommendation` member (WIC-1337): `satisfies`
+ * alone catches it, `as const satisfies` catches it, and an annotation misses
+ * it *even with `as const satisfies` still present*. So `as const` is not the
+ * load-bearing part — it only makes the array readonly. The annotation is the
+ * hazard, and it is a plausible one: a lint preference, a "be explicit" review
+ * note, or an IDE quick-fix all produce it. Because that failure is silent,
+ * `_VERDICT_TIERS_KEEPS_ENTRY_LITERALS` below makes it loud.
  */
 type VerdictTier = Exclude<FitTier, 'unscored' | 'not_analyzed'>;
 
@@ -98,6 +111,21 @@ const _VERDICT_TIERS_IS_EXHAUSTIVE: [UntiledVerdictTier] extends [never]
   ? true
   : ['VERDICT_TIERS has no tile for:', UntiledVerdictTier] = true;
 void _VERDICT_TIERS_IS_EXHAUSTIVE;
+
+/**
+ * Guards the guard: the exhaustiveness check above is only meaningful while
+ * `typeof VERDICT_TIERS` preserves each entry's literal `tier`.
+ *
+ * A single entry is enough to detect the failure, because an annotation widens
+ * every entry at once. If the first entry's `tier` is the *whole* `VerdictTier`
+ * union rather than one name, the literals are gone and `UntiledVerdictTier` is
+ * vacuously `never`. Written without naming `'strong_fit'` so that reordering
+ * or renaming tiles does not touch it.
+ */
+const _VERDICT_TIERS_KEEPS_ENTRY_LITERALS: [VerdictTier] extends [(typeof VERDICT_TIERS)[0]['tier']]
+  ? ['VERDICT_TIERS has an explicit type annotation; the exhaustiveness check above is vacuous']
+  : true = true;
+void _VERDICT_TIERS_KEEPS_ENTRY_LITERALS;
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
