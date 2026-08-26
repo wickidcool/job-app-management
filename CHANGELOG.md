@@ -8,6 +8,15 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Changed — Web reads the interview-prep relevance score as `relevanceScorePct` (2026-08-26)
+
+The interview-prep population is the one that deviates from ADR-008 §1: it is a `0-100` integer, persisted as an `integer` column and produced by an LLM prompt that asks for one. Per §2 it therefore carries its unit **in its name**. This is the frontend half of that rename; the wire change is WIC-1520.
+
+- **Six consumers renamed** — `types/interviewPrep.ts`, `STARStoryBank` (sort, badge, render), `QuestionsList`, `GapMitigationPanel`, `QuickReferenceExport`, `InterviewPrepPage`. All six were already *correct* as percent renders; they are renamed so the name carries the unit, not because they were wrong. `InterviewPrepPage`'s `>= 80` is right here — this population really is `0-100`.
+- **`PrepStory.relevanceScorePct` is typed `Percent`**, so it cannot be crossed with a job-fit `relevanceScore: Ratio`.
+- **Completeness is compiler-enforced, not grepped** — because the property no longer exists on `PrepStory`, any missed or reintroduced site is a `TS2551`. Measured by reverting one consumer: two errors, naming the replacement. No source-scanning drift test was added; it would restate what `tsc` already proves.
+- ⚠️ **Breaking wire change — do not merge before WIC-1520.** Until the API emits `relevanceScorePct`, these six sites read `undefined` and render `undefined%`.
+
 ### Fixed — The STAR entry picker read a `[0, 1]` relevance score as `0-100` (2026-08-26)
 
 `StarEntryPicker` split its "Recommended (from fit analysis)" section on `relevanceScore >= 80` and rendered the badge as `{relevanceScore}%`. Both are the `0-100` reading. `CatalogEntry.relevanceScore` is the **job-fit population**, a ratio in `[0, 1]` (ADR-008 §1, `packages/api/src/types/index.ts` → `CatalogEntryDTO`). The defect never fired only because the field's sole producer, `catalog.service.ts`, still hardcodes `relevanceScore: undefined`. On the day the job-fit path populates it, no entry could clear `0.85 >= 80`, so the Recommended section would have been **structurally always empty**, and any badge that did render would have read `0.85%` (WIC-1521, the latent instance recorded in ADR-008 §Context).
