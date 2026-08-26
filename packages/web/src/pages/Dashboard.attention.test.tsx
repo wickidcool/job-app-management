@@ -90,7 +90,10 @@ function seedDashboardResponse(rows: SeedRow[]): DashboardResponse {
       },
       appliedThisWeek: 0,
       appliedThisMonth: 0,
-      responseRate: 0,
+      // WIC-1514: the unit of `responseRate` is owned by `DashboardResponse`.
+      // Indexing the type keeps this fixture correct both before and after the
+      // ratio brand lands (PR #165), without importing a module this branch lacks.
+      responseRate: 0 as DashboardResponse['stats']['responseRate'],
     },
     recentActivity: [],
     attention: {
