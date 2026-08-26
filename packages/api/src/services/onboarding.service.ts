@@ -1,7 +1,13 @@
 import { eq, and } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
-import { onboardingStatus, type OnboardingStatus, type OnboardingStep } from '../db/schema.js';
+import {
+  applications,
+  onboardingStatus,
+  resumes,
+  type OnboardingStatus,
+  type OnboardingStep,
+} from '../db/schema.js';
 import { NotFoundError, VersionConflictError } from '../types/index.js';
 
 /**
@@ -129,21 +135,71 @@ export async function completeOnboarding(userId: string): Promise<OnboardingStat
 }
 
 /**
+ * Has the user actually engaged with the onboarding flow, or is this row just the
+ * one `GET /users/me/onboarding/status` auto-creates on first page load?
+ *
+ * A pristine row — still on `welcome`, with nothing completed or skipped — carries no
+ * user intent and must not be read as "mid-onboarding". Every established user who
+ * opened the app before WIC-1359 shipped has exactly that row, auto-created for them.
+ */
+function hasEngagedWithOnboarding(status: OnboardingStatus): boolean {
+  return (
+    status.currentStep !== 'welcome' ||
+    status.personalInfoStepCompleted ||
+    status.personalInfoStepSkipped ||
+    status.resumeStepCompleted ||
+    status.resumeStepSkipped ||
+    status.applicationStepCompleted ||
+    status.applicationStepSkipped
+  );
+}
+
+/**
+ * Does the user already have the work onboarding exists to bootstrap?
+ *
+ * Existence probes rather than counts: we only need "any", and the resume probe
+ * short-circuits the second round trip in the common case.
+ */
+async function hasExistingWork(userId: string): Promise<boolean> {
+  const db = getDb();
+
+  const [resume] = await db
+    .select({ id: resumes.id })
+    .from(resumes)
+    .where(eq(resumes.userId, userId))
+    .limit(1);
+  if (resume) {
+    return true;
+  }
+
+  const [application] = await db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(eq(applications.userId, userId))
+    .limit(1);
+  return application !== undefined;
+}
+
+/**
  * Check if user needs onboarding (first-time user detection)
  */
 export async function shouldShowOnboarding(userId: string): Promise<boolean> {
   const status = await getOnboardingStatus(userId);
 
-  // If no onboarding record exists, user needs onboarding
-  if (!status) {
-    return true;
-  }
-
   // If already completed, don't show onboarding
-  if (status.completedAt !== null || status.currentStep === 'completed') {
+  if (status && (status.completedAt !== null || status.currentStep === 'completed')) {
     return false;
   }
 
-  // User is mid-onboarding, should show it
-  return true;
+  // Mid-flow: the user is working through the steps right now. Their resume and
+  // application history is a *product* of the flow, so the AC-10 check below would
+  // eject them from their own onboarding the moment they uploaded a first resume.
+  if (status && hasEngagedWithOnboarding(status)) {
+    return true;
+  }
+
+  // No row, or a pristine auto-created one — we have never seen this user in the
+  // flow. WIC-238 AC-10: a user who already has a resume or an application is a
+  // returning user, and onboarding is not for them.
+  return !(await hasExistingWork(userId));
 }
