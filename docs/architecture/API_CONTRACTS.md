@@ -2,25 +2,68 @@
 
 ## Overview
 
-This document defines the REST API contracts for the Job Application Manager backend. The API runs locally on the user's machine via a Fastify server.
+This document defines the REST API contracts for the Job Application Manager backend.
+The API is a **Hono** application deployed as a single **Cloudflare Worker**
+(`packages/api/src/worker.ts`), which serves both the `/api/*` routes and the built React
+SPA. It is backed by Supabase Postgres — reached through a Cloudflare Hyperdrive
+connection pool — and Cloudflare R2 for document storage. The same Hono app
+(`packages/api/src/app.ts`) also runs on Node.js via `@hono/node-server` for local
+development.
+
+This is a hosted, multi-user cloud service. It is not a local-only application, and
+authentication is required in production — see [Authentication](#authentication).
 
 ## Base URL
 
-```
-http://localhost:3000/api
-```
+| Environment | Base URL | Notes |
+|-------------|----------|-------|
+| Production | `https://app.careerpin.app/api` | The deployed Worker |
+| Browser / SPA | `/api` | Same-origin; the Worker serves the SPA and the API together. Overridable at build time with `VITE_API_BASE_URL` |
+| Local dev (Node) | `http://localhost:3000/api` | `npm run dev:api` |
+| Local dev (Worker) | `http://localhost:8787/api` | `npm run dev:worker` — `wrangler dev`'s default port, with R2/Hyperdrive emulation |
 
-The API runs entirely locally. No cloud endpoints or external authentication required.
+> The apex domain `careerpin.app` is the **marketing site**, not the API. Requests to
+> `https://careerpin.app/api/...` return the marketing HTML page with a `200`, not JSON.
+> Use the `app.` subdomain.
 
 ## Authentication
 
-**Single-user mode (default)**: No authentication required. The application runs locally and serves one user.
-
-**Optional multi-user mode**: If enabled, use session-based auth:
+All `/api/*` routes are wrapped by the JWT auth middleware
+(`packages/api/src/middleware/auth.ts`, mounted at `app.ts:103`). Send a Supabase-issued
+access token as a bearer token:
 
 ```
-Cookie: session=<session_token>
+Authorization: Bearer <jwt>
 ```
+
+The `Bearer ` prefix is required. Tokens are verified server-side with `jose`: `ES256` and
+`RS256` tokens are verified against the JWKS of the issuer named in the token's own `iss`
+claim (audience `authenticated`), and `HS256` tokens against `SUPABASE_JWT_SECRET`. The
+authenticated user id is the token's `sub` claim.
+
+**Obtaining a token**: `POST /api/auth/login` with `{ email, password }` returns
+`{ token, user }`. `POST /api/auth/register` returns the same shape with `201` when
+Supabase issues a session immediately, or `200` with a "check your email" message when
+email confirmation is pending.
+
+**Exempt paths** — the only routes reachable without a token:
+
+- `POST /api/auth/login`
+- `POST /api/auth/register`
+- `POST /api/auth/logout`
+
+(`GET /health` sits outside the `/api` mount entirely and is likewise unauthenticated.)
+
+**Auth bypass (local only)**: the middleware skips verification and sets the user id to
+`null` when **both** `SUPABASE_URL` and `SUPABASE_JWT_SECRET` are absent — the
+single-user local-development case. Both are set in production, so production always
+requires a valid JWT. If Supabase is not configured, the `/api/auth/*` endpoints
+themselves return `503 NOT_CONFIGURED`.
+
+> Some `curl` examples further down this document use the local dev base URL and omit the
+> `Authorization` header, which only works under that local bypass. To run any of them
+> against production, swap the host for `https://app.careerpin.app` **and** add
+> `-H "Authorization: Bearer <jwt>"`.
 
 ## Common Response Codes
 
@@ -30,9 +73,14 @@ Cookie: session=<session_token>
 | 201 | Created |
 | 204 | No Content (successful delete) |
 | 400 | Bad Request (validation error) |
+| 401 | Unauthorized (`UNAUTHORIZED` — missing/malformed `Authorization` header, or an invalid or expired token) |
 | 404 | Not Found |
 | 409 | Conflict (version mismatch or invalid status transition) |
+| 415 | Unsupported Media Type (file upload of a type other than PDF or DOCX) |
+| 422 | Unprocessable Entity (job-description parse failure or source-URL fetch timeout) |
+| 429 | Too Many Requests (AI rate limit; `details.retryAfter` carries the reset) |
 | 500 | Internal Server Error |
+| 503 | Service Unavailable (AI provider or Supabase auth not configured; database temporarily unreachable) |
 
 ## Error Response Format
 
@@ -64,6 +112,30 @@ interface ErrorResponse {
 
 ---
 
+## Pagination
+
+List endpoints are cursor-paginated. Request a page size with `limit` (each endpoint
+documents its own default and maximum), omit the cursor parameter to get the first
+page, and pass the cursor from the previous response back to get the next one. The
+absence of a cursor in a response means there are no further pages.
+
+Two naming conventions are in use:
+
+| Endpoint | Request parameter | Response field |
+|----------|-------------------|----------------|
+| `GET /applications` | `page` | `nextPage` |
+| All other list endpoints | `cursor` | `nextCursor` |
+
+**Treat cursors as opaque.** Send back the exact string the previous response gave you.
+Do not construct, decode, modify, or store them — the encoding is an implementation
+detail that may change without a version bump. A cursor this API did not issue is not a
+supported input: it may return an error rather than a page of results.
+
+An absent cursor and an empty-string cursor both mean "first page"; they are
+indistinguishable at the query-parameter layer.
+
+---
+
 ## Endpoints
 
 ### Applications
@@ -86,14 +158,14 @@ Returns all applications for the authenticated user.
 | `sortBy` | string | No | Sort field: `createdAt`, `updatedAt`, `company` (default: `updatedAt`) |
 | `sortOrder` | string | No | `asc` or `desc` (default: `desc`) |
 | `limit` | number | No | Max results (default: 50, max: 100) |
-| `cursor` | string | No | Pagination cursor from previous response |
+| `page` | string | No | Pagination cursor from the previous response's `nextPage`. Note this endpoint uses `page`/`nextPage`, not `cursor`/`nextCursor` — see [Pagination](#pagination). |
 
 **Response**: `200 OK`
 
 ```typescript
 interface ListApplicationsResponse {
   applications: Application[];
-  nextCursor?: string;       // For pagination
+  nextPage?: string;         // Pass back as `page`; absent on the last page
   totalCount: number;        // Total matching applications
 }
 
@@ -148,9 +220,17 @@ curl -X GET "https://api.example.com/v1/applications?status=applied,phone_screen
       "appliedAt": "2026-04-15T10:30:00.000Z"
     }
   ],
-  "nextCursor": "eyJQSyI6IlVTRVIjNTUwZTg0MDAiLCJTSyI6IkFQUCMwMUhYSzVSM0o3UTh...",
-  "totalCount": 27
+  "nextPage": "NTA",
+  "totalCount": 127
 }
+```
+
+The request above omits `limit`, so it returns the first 50 of 127 matches. To fetch the
+next page, send the `nextPage` value back verbatim as `page`:
+
+```bash
+curl -X GET "https://api.example.com/v1/applications?status=applied,phone_screen&sortBy=updatedAt&page=NTA" \
+  -H "Authorization: Bearer <token>"
 ```
 
 ---
@@ -531,7 +611,7 @@ export interface ListApplicationsParams {
   sortBy?: 'createdAt' | 'updatedAt' | 'company';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
-  cursor?: string;
+  page?: string;             // Opaque; from the previous response's `nextPage`
 }
 
 // === Response Types ===
@@ -591,7 +671,7 @@ export type ApplicationStatus =
 export interface ApplicationsApi {
   list(params?: ListApplicationsParams): Promise<{
     applications: Application[];
-    nextCursor?: string;
+    nextPage?: string;
     totalCount: number;
   }>;
   
@@ -710,7 +790,7 @@ Returns a paginated list of catalog change diffs.
 |-----------|------|----------|-------------|
 | `status` | string | No | Filter by status: `pending`, `approved`, `rejected`, `partial`, `expired` |
 | `limit` | number | No | Max results (default: 20, max: 100) |
-| `cursor` | string | No | Pagination cursor (base64url-encoded offset) |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -911,7 +991,7 @@ GET /catalog/companies
 | `search` | string | No | Search by name or alias |
 | `includeDeleted` | boolean | No | Include soft-deleted entries (default: false) |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -984,7 +1064,7 @@ GET /catalog/tags/:type
 | `needsReview` | boolean | No | Filter to tags flagged for review |
 | `search` | string | No | Search by slug or display name |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -1076,7 +1156,7 @@ GET /catalog/quantified-bullets
 | `impactCategory` | string | No | Filter by category: `revenue`, `cost_savings`, `efficiency`, `team_leadership`, `user_growth`, `performance`, `other` |
 | `sourceId` | string | No | Filter by source document ID |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -1119,7 +1199,7 @@ GET /catalog/themes
 | `coreOnly` | boolean | No | Return only `isCoreStrength` themes |
 | `includeHistorical` | boolean | No | Include themes marked as historical |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -1947,7 +2027,7 @@ Returns saved cover letters with search and filtering.
 | `company` | string | No | Filter by target company (partial match) |
 | `search` | string | No | Search in title, company, role, content |
 | `limit` | number | No | Max results (default: 20, max: 100) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
