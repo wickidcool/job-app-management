@@ -144,7 +144,7 @@ Production secrets are set with `wrangler secret put`; non-secret vars live in `
 - [API Contracts](docs/architecture/API_CONTRACTS.md) · [Data Model](docs/architecture/DATA_MODEL.md)
 - [Analytics — Event Taxonomy & KPIs](docs/analytics/metrics-baseline.md) · [Dashboard Spec](docs/analytics/dashboard-spec.md)
 - [Self-Hosting](docs/SELF_HOST.md)
-- ADRs: [ADR-0001 (fleet secrets standard)](docs/architecture/adr/ADR-0001-fleet-secrets-credential-management.md) · [ADR-004 (R2 storage)](docs/architecture/adr/ADR-004-cloudflare-r2-storage.md) · [ADR-006 (Hono)](docs/architecture/adr/ADR-006-hono-framework-workers.md) · [ADR-003 (multi-user auth)](docs/architecture/adr/ADR-003-multi-user-auth.md)
+- ADRs: [ADR-0001 (fleet secrets standard)](docs/architecture/adr/ADR-0001-fleet-secrets-credential-management.md) · [ADR-004 (R2 storage)](docs/architecture/adr/ADR-004-cloudflare-r2-storage.md) · [ADR-006 (Hono)](docs/architecture/adr/ADR-006-hono-framework-workers.md) · [ADR-003 (multi-user auth)](docs/architecture/adr/ADR-003-multi-user-auth.md) · [ADR-008 (score/rate units)](docs/architecture/adr/ADR-008-score-and-rate-unit-convention.md)
 
 ## Development Guidelines
 

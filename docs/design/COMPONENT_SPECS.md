@@ -2,6 +2,28 @@
 
 This document defines all reusable UI components with their states, variants, props, and behaviors.
 
+## Reading the props: score and rate units
+
+**Every normalized score, rate and proportion in a props interface below is a ratio in `[0, 1]`,
+and the component multiplies by 100 at render.** A prop that deviates carries `Pct` in its name.
+The convention is [ADR-008](../architecture/adr/ADR-008-score-and-rate-unit-convention.md) and its
+normative statement is the "Units: normalized scores and rates" section of
+[API_CONTRACTS.md](../architecture/API_CONTRACTS.md) — this document does not restate the rule,
+it obeys it.
+
+This is worth reading before you write a threshold or a `%`. Six of this document's own
+`relevanceScore` declarations were annotated `0-100` while shipped code produced `0-1`; five of
+them were simply wrong, and `StarEntryPicker`'s `>= 80` filter is the bug those comments
+authorised (WIC-1516). The rule of thumb:
+
+| You wrote | On a ratio prop, that means |
+|---|---|
+| `score >= 80` | never true — you want `>= 0.8` |
+| `{score}%` | renders `0.85%` — you want `{Math.round(score * 100)}%` |
+
+`packages/web/src/types/units.ts` exports `Ratio`, `Percent` and `toPercent`; typing a prop
+`Ratio` turns both mistakes above into compile errors.
+
 ## Reading the wireframes: casing
 
 The ASCII wireframes below depict **rendered output**, not source strings. An all-caps label in a
@@ -1072,7 +1094,7 @@ interface CatalogMatch {
   type: 'skill' | 'experience' | 'achievement'
   catalogItemId: string
   title: string
-  matchConfidence: number  // 0-100
+  confidence: number  // Ratio in [0,1] — the API field is `confidence` (API_CONTRACTS.md:974). ADR-008 §4
   reasoning: string
 }
 
@@ -1084,7 +1106,7 @@ interface Gap {
 
 interface STARRecommendation {
   experienceId: string
-  relevanceScore: number  // 0-100
+  relevanceScore: number  // Ratio in [0,1] — job-fit population (ADR-008)
   reasoning: string
 }
 
@@ -2236,7 +2258,7 @@ interface STAREntry {
   result: string
   tags: string[]
   timeframe: string              // e.g., "Q3 2024"
-  relevanceScore?: number        // 0-100, from fit analysis
+  relevanceScore?: number        // Ratio in [0,1] — from fit analysis, so it is the job-fit population (ADR-008). Render as `Math.round(s * 100)`; a `>= 80` threshold is a bug, use `>= 0.8`
   relevanceReasoning?: string
 }
 ```
@@ -2566,7 +2588,7 @@ interface ScoredBullet {
   company: string
   timeframe: string
   tags: string[]
-  relevanceScore: number           // 0-100
+  relevanceScore: number           // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string
   selected: boolean
 }
@@ -2817,7 +2839,7 @@ interface ScoredBullet {
   company: string
   timeframe: string
   tags: string[]
-  relevanceScore: number           // 0-100
+  relevanceScore: number           // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string
   starEntry: {
     situation: string
@@ -3155,7 +3177,7 @@ interface MarkdownResumePreviewProps {
 
 interface BulletTrace {
   starEntryId: string
-  relevanceScore: number
+  relevanceScore: number  // Ratio in [0,1] — resume-variant population (ADR-008)
   company: string
   title: string
 }
@@ -3444,7 +3466,7 @@ interface STARStory {
   id: string
   title: string
   themes: string[] // 'leadership' | 'technical' | 'teamwork' | 'problem_solving' | 'communication' | 'innovation'
-  relevanceScore: number // 0-100
+  relevanceScorePct: number // Percent in [0,100], integer — interview-prep population, the one deviation (ADR-008 §4)
   situation: string
   task: string
   action: string
@@ -3570,7 +3592,7 @@ type Theme = {
 - **ARIA Role:** `tablist` for themes, `listbox` for stories
 - **Tab Navigation:** Tab between theme tabs, Enter to select
 - **Arrow Keys:** Navigate between story cards
-- **Screen Reader:** "{title}, {relevanceScore}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
+- **Screen Reader:** "{title}, {relevanceScorePct}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
 
 ### Responsive Behavior
 
