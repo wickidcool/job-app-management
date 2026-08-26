@@ -186,8 +186,26 @@ describe('by-fit-tier tile blurbs', () => {
     const source = readFileSync(page, 'utf8');
 
     const shipped = new Map<string, string>();
-    const entry = /tier:\s*'(strong_fit|moderate_fit|stretch|low_fit)',\s*\n\s*blurb:\s*'([^']*)'/g;
-    for (const [, tier, blurb] of source.matchAll(entry)) shipped.set(tier, blurb);
+    // Quote-agnostic on purpose. `.prettierrc` sets `singleQuote: true`, which
+    // means prettier flips a string to *double* quotes the moment it contains an
+    // apostrophe — and "isn't" / "doesn't" / "you're" is exactly what a copy pass
+    // over these four strings (WIC-1318) introduces. A single-quote-only pattern
+    // would silently drop that tier from the map, and the deep-equal below would
+    // then report `low_fit: undefined` — byte-identical to a genuine drift
+    // failure, and readable as "the blurb went missing", which invites weakening
+    // this check rather than fixing the pattern.
+    const entry =
+      /tier:\s*'(strong_fit|moderate_fit|stretch|low_fit)',\s*\n\s*blurb:\s*(['"])((?:(?!\2).)*)\2/g;
+    for (const [, tier, , blurb] of source.matchAll(entry)) shipped.set(tier, blurb);
+
+    // Arity before content, so an extraction failure is distinguishable from
+    // real copy drift: this line fires when a tier could not be read at all.
+    expect([...shipped.keys()].sort()).toEqual([
+      'low_fit',
+      'moderate_fit',
+      'stretch',
+      'strong_fit',
+    ]);
 
     expect(Object.fromEntries(TIER_CLAIMS.map((c) => [c.tier, shipped.get(c.tier)]))).toEqual(
       Object.fromEntries(TIER_CLAIMS.map((c) => [c.tier, c.blurb]))
