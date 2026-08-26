@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { _resetConfig } from '../src/config.js';
@@ -48,44 +50,69 @@ function makeAssets(files: Record<string, string>, spaFallback = true) {
 
 const ASSET_FILES = { '/index.html': SHELL, '/assets/index-abc.js': 'console.log(1)' };
 
-// Every path-based React Router route a user can land on directly (App.tsx). This list
-// is the load-bearing assertion of the suite: it stayed green through the WIC-1020
-// fold-in only because it omitted /projects/:projectId/files/:fileName, the one route
-// whose URLs carry an extension. Keep it exhaustive against App.tsx — a route missing
-// here is a deep link nothing tests.
-const CLIENT_ROUTES = [
-  '/',
-  '/login',
-  '/dashboard',
-  '/applications',
-  '/applications/new',
-  '/applications/01HZX',
-  '/applications/01HZX/prep',
-  '/catalog',
-  '/cover-letters/new',
-  '/cover-letters/01HZX',
-  '/job-fit-analysis',
-  '/outreach/new',
-  '/reports',
-  '/reports/pipeline',
-  '/reports/needs-action',
-  '/reports/stale',
-  '/reports/closed-loop',
-  '/reports/by-fit-tier',
-  '/resumes',
-  '/resumes/upload',
-  '/resumes/exports',
-  '/resume-variants',
-  '/resume-variants/new',
-  '/resume-variants/01HZX',
-  '/settings',
-  '/projects',
-  '/projects/new/dialogue',
-  '/projects/acme-corp-engineer',
-  // The route the extension heuristic swallowed. Requested with no navigation headers
-  // on purpose — a deep link must not depend on Sec-Fetch-*/Accept to reach the shell.
-  '/projects/acme-corp-engineer/files/acme-corp-engineer.md',
+/**
+ * Every path-based React Router route a user can land on directly, read out of App.tsx
+ * rather than mirrored by hand.
+ *
+ * The fallback's job is defined entirely by that file: any path React Router can render
+ * must get the shell. A hand-kept copy states the same claim but stops being true the
+ * first time a route is added and this list is not — silently, because the suite still
+ * goes green on the routes it does know. Reading the source of truth makes a new route
+ * covered by construction.
+ */
+const APP_TSX = fileURLToPath(new URL('../../web/src/App.tsx', import.meta.url));
+const APP_SOURCE = readFileSync(APP_TSX, 'utf8');
+
+const DECLARED_PATHS = [...APP_SOURCE.matchAll(/\bpath="([^"]*)"/g)].map((m) => m[1]);
+
+// Counting the bare attribute name is independent of how the extractor reads its value,
+// so a declaration form this regex cannot parse (path={...}, single quotes) trips the
+// parity test below instead of quietly shrinking coverage to the routes it still matches.
+const PATH_ATTRIBUTE_COUNT = APP_SOURCE.split(/\bpath=/).length - 1;
+
+/**
+ * A stand-in value per `:param`, not one value for all of them.
+ *
+ * Substituting a single opaque token everywhere reads as a harmless detail and is not:
+ * the guard the fallback keys on is the *shape* of the final segment, so a token with no
+ * extension makes every derived URL structurally unable to observe it. That is exactly
+ * how `/projects/:projectId/files/:fileName` went untested through WIC-1020 — the one
+ * route whose URLs carry a dot became the one route the suite could not see.
+ *
+ * Each sample must therefore be representative of what its route can actually produce,
+ * not merely well-formed. `project.service.ts` rejects any `fileName` not ending in
+ * `.md`, so a `:fileName` sample without an extension is not a valid URL for that route.
+ */
+const PARAM_SAMPLES: Record<string, string> = {
+  id: '01HZX',
+  projectId: 'acme-corp-engineer',
+  fileName: 'acme-corp-engineer.md',
+  // Declared by PR #87 (/resumes/:resumeId/exports). #88 merges last, so the sample
+  // lands ahead of the param; an unused entry is inert (no reverse assertion).
+  resumeId: '01HZX',
+};
+
+const DECLARED_PARAMS = [
+  ...new Set(DECLARED_PATHS.flatMap((p) => [...p.matchAll(/:([^/]+)/g)].map((m) => m[1]))),
 ];
+
+// A param added to App.tsx with no sample here would otherwise be substituted with
+// nothing in particular and silently tested at a URL its route cannot produce.
+const UNSAMPLED_PARAMS = DECLARED_PARAMS.filter((name) => !(name in PARAM_SAMPLES));
+
+function withSampleParams(path: string): string {
+  return path.replace(/:([^/]+)/g, (whole, name: string) => PARAM_SAMPLES[name] ?? whole);
+}
+
+// A wildcard is the layout wrapper (/*) or the catch-all (*) — neither is a landable
+// route, and the catch-all is what renders NotFound once the shell is served.
+const CLIENT_ROUTES = [
+  ...new Set(DECLARED_PATHS.filter((p) => !p.includes('*')).map(withSampleParams)),
+];
+
+// The final segment is what FILE_REQUEST inspects, so a dot anywhere earlier does not
+// exercise the guard.
+const ROUTES_WITH_EXTENSION = CLIENT_ROUTES.filter((p) => p.split('/').pop()?.includes('.'));
 
 // A browser navigating (address bar, refresh, followed link) sends these. Requests in
 // the suite that omit them stand in for subresource fetches and non-browser clients.
@@ -108,6 +135,31 @@ describe('SPA fallback (WIC-1004)', () => {
   afterEach(() => {
     process.env = originalEnv;
     _resetConfig();
+  });
+
+  it('reads every route declaration in App.tsx', () => {
+    // Not a floor on the count — an equality against a second, independent count of the
+    // same declarations. Dropping or rewording any one of them fails here, where a
+    // "more than N routes" assertion would stay green until nearly all of them broke.
+    expect(DECLARED_PATHS).toHaveLength(PATH_ATTRIBUTE_COUNT);
+    expect(CLIENT_ROUTES).toContain('/');
+    expect(CLIENT_ROUTES.every((p) => p.startsWith('/'))).toBe(true);
+  });
+
+  it('has a representative sample for every route param App.tsx declares', () => {
+    // Named rather than counted: the failure message has to say *which* param went
+    // unsampled, because the fix is to add a value that route can really produce.
+    expect(UNSAMPLED_PARAMS).toEqual([]);
+  });
+
+  it('still covers at least one route whose URL carries an extension', () => {
+    // The standing alarm on the WIC-1027 blind spot. `FILE_REQUEST` only fires on a
+    // dotted final segment, and the navigation exemption means every request sent with
+    // NAVIGATION headers is exempt from it by construction — so the routes below,
+    // requested bare, are the only thing in this suite that can observe the guard at
+    // all. If App.tsx or PARAM_SAMPLES ever leaves none of them dotted, the suite goes
+    // on passing while testing nothing about the file-request path: fail here instead.
+    expect(ROUTES_WITH_EXTENSION.length).toBeGreaterThan(0);
   });
 
   it.each(CLIENT_ROUTES)('serves the SPA shell for %s', async (path) => {

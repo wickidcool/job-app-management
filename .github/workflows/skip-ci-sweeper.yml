@@ -1,0 +1,216 @@
+name: Skip-CI Sweeper
+
+# WIC-1250. Companion to skip-ci-guard.yml (WIC-1212), which is correct but
+# UNREACHABLE in two situations. Measured 2026-08-25: the guard had executed
+# 0 times since merging, and could never execute on PR #102.
+#
+# WHY THE GUARD ALONE IS NOT ENOUGH:
+#
+#   1. `pull_request_target` resolves the workflow file from the BASE branch
+#      tip, not the PR head. skip-ci-guard.yml exists only on `main`, so a PR
+#      stacked on a feature branch that predates it (#102, base
+#      docs/wic1184-deshout-quickref-wireframes) has no workflow to load.  secret-scan:allow
+#      (WIC-1261: the token above is a git branch name, not credential
+#      material. The secret-scan entropy heuristic reads a 35-char
+#      kebab-case branch name as a high-entropy token; the trailing pragma
+#      exempts this one comment line without weakening the scan anywhere
+#      else.) Its `branches: ['**']` filter widens which bases are
+#      *matched*; it cannot widen which bases *contain the file*. This is
+#      the WIC-1138 / #94 blind spot returning through a different
+#      mechanism: there the workflow came from the PR head so shipping the
+#      fix on the branch sufficed, here it does not.
+#
+#   2. `pull_request_target` is edge-triggered and does not retro-fire. Every
+#      PR open when the guard merged carries no verdict until its next push or
+#      retarget.
+#
+# WHY A SWEEP FIXES BOTH: `schedule` and `workflow_dispatch` always run the
+# workflow from the DEFAULT branch, whatever the PR's base is, and they are not
+# events a commit can suppress. So this job is immune to base-branch drift, to
+# skip markers, and to the edge-trigger gap all at once — and because it
+# enumerates open PRs itself rather than reacting to one, it re-states a verdict
+# for every open PR on every pass with no push needed.
+#
+# It publishes a COMMIT STATUS (not a check run) so that the context below can
+# be named as a required status check in a repository ruleset. That is the part
+# that makes the whole thing fail-closed: a required check that has not yet
+# reported leaves a PR pending rather than CLEAN, so an unreachable guard stops
+# reading as a green light.
+#
+# SECURITY: like the guard, this job never checks out or executes PR head code.
+# There is no actions/checkout and no run: step. It reads the changed-file list
+# and head commit message over the API only.
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub may delay scheduled runs under load; the ruleset
+    # is what holds the gate shut in the meantime, so lateness costs visibility,
+    # never enforcement.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: skip-ci-sweeper
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Sweep open PRs for skip-marker vs runtime code
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Evaluate every open PR and publish a commit status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            // The status context named by the repository ruleset. Changing this
+            // string silently detaches the gate — update the ruleset too.
+            const CONTEXT = 'skip-ci-sweep';
+
+            // ---------------------------------------------------------------
+            // KEEP IN SYNC WITH .github/workflows/skip-ci-guard.yml.
+            // These two lists are duplicated on purpose: the guard runs with no
+            // checkout, so it cannot import a shared module, and adding one
+            // would mean giving it a checkout step it deliberately does not
+            // have. If you change SKIP_PATTERNS or ALLOWED, change both files.
+            // ---------------------------------------------------------------
+
+            // GitHub's documented skip keywords, plus the `skip-checks` trailer.
+            // Matched ANYWHERE in the message, not just the subject: PR #100's
+            // subject was clean but its body mentioned the marker in prose,
+            // inside backticks, and it still produced 0 runs.
+            const SKIP_PATTERNS = [
+              /\[\s*skip[ _-]?ci\s*\]/i,
+              /\[\s*ci[ _-]?skip\s*\]/i,
+              /\[\s*no[ _-]?ci\s*\]/i,
+              /\[\s*skip[ _-]?actions\s*\]/i,
+              /\[\s*actions[ _-]?skip\s*\]/i,
+              /\*\*\*NO_CI\*\*\*/i,
+              /^\s*skip-checks:\s*true\s*$/im,
+            ];
+
+            // Paths with no runtime surface, so there is nothing for CI to have
+            // proven. `.github/workflows/**` is here because a workflow-only
+            // change is exactly the no-deploy merge route this repo relies on.
+            const ALLOWED = [
+              (p) => p.startsWith('docs/'),
+              (p) => p.endsWith('.md'),
+              (p) => p.startsWith('.github/workflows/'),
+            ];
+
+            const runUrl =
+              `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+
+            const results = [];
+            const errors = [];
+
+            for (const pr of prs) {
+              try {
+                // A fork's head commit does not exist in this repository, so
+                // POSTing a status for it would 422 and abort the sweep.
+                const headRepo = pr.head.repo && pr.head.repo.full_name;
+                if (headRepo !== `${owner}/${repo}`) {
+                  results.push({ n: pr.number, state: 'skipped', why: `fork (${headRepo})` });
+                  continue;
+                }
+
+                const sha = pr.head.sha;
+
+                const { data: commit } = await github.rest.repos.getCommit({
+                  owner, repo, ref: sha,
+                });
+                const message = (commit.commit && commit.commit.message) || '';
+                const marker = SKIP_PATTERNS.find((re) => re.test(message));
+
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner, repo, pull_number: pr.number, per_page: 100,
+                });
+                const paths = files.map((f) => f.filename);
+                const runtime = paths.filter((p) => !ALLOWED.some((ok) => ok(p)));
+
+                let state, description;
+                if (!marker) {
+                  state = 'success';
+                  description = 'No CI skip marker on the head commit.';
+                } else if (runtime.length === 0) {
+                  state = 'success';
+                  description =
+                    `Skip marker present, but all ${paths.length} changed path(s) are docs/markdown/workflow-only.`;
+                } else {
+                  state = 'failure';
+                  description =
+                    `Skip marker "${message.match(marker)[0]}" with ${runtime.length} runtime path(s): ` +
+                    runtime.slice(0, 3).join(', ');
+                }
+                // The status description field is truncated by the API at 140.
+                description = description.length > 140
+                  ? `${description.slice(0, 137)}...`
+                  : description;
+
+                // Re-posting an identical status on every 15-minute pass would
+                // bury each commit's status history, so only write on change.
+                const { data: combined } = await github.rest.repos.getCombinedStatusForRef({
+                  owner, repo, ref: sha, per_page: 100,
+                });
+                const existing = combined.statuses.find((s) => s.context === CONTEXT);
+                if (existing && existing.state === state && existing.description === description) {
+                  results.push({ n: pr.number, state, why: 'unchanged' });
+                  continue;
+                }
+
+                await github.rest.repos.createCommitStatus({
+                  owner, repo, sha,
+                  state,
+                  context: CONTEXT,
+                  description,
+                  target_url: runUrl,
+                });
+                results.push({ n: pr.number, state, why: 'posted' });
+              } catch (err) {
+                errors.push(`#${pr.number}: ${err.message}`);
+                results.push({ n: pr.number, state: 'error', why: err.message });
+              }
+            }
+
+            const failing = results.filter((r) => r.state === 'failure');
+            const summary = core.summary
+              .addHeading('Skip-CI Sweeper', 2)
+              .addRaw(`Swept **${prs.length}** open PR(s). Status context: \`${CONTEXT}\`.\n\n`);
+
+            if (results.length) {
+              summary.addTable([
+                [{ data: 'PR', header: true }, { data: 'State', header: true }, { data: 'Note', header: true }],
+                ...results.map((r) => [`#${r.n}`, r.state, r.why]),
+              ]);
+            }
+
+            if (failing.length) {
+              summary.addRaw(
+                `\n**${failing.length} PR(s) pair a CI skip marker with runtime code:** ` +
+                `${failing.map((r) => `#${r.n}`).join(', ')}. ` +
+                `Each merges with no build evidence. Drop the marker (anywhere in the ` +
+                `message, body included) and force-push.\n`
+              );
+            } else {
+              summary.addRaw('\nNo open PR pairs a skip marker with runtime code.\n');
+            }
+            await summary.write();
+
+            core.info(JSON.stringify(results, null, 1));
+
+            // A sweep that could not evaluate a PR must not report success: the
+            // ruleset would otherwise be gated on a stale status.
+            if (errors.length) {
+              core.setFailed(`Could not evaluate ${errors.length} PR(s): ${errors.join('; ')}`);
+            }

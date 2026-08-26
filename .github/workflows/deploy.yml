@@ -3,16 +3,46 @@ name: Deploy
 on:
   push:
     branches: [main]
+  # Run PR checks regardless of base branch. `branches:` filters the BASE, so
+  # `[main]` silently gave stacked PRs (e.g. #92 -> #89, #93 -> #92) zero checks
+  # while GitHub still reported them mergeable — a green-looking PR that had in
+  # fact never been built. Production deploys stay gated on `push` to `main`
+  # (see the `deploy-production` job's `if:`), so this only widens PR coverage.
   pull_request:
-    branches: [main]
+    branches: ['**']
+  # WIC-1260: manual production deploy / rollback lever. Before this, the ONLY
+  # route to production was a non-`[skip ci]` push to `main` — so 14 consecutive
+  # `[skip ci]` merges left the lane unexercised for 6 days with no way to run it
+  # on demand, and no way to redeploy a known-good ref after a bad release.
+  # Dispatching this workflow deploys whatever `ref` you pick, at that ref's tree.
+  # It is a real production deploy and stays board-gated like any other.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you deploying manually? (recorded in the run summary)'
+        required: true
+        type: string
 
 env:
   NODE_VERSION: '20'
+
+# WIC-1095: supersede stale PR runs so an abandoned commit cannot hold a
+# concurrent-job slot for GitHub's 6h default. cancel-in-progress is scoped to
+# pull_request on purpose — on a push to main this run contains
+# `deploy-production` (wrangler deploy + DB migrations), and cancelling that
+# mid-flight is a far worse failure than a redundant run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-and-test:
     name: Lint & Test
     runs-on: ubuntu-latest
+    # WIC-1095: every job is bounded. Without this GitHub applies a 6h default,
+    # so a wedged network call becomes a permanently-pending required check that
+    # occupies a runner slot instead of failing visibly. Baseline ~1m15s.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -43,6 +73,13 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      # WIC-1195: the wireframes drifted out of sync with the components they
+      # describe four times (WIC-1127, -1184, -1187, -1205), each time caught by
+      # a reader rather than a check. This fails the build on a new unmarked
+      # all-caps label instead, so the next one is a red check, not ticket five.
+      - name: Audit wireframe casing
+        run: python3 docs/design/wireframe-casing-audit.py
+
       - name: Run tests
         run: npm run test
 
@@ -53,6 +90,10 @@ jobs:
     name: E2E Tests
     needs: lint-and-test
     runs-on: ubuntu-latest
+    # WIC-1095: baseline for this job is ~2m45s. 15 minutes is ~5x headroom and
+    # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
+    # red check in 15 min rather than a pending one for 6h.
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -66,8 +107,42 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # WIC-1095: apt has NO default network timeout, so a connection to a
+      # degraded mirror (azure.archive.ubuntu.com, 2026-08-19) never returns and
+      # `playwright install --with-deps` hangs forever. This config file is read
+      # by *every* apt invocation, including the one Playwright shells out to
+      # internally, which a flag on our own apt call would not cover.
+      - name: Harden apt against a degraded mirror
+        timeout-minutes: 2
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          Acquire::ftp::Timeout "30";
+          EOF
+
+      # WIC-1095: the browser download is ~90s of the step on every run. Keyed on
+      # the lockfile so a Playwright version bump busts it; a miss just costs the
+      # download back.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      # Split from the browser download so the log tells us which half stalled,
+      # and step-bounded so a wedged apt burns 6 minutes rather than the whole
+      # 15-minute job budget — leaving the tests themselves room to still run.
+      - name: Install Playwright system dependencies
+        timeout-minutes: 6
+        run: npx playwright install-deps chromium
+
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 6
+        run: npx playwright install chromium
 
       - name: Run E2E tests
         run: npx playwright test
@@ -87,13 +162,78 @@ jobs:
           path: playwright-report/
           retention-days: 14
 
+  # WIC-1203: does this PR change anything that writes to the shared dev
+  # database? Only such PRs need to serialize against each other (see the
+  # deploy-preview concurrency group below). Runs in parallel with
+  # lint-and-test, which is several times slower, so it costs no wall-clock.
+  detect-db-changes:
+    name: Detect DB Changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      touches_db: ${{ steps.check.outputs.touches_db }}
+    steps:
+      # Queried over the API rather than via checkout+diff: the merge ref's
+      # merge base is not always what `git diff` against the checked-out base
+      # would give on a stacked PR, and this needs no working tree at all.
+      - name: Check for DB-affecting paths
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
+          echo "Changed files:"
+          echo "$files"
+          # Everything the preview deploy's migration step can write:
+          # drizzle migrations + schema, and the idempotent RLS apply script.
+          # verify-rls.mjs is read-only but is included so a change to the
+          # gate itself is also serialized.
+          if printf '%s\n' "$files" | grep -qE '^(packages/api/src/db/(migrations/|schema\.ts)|packages/api/scripts/(apply|verify)-rls\.mjs|supabase/migrations/)'; then
+            echo "touches_db=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR touches the database — preview deploy will serialize on the shared dev DB."
+          else
+            echo "touches_db=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR does not touch the database — preview deploy runs in parallel."
+          fi
+
   deploy-preview:
     name: Deploy Preview
     # Only requires lint-and-test — E2E tests need a live environment and
     # should not gate PR preview deploys.
-    needs: [lint-and-test]
+    needs: [lint-and-test, detect-db-changes]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # WIC-1095: baseline ~1m5s.
+    timeout-minutes: 20
+    # WIC-1203: this job migrates the *shared* dev database, so two PRs racing
+    # here can both read the drizzle journal as un-applied and both attempt the
+    # same DDL. The workflow-level group above only serializes pushes to the
+    # SAME ref, which does not help across PRs.
+    #
+    # A blanket constant group would serialize all ~20 open PRs' previews behind
+    # each other, and because GitHub keeps only ONE pending run per group
+    # (queueing a third cancels the second), it would also silently drop preview
+    # deploys under load. So the group is constant only for the PRs that can
+    # actually collide on the DATABASE; every other PR keeps a per-PR group.
+    #
+    # cancel-in-progress is false on purpose: cancelling a migration mid-flight
+    # is the failure this is meant to prevent. Superseding repeated pushes to one
+    # PR is already handled by the workflow-level group (WIC-1095).
+    #
+    # WIC-1343 — SCOPE CORRECTION. This key protects the shared dev *database*
+    # only. The shared `jobtrail-preview` *Worker* is a second contended resource
+    # that `touches_db` cannot see, and non-DB PRs land in distinct groups and hit
+    # it concurrently by design. It is deliberately NOT folded into this group:
+    # widening the constant group to every PR would reintroduce exactly the
+    # silent-preview-drop failure described above. The Worker race is handled
+    # where it happens instead — see the deploy/secret-sync steps below.
+    concurrency:
+      group: ${{ needs.detect-db-changes.outputs.touches_db == 'true' && 'preview-db-migrate' || format('preview-deploy-{0}', github.event.pull_request.number) }}
+      cancel-in-progress: false
     environment: dev
     permissions:
       pull-requests: write
@@ -139,8 +279,11 @@ jobs:
       # Cloudflare probe. CLOUDFLARE_ACCOUNT_ID is passed so the CF check hits the
       # account-scoped token-verify endpoint — a least-privilege, account-scoped
       # Workers+R2 deploy token (the correct CI token) 401s on the user-scoped one.
-      # Advisory until we confirm no false positives on the real dev/prod tokens; flip
-      # to a hard gate (drop continue-on-error) once green in live runs.
+      # WIC-1009: the PRODUCTION job's copy of this step is now a hard gate. This
+      # preview copy stays advisory until WIC-760 is resolved: the dev-environment
+      # CLOUDFLARE_API_TOKEN is independently dead, so hard-gating here would only
+      # move an already-failing preview deploy's failure earlier and could mask
+      # unrelated PR feedback. Flip this one too once WIC-760 lands a live token.
       - name: Credential preflight (authenticated, advisory)
         continue-on-error: true
         run: npm run -w @wic/api preflight -- cloudflare supabase
@@ -196,6 +339,90 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # WIC-1343: the secret push is split out of wrangler-action's `secrets:`
+      # input and run as a pair of explicit steps around the deploy. Why:
+      #
+      # wrangler-action uploads secrets BEFORE it runs `command`, and
+      # `wrangler secret bulk` is a PATCH to
+      # /accounts/{a}/workers/scripts/jobtrail-preview/settings — the *version
+      # settings* API, which edits the latest version in place and therefore
+      # requires the latest version to be the currently-deployed one. Meanwhile
+      # `wrangler deploy` is upload-then-deploy, so between another job's upload
+      # and its deployment (~3s of an ~8s deploy, measured on run 32921346762)
+      # the Worker legitimately has latest != deployed. A concurrent
+      # `secret bulk` landing in that window fails with:
+      #
+      #   Script edit failed. You attempted to deploy the latest version with
+      #   modified settings, but the latest version isn't currently deployed.
+      #   [code: 10214]
+      #
+      # That is what killed run 32922501694 while four sibling PRs deployed.
+      # Because the old ordering put secrets first, the failure ALSO aborted the
+      # job before its own `wrangler deploy` — so a run cancelled mid-deploy (the
+      # workflow-level group cancels PR runs in progress) could leave the shared
+      # Worker with an undeployed latest version and no run left to clear it.
+      #
+      # The fix is ordering, not serialization:
+      #   1. try the secret sync first (advisory) so the happy path is unchanged
+      #      and code never runs ahead of a rotated secret;
+      #   2. deploy unconditionally — upload+deploy always leaves
+      #      latest == deployed, which HEALS the state 10214 complains about;
+      #   3. if and only if step 1 failed, re-sync with backoff. By now our own
+      #      deploy has restored a consistent version state, so the retry only
+      #      has to survive another job's ~3s window.
+      #
+      # `wrangler deploy` preserves existing secret_text bindings, so step 2
+      # running before a successful secret sync cannot strip the Worker's
+      # secrets. The production job is intentionally left alone: it only runs on
+      # push/dispatch against refs/heads/main, which the workflow-level
+      # concurrency group already serializes, so it has no concurrent writer.
+      - name: Sync preview Worker secrets (advisory, pre-deploy)
+        id: secrets_pre
+        continue-on-error: true
+        run: |
+          # Builds the same payload wrangler-action's `secrets:` input used to
+          # build, and pipes it to the same `wrangler secret bulk --env preview`
+          # on stdin — so nothing is written to disk and nothing is echoed.
+          # ANTHROPIC_API_KEY is optional by design (AI features degrade when it
+          # is unset), so an empty value is dropped with a warning rather than
+          # failing; the other four are already hard-gated by the
+          # "Validate required secrets" step above.
+          payload=$(python3 -c '
+          import json, os, sys
+          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL")
+          out = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          for k in keys:
+              if k not in out:
+                  print("::warning::preview secret %s is empty - not pushed to the Worker" % k, file=sys.stderr)
+          json.dump(out, sys.stdout)
+          ')
+          attempt=1
+          delay=5
+          while :; do
+            if printf %s "$payload" | npx wrangler secret bulk --env preview; then
+              echo "::notice::Preview Worker secrets synced on attempt ${attempt}/${ATTEMPTS}."
+              exit 0
+            fi
+            if [ "$attempt" -ge "$ATTEMPTS" ]; then
+              break
+            fi
+            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}). Cloudflare 10214 on the shared jobtrail-preview Worker is transient version contention (another PR's deploy is mid-flight); retrying in ${delay}s."
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+          echo "::error::Preview Worker secrets failed to sync after ${ATTEMPTS} attempt(s)."
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ATTEMPTS: '1'
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
       - name: Deploy preview to Cloudflare Workers
         id: deploy
         uses: cloudflare/wrangler-action@v3
@@ -204,14 +431,55 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           environment: preview
           command: deploy
-          secrets: |
-            SUPABASE_URL
-            SUPABASE_ANON_KEY
-            SUPABASE_JWT_SECRET
-            ANTHROPIC_API_KEY
-            DATABASE_URL
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
+      # Only runs when the pre-deploy attempt failed. This is the authoritative
+      # one: if it cannot get the secrets on after our own deploy has restored a
+      # consistent version state, the contention is not transient and the job
+      # should go red.
+      - name: Re-sync preview Worker secrets (retried, post-deploy)
+        if: steps.secrets_pre.outcome == 'failure'
+        run: |
+          # Byte-identical to the pre-deploy step except for ATTEMPTS. Kept
+          # inline rather than in .github/scripts/ on purpose: skip-ci-guard's
+          # allowlist is docs/ + *.md + .github/workflows/ only, so a helper
+          # script would put this change outside the repo's own no-deploy path.
+          payload=$(python3 -c '
+          import json, os, sys
+          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL")
+          out = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          for k in keys:
+              if k not in out:
+                  print("::warning::preview secret %s is empty - not pushed to the Worker" % k, file=sys.stderr)
+          json.dump(out, sys.stdout)
+          ')
+          attempt=1
+          delay=5
+          while :; do
+            if printf %s "$payload" | npx wrangler secret bulk --env preview; then
+              echo "::notice::Preview Worker secrets synced on attempt ${attempt}/${ATTEMPTS}."
+              exit 0
+            fi
+            if [ "$attempt" -ge "$ATTEMPTS" ]; then
+              break
+            fi
+            echo "::warning::wrangler secret bulk failed (attempt ${attempt}/${ATTEMPTS}). Cloudflare 10214 on the shared jobtrail-preview Worker is transient version contention (another PR's deploy is mid-flight); retrying in ${delay}s."
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+          echo "::error::Preview Worker secrets failed to sync after ${ATTEMPTS} attempt(s)."
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ATTEMPTS: '4'
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
@@ -235,13 +503,46 @@ jobs:
   deploy-production:
     name: Deploy Production
     needs: [lint-and-test, e2e-tests]
-    if: github.event_name == 'push'
+    # WIC-1260: `workflow_dispatch` alone does nothing — adding it to `on:` without
+    # widening this `if:` would create a run whose only real job is skipped. The
+    # gate is unchanged for every other event: `pull_request` still cannot reach
+    # production, it takes `deploy-preview` (env `dev`). Manual dispatch keeps the
+    # same `environment: production` protection rules and the same
+    # `production-deploy` concurrency group as a push, so a dispatch cannot race a
+    # merge-triggered deploy.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # WIC-1095: generous on purpose — this job runs DB migrations and a wrangler
+    # deploy, and a timeout that fires mid-migration is worse than a slow run.
+    timeout-minutes: 45
     environment: production
     concurrency:
       group: production-deploy
       cancel-in-progress: false
     steps:
+      # WIC-1260: a manual production deploy must leave an audit trail that does
+      # not depend on anyone remembering to write one. Records who dispatched it,
+      # against which ref, and the stated reason.
+      - name: Record manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        # `reason` is attacker-controllable text. It goes through `env:`, never
+        # interpolated into the shell body — a `${{ }}` expansion inside `run:` is
+        # substituted before bash parses the script, so a reason containing `;` or
+        # `$(...)` would execute on a production-credentialed runner.
+        env:
+          DISPATCH_ACTOR: ${{ github.actor }}
+          DISPATCH_REF: ${{ github.ref_name }}
+          DISPATCH_SHA: ${{ github.sha }}
+          DISPATCH_REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo "## Manual production deploy"
+            echo ""
+            echo "- **Dispatched by:** @${DISPATCH_ACTOR}"
+            echo "- **Ref:** \`${DISPATCH_REF}\` @ \`${DISPATCH_SHA}\`"
+            echo "- **Reason:** ${DISPATCH_REASON}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -281,10 +582,14 @@ jobs:
       # Cloudflare probe. CLOUDFLARE_ACCOUNT_ID is passed so the CF check hits the
       # account-scoped token-verify endpoint — a least-privilege, account-scoped
       # Workers+R2 deploy token (the correct CI token) 401s on the user-scoped one.
-      # Advisory until we confirm no false positives on the real dev/prod tokens; flip
-      # to a hard gate (drop continue-on-error) once green in live runs.
-      - name: Credential preflight (authenticated, advisory)
-        continue-on-error: true
+      # WIC-1009: flipped to a HARD GATE. This step must fail the job before
+      # "Run database migrations" below — otherwise a present-but-invalid
+      # CLOUDFLARE_API_TOKEN passes the presence-only check above, migrates the
+      # production database, and then dies at "Deploy to Cloudflare Workers",
+      # leaving prod schema ahead of prod code. Precondition for the flip (no false
+      # positives on the real prod token) was met in run 32191251045 (2026-08-18),
+      # where this step concluded `success` against the live prod credentials.
+      - name: Credential preflight (authenticated)
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -292,6 +597,7 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
+      # Gated by the preflight above (WIC-1009) — do not move this step earlier.
       - name: Run database migrations
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}

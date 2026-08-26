@@ -25,6 +25,7 @@ quarterly; individual rows may carry an earlier review date after an incident.
 |---|---|---|---|---|---|---|
 | `Github api key` (canonical GitHub PAT, `ghp_…`) | GitHub | DevOps / al@wickidcool.com | `repo`, `workflow`, `admin:org` (org automation). Trim `admin:org` if org-level actions stop being needed. | Annually, or on compromise | **2026-11-08** | Company secret store, key `Github api key` (see [precedence](./CREDENTIAL_PRECEDENCE.md), GitHub row) |
 | `GITHUB_TOKEN` (GH Actions ephemeral) | GitHub | GitHub Actions (auto) | Job-scoped, default read; elevate per-workflow only as needed | Per-run (ephemeral) | n/a (ephemeral) | GitHub Actions runtime |
+| `LAYER0_DRIVER_TOKEN` (org Actions secret) | GitHub | DevOps / al@wickidcool.com | **Target: `Actions: read and write` on all org repos and nothing else** — a GitHub App installation token (preferred) or a fine-grained PAT. Cross-repo `actions:write` is required and the ephemeral `GITHUB_TOKEN` cannot provide it at any scope. | Annually; **immediately on the v1 → target swap** | **2026-09-19** (deliberately early — see note below) | Org Actions secret `LAYER0_DRIVER_TOKEN`, visibility *selected* → `job-app-management` only |
 | `CLOUDFLARE_API_TOKEN` (prod, `cfut_…`) | Cloudflare | DevOps / CEO (account owner) | Pages: Edit; Workers Scripts: Edit; Account: Read — **account-scoped to the deploy account only**. Mis-scoped/over-broad tokens are the WIC-869 failure. | Annually, or on compromise | **2026-11-08** | Company Cloudflare token; installed as GitHub prod secret (WIC-633) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare | DevOps | Non-secret identifier; must match the token's account | On account change | 2026-11-08 | GH secret / CI env (`CLOUDFLARE_ACCOUNT_ID`) |
 | `SUPABASE_SERVICE_KEY` (`service_role`) | Supabase | DevOps / al@wickidcool.com | Server-side only; bypasses RLS. Never shipped to the client bundle. | On compromise | **2026-11-08** | Supabase project `fnmuvgnkxdeupprcyvdt` → Settings → API |
@@ -46,6 +47,31 @@ quarterly; individual rows may carry an earlier review date after an incident.
 | Credential | Provider | Owner | Required scopes (least-privilege) | Rotation cadence | Next review / expiry | Authoritative source |
 |---|---|---|---|---|---|---|
 | `POSTHOG_API_KEY` | PostHog | CEO | Project ingest key (analytics events) only | On compromise | On provision (WIC-821 blocker) | PostHog project settings — **not yet created** |
+
+### Note — `LAYER0_DRIVER_TOKEN` is a v1 stopgap (WIC-1113)
+
+`layer0-driver.yml` re-enables and dispatches the Layer 0 secret-history audit across all 13
+in-scope repos. Layer 0 auto-disables on **public** repos after 60 days of no repository
+activity, and auto-disable also blocks `workflow_dispatch` — so the driver must hold
+cross-repo `actions:write`, which the ephemeral `GITHUB_TOKEN` cannot grant.
+
+**Provisioned 2026-08-19 with the existing canonical PAT (`Github api key`, `ghp_…`) as a
+v1 stopgap.** That token carries `repo`, `workflow` and `admin:org` — far broader than the
+`actions:write` the driver actually uses. It was chosen only because a GitHub App and a
+fine-grained PAT both require a browser flow that no agent can complete; the alternative was
+leaving the control unarmed while 5 dormant public repos lost Layer 0 on ~2026-10-18.
+
+This row therefore carries a **deliberately early review date (2026-09-19)**. Closing it is a
+credential swap with **no code change** — the workflow reads `secrets.LAYER0_DRIVER_TOKEN`
+and nothing else:
+
+1. Create a GitHub App installed org-wide with `Actions: read and write` (preferred), or a
+   fine-grained PAT scoped to all `wickidcool` repos with `Actions: read and write` only.
+2. `gh secret set LAYER0_DRIVER_TOKEN --org wickidcool --visibility selected --repos job-app-management`
+3. Dispatch `layer0-driver.yml` once and confirm the run is green.
+4. Update this row's scope, cadence and review date; drop this note.
+
+Until step 4 lands, treat this row as **over-privileged and known**, not as compliant.
 
 ## Column definitions
 
