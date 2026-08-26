@@ -64,6 +64,30 @@ interface ErrorResponse {
 
 ---
 
+## Pagination
+
+List endpoints are cursor-paginated. Request a page size with `limit` (each endpoint
+documents its own default and maximum), omit the cursor parameter to get the first
+page, and pass the cursor from the previous response back to get the next one. The
+absence of a cursor in a response means there are no further pages.
+
+Two naming conventions are in use:
+
+| Endpoint | Request parameter | Response field |
+|----------|-------------------|----------------|
+| `GET /applications` | `page` | `nextPage` |
+| All other list endpoints | `cursor` | `nextCursor` |
+
+**Treat cursors as opaque.** Send back the exact string the previous response gave you.
+Do not construct, decode, modify, or store them — the encoding is an implementation
+detail that may change without a version bump. A cursor this API did not issue is not a
+supported input: it may return an error rather than a page of results.
+
+An absent cursor and an empty-string cursor both mean "first page"; they are
+indistinguishable at the query-parameter layer.
+
+---
+
 ## Endpoints
 
 ### Applications
@@ -86,14 +110,14 @@ Returns all applications for the authenticated user.
 | `sortBy` | string | No | Sort field: `createdAt`, `updatedAt`, `company` (default: `updatedAt`) |
 | `sortOrder` | string | No | `asc` or `desc` (default: `desc`) |
 | `limit` | number | No | Max results (default: 50, max: 100) |
-| `cursor` | string | No | Pagination cursor from previous response |
+| `page` | string | No | Pagination cursor from the previous response's `nextPage`. Note this endpoint uses `page`/`nextPage`, not `cursor`/`nextCursor` — see [Pagination](#pagination). |
 
 **Response**: `200 OK`
 
 ```typescript
 interface ListApplicationsResponse {
   applications: Application[];
-  nextCursor?: string;       // For pagination
+  nextPage?: string;         // Pass back as `page`; absent on the last page
   totalCount: number;        // Total matching applications
 }
 
@@ -148,9 +172,17 @@ curl -X GET "https://api.example.com/v1/applications?status=applied,phone_screen
       "appliedAt": "2026-04-15T10:30:00.000Z"
     }
   ],
-  "nextCursor": "eyJQSyI6IlVTRVIjNTUwZTg0MDAiLCJTSyI6IkFQUCMwMUhYSzVSM0o3UTh...",
-  "totalCount": 27
+  "nextPage": "NTA",
+  "totalCount": 127
 }
+```
+
+The request above omits `limit`, so it returns the first 50 of 127 matches. To fetch the
+next page, send the `nextPage` value back verbatim as `page`:
+
+```bash
+curl -X GET "https://api.example.com/v1/applications?status=applied,phone_screen&sortBy=updatedAt&page=NTA" \
+  -H "Authorization: Bearer <token>"
 ```
 
 ---
@@ -531,7 +563,7 @@ export interface ListApplicationsParams {
   sortBy?: 'createdAt' | 'updatedAt' | 'company';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
-  cursor?: string;
+  page?: string;             // Opaque; from the previous response's `nextPage`
 }
 
 // === Response Types ===
@@ -591,7 +623,7 @@ export type ApplicationStatus =
 export interface ApplicationsApi {
   list(params?: ListApplicationsParams): Promise<{
     applications: Application[];
-    nextCursor?: string;
+    nextPage?: string;
     totalCount: number;
   }>;
   
@@ -710,7 +742,7 @@ Returns a paginated list of catalog change diffs.
 |-----------|------|----------|-------------|
 | `status` | string | No | Filter by status: `pending`, `approved`, `rejected`, `partial`, `expired` |
 | `limit` | number | No | Max results (default: 20, max: 100) |
-| `cursor` | string | No | Pagination cursor (base64url-encoded offset) |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -911,7 +943,7 @@ GET /catalog/companies
 | `search` | string | No | Search by name or alias |
 | `includeDeleted` | boolean | No | Include soft-deleted entries (default: false) |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -984,7 +1016,7 @@ GET /catalog/tags/:type
 | `needsReview` | boolean | No | Filter to tags flagged for review |
 | `search` | string | No | Search by slug or display name |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -1076,7 +1108,7 @@ GET /catalog/quantified-bullets
 | `impactCategory` | string | No | Filter by category: `revenue`, `cost_savings`, `efficiency`, `team_leadership`, `user_growth`, `performance`, `other` |
 | `sourceId` | string | No | Filter by source document ID |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -1119,7 +1151,7 @@ GET /catalog/themes
 | `coreOnly` | boolean | No | Return only `isCoreStrength` themes |
 | `includeHistorical` | boolean | No | Include themes marked as historical |
 | `limit` | number | No | Max results (default: 250, max: 250) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
@@ -1935,7 +1967,7 @@ Returns saved cover letters with search and filtering.
 | `company` | string | No | Filter by target company (partial match) |
 | `search` | string | No | Search in title, company, role, content |
 | `limit` | number | No | Max results (default: 20, max: 100) |
-| `cursor` | string | No | Pagination cursor |
+| `cursor` | string | No | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 **Response**: `200 OK`
 
