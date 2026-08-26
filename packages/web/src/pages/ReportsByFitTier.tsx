@@ -116,15 +116,32 @@ void _VERDICT_TIERS_IS_EXHAUSTIVE;
  * Guards the guard: the exhaustiveness check above is only meaningful while
  * `typeof VERDICT_TIERS` preserves each entry's literal `tier`.
  *
- * A single entry is enough to detect the failure, because an annotation widens
- * every entry at once. If the first entry's `tier` is the *whole* `VerdictTier`
- * union rather than one name, the literals are gone and `UntiledVerdictTier` is
- * vacuously `never`. Written without naming `'strong_fit'` so that reordering
- * or renaming tiles does not touch it.
+ * `WidenedEntryTier` distributes over the entry union and keeps only entries
+ * whose `tier` is the *whole* `VerdictTier` union rather than one name. An
+ * annotation widens every entry at once, so it leaves every member behind and
+ * the guard fires; with the type inferred, each entry carries a single literal
+ * and every member collapses to `never`. Written without naming `'strong_fit'`
+ * so that reordering or renaming tiles does not touch it.
+ *
+ * It distributes over `[number]` rather than testing `[0]` deliberately.
+ * `(typeof VERDICT_TIERS)[0]` means "entry zero" only while the type is a
+ * *tuple*; drop `as const` and the array is no longer a tuple, so `[0]` yields
+ * the union of all four entries and its `tier` is the whole union — identical
+ * to annotation-widening, and the guard would fail a tree that is in fact
+ * still sound. That false positive was real and is measured in WIC-1361.
  */
-const _VERDICT_TIERS_KEEPS_ENTRY_LITERALS: [VerdictTier] extends [(typeof VERDICT_TIERS)[0]['tier']]
-  ? ['VERDICT_TIERS has an explicit type annotation; the exhaustiveness check above is vacuous']
-  : true = true;
+type WidenedEntryTier<T> = T extends { tier: infer U }
+  ? [VerdictTier] extends [U]
+    ? T
+    : never
+  : never;
+
+const _VERDICT_TIERS_KEEPS_ENTRY_LITERALS: [
+  WidenedEntryTier<(typeof VERDICT_TIERS)[number]>,
+] extends [never]
+  ? true
+  : ['VERDICT_TIERS has an explicit type annotation; the exhaustiveness check above is vacuous'] =
+  true;
 void _VERDICT_TIERS_KEEPS_ENTRY_LITERALS;
 
 export function ReportsByFitTier() {
