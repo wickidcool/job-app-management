@@ -35,8 +35,18 @@ Still the cheapest option if you are willing to scope the existing key.
 | `dashboard:read`  | read back the 3 dashboards                   |
 | `dashboard:write` | create the 3 dashboards and attach tiles     |
 
-Then comment on WIC-1024. Acceptance check is one line — `python3 docs/analytics/build_dashboards.py --dry-run` prints
-`OK  scopes present (read+write)` instead of exiting `2`. The build itself is an idempotent loop.
+Then comment on WIC-1024. Acceptance check is one line, and it writes nothing and runs no queries:
+
+```
+python3 docs/analytics/build_dashboards.py --check-scopes
+```
+
+Exit `0` and `OK  scopes present (read+write)` means the grant landed. Exit `2` names the
+scopes still missing. The build itself is a separate, idempotent run (no flag).
+
+> Do **not** use `--dry-run` as the acceptance check. It passes `need_write=False`, so it
+> never probes `insights/` or `dashboards/`: it prints `OK  scopes present (read)` and exits
+> `0` whether or not the grant landed, and so cannot verify one (WIC-1547).
 
 **If you are declining Route 1 on security grounds, that is a reasonable call** — a write-scoped
 key is a standing capability. Routes 2 and 3 exist so that decision does not also block the
