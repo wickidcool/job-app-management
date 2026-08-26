@@ -653,6 +653,8 @@ interface EmptyStateProps {
   variant: EmptyStateVariant
   onAction?: () => void
   actionLabel?: string
+  /** Semantic depth of the heading. Default 2. See Accessibility → Heading level. */
+  headingLevel?: 2 | 3 | 4 | 5 | 6
 }
 ```
 
@@ -698,6 +700,37 @@ them shipped as a real defect (WIC-1155). They are recorded below so they are no
   It keeps a visible `focus:ring-2` style; that is the requirement here, not autofocus.
 - **The icon is decorative** and carries `aria-hidden="true"` — the heading and message already
   say everything the emoji does, and emoji names read poorly in a screen reader.
+
+#### Heading level
+
+The heading is the component's only accessible entry point — WIC-1155 removed the `region`
+landmark that used to (badly) label this block, which makes the document outline load-bearing
+here rather than merely tidy.
+
+- **The level is a prop, not a constant** (`headingLevel`, WIC-1417). It shipped hardcoded to
+  `<h3>` while all four call sites render it directly under the page `<h1>`, so every rendering
+  skipped a level. `s/h3/h2/` would have been correct at all four sites *today*, which is what
+  makes it a trap: a shared presentational component cannot know how deeply its host nests it,
+  and the first time someone renders it inside a card or a tab panel that already owns an `<h2>`,
+  a hardcoded `<h2>` is wrong in the other direction. That is the same failure WIC-1155 closed —
+  a component-level constant standing in for a decision that belongs to the host page.
+- **The default is `2`, and the prop stays optional.** Two is right for the shape this component
+  is nearly always used in: the sole content of a page, beneath its `<h1>`. Requiring the prop
+  would force an explicit decision at every call site, but the decision it actually produces is
+  "whatever the file next door passed" — a required prop with one obvious answer is filled in
+  mechanically, so it buys ceremony rather than thought. Pass the real depth when the host is
+  nested; the default costs nothing when it is not.
+- **`1` is not a legal value.** The page `<h1>` names the route, and an empty state is never the
+  route. A page whose top heading is an empty state's heading is the 404 defect
+  (`NOTFOUND_PAGE_DESIGN_SPEC.md` §1, D2), not a use of this prop.
+- **The size does not follow the level.** `text-h4` stays pinned at every level. Semantic depth
+  depends on where the host renders the component; visual weight does not, and the two must be
+  free to move independently. Re-coupling them is how the tag ended up standing in for the size
+  in the first place.
+- **Scope of the rule.** This treatment is for **shared presentational components rendered at
+  more than one nesting depth** — the same class of decision, not every hardcoded heading in
+  `components/`. A single-call-site feature panel's heading level is effectively part of its
+  page's outline and belongs in the page's own audit (WIC-1099, WIC-1483), not behind a prop.
 
 ---
 
