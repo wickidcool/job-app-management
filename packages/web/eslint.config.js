@@ -39,32 +39,22 @@ export default defineConfig([
         {
           // SHRINKING BASELINE — do not add an entry without a linked ticket.
           //
-          // These eight strings are still shouted on `main` only because the PRs that
-          // fix them have not merged. Delete each entry as its PR lands; the list must
-          // reach [] and the option should then be dropped entirely.
+          // Every entry is a string still shouted on `main` because the PR that fixes it
+          // has not merged. Delete each entry as its PR lands; the list must reach [] and
+          // the option should then be dropped entirely.
           //
-          // Matching is per-string, not per-file, so the rule stays fully live inside
-          // GapMitigationPanel.tsx and QuickReferenceExport.tsx — a NEW caps string in
-          // either file still fails CI today.
-          //
-          //   PR #90  (WIC-1069) 'KEY STRENGTHS TO HIGHLIGHT', 'INTERVIEW QUICK REFERENCE'
-          //   PR #98  (WIC-1127) 'YOUR TOP', 'STORIES',
-          //                      'KEY QUESTIONS & SUGGESTED ANSWERS', 'GAP TALKING POINTS'
           //   PR #103 (WIC-1205) 'KEY PHRASES:', 'REDIRECT TO:'
           //
-          // Verified 2026-08-25 by merging #90 + #98 + #103 into `main` in a scratch
-          // worktree and re-running this rule: ZERO violations. The baseline empties
-          // completely rather than partially.
-          allow: [
-            'KEY STRENGTHS TO HIGHLIGHT',
-            'INTERVIEW QUICK REFERENCE',
-            'YOUR TOP',
-            'STORIES',
-            'KEY QUESTIONS & SUGGESTED ANSWERS',
-            'GAP TALKING POINTS',
-            'KEY PHRASES:',
-            'REDIRECT TO:',
-          ],
+          // Matching is per-string and tree-wide, NOT per-file. That keeps the rule live
+          // inside GapMitigationPanel.tsx — a NEW caps string there still fails CI — but
+          // it also means a landed entry is a standing permission for that exact string
+          // ANYWHERE in src/**/*.tsx, including the site its own PR just fixed. Six such
+          // entries were live from #90/#98 merging until WIC-1440.
+          //
+          // This list is no longer maintained by hand alone: src/test/caps-baseline.test.ts
+          // fails as soon as an entry stops matching a real violation, so a merged PR
+          // cannot leave its permission behind.
+          allow: ['KEY PHRASES:', 'REDIRECT TO:'],
         },
       ],
     },
