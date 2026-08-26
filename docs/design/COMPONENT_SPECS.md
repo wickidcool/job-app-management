@@ -1189,6 +1189,14 @@ The Job Fit Analysis is a full-page view with three distinct stages: Input, Anal
 
 #### Stage 3: Results Display
 
+> **The section counts below are drawn as shipped before WIC-1528 and are no longer the format.**
+> A bare `(5)` named a number without naming the population it counted — all three sections mix
+> required and nice-to-have skills, while the fit summary above them counts required only. The
+> headings now read `✅ Strong Matches (5 required, 2 nice-to-have)`, with the zero term omitted.
+> `packages/web/src/constants/skillCount.ts` is the format; DESIGN_SYSTEM.md
+> ("Match and Gap Section Counts") is the spec. The rest of this wireframe carries its own
+> divergences, marked `‹deferred›`.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Job Fit Analysis Results                               │

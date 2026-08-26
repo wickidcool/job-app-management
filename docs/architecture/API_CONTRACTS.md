@@ -133,10 +133,24 @@ single-user local-development case. Both are set in production, so production al
 requires a valid JWT. If Supabase is not configured, the `/api/auth/*` endpoints
 themselves return `503 NOT_CONFIGURED`.
 
-> Some `curl` examples further down this document use the local dev base URL and omit the
-> `Authorization` header, which only works under that local bypass. To run any of them
-> against production, swap the host for `https://app.careerpin.app` **and** add
-> `-H "Authorization: Bearer <jwt>"`.
+### Running the `curl` examples
+
+Every `curl` example below is written against two shell variables, so the host is chosen
+in one place rather than baked into each example:
+
+```bash
+export API_BASE="https://app.careerpin.app/api"   # or a Base URL row above
+export TOKEN="<jwt>"                               # from POST /api/auth/login
+```
+
+`$TOKEN` is required against any environment where Supabase is configured — which is every
+environment except the local bypass described above. It is sent on every example rather
+than only the ones that would fail without it: an example that omits the header documents
+an endpoint as unauthenticated, and none of these are.
+
+> The four `https://api.example.com/v1/...` examples in [Applications](#applications) are
+> a separate, older surface and are left as-is; they already carry an `Authorization`
+> header.
 
 ## Common Response Codes
 
@@ -1042,7 +1056,8 @@ interface ApplyDiffResponse {
 **Example**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/diffs/01HXK5R3J7/apply" \
+curl -X POST "$API_BASE/catalog/diffs/01HXK5R3J7/apply" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "action": "partial",
@@ -1478,7 +1493,8 @@ Partial matches (alias/related) count at 0.5x weight toward match percentage.
 **Example Request (text)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionText": "Senior Software Engineer at Acme Corp...\n\nRequirements:\n- 5+ years TypeScript/JavaScript\n- React or Vue experience\n- PostgreSQL or MySQL\n- AWS or GCP cloud experience\n\nNice to have:\n- GraphQL\n- Kubernetes"
@@ -1488,7 +1504,8 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 **Example Request (URL)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionUrl": "https://boards.greenhouse.io/acme/jobs/12345"
@@ -1769,7 +1786,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/generate" \
+curl -X POST "$API_BASE/cover-letters/generate" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
@@ -1876,7 +1894,8 @@ interface ReviseCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "instructions": "Make the opening more enthusiastic and add a sentence about my passion for developer tooling",
@@ -1988,7 +2007,8 @@ interface OutreachMessage {
 **Example Request (LinkedIn)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "linkedin",
@@ -2020,7 +2040,8 @@ curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
 **Example Request (Email)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "email",
@@ -2115,7 +2136,8 @@ interface ExportCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "format": "docx",
@@ -2474,7 +2496,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps" \
+curl -X POST "$API_BASE/interview-preps" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
@@ -2735,7 +2758,8 @@ interface UpdateInterviewPrepResponse {
 **Example Request**:
 
 ```bash
-curl -X PATCH "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+curl -X PATCH "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "storyUpdates": [
@@ -2833,7 +2857,8 @@ interface ExportQuickReferenceResponse {
 **Example Request**:
 
 ```bash
-curl -X GET "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+curl -X GET "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+  -H "Authorization: Bearer $TOKEN" \
   -o interview-prep.pdf
 ```
 
@@ -2914,7 +2939,8 @@ interface LogPracticeSessionResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+curl -X POST "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "full_interview",
