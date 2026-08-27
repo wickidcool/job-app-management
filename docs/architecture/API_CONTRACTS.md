@@ -2478,7 +2478,7 @@ only if **both** `nextAction` and `nextActionDue` are set and its status is non-
 | `days` | integer, 1–365 | `7` | Look-ahead window: include actions due on or before today + `days` |
 | `includeOverdue` | `'true' \| 'false'` | `true` | Include actions already past due |
 | `limit` | integer, 1–100 | `50` | Page size |
-| `cursor` | string | *(start)* | Pagination cursor |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 `includeOverdue` accepts only the literal strings `true` and `false`. Any other value — `1`, `0`,
 `no`, or an empty `includeOverdue=` — is a `VALIDATION_ERROR`, not a coercion. Only
@@ -2536,7 +2536,7 @@ The threshold keeps the current time of day rather than snapping to midnight, so
 | `days` | integer, 1–365 | `14` | An application is stale once `updatedAt` is this many days old |
 | `status` | comma-separated statuses | `applied,phone_screen` | Which statuses to consider |
 | `limit` | integer, 1–100 | `50` | Page size |
-| `cursor` | string | *(start)* | Pagination cursor |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 `status` accepts any comma-separated subset of the seven `ApplicationStatus` values, whitespace
 around commas tolerated (`applied, interview`). A single unrecognised member fails the whole
@@ -2589,7 +2589,7 @@ Outcome analysis over **terminal** applications: what closed, how it closed, and
 | `period` | `'30d' \| '60d' \| '90d' \| 'all'` | `all` | Restrict to applications updated within the period |
 | `status` | comma-separated terminal statuses | `offer,rejected,withdrawn` | Which outcomes to include |
 | `limit` | integer, 1–100 | `50` | Page size |
-| `cursor` | string | *(start)* | Pagination cursor |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
 
 `status` here accepts only the three terminal statuses; passing an active status such as
 `interview` is a `VALIDATION_ERROR`, not an empty result.
