@@ -250,7 +250,7 @@ describe("each of the generator's four steps is its own outline surface", () => 
     expect(levels.length, 'this step renders no heading at all').toBeGreaterThan(0);
 
     // The page h1 is directly above every one of these, so 2 is both the floor and the
-    // only legal opener. `Review & Edit` on step 4 exists for exactly this line.
+    // only legal opener. `Review & edit` on step 4 exists for exactly this line.
     expect(levels[0], `heading levels in this step: ${levels.join(', ')}`).toBe(2);
     expect(
       levels.filter((level, i) => i > 0 && level - Math.min(...levels.slice(0, i)) > 1),

@@ -561,7 +561,7 @@ export function CoverLetterGenerator({
                       views of one thing, so the section is this. Without it the step would
                       run h1 → h3, which is the skip ROUTE_HEADING_OUTLINE.md §1.3 rules out.
                       Copy taken from the step's own existing source label at :525. */}
-                  <h2 className="text-lg font-semibold text-gray-900">Review &amp; Edit</h2>
+                  <h2 className="text-lg font-semibold text-gray-900">Review &amp; edit</h2>
                   <div
                     className="bg-white border rounded-lg overflow-hidden"
                     style={{ height: '600px' }}
@@ -604,7 +604,7 @@ export function CoverLetterGenerator({
                       {/* Preview */}
                       <div className="flex flex-col">
                         {/* headingLevel={3}: this pane sits beside the "📝 Editor" h3 above,
-                            both nested under the "Review & Edit" <h2> that opens this step.
+                            both nested under the "Review & edit" <h2> that opens this step.
                             The default (2) is for `CoverLetterDetail`, where the preview is
                             the page's sole content under its <h1>.
 

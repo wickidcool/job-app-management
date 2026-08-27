@@ -238,7 +238,7 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     // That is the failure mode the paragraph above is about, caught on its first outing.
     const { container } = render(
       <>
-        <h2>Review &amp; Edit</h2>
+        <h2>Review &amp; edit</h2>
         <div>
           <h3>
             <span aria-hidden="true">📝</span> Editor
@@ -254,7 +254,7 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     expect(findOutlineSkips(outline)).toEqual([]);
     expect(outline.map((h) => h.level)).toEqual([2, 3, 3]);
     expect(describeOutline(outline)).toBe(
-      'h2 "Review & Edit" -> h3 "📝 Editor" -> h3 "Cover Letter Preview"'
+      'h2 "Review & edit" -> h3 "📝 Editor" -> h3 "Cover Letter Preview"'
     );
   });
 });
