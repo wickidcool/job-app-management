@@ -2,8 +2,8 @@
 
 **Issue:** WIC-1569
 **Author:** UI/UX Developer
-**Status:** ruling — approved, not yet implemented. Implementation is WIC-1569 itself, owned by the
-Frontend Developer, sequenced after PR #184 (WIC-1563).
+**Status:** ruling — **implemented and shipped in PR #184 (`38bd487`)**, alongside WIC-1563. This
+document is the reasoning behind that change, recorded after the fact; it is not an open work item.
 **Related:** `COMPONENT_SPECS.md` §10 → "Heading level" (WIC-1417, WIC-1155), `ROUTE_HEADING_OUTLINE.md`
 (WIC-1581), WIC-1563, WIC-1571
 
@@ -12,32 +12,48 @@ Consequence: `CoverLetterPreview` earns a `headingLevel` prop, per the card's ow
 
 ---
 
-## 0. Provenance — what is measured against what
+## 0. Provenance, and what shipped
 
-The ruling was first written against `fix/wic1417-emptystate-heading-level` @ `b0c34fe` (PR #182),
-before the WIC-1563 branch was pushed. **Re-verified against `main` @ `775c288` on 2026-08-27**;
-every line reference below is from that tree. Two things to hold in mind while reading:
+The ruling was written against `fix/wic1417-emptystate-heading-level` @ `b0c34fe` (PR #182), before
+the WIC-1563 branch was pushed — so parts of it originally cited a card transcript rather than a
+tree. It is recorded here **after** implementation, and every claim below was re-checked against
+the tree that actually shipped.
 
-- **PR #182 (WIC-1417) has landed.** `EmptyState` on `main` carries
-  `EmptyStateHeadingLevel = 2 | 3 | 4 | 5 | 6`, `headingLevel = 2`, and pins the size across levels
-  (`EmptyState.tsx:7,24,31,65`). It is a real precedent you can read, not a promise.
-- **PR #184 (WIC-1563) has *not* landed** — it is open, `MERGEABLE`, blocked only on
-  `REVIEW_REQUIRED`. So on `main` the preview's heading is still `<h3>` at
-  `CoverLetterPreview.tsx:57`, not the `<h2>` that card corrects it to. Everything below assumes
-  #184 lands first; if it does not, the `h3`→`h2` correction is part of this work instead.
+- **PR #182 (WIC-1417) landed.** `EmptyState` carries `EmptyStateHeadingLevel = 2 | 3 | 4 | 5 | 6`,
+  `headingLevel = 2`, and pins the size across levels (`EmptyState.tsx:7,24,31,65`). That is the
+  precedent §2.3 says to follow verbatim, and it was followed.
+- **PR #184 (WIC-1563) landed on 2026-08-27 as `38bd487`,** and implemented **all of §2** — not
+  just its own `h3`→`h2` correction. The two changes were entangled by construction: #184's own
+  §10 worked example turned on `CoverLetterPreview` having its heading at exactly one depth, and
+  this ruling is what put it at two, so shipping them separately would have left §10 asserting a
+  criterion its own example contradicted.
 
-State on `main` @ `775c288`, all four verified:
+**Acceptance audit — all seven items in §6, verified against `38bd487`:**
 
-| Fact | Location |
-|---|---|
-| Preview header + heading sit inside `{showExportActions && (...)}`, bar is `p-4` | `CoverLetterPreview.tsx:55-57` |
-| Editor bar is `px-4 py-3`, heading is `<h3>📝 Editor</h3>` | `CoverLetterGenerator.tsx:560-561` |
-| Generator mounts the preview with `showExportActions={false}` | `CoverLetterGenerator.tsx:590` |
-| Generator's own top heading is `<h2>Generate Cover Letter</h2>` | `CoverLetterGenerator.tsx:181` |
+| §6 item | Shipped | Evidence |
+|---|---|---|
+| Header bar + heading render regardless of `showExportActions`; buttons still gated | ✅ | `CoverLetterPreview.tsx:96` (bar, unconditional), `:105` (`<Heading>`), `:106` (`{showExportActions && …}` now wraps only the button group) |
+| Bar padding `px-4 py-3`, matching the editor's | ✅ | `CoverLetterPreview.tsx:96`; editor's at `CoverLetterGenerator.tsx:560` |
+| `headingLevel?: 2\|3\|4\|5\|6` defaulting to `2`; size pinned across levels | ✅ | `CoverLetterPreview.tsx:8,35,46,66`; size comment and pinned `text-lg font-semibold` at `:97-105` |
+| `CoverLetterGenerator` passes `headingLevel={3}` | ✅ | `CoverLetterGenerator.tsx:602` |
+| C5 tripwire replaced with assertions at both depths | ✅ | `CoverLetterPreview.test.tsx` — `renders h2 by default…`, `renders h3 when the host asks for it`, `names the pane even when export actions are suppressed, without offering them`, `keeps the heading s rendered size independent of its level`, `keeps the header bar padding matched to the generator s editor pane`, and a source guard `is asked for h3 by CoverLetterGenerator and h2 by CoverLetterDetail` |
+| §10 "Scope of the rule" carries §5's paragraph | ✅ | `COMPONENT_SPECS.md` §10 → "`CoverLetterPreview` is the second component in this class" |
+| *(optional)* editor's `📝` wrapped in `aria-hidden` | ✅ | `CoverLetterGenerator.tsx:562-564` — taken, though §2.5 marked it non-blocking |
+
+The test suite went beyond §4's ask: `headingLevelPassedBy()` (`CoverLetterPreview.test.tsx:62`)
+parses the *call sites' source* to assert the generator passes `3` and the detail page relies on
+the default, because a rendering test alone cannot prove a host passes a prop. That closes the
+"dead assignment" failure mode #184's own §10 bullet warns about.
 
 Note `CoverLetterGenerator` lives in `components/`, not `pages/` — see §3.
 
 ## 1. The decision
+
+> **Tense note.** §§1–4 are preserved as written, in the present tense of the **defect** — that is,
+> the tree *before* `38bd487`. Read "today" as "before this shipped". They are kept unedited
+> because the argument is the record: the next person to look at a labelled/unlabelled pane pair,
+> here or elsewhere, needs the reasoning and the rejected alternatives, not a description of the
+> fixed state that §0's audit already gives.
 
 `CoverLetterGenerator:557-594` renders a two-pane split in one bordered box. Today the left pane
 carries a header bar with `<h3>📝 Editor</h3>` and the right pane — `CoverLetterPreview` with
@@ -159,12 +175,19 @@ at `h2`. That is a real defect, it is out of scope here, and it is a **tripwire 
 that emits its host page's `<h1>` is precisely the anti-pattern §10 exists to prevent. The `<h1>`
 belongs to the route. "Generate Cover Letter" is a section heading inside it and stays `<h2>`.
 
-> **Status of the tripwire.** This was filed as WIC-1571 and fixed the ✅ way in **PR #194**, which
-> adds the `<h1>` to a page shell wrapping all four render branches and leaves the generator's
-> `<h2>` alone. That PR pins the distinction with `?raw` source guards, precisely because an
-> outline assertion alone passes under *both* fixes. As of 2026-08-27 PR #194 is open and
-> `CONFLICTING`; until it lands, `main` still has no `<h1>` on that route. The ruling does not
-> depend on it either way — see the structural statement below.
+> **Status of the tripwire — now live, and guarding a prop that exists.** When this was written the
+> ❌ branch would merely have pre-empted a proposed prop. Since `38bd487` the prop is **shipped**,
+> so taking that branch would now *delete working code and its tests*, not just forestall them.
+>
+> Filed as WIC-1571 and fixed the ✅ way in **PR #194**: the `<h1>` goes in a page shell wrapping
+> all four render branches, the generator's `<h2>` is untouched, and the distinction is pinned with
+> `?raw` source guards — necessary because an outline assertion alone passes under *both* fixes.
+> As of 2026-08-27 PR #194 is open and `CONFLICTING`, so `main` still has no `<h1>` on that route.
+>
+> The ruling does not depend on that PR either way — see the structural statement below. But the
+> constraint on *how* it gets fixed is now enforced from two directions: `CoverLetterPreview.test.tsx`'s
+> `is asked for h3 by CoverLetterGenerator and h2 by CoverLetterDetail` reads the generator's source
+> and fails if its heading level moves, whichever PR moves it.
 
 Stated structurally, so it survives whatever happens to that `<h1>`: the preview is the **sole
 content of a page** under `CoverLetterDetail`, and **one half of a split pane inside a wizard step**
@@ -185,9 +208,9 @@ not a regression. Replace it with assertions at **both** depths:
 
 ## 5. Spec text for `COMPONENT_SPECS.md` §10 → "Scope of the rule"
 
-Append **with the code**, in the same PR that implements §2 — not before. Until then §10 carries
-only a pointer to this file, because the prop does not exist yet and §10 must not describe it as
-though it does.
+**Landed with the code in `38bd487`** — §10 now carries this paragraph, and §10's bullet links back
+here for the reasoning. Kept below so the spec text and its justification stay legible as one unit;
+if the two ever disagree, `COMPONENT_SPECS.md` is the normative copy.
 
 > `CoverLetterPreview` is the second component in this class (WIC-1569). It renders at `h2` as the
 > sole content of `CoverLetterDetail` and at `h3` as one half of `CoverLetterGenerator`'s
@@ -197,14 +220,17 @@ though it does.
 > unearned — which is the criterion working, not a near-miss. A component does not earn this prop
 > by being shared; it earns it by having its heading land at more than one depth.
 
-## 6. Acceptance
+## 6. Acceptance — all met
 
-- [ ] Preview header bar + heading render regardless of `showExportActions`; buttons still gated.
-- [ ] Preview bar padding is `px-4 py-3`, matching the editor's.
-- [ ] `headingLevel?: 2|3|4|5|6` defaults to `2`; size pinned across levels.
-- [ ] `CoverLetterGenerator:590` passes `headingLevel={3}`.
-- [ ] `describes the pane only when the export header is shown` replaced per §4.
-- [ ] §10 "Scope of the rule" carries §5's paragraph, replacing the pointer added by this document's PR.
-- [ ] *(adjacent, optional)* editor's `📝` wrapped in `aria-hidden`.
+- [x] Preview header bar + heading render regardless of `showExportActions`; buttons still gated.
+- [x] Preview bar padding is `px-4 py-3`, matching the editor's.
+- [x] `headingLevel?: 2|3|4|5|6` defaults to `2`; size pinned across levels.
+- [x] `CoverLetterGenerator` passes `headingLevel={3}`.
+- [x] `describes the pane only when the export header is shown` replaced per §4.
+- [x] §10 "Scope of the rule" carries §5's paragraph.
+- [x] *(adjacent, optional)* editor's `📝` wrapped in `aria-hidden` — taken, though §2.5 did not require it.
 
-**Not in scope:** the missing `<h1>` on `/cover-letters/new` (§3) — filed and fixed as WIC-1571 / PR #194.
+Per-item evidence is in §0's audit table, checked against `38bd487`.
+
+**Not in scope:** the missing `<h1>` on `/cover-letters/new` (§3) — filed as WIC-1571, fixed the
+correct way in PR #194, which is still open. See §3's status note.
