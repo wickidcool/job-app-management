@@ -20,6 +20,16 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Changed — The organic-traffic watcher reports collector health, so "0 organic" is not misread as demand (2026-08-27)
+
+`docs/analytics/organic_watch.py` answered one question ("has a real user arrived?") and its output invited a conclusion it had not earned. WIC-1358 stated that zero organic events is "a traffic/demand question, not an engineering defect". That is only half true while prod is degraded, so the watcher now measures the other half itself (WIC-1358, context from WIC-1386/WIC-1473).
+
+- **The probe is free and needs no credential.** Root `GET /health` is unauthenticated and already dials the database, returning `503` with the underlying error — as the Architect noted on WIC-1386, `/api/health` was the wrong path to watch. Measured 2026-08-27: `{"status":"degraded","hyperdrive":false,"db":"Too many subrequests by single Worker invocation"}` on both `jobtrail.al-23f.workers.dev` and `app.careerpin.app`.
+- **The taxonomy splits in two under this outage, which is why the distinction matters.** The client leg (`resume_upload_started` / `_validation_failed` / `_cta_clicked`) posts browser → PostHog directly and is unaffected, so 0 organic still validly means "nobody arrived". The server leg is not: `resume_upload_submitted` fires before `getDb()` and survives, but `resume_upload_completed` sits after the DB writes and is structurally unreachable, so the catch path emits `_failed` and the server funnel can only ever record 100% failure.
+- **Consequence for the WIC-1024 hold: a first organic visitor is now necessary but not sufficient.** On the candidate path the watcher says so explicitly rather than leaving the reader to infer it, because completion/timing insights and the C1–C3 `person_id` tiles cannot be populated until the DB is reachable.
+- **Reporting only — it cannot suppress a real first user.** Exit codes are unchanged (`0` / `10` / `1`); every health fault path collapses to `unknown` and the organic verdict stands alone. Verified by pointing the probe at an unresolvable host: still exit `0`, verdict intact.
+- **A 403 is not a 503.** Cloudflare answers urllib's default `Python-urllib/3.x` with a bot challenge, which read naively is indistinguishable from a degraded app — the first cut of this change reported "DB unreachable" on that basis. The probe now sends an explicit User-Agent and treats only a response that parses as the health payload as authoritative.
+
 ### Docs — Changelog entries have an insertion convention, because the union driver never reached GitHub (2026-08-26)
 
 `CHANGELOG.md` has carried `merge=union` since the driver was added, and the `.gitattributes` comment says it "keeps both sides' entries instead of conflicting". That is true of the *local* three-way merge and of nothing else: GitHub computes mergeability without consulting `.gitattributes`, so PRs kept reporting `CONFLICTING / DIRTY` on a file every local tool called clean. `CLAUDE.md` now has a `## Changelog conventions` section stating the rule, the mechanism behind it, and how to reproduce what GitHub sees (WIC-1543).
