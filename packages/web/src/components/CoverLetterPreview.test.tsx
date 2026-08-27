@@ -65,9 +65,12 @@ function headingLevelPassedBy(source: string): number {
   const callSites = withoutComments.match(/<CoverLetterPreview\b[\s\S]*?\/>/g) ?? [];
 
   // Exactly one call site per host is part of the claim. Two would mean this function is
-  // reporting one of them and silently ignoring the other. Destructured rather than indexed
-  // because `toHaveLength` does not narrow the type, and under `noUncheckedIndexedAccess`
-  // `callSites[0]` is `string | undefined`.
+  // reporting one of them and silently ignoring the other. Destructured with a throw rather
+  // than indexed because `toHaveLength` asserts without narrowing, and `callSites[0]` is
+  // `string | undefined` here: `match() ?? []` infers as `[] | RegExpMatchArray`, and the
+  // empty *tuple* has element type `undefined`. That is plain `strictNullChecks` — this
+  // package does not set `noUncheckedIndexedAccess`, so a bare `string[]` would index to
+  // `string` and this shape would not be needed.
   expect(callSites).toHaveLength(1);
   const [callSite] = callSites;
   if (!callSite) throw new Error('no <CoverLetterPreview> call site found');
@@ -196,9 +199,12 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     const headings = stripComments(generatorSource).match(/<h3\b[^>]*>[\s\S]*?<\/h3>/g) ?? [];
     const editorHeadings = headings.filter((heading) => heading.includes('Editor'));
 
+    // Exactly one, for the same reason as above: two would mean this is reporting on one
+    // "Editor" heading and silently ignoring the other.
     expect(editorHeadings).toHaveLength(1);
-    const [editorHeading] = editorHeadings;
-    if (!editorHeading) throw new Error('no "Editor" <h3> found in CoverLetterGenerator');
+    // Plainly indexed, unlike `headingLevelPassedBy` above: `.filter()` collapses the
+    // `[] | RegExpMatchArray` union to `string[]`, which indexes to `string`.
+    const editorHeading = editorHeadings[0];
 
     expect(editorHeading).toMatch(/<span\s+aria-hidden="true"\s*>\s*📝\s*<\/span>/);
 
