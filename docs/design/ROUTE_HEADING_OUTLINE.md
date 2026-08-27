@@ -55,6 +55,34 @@ The ticket found `/outreach/new`. A full sweep — every static `<h1>` and `<h2>
 Those are the only two exact page-`<h1>`/component-`<h2>` collisions in the tree. The sweep is
 reproducible: intersect the static heading strings, then check the mount site.
 
+> **Correction (WIC-1533, 2026-08-27) — `routeHeadingOutline.test.ts` implemented only the first
+> half of that sentence.** It intersected the heading strings and asserted the result empty,
+> without checking the mount site, so it also reported pairs from **two different routes** — which
+> §0 does not forbid and cannot: if no page renders both files, no reader ever hears the string
+> twice and there is no outline in which it sits at two levels.
+>
+> First live instance: `/cover-letters` names itself `<h1>Cover Letters</h1>` while
+> `/applications/:id` — whose own `<h1>` is the interpolated `{application.jobTitle}` — carries an
+> `<h2>Cover Letters</h2>` section beside `Details`, `Timeline`, `Job Description` and `Documents`.
+> Neither page mounts the other. The only "fixes" available were to rename a correct section or a
+> correct page title, i.e. to make the copy worse to satisfy a check that did not apply to it.
+>
+> The test now filters collisions to pairs that share a render tree — the same file, or one
+> importing the other transitively. **Both original defects remain caught, measured rather than
+> assumed:** reintroducing `OutreachComposer`'s or `ResumeExportList`'s `<h2>` reds it, and forcing
+> the new predicate to `false` reds the mount-site test added alongside it, so the narrowing cannot
+> fail open unnoticed. That control earned its keep immediately — the first version of the resolver
+> dropped a leading `../` and linked nothing, which would have made the whole sweep vacuous while
+> reading green.
+>
+> New blind spot, stated: a component reached through a barrel file or a dynamic `import()` is not
+> linked, so such a pair would go unreported. Narrower than the sweep's existing static-text and
+> JSX-comment limits, but it is new and it is mine.
+>
+> Flagged to this ruling's author rather than assumed settled. If the intended rule really is "no
+> string is ever both an `h1` and an `h2` tree-wide", that is a **stronger** rule than §0 states and
+> §0 should say so — at which point the right fix is to rename a heading and revert this narrowing.
+
 ### 1.2 WIC-1571 has not shipped, so `/cover-letters/new` is not duplicated yet
 
 `CoverLetterNew.tsx` on `origin/main` contains no `<h1>` — no heading of any level — and
