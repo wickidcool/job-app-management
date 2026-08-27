@@ -101,6 +101,8 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 ### 5. [Accessibility](./ACCESSIBILITY.md)
 **Purpose:** Ensure WCAG 2.1 Level AA compliance for inclusive design.
 
+> **Aspiration, not a verified property.** Nothing in CI checks any of it — no `eslint-plugin-jsx-a11y`, `axe`, `pa11y` or Lighthouse budget exists in the repo (`main` @ `6911bcb`), and a heading-order scan finds a majority of pages violating SC 1.3.1. Read this document as a hand-checked standard until **WIC-1483** lands a mechanism; ACCESSIBILITY.md carries the detail.
+
 **Contents:**
 - Keyboard navigation patterns (global & component-specific)
 - Screen reader support (ARIA labels, roles, live regions)
