@@ -1,0 +1,79 @@
+{
+  "$comment": "Registry of every known SYNTHETIC actor in PostHog production project 551963. Consume as an exclusion list when reading production analytics. See docs/analytics/prod-probe-labelling.md. Version-controlled deliberately: this must not exist only inside a watcher's in-memory quarantine set. Owner: DevOps. Source of record: WIC-1389.",
+  "project_id": 551963,
+  "project_is_production": true,
+  "last_verified": "2026-08-26T07:20:00Z",
+  "last_verified_by": "DevOps Engineer (288abc97), HogQL over all lifetime events",
+  "lifetime_event_count_at_verification": 6,
+  "organic_event_count_at_verification": 0,
+  "probes": [
+    {
+      "ticket": "WIC-889",
+      "class": "capture",
+      "when": "2026-08-11T05:37:23.644Z",
+      "events": ["qa_acceptance_probe_wic889"],
+      "distinct_ids": ["qa-wic889-probe"],
+      "session_ids": [],
+      "lib": "wic-web",
+      "event_uuids": ["019fef53-54bc-7310-93e9-ce64ce9124bf"],
+      "note": "Acceptance probe. Labelled on event name and distinct_id; no session_id."
+    },
+    {
+      "ticket": "WIC-996",
+      "class": "capture",
+      "when": "2026-08-18T04:48:45.349Z",
+      "events": ["resume_upload_submitted", "resume_upload_completed", "resume_upload_failed"],
+      "distinct_ids": ["smoke-wic996-user-064d2fae-a5c1-4cdb-9c4a-fdf5e2d2b18b"],
+      "session_ids": ["smoke-wic996-064d2fae-a5c1-4cdb-9c4a-fdf5e2d2b18b"],
+      "lib": "wic-api",
+      "event_uuids": [
+        "01a01333-5125-72fa-9d0c-ec25670b0514",
+        "01a01333-5249-74c8-be22-583b28c177d1",
+        "01a01333-5332-79eb-b7d6-7a2f495d5583"
+      ],
+      "note": "Emitted real taxonomy names directly to /capture. All three upload legs land 0.3s apart, including completed AND failed for one session - impossible for a real upload. This inflates lifetime funnel counts: 1 of the 2 lifetime 'submitted', the only 'completed' and the only 'failed' are all this probe."
+    },
+    {
+      "ticket": null,
+      "class": "capture",
+      "when": "2026-08-19T05:00:40Z",
+      "events": ["qa_client_capture_probe_20260819"],
+      "distinct_ids": ["probe-20260819-clientpath"],
+      "session_ids": ["probe-20260819-clientpath"],
+      "lib": "wic-web",
+      "event_uuids": ["01a01864-94c0-775f-97df-14a47ed5d9c4"],
+      "note": "Client-path capture probe. Carries no ticket in its identifiers - dated instead. Do not repeat this; use wic<ticket>-."
+    },
+    {
+      "ticket": "WIC-967",
+      "class": "end_to_end",
+      "when": "2026-08-26T04:19:39.262Z",
+      "events": ["resume_upload_submitted"],
+      "distinct_ids": ["fa21d5a4-2ac9-455e-b31f-3553a314792f"],
+      "session_ids": ["wic967-devops-1787717978"],
+      "lib": "wic-api",
+      "event_uuids": ["01a03c4b-8c7e-7004-92fc-94c8a1453965"],
+      "auth_user_email": "al+wic967verify@wickidcool.com",
+      "distinct_id_is_unprefixable": true,
+      "note": "Real authenticated POST /api/resumes/upload against production. distinct_id is the Supabase auth user id, set server-side (analytics.service.ts:131) - it CANNOT carry a qa-/probe-/smoke- prefix, which is exactly why this registry exists. The full path was exercised; it 500ed on WIC-1386 and the terminal resume_upload_failed capture was dropped by WIC-1387. The missing terminal leg is an outage symptom, not a half-fired probe.",
+      "residue": "Prod auth user fa21d5a4-... still exists with no app data. Deleting it needs service_role, which no agent holds."
+    }
+  ],
+  "exclusion_keys": {
+    "distinct_ids": [
+      "qa-wic889-probe",
+      "smoke-wic996-user-064d2fae-a5c1-4cdb-9c4a-fdf5e2d2b18b",
+      "probe-20260819-clientpath",
+      "fa21d5a4-2ac9-455e-b31f-3553a314792f"
+    ],
+    "event_uuids": [
+      "019fef53-54bc-7310-93e9-ce64ce9124bf",
+      "01a01333-5125-72fa-9d0c-ec25670b0514",
+      "01a01333-5249-74c8-be22-583b28c177d1",
+      "01a01333-5332-79eb-b7d6-7a2f495d5583",
+      "01a01864-94c0-775f-97df-14a47ed5d9c4",
+      "01a03c4b-8c7e-7004-92fc-94c8a1453965"
+    ]
+  },
+  "hogql_exclusion_clause": "distinct_id NOT IN (SELECT ...) -- see prod-probe-labelling.md; keep the prefix predicates as well as this registry: the registry catches what prefixes cannot, prefixes catch what someone forgot to register."
+}
