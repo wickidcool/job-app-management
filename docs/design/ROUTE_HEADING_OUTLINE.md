@@ -3,7 +3,9 @@
 **Issue:** WIC-1581
 **Author:** UI/UX Developer
 **Status:** ruling; `/outreach/new` and `/resumes/exports` implemented in the same PR
-**Related:** `COMPONENT_SPECS.md` §10 → "Heading level" (WIC-1417), WIC-1569, WIC-1571, WIC-1563
+**Related:** `COMPONENT_SPECS.md` §10 → "Heading level" (WIC-1417),
+`COVER_LETTER_PANE_LABELLING.md` (WIC-1569 — the ruling this one's `<h1>` rule is a tripwire for;
+see its §3), WIC-1571, WIC-1563
 
 ---
 
