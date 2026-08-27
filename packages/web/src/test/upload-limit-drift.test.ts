@@ -288,6 +288,21 @@ const EXAMPLE_PATTERNS: readonly RegExp[] = [
  * test only fires when the exempted figure EQUALS the live limit, so it is
  * airtight against parking the *current* figure out of reach and blind to hiding
  * a *stale* one — which is the drift this file exists to catch.
+ *
+ * The clause split narrows that blind spot; it does not close it, and this
+ * comment should not be read as claiming otherwise (WIC-1578). A marker inside a
+ * parenthetical still reaches a figure later in the same clause, because `(` and
+ * `)` are not clause boundaries. Measured on `5fd367a`:
+ *
+ *     The inline hint (no longer shown on mobile) says PDF, DOCX, TXT (Max 3MB)
+ *
+ * leaves the file fully green with a live, wrong 3MB cap unguarded, exactly as
+ * the line-scoped version did. Adding `(` to the delimiter class is not the fix:
+ * it cuts the marker off a parenthesised figure, so ordinary historical prose —
+ * "the cap was previously smaller (5MB) before WIC-1382" — stops being exempt and
+ * REDs as an unclassified figure. Closing this is a judgement about how much
+ * apparatus a rare phrasing is worth, and is deliberately left open rather than
+ * papered over here.
  */
 const HISTORICAL_MARKERS =
   /\b(?:previously|formerly|historically|used to (?:be|specify|say)|prior to|no longer|superseded|before WIC-)\b/i;
@@ -306,8 +321,10 @@ function lineStartAt(source: string, index: number): number {
  * never crossing a line start.
  *
  * `|` is in the delimiter class and is load-bearing, not decorative:
- * `COMPONENT_SPECS.md:841` is a markdown table row, and neighbouring cells have
+ * `COMPONENT_SPECS.md:874` is a markdown table row, and neighbouring cells have
  * to scope apart or a marker in one cell exempts the figures in the next.
+ * (`:841` on `560f5df`; the `9ba5041` merge moved it 33 lines. Pinned by
+ * `table cells scope apart` below, which does not depend on the line number.)
  *
  * The failure direction is safe. An abbreviation the split does not know about
  * — `e.g.`, `i.e.`, a decimal — can only cut the clause *shorter* than the
@@ -537,6 +554,57 @@ describe('resume upload size limit', () => {
           'Either the sentence is wrong, or the figure belongs ahead of the marker.'
       ).toEqual([]);
     }
+  });
+
+  /**
+   * The audit's own reading rules, over fixtures rather than the real docs
+   * (WIC-1578).
+   *
+   * Everything else in this file reads the three design docs, and none of them
+   * carries historical prose today — `historicalFiguresIn` returns `[]` for all
+   * three. So against this tree the clause scoping and the `|` delimiter that
+   * WIC-1573 added are unfalsifiable: reverting either one leaves the file at
+   * `7 passed | 2 expected fail`, and the same is true of the glob's `*.test.ts`
+   * exclusion. A rule whose only evidence is a mutation run outside the repo is a
+   * rule the next edit can silently retire.
+   *
+   * These strings hold the cases the real docs only acquire when PR #150 lands,
+   * so they are inert with respect to every doc — nothing here changes when the
+   * prose moves.
+   */
+  describe("the audit's own reading rules", () => {
+    it('a marker in an earlier clause does not exempt a later figure', () => {
+      // The F5 mutation: line-prefix scoping let a generic marker used for an
+      // unrelated reason earlier on the line exempt a live, wrong cap.
+      expect(
+        limitFiguresIn('The inline hint is no longer shown on mobile. PDF, DOCX, TXT (Max 3MB)')
+      ).toEqual([3]);
+    });
+
+    it('a marker in the same clause still exempts the figure', () => {
+      // The other polarity: narrowing the hatch must not close it, or PR #150's
+      // genuine historical prose goes RED on correct writing.
+      expect(limitFiguresIn('This doc previously specified Max 3MB for uploads')).toEqual([]);
+    });
+
+    it('table cells scope apart, so a marker in one cell does not exempt the next', () => {
+      // `|` in the delimiter class. Neither figure here is the live limit, so the
+      // staleness test cannot be what makes this row RED.
+      expect(limitFiguresIn('| Legacy | The cap is no longer 4MB | Max 7MB |')).toEqual([7]);
+    });
+
+    it('an exempted figure is still visible to the staleness test', () => {
+      const limit = resolveApiLimit().mb;
+      expect(
+        historicalFiguresIn(`This doc previously specified ${limit}MB`).map((f) => f.mb)
+      ).toEqual([limit]);
+    });
+
+    it('the constants glob excludes sibling tests', () => {
+      // Not vacuous: `constants/` already carries `requirementLabel.test.ts` and
+      // `skillCount.test.ts`, so dropping the exclusion puts both in this list.
+      expect(Object.keys(WEB_CONSTANT_MODULES).filter((p) => /\.test\.ts$/.test(p))).toEqual([]);
+    });
   });
 
   it('the /resumes/upload surface enforces the API limit', () => {
