@@ -22,38 +22,52 @@ WIC-1543, WIC-1552, WIC-1561. Each was individually cheap — a merge, a push, a
 `skip-ci-sweeper` dispatch to re-publish the required commit status. None of them was ever priced
 against the others.
 
-### What is actually true, measured 2026-08-27 against `main` at `13cb1e3`
+### What is actually true, measured twice
 
-| Measurement | Value |
-|---|---|
-| Open PRs | 58 |
-| Open PRs touching `CHANGELOG.md` | **40 (69%)** |
-| Of those, currently `CONFLICTING / DIRTY` | **6** |
-| Of those 6, conflicts whose file set is **exactly** `CHANGELOG.md` | **6 of 6 (100%)** |
-| Open changelog-touching PRs parked in `REVIEW_REQUIRED` | 22 |
-| Merges to `main`, trailing 7 days | 126 |
-| Of those, merges touching `CHANGELOG.md` | **76 (~11/day)** |
-| Git tags / published releases | **0** |
-| `CHANGELOG.md` size | 573 lines, 146 KB, one never-cut `[Unreleased]` |
+Both censuses were reproduced with the low-level three-way merge — the one tool that does **not**
+read `.gitattributes` and therefore answers the same question GitHub's merge button asks — with
+the positive control from `CLAUDE.md` passing.
 
-The conflicting PRs are #123, #141, #149, #161, #171, #179. Reproduced per file with the
-low-level three-way merge — the one tool that does **not** read `.gitattributes` and therefore
-answers the same question GitHub's merge button asks — with the positive control from
-`CLAUDE.md` passing:
+| Measurement | `main @13cb1e3` (03-27 ~00:30Z) | `main @3396925` (03-27 ~03:35Z) |
+|---|---|---|
+| Open PRs | 58 | **62** |
+| Open PRs touching `CHANGELOG.md` | **40 (69%)** | **47 (76%)** |
+| Currently `CONFLICTING / DIRTY` | **6** | **13 (21%)** |
+| Conflict sets **containing** `CHANGELOG.md` | **6 of 6 (100%)** | **13 of 13 (100%)** |
+| Conflict sets that are **exactly** `CHANGELOG.md` | 6 of 6 | **9 of 13** |
+| Open changelog-touching PRs parked in `REVIEW_REQUIRED` | 22 | — |
+| Merges to `main`, trailing 7 days | 126 | — |
+| Of those, merges touching `CHANGELOG.md` | **76 (~11/day)** | — |
+| Git tags / published releases | **0** | — |
+| `CHANGELOG.md` size | 573 lines, 146 KB, one never-cut `[Unreleased]` | — |
 
-```bash
-for N in 123 141 149 161 171 179; do
-  B=$(git merge-base origin/main refs/remotes/pr/$N)
-  # for each file both sides touched, run: git merge-file -q -p <head> <base> <main>
-done
-# result: every one of the six conflicts on CHANGELOG.md and on no other file
-```
+The load-bearing claim is the one that held across both measurements, and it is a
+**necessary-condition** claim rather than a sole-cause one:
 
-PR #141 is the case that settles the diagnosis. It touches
-`packages/api/src/services/application.service.ts` and `catalog.service.ts`, both of which `main`
-also changed since the merge base. **Those two files merge cleanly.** The only conflict is
-`CHANGELOG.md`. The repository does not have a merge-conflict problem; it has a changelog problem
-that presents as one.
+> `CHANGELOG.md` appears in the conflict set of **every** conflicting open PR — 6 of 6, then
+> 13 of 13. No open PR in this repository conflicts without it.
+
+An earlier revision of this section stated the stronger form — *"for all 6 the conflict file set
+is exactly `CHANGELOG.md`"* — which was true at `13cb1e3` and is not true at `3396925`, where
+four PRs carry a second conflicted file (#165 and #103 on `docs/design/COMPONENT_SPECS.md`, #93
+and #92 on `packages/web/src/pages/NotFound.test.tsx`). The weaker claim is the more useful one
+anyway: removing the shared line does not take the conflict count to zero, it takes it from
+**13 to 4**.
+
+PR #141 is the case that settles the diagnosis, and it is sharper now than when first written.
+It touches `packages/api/src/services/application.service.ts` and `catalog.service.ts`, both of
+which `main` also changed since the merge base. **Those two files merge cleanly — at both
+measurements.** At `13cb1e3` it was the control: a PR with genuinely contended source files and
+no conflict. At `3396925` it is `CONFLICTING`, and its conflict set is *exactly* `CHANGELOG.md`.
+The control became an instance without its code changing. The repository does not have a
+merge-conflict problem; it has a changelog problem that presents as one.
+
+**Scope limit this ADR does not fix.** The four two-file conflicts are not changelog collisions
+and fragments will not remove them. Both `COMPONENT_SPECS.md` cases trace to `38bd487`, which
+reformatted 1141/986 lines of that file (694/623 ignoring whitespace) while landing a narrow
+heading-level fix, and so collided with every open PR annotating it. Incidental whole-file
+reformats riding along with narrow changes are a **distinct** collision source with a distinct
+remedy, and are out of scope here. A reader should expect the residual 4 to survive this proposal.
 
 ### Why the two prior fixes did not end it
 
@@ -63,18 +77,27 @@ that presents as one.
 - **WIC-1543** moved the insertion anchor below the top `### ` entry. Before it, the anchor was
   branch-point independent — every open PR resolved "the top of `[Unreleased]`" to the same line —
   so collision was *guaranteed by construction*. After it, collision requires two PRs cut from
-  near-identical commits. Measured on #174: zero new conflicts across #111, #165 and #166.
+  near-identical commits. Measured on #174: zero new conflicts across #111, #165 and #166 — a
+  real reduction, and a temporary one. #165 and #166 have both conflicted since; #165 stands
+  `CONFLICTING` at `3396925` and #166 was repaired twice more the same morning.
 
 Both were real improvements to a shared-line insertion protocol. The measurement above is what
 they leave behind: **15% of the changelog-touching open-PR population standing conflicted at any
-instant**, and that population regenerates. At ~11 changelog-touching merges per day against 40
-exposed PRs, the residual is not rare — it is a steady-state occupancy.
+instant, and 21% at the second census**, and that population regenerates. At ~11
+changelog-touching merges per day against 40–47 exposed PRs, the residual is not rare — it is a
+steady-state occupancy.
+
+**The stock understates it, because repaired PRs leave the stock.** Neither this PR (#190) nor
+#166 appears in the 13 above, and both went `CONFLICTING` and were repaired in the hours between
+the two censuses. The rate is the quantity that matters, and it scales with merge traffic rather
+than with where an author aims: any PR cut from the same `main` resolves "below the top entry" to
+the same line, so re-anchoring moves the probability and not the mechanism.
 
 The cost also lands unevenly. It concentrates on PRs parked in `REVIEW_REQUIRED` waiting on a
-human, which is where every agent-authored PR sits by construction. PR #166 was knocked
-`CONFLICTING` four times in ~24h, twice on the *re-anchored* line, and collision 4 arrived while
-CI was still running the repair for collision 3. A branch can re-collide faster than its author
-can push a fix through a ~5-minute CI cycle.
+human, which is where every agent-authored PR sits by construction. PR #166 took **nine
+collisions in ~28h, four of them inside one 85-minute window**, most on the *re-anchored* line,
+with collisions arriving while CI was still running the repair for the one before. A branch can
+re-collide faster than its author can push a fix through a ~5-minute CI cycle.
 
 ### The union driver's own failures
 
@@ -136,7 +159,7 @@ mechanism (WIC-1394, WIC-1457, WIC-1512, WIC-1552).
 
 ### Phased rollout — the cutover is the risky part
 
-Removing `merge=union` on day one would make things **worse**, not better: 40 open PRs currently
+Removing `merge=union` on day one would make things **worse**, not better: 47 open PRs currently
 carry `CHANGELOG.md` edits, and stripping the driver removes their local auto-resolution while
 leaving every one of them still editing the shared file. Sequencing therefore matters.
 
@@ -148,7 +171,7 @@ leaving every one of them still editing the shared file. Sequencing therefore ma
    `.gitattributes` contains nothing but this rule and its comment, so the file is deleted with it.
    The `git merge-file` diagnostic in `CLAUDE.md` stays documented but stops being load-bearing.
 4. **Gate (optional, deferred).** A CI check requiring a fragment on PRs touching `packages/**`.
-   Deliberately not part of step 1: turning it on against 58 open PRs would fail all of them at
+   Deliberately not part of step 1: turning it on against 62 open PRs would fail all of them at
    once, which is the same category of self-inflicted queue damage this ADR exists to end.
 
 ## Consequences
