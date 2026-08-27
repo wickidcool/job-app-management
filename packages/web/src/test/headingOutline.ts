@@ -58,7 +58,13 @@ export function getOutline(container: HTMLElement): OutlineEntry[] {
           ? Number(fromTag[1])
           : ARIA_DEFAULT_HEADING_LEVEL;
 
-    return { level, text: (node.textContent ?? '').trim() };
+    // Internal runs of whitespace are collapsed, not just trimmed. JSX formats a long
+    // heading across several source lines, so `textContent` carries the indentation
+    // verbatim — and callers that compare a heading's text for *equality* (does any
+    // heading below the `h1` repeat the route name?) would silently never match a
+    // heading Prettier happened to wrap. Normalising here keeps that class of check
+    // honest for every consumer instead of at each call site (WIC-1571).
+    return { level, text: (node.textContent ?? '').replace(/\s+/g, ' ').trim() };
   });
 }
 
