@@ -20,6 +20,18 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Docs — ADR-009 proposes per-PR changelog fragments, because the insertion collision is a category and not an incident (2026-08-27)
+
+Eleven board cards have been opened, worked and closed by performing the same manual re-merge of `CHANGELOG.md`. `docs/architecture/adr/ADR-009-changelog-fragments.md` (new, **Proposed**) prices that aggregate for the first time and proposes one file per change instead of one line per change.
+
+- **The diagnosis is measured, not asserted.** Of 58 open PRs, 40 (69%) touch `CHANGELOG.md`; 6 are `CONFLICTING` right now, and for **all 6 the conflict file set is exactly `CHANGELOG.md`**. PR #141 settles it — it touches two API service files that `main` also changed since the merge base, and *those merge cleanly*. This repository does not have a merge-conflict problem; it has a changelog problem that presents as one.
+- **Both prior fixes were right, and neither removes the shared line.** WIC-1157's `merge=union` is invisible to GitHub, which computes mergeability without `.gitattributes`. WIC-1543's below-top anchor took the collision from *guaranteed by construction* to roughly 15% of the changelog-touching open-PR population standing conflicted at any instant — a real win, credited as such, and still a steady-state occupancy against ~11 changelog-touching merges per day.
+- **The cheap alternative was checked first, and it is available.** A repository ruleset carrying a `merge_queue` rule was accepted on this public repo in a Free org (probe created `enforcement: disabled` against a non-existent branch, then deleted). It is rejected on **mechanism**: a merge queue serialises merges and resolves *semantic* conflicts, but a textually conflicting PR is ejected from the queue for the author to fix by hand. It relocates the same manual repair to a later moment. Auto-"Update branch" fails one step earlier for the same reason.
+- **The cutover is the risky part, so the rollout is phased.** Removing the union driver on day one would make things worse — 40 open PRs still edit the file and would lose their local auto-resolution. Open PRs are grandfathered, the driver is removed only once none of them touches `CHANGELOG.md`, and the fragment-required CI gate is deliberately deferred rather than failing 58 open PRs at once.
+- **Assembly opens a PR rather than pushing to `main`.** That keeps the change reviewable, needs no branch-protection bypass, and avoids the pending force-push governance question entirely. It is scheduled rather than deferred to release because this repo has zero tags and its `[Unreleased]` has never been cut — "assemble at release" would mean "never assemble".
+- **A falsifiable success metric.** Zero changelog conflicts across the next 50 merges for PRs authored under the convention, plus a liveness check that no fragment sits in `changelog.d/` for more than 7 days — the failure mode the proposal itself introduces.
+- Documentation only. No source, schema, wire, or test change. Adopting the ADR is a follow-up.
+
 ### Docs — All ten `cursor` parameter rows in API_CONTRACTS.md now say the cursor is opaque (2026-08-27)
 
 `docs/architecture/API_CONTRACTS.md` had six `| cursor |` query-parameter rows, each carrying `(opaque — see [Pagination](#pagination))` inline. PR #112 documented four more paginated report endpoints and took the count to ten, and three of the four new rows read a bare `Pagination cursor`.
