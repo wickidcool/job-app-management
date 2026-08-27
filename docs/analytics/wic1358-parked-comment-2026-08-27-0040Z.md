@@ -94,10 +94,17 @@ Re-fetch with `GET /api/issues/{id}` first (never the list endpoint — 1200-cha
 Replace the "Why waiting costs nothing" framing so the release condition reads two-clause:
 
 > **Release requires BOTH:** (a) a first adjudicated-organic event in 551963, AND (b) root
-> `GET /health` returning `healthy`. Clause (b) was added 2026-08-27 — while prod is degraded
-> (WIC-1386 / pending board decision WIC-1473) the server half of the WIC-814 taxonomy can only
-> record failure, so traffic alone does not make the dashboards buildable. `organic_watch.py`
-> now measures both and prints `COLLECTOR HEALTH:` on every run.
+> `GET /health` returning `{"status":"ok"}` with HTTP 200. Clause (b) was added 2026-08-27 —
+> while prod is degraded (WIC-1386 / pending board decision WIC-1473) the server half of the
+> WIC-814 taxonomy can only record failure, so traffic alone does not make the dashboards
+> buildable. `organic_watch.py` now measures both and prints `COLLECTOR HEALTH:` on every run.
+
+<!-- Clause (b) said `healthy` until WIC-1580 review. The handler never emits that string --
+     `packages/api/src/app.ts:98` emits 'ok' | 'degraded', and "healthy" appears nowhere in
+     packages/api/src. As written the clause was unsatisfiable, so pasting it into WIC-1358's
+     description would have pinned the WIC-1024 hold permanently in the exact field that
+     governs release. Same defect was fixed in code in the same PR (#192, commit 2041cf6). -->
+
 
 Also strike "there is nothing to fix and nothing to deploy" — there is: WIC-1473.
 
