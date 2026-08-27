@@ -306,10 +306,18 @@ const EXAMPLE_PATTERNS: readonly RegExp[] = [
  * was previously smaller (5MB) before WIC-1382" — stops being exempt and REDs as
  * an unclassified figure, silently reclassified rather than merely re-scoped.
  *
- * The accepted cost of `)` is the mirror phrasing, marker before `(` and figure
- * after `)`:
+ * The accepted cost of `)` is any historical marker separated from its figure by
+ * a `)` on the same line. The marker may sit before the parenthetical or inside
+ * it; both go from exempt to a false RED:
  *
  *     previously (in WIC-1382) the cap was Max 5MB  ->  live=[5], a false RED
+ *     The doc (no longer accurate) said Max 5MB     ->  live=[5], a false RED
+ *
+ * The second is syntactically identical to the WIC-1587 row above that this
+ * change exists to catch — marker inside a parenthetical, figure after the `)`.
+ * The rule cannot separate them: the only difference is whether the figure after
+ * the `)` is live or superseded. Benefit and cost are the same shape here, not
+ * mirror images, and that is the boundary of the fix.
  *
  * That is a residual, not a hole. It fails in the direction this docstring already
  * declares safe: it NARROWS the exemption, so it surfaces as a loud RED with a
