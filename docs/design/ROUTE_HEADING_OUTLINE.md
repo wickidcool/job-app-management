@@ -205,7 +205,8 @@ stacked, in the same viewport.
 > shipped the prop deletion. That is the argument for §5 rule 5 (grep the subtree for
 > `headingLevel` first) rather than trusting a green outline run.
 >
-> Shipped shape is PR #194 @ `6ad592d`.
+> Shipped shape is PR #194, merged as `0bb159b` (heading copy sentence-cased to `Review & edit` in
+> `7a5d04c`, per `CONTENT_STYLE.md`).
 >
 > **A caveat worth keeping.** §3 defends the prop *structurally* — the preview is the sole content
 > of a page under `CoverLetterDetail` and one half of a split pane inside a wizard step under

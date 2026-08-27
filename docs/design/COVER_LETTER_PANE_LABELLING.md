@@ -183,8 +183,11 @@ belongs to the route. "Generate Cover Letter" is a section heading inside it and
 > Filed as WIC-1571 and fixed the ✅ way in **PR #194**: the `<h1>` goes in a page shell wrapping
 > all four render branches, the generator's `<h2>` is untouched, and the distinction is pinned with
 > `?raw` source guards — necessary because an outline assertion alone passes under *both* fixes.
-> ~~As of 2026-08-27 PR #194 is open and `CONFLICTING`~~ — re-measured 2026-08-27 at `6ad592d`:
-> **`MERGEABLE`, all checks green.** `main` still has no `<h1>` on that route until it lands.
+> ~~As of 2026-08-27 PR #194 is open and `CONFLICTING`~~ — **merged 2026-08-27 as `0bb159b`.**
+> `/cover-letters/new` now has an `<h1>` of its own on `main`, and this is a closed question rather
+> than a live constraint. (The struck clause is left visible on purpose: it is the third stale
+> PR-status assertion this pair of documents has carried, which is why status lines now get a
+> re-measurement date rather than a bare state.)
 >
 > The ruling does not depend on that PR either way — see the structural statement below. But the
 > constraint on *how* it gets fixed is now enforced from two directions: `CoverLetterPreview.test.tsx`'s
@@ -264,4 +267,5 @@ if the two ever disagree, `COMPONENT_SPECS.md` is the normative copy.
 Per-item evidence is in §0's audit table, checked against `38bd487`.
 
 **Not in scope:** the missing `<h1>` on `/cover-letters/new` (§3) — filed as WIC-1571, fixed the
-correct way in PR #194, which is still open. See §3's status note.
+correct way in PR #194, **merged 2026-08-27 as `0bb159b`**. See §3's status note, and the WIC-1598
+note beneath it for how that fix nearly went the other way via `ROUTE_HEADING_OUTLINE.md` §4.
