@@ -196,15 +196,20 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     // is the one place it cannot be hidden by the caller — unwrapped, the heading announces
     // as "memo Editor". §10 and the changelog both assert that it is wrapped, so it is read
     // from the host's source rather than reproduced in a fixture.
-    const headings = stripComments(generatorSource).match(/<h3\b[^>]*>[\s\S]*?<\/h3>/g) ?? [];
+    // Annotated `string[]` for the same reason `headingLevelPassedBy` destructures: `match()
+    // ?? []` infers as `[] | RegExpMatchArray`, and the empty *tuple* contributes element type
+    // `never`, which is what `.filter()`'s callback parameter collapses to. Nothing to do with
+    // `noUncheckedIndexedAccess` — this package does not set it — it is plain inference over a
+    // union that happens to include a zero-length tuple.
+    const headings: string[] =
+      stripComments(generatorSource).match(/<h3\b[^>]*>[\s\S]*?<\/h3>/g) ?? [];
     const editorHeadings = headings.filter((heading) => heading.includes('Editor'));
 
     // Exactly one, for the same reason as above: two would mean this is reporting on one
     // "Editor" heading and silently ignoring the other.
     expect(editorHeadings).toHaveLength(1);
-    // Plainly indexed, unlike `headingLevelPassedBy` above: `.filter()` collapses the
-    // `[] | RegExpMatchArray` union to `string[]`, which indexes to `string`.
-    const editorHeading = editorHeadings[0];
+    const [editorHeading] = editorHeadings;
+    if (!editorHeading) throw new Error('no "Editor" <h3> found in CoverLetterGenerator');
 
     expect(editorHeading).toMatch(/<span\s+aria-hidden="true"\s*>\s*📝\s*<\/span>/);
 
