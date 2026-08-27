@@ -1,6 +1,10 @@
 # CHANGELOG.md is append-only: every PR adds an entry at the same spot under
 # [Unreleased], so the first merge forces a rebase on every other open PR.
 # The union driver keeps both sides' entries instead of conflicting.
+# This resolves the LOCAL merge only. GitHub computes mergeability without the
+# driver, so a union-merged CHANGELOG still reports CONFLICTING/DIRTY on the PR
+# page. See `## Changelog conventions` in CLAUDE.md for the anchor convention
+# that avoids the collision, and for how to reproduce GitHub's verdict.
 # Deliberately scoped to this one file — union resolves by concatenation with no
 # conflict, which is correct for a changelog and wrong for structured files.
 CHANGELOG.md merge=union
