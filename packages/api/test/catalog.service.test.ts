@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
 import { getDb } from '../src/db/client.js';
-import { mergeCompanies, mergeJobFitTags } from '../src/services/catalog.service.js';
+import {
+  mergeCompanies,
+  mergeJobFitTags,
+  mergeTechStackTags,
+} from '../src/services/catalog.service.js';
 import { NotFoundError } from '../src/types/index.js';
 
 /**
@@ -21,12 +26,20 @@ import { NotFoundError } from '../src/types/index.js';
  * re-deriving a canonical slug.
  */
 
-/** Build a db double whose select() chain resolves the given rows in order. */
+/**
+ * Build a db double whose select() chain resolves the given rows in order.
+ *
+ * The returned `where` spies hold the Drizzle predicate objects the service
+ * built, which is what the tenancy tests below assert on — see `queryFor`.
+ */
 function stubDb(selectResults: unknown[][]) {
   const where = vi.fn();
   for (const rows of selectResults) where.mockResolvedValueOnce(rows);
 
-  const txSet = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+  // One shared spy across every update in the transaction, so a test can read
+  // the predicate of each write in call order.
+  const txUpdateWhere = vi.fn().mockResolvedValue(undefined);
+  const txSet = vi.fn().mockReturnValue({ where: txUpdateWhere });
   const txUpdate = vi.fn().mockReturnValue({ set: txSet });
   const txDeleteWhere = vi.fn().mockResolvedValue(undefined);
   const txDelete = vi.fn().mockReturnValue({ where: txDeleteWhere });
@@ -41,7 +54,39 @@ function stubDb(selectResults: unknown[][]) {
   };
   vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
 
-  return { txSet, txUpdate, txDelete, txDeleteWhere, transaction };
+  return {
+    selectWhere: where,
+    txSet,
+    txUpdate,
+    txUpdateWhere,
+    txDelete,
+    txDeleteWhere,
+    transaction,
+  };
+}
+
+const dialect = new PgDialect();
+
+/**
+ * Render a Drizzle where-clause to the SQL it would actually run. Asserting on
+ * the rendered predicate is what makes the tenancy tests mutation-proof:
+ * dropping the `eq(table.userId, userId)` term changes this string, whereas a
+ * `toHaveBeenCalled()` check would still pass.
+ */
+function queryFor(clause: unknown) {
+  return dialect.sqlToQuery(clause as Parameters<PgDialect['sqlToQuery']>[0]);
+}
+
+/** The clause filters on user_id, bound to this exact caller. */
+function expectScopedTo(clause: unknown, userId: string) {
+  const { sql, params } = queryFor(clause);
+  expect(sql).toContain('"user_id" = $');
+  expect(params).toContain(userId);
+}
+
+/** The clause carries no tenancy term at all (single-user / local mode). */
+function expectUnscoped(clause: unknown) {
+  expect(queryFor(clause).sql).not.toContain('user_id');
 }
 
 function companyRow(overrides: Record<string, unknown> = {}) {
@@ -252,5 +297,127 @@ describe('mergeJobFitTags', () => {
     stubDb([[]]);
 
     await expect(mergeJobFitTags(['01HZ_TAG_002'], 'nonexistent')).rejects.toThrow(NotFoundError);
+  });
+});
+
+// ── Tenancy scoping (WIC-1365) ───────────────────────────────────────────────
+//
+// The merge trio takes the caller's user id and used to ignore it entirely: the
+// parameter was `_userId` and every lookup and write was keyed on id alone. An
+// authenticated user who knew a ULID could fold another user's companies into a
+// target (soft-deleting the sources) or hard-delete another user's tags.
+//
+// The fix mirrors `resolveDiffItem`: scope on userId when there is one, and
+// leave the predicate alone when there is not, so single-user/local mode
+// (SUPABASE_JWT_SECRET unset -> userId null) keeps working unchanged. These
+// tests assert on the rendered SQL rather than on call counts, so removing the
+// tenancy term fails them.
+
+const CALLER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+
+describe('merge tenancy scoping', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  describe('mergeCompanies', () => {
+    it('scopes the target read, the source read and both writes to the caller', async () => {
+      const { selectWhere, txUpdateWhere } = stubDb([
+        [companyRow()],
+        [companyRow({ id: '01HZ_CO_002' })],
+        [companyRow()],
+      ]);
+
+      await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', CALLER);
+
+      // Reads: target, then sources.
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+      expectScopedTo(selectWhere.mock.calls[1][0], CALLER);
+      // Writes: fold into the target, then soft-delete the sources. The second
+      // one is the destructive half — an id-only predicate there would retire
+      // another user's rows even if the read above excluded them.
+      expect(txUpdateWhere).toHaveBeenCalledTimes(2);
+      expectScopedTo(txUpdateWhere.mock.calls[0][0], CALLER);
+      expectScopedTo(txUpdateWhere.mock.calls[1][0], CALLER);
+    });
+
+    it('reports the target as not found when it belongs to another user', async () => {
+      // The scoped read returns nothing even though the row exists.
+      stubDb([[]]);
+
+      await expect(mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', CALLER)).rejects.toThrow(
+        NotFoundError
+      );
+    });
+
+    it('leaves the predicates unscoped in single-user mode', async () => {
+      const { selectWhere, txUpdateWhere } = stubDb([
+        [companyRow()],
+        [companyRow({ id: '01HZ_CO_002' })],
+        [companyRow()],
+      ]);
+
+      await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', undefined);
+
+      expectUnscoped(selectWhere.mock.calls[0][0]);
+      expectUnscoped(selectWhere.mock.calls[1][0]);
+      expectUnscoped(txUpdateWhere.mock.calls[0][0]);
+      expectUnscoped(txUpdateWhere.mock.calls[1][0]);
+    });
+  });
+
+  describe.each([
+    ['mergeJobFitTags', mergeJobFitTags],
+    ['mergeTechStackTags', mergeTechStackTags],
+  ] as const)('%s', (_name, merge) => {
+    it('scopes the target read, the source read, the update and the delete', async () => {
+      const { selectWhere, txUpdateWhere, txDeleteWhere } = stubDb([
+        [tagRow()],
+        [tagRow({ id: '01HZ_TAG_002' })],
+        [tagRow()],
+      ]);
+
+      await merge(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER);
+
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+      expectScopedTo(selectWhere.mock.calls[1][0], CALLER);
+      expectScopedTo(txUpdateWhere.mock.calls[0][0], CALLER);
+      // The delete is unrecoverable — there is no soft-delete for tags.
+      expect(txDeleteWhere).toHaveBeenCalledTimes(1);
+      expectScopedTo(txDeleteWhere.mock.calls[0][0], CALLER);
+    });
+
+    it('does not delete a source id the scoped read excluded', async () => {
+      // Caller names two sources; only one comes back from the scoped read
+      // because the other belongs to somebody else. The loop must follow the
+      // read, not the raw id list.
+      const { txDeleteWhere } = stubDb([[tagRow()], [tagRow({ id: '01HZ_TAG_002' })], [tagRow()]]);
+
+      const result = await merge(['01HZ_TAG_002', '01HZ_TAG_OTHER_USER'], '01HZ_TAG_001', CALLER);
+
+      expect(txDeleteWhere).toHaveBeenCalledTimes(1);
+      expect(queryFor(txDeleteWhere.mock.calls[0][0]).params).toContain('01HZ_TAG_002');
+      expect(queryFor(txDeleteWhere.mock.calls[0][0]).params).not.toContain('01HZ_TAG_OTHER_USER');
+      expect(result.mergedCount).toBe(1);
+    });
+
+    it('reports the survivor as not found when it belongs to another user', async () => {
+      stubDb([[]]);
+
+      await expect(merge(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER)).rejects.toThrow(NotFoundError);
+    });
+
+    it('leaves the predicates unscoped in single-user mode', async () => {
+      const { selectWhere, txUpdateWhere, txDeleteWhere } = stubDb([
+        [tagRow()],
+        [tagRow({ id: '01HZ_TAG_002' })],
+        [tagRow()],
+      ]);
+
+      await merge(['01HZ_TAG_002'], '01HZ_TAG_001', undefined);
+
+      expectUnscoped(selectWhere.mock.calls[0][0]);
+      expectUnscoped(selectWhere.mock.calls[1][0]);
+      expectUnscoped(txUpdateWhere.mock.calls[0][0]);
+      expectUnscoped(txDeleteWhere.mock.calls[0][0]);
+    });
   });
 });
