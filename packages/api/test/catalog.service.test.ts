@@ -564,6 +564,151 @@ describe.each([
   });
 });
 
+// ── WIC-1395: a merge target must not appear in its own source list ───────────
+// `sourcesWhere` is built from `sourceIds` alone and is exactly the predicate
+// the merge deletes by, so a target listed among its own sources was destroyed
+// by its own merge. Measured on a real engine before the guard landed:
+//   mergeCompanies(['X'], 'X')    -> HTTP 200, company X isDeleted = true
+//                                    (silent destructive success)
+//   mergeJobFitTags(['T'], 'T')   -> target row HARD DELETED, then `updated!`
+//                                    is undefined -> TypeError -> HTTP 500
+// Only reachable at all because WIC-1377 repaired the source read above; every
+// merge previously died at that read before any write ran.
+//
+// These assert on the surviving row state, not just on the rejection: a version
+// that deleted first and rejected afterwards would satisfy a rejects-only test.
+
+/**
+ * A db double backed by a mutable row store that honours where-clauses across
+ * the transactional write path — update and delete included, which neither
+ * stubDb nor stubOwnedRow model.
+ *
+ * Visibility, per row: the clause's bound params must name the row's id, and a
+ * clause carrying a user_id term must bind that row's owner. That is enough to
+ * distinguish every predicate the merge trio builds (`eq(id) [and eq(userId)]`
+ * for the target, `inArray(id) [and eq(userId)]` for the sources).
+ */
+function stubRowStore(rows: Array<Record<string, unknown>>) {
+  const store = rows.map((r) => ({ ...r }));
+  const matches = (clause: unknown) => {
+    const { sql, params } = queryFor(clause);
+    return store.filter(
+      (r) =>
+        params.includes(r.id as string) &&
+        (!sql.includes('user_id') || params.includes(r.userId as string))
+    );
+  };
+
+  const selectWhere = vi.fn((clause: unknown) => Promise.resolve(matches(clause)));
+  const txUpdate = vi.fn(() => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async (clause: unknown) => {
+        for (const r of matches(clause)) Object.assign(r, values);
+      },
+    }),
+  }));
+  const txDelete = vi.fn(() => ({
+    where: async (clause: unknown) => {
+      for (const r of matches(clause)) store.splice(store.indexOf(r), 1);
+    },
+  }));
+  const db = {
+    select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: selectWhere }) }),
+    transaction: vi.fn(async (cb: (tx: unknown) => Promise<void>) =>
+      cb({ update: txUpdate, delete: txDelete })
+    ),
+  };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+
+  return { find: (id: string) => store.find((r) => r.id === id), size: () => store.length };
+}
+
+describe.each([
+  ['mergeCompanies', mergeCompanies, companyRow] as const,
+  ['mergeJobFitTags', mergeJobFitTags, tagRow] as const,
+  ['mergeTechStackTags', mergeTechStackTags, tagRow] as const,
+])('%s target/source overlap', (_name, merge, row) => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const TARGET = '01HZ_MERGE_TARGET';
+  const OTHER = '01HZ_MERGE_OTHER';
+  const badRequest = { name: 'AppError', code: 'BAD_REQUEST', statusCode: 400 };
+
+  // Untouched means byte-identical to what went in — not merely still present.
+  // Exact equality is what covers both shapes with one assertion: the company
+  // row carries the isDeleted flag the soft delete would flip, the tag rows do
+  // not have that column at all because their delete is permanent.
+  const untouched = (id: string) => row({ id, userId: CALLER });
+
+  it('rejects a target that is its own only source, and leaves that row intact', async () => {
+    const store = stubRowStore([row({ id: TARGET, userId: CALLER })]);
+
+    await expect(merge([TARGET], TARGET, CALLER)).rejects.toMatchObject(badRequest);
+
+    // The row itself is the assertion. Without the guard the company path marks
+    // it isDeleted and returns 200; the tag paths remove it from the table.
+    expect(store.find(TARGET)).toEqual(untouched(TARGET));
+  });
+
+  it('rejects a target listed alongside genuine sources, and merges nothing', async () => {
+    // The realistic shape: a multi-select where the survivor is also ticked.
+    const store = stubRowStore([
+      row({ id: TARGET, userId: CALLER }),
+      row({ id: OTHER, userId: CALLER }),
+    ]);
+
+    await expect(merge([OTHER, TARGET], TARGET, CALLER)).rejects.toMatchObject(badRequest);
+
+    // All-or-nothing: the innocent source must not be folded in either.
+    expect(store.size()).toBe(2);
+    expect(store.find(TARGET)).toEqual(untouched(TARGET));
+    expect(store.find(OTHER)).toEqual(untouched(OTHER));
+  });
+
+  it('rejects in single-user mode too, where no tenancy term narrows the delete', async () => {
+    const store = stubRowStore([row({ id: TARGET, userId: CALLER })]);
+
+    await expect(merge([TARGET], TARGET, undefined)).rejects.toMatchObject(badRequest);
+
+    expect(store.find(TARGET)).toEqual(untouched(TARGET));
+  });
+
+  it('still merges when the target is not among the sources', async () => {
+    // The guard must reject overlap only — this is the path that has to keep
+    // working, and it is what tells an over-broad guard from a correct one.
+    const store = stubRowStore([
+      row({ id: TARGET, userId: CALLER }),
+      row({ id: OTHER, userId: CALLER }),
+    ]);
+
+    const result = await merge([OTHER], TARGET, CALLER);
+
+    expect(result.mergedCount).toBe(1);
+    expect(store.find(TARGET)).toMatchObject({ version: 2 });
+  });
+
+  it('leaves a foreign-owned row alone while merging', async () => {
+    // Pins the second half of stubRowStore's documented visibility rule. Without
+    // this case the tenancy term in `matches` is dead weight — no other test
+    // puts a row the caller does not own into the store, so a double that
+    // matched on bare id membership, or an update that ignored its where-clause
+    // entirely, passed every one of them. Both mutants fail here.
+    const FOREIGN = '01HZ_MERGE_FOREIGN';
+    const store = stubRowStore([
+      row({ id: TARGET, userId: CALLER }),
+      row({ id: OTHER, userId: CALLER }),
+      row({ id: FOREIGN, userId: OTHER_USER }),
+    ]);
+
+    const result = await merge([OTHER, FOREIGN], TARGET, CALLER);
+
+    // The scoped source read never sees the foreign row, so it is not counted…
+    expect(result.mergedCount).toBe(1);
+    // …and the scoped writes never reach it either.
+    expect(store.find(FOREIGN)).toEqual(row({ id: FOREIGN, userId: OTHER_USER }));
+  });
+});
+
 // ── WIC-1373: tag PATCH + generate-diff tenancy ───────────────────────────────
 // Same defect class as the merge scoping above, on the endpoints
 // PATCH /api/catalog/tags/{job-fit,tech-stack}/:id and POST
