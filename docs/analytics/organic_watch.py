@@ -323,6 +323,16 @@ def prod_db_health():
     except (urllib.error.URLError, ValueError, OSError) as exc:
         return ("unknown", {"probe_error": str(exc)})
 
+    return classify_health(body)
+
+
+def classify_health(body):
+    """Map a parsed /health payload to (state, detail).
+
+    Pure -- no I/O. That is the point: the recovered-prod branch cannot be exercised
+    against live prod while the outage is the reason this code exists (WIC-1580), so it
+    is exercised against captured payloads instead. See `--selftest`.
+    """
     if not isinstance(body, dict) or "status" not in body:
         return ("unknown", {"probe_error": f"unrecognised health payload: {str(body)[:120]}"})
     # The handler emits "ok", NOT "healthy" -- `packages/api/src/app.ts:98`:
@@ -330,11 +340,26 @@ def prod_db_health():
     # The literal "healthy" appears nowhere in packages/api/src. Matching on it would
     # misread a RECOVERED prod as degraded and pin "SECOND CLAUSE NOT MET" on forever --
     # the same release-on-a-false-premise failure this probe exists to prevent, inverted.
-    # The success path is untestable until WIC-1473 lands, so accept both spellings and
-    # let an unrecognised status fall to "unknown" rather than silently to "degraded".
+    # Accept both spellings, and let an unrecognised status fall to "unknown" rather
+    # than silently to "degraded".
     status = body.get("status")
+    db = body.get("db")
     if status in ("ok", "healthy"):
-        return ("ok", body)
+        # `status: ok` alone is NOT evidence the DB is reachable. The same line emits ok
+        # when `db === 'not_applicable'`, which is what the handler returns when NEITHER
+        # the HYPERDRIVE binding NOR DATABASE_URL is present -- the DB was never probed.
+        # Production has no Hyperdrive binding and reaches Postgres purely through the
+        # DATABASE_URL secret that `deploy.yml` pushes, so a dropped or failed secret push
+        # answers 200 `{"status":"ok","hyperdrive":false,"db":"not_applicable"}` with no
+        # database behind it at all. Reading that as "reachable" would release the WIC-1024
+        # hold onto a prod that cannot serve one authenticated request -- the same
+        # false-premise release, arrived at from the opposite direction.
+        if db == "ok":
+            return ("ok", body)
+        return (
+            "unknown",
+            {"probe_error": f"status={status} but db={str(db)[:60]} -- DB not probed", "payload": body},
+        )
     if status == "degraded":
         return ("degraded", body)
     return ("unknown", {"probe_error": f"unrecognised health status: {str(status)[:60]}"})
@@ -342,7 +367,7 @@ def prod_db_health():
 
 def describe_health(state, detail):
     if state == "ok":
-        return "prod DB reachable (GET /health -> ok)"
+        return "prod DB reachable (GET /health -> ok, db=ok)"
     if state == "degraded":
         db = (detail or {}).get("db")
         hyperdrive = (detail or {}).get("hyperdrive")
@@ -351,6 +376,48 @@ def describe_health(state, detail):
             f"{str(db)[:120]}"
         )
     return f"prod DB health UNKNOWN ({(detail or {}).get('probe_error', 'n/a')})"
+
+
+# Captured payloads, so the branch that only runs after the outage clears can be
+# exercised while the outage is still the reason this code exists (WIC-1580). The
+# degraded case is a verbatim capture from https://app.careerpin.app/health on
+# 2026-08-27 00:53Z; the ok cases are constructed from `packages/api/src/app.ts:98`,
+# which is the contract of record.
+HEALTH_CASES = [
+    # (label, payload, expected state)
+    ("recovered prod", {"status": "ok", "hyperdrive": False, "db": "ok"}, "ok"),
+    ("recovered prod, hyperdrive path", {"status": "ok", "hyperdrive": True, "db": "ok"}, "ok"),
+    ("legacy spelling", {"status": "healthy", "hyperdrive": False, "db": "ok"}, "ok"),
+    # 200 + status ok, but the DB was never probed -- must NOT read as reachable.
+    ("no DB binding at all", {"status": "ok", "hyperdrive": False, "db": "not_applicable"}, "unknown"),
+    ("status ok, db field absent", {"status": "ok", "hyperdrive": False}, "unknown"),
+    (
+        "live prod 2026-08-27",
+        {
+            "status": "degraded",
+            "hyperdrive": False,
+            "db": "Too many subrequests by single Worker invocation.",
+        },
+        "degraded",
+    ),
+    ("unrecognised status", {"status": "starting", "db": "ok"}, "unknown"),
+    ("not a health payload", {"error": "cloudflare bot challenge"}, "unknown"),
+    ("not a dict", "<!DOCTYPE html>", "unknown"),
+]
+
+
+def selftest():
+    """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
+    failures = 0
+    for label, payload, expected in HEALTH_CASES:
+        state, detail = classify_health(payload)
+        ok = state == expected
+        failures += 0 if ok else 1
+        print(f"  [{'PASS' if ok else 'FAIL'}] {label}: got {state!r}, want {expected!r}")
+        if not ok:
+            print(f"         detail: {detail}")
+    print(f"\n{len(HEALTH_CASES) - failures}/{len(HEALTH_CASES)} health-classification cases pass.")
+    return 1 if failures else 0
 
 
 def arg_value(flag):
@@ -364,6 +431,9 @@ def arg_value(flag):
 def main():
     verbose = "--verbose" in sys.argv
     audit = "--audit" in sys.argv
+
+    if "--selftest" in sys.argv:
+        return selftest()
 
     registry, source, problems = load_registry(arg_value("--registry"))
     distinct_ids, event_uuids, session_ids = set(), set(), set()
