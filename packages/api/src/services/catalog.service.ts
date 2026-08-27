@@ -1,6 +1,7 @@
 import { eq, and, ilike, asc, desc, inArray, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
+import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import {
   companyCatalog,
   jobFitTags,
@@ -52,7 +53,7 @@ export interface ListCompaniesOptions {
 export async function listCompanies(opts: ListCompaniesOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
-  const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
+  const offset = parseCursor(opts.cursor);
 
   const conditions = [];
   if (userId) conditions.push(eq(companyCatalog.userId, userId));
@@ -69,9 +70,7 @@ export async function listCompanies(opts: ListCompaniesOptions = {}, userId?: st
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore
-    ? Buffer.from(String(offset + limit)).toString('base64url')
-    : undefined;
+  const nextCursor = hasMore ? encodeCursor(offset + limit) : undefined;
 
   return { companies: items.map(toCompanyDTO), nextCursor };
 }
@@ -149,7 +148,7 @@ export interface ListTagsOptions {
 export async function listJobFitTags(opts: ListTagsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
-  const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
+  const offset = parseCursor(opts.cursor);
 
   const conditions = [];
   if (userId) conditions.push(eq(jobFitTags.userId, userId));
@@ -169,9 +168,7 @@ export async function listJobFitTags(opts: ListTagsOptions = {}, userId?: string
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore
-    ? Buffer.from(String(offset + limit)).toString('base64url')
-    : undefined;
+  const nextCursor = hasMore ? encodeCursor(offset + limit) : undefined;
 
   return { tags: items.map(toJobFitTagDTO), nextCursor };
 }
@@ -287,7 +284,7 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string, use
 export async function listTechStackTags(opts: ListTagsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
-  const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
+  const offset = parseCursor(opts.cursor);
 
   const conditions = [];
   if (userId) conditions.push(eq(techStackTags.userId, userId));
@@ -307,9 +304,7 @@ export async function listTechStackTags(opts: ListTagsOptions = {}, userId?: str
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore
-    ? Buffer.from(String(offset + limit)).toString('base64url')
-    : undefined;
+  const nextCursor = hasMore ? encodeCursor(offset + limit) : undefined;
 
   return { tags: items.map(toTechStackTagDTO), nextCursor };
 }
@@ -428,7 +423,7 @@ export interface ListBulletsOptions {
 export async function listBullets(opts: ListBulletsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
-  const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
+  const offset = parseCursor(opts.cursor);
 
   const conditions = [];
   if (userId) conditions.push(eq(quantifiedBullets.userId, userId));
@@ -446,9 +441,7 @@ export async function listBullets(opts: ListBulletsOptions = {}, userId?: string
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore
-    ? Buffer.from(String(offset + limit)).toString('base64url')
-    : undefined;
+  const nextCursor = hasMore ? encodeCursor(offset + limit) : undefined;
 
   return {
     bullets: items.map((r) => ({
@@ -510,7 +503,7 @@ export interface ListThemesOptions {
 export async function listThemes(opts: ListThemesOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
-  const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
+  const offset = parseCursor(opts.cursor);
 
   const conditions = [];
   if (userId) conditions.push(eq(recurringThemes.userId, userId));
@@ -527,9 +520,7 @@ export async function listThemes(opts: ListThemesOptions = {}, userId?: string) 
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore
-    ? Buffer.from(String(offset + limit)).toString('base64url')
-    : undefined;
+  const nextCursor = hasMore ? encodeCursor(offset + limit) : undefined;
 
   return {
     themes: items.map((r) => ({
@@ -558,7 +549,7 @@ export interface ListDiffsOptions {
 export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 20, 100);
-  const offset = opts.cursor ? parseInt(Buffer.from(opts.cursor, 'base64url').toString(), 10) : 0;
+  const offset = parseCursor(opts.cursor);
 
   const conditions = [];
   if (userId) conditions.push(eq(catalogDiffs.userId, userId));
@@ -578,9 +569,7 @@ export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore
-    ? Buffer.from(String(offset + limit)).toString('base64url')
-    : undefined;
+  const nextCursor = hasMore ? encodeCursor(offset + limit) : undefined;
 
   return {
     diffs: items.map((r) => ({
