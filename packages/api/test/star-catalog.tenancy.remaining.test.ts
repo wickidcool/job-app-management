@@ -176,7 +176,7 @@ describe('analyzeJobFit tenancy (D4 — the unqualified full-table read)', () =>
     expect(stub.catalogClauses(), 'the catalog is read exactly once').toHaveLength(1);
   });
 
-  it.fails('scopes the STAR-catalog read to the caller', async () => {
+  it('scopes the STAR-catalog read to the caller', async () => {
     const stub = install(MIXED_CATALOG);
 
     await analyzeJobFitWithCaller({ jobDescriptionText: JD }, 'ip-predicate', CALLER);
@@ -186,7 +186,7 @@ describe('analyzeJobFit tenancy (D4 — the unqualified full-table read)', () =>
     expectScopedTo(stub.catalogClauses()[0], CALLER);
   });
 
-  it.fails("does not rank or return another user's STAR rawText", async () => {
+  it("does not rank or return another user's STAR rawText", async () => {
     install(MIXED_CATALOG);
 
     const { response } = await analyzeJobFitWithCaller(
@@ -199,7 +199,7 @@ describe('analyzeJobFit tenancy (D4 — the unqualified full-table read)', () =>
     expect(response.recommendedStarEntries.map((e) => e.id)).toEqual(['01HZ_BUL_MINE']);
   });
 
-  it.fails('scopes the tech-stack and job-fit tag reads to the caller', async () => {
+  it('scopes the tech-stack and job-fit tag reads to the caller', async () => {
     const stub = install(MIXED_CATALOG);
 
     await analyzeJobFitWithCaller({ jobDescriptionText: JD }, 'ip-tags', CALLER);
@@ -269,7 +269,7 @@ describe('generateCoverLetter tenancy (D5 — fetchStarEntries ignores the calle
     expect(stub.catalogClauses()).toHaveLength(1);
   });
 
-  it.fails('scopes the STAR-entry read to the caller', async () => {
+  it('scopes the STAR-entry read to the caller', async () => {
     const { stub } = install(MIXED_CATALOG);
 
     await generateCoverLetter(
@@ -298,7 +298,7 @@ describe('generateCoverLetter tenancy (D5 — fetchStarEntries ignores the calle
     expectScopedTo(stub.catalogClauses()[0], CALLER, ['01HZ_BUL_MINE']);
   });
 
-  it.fails("rejects another user's STAR entry id as STAR_ENTRY_NOT_FOUND", async () => {
+  it("rejects another user's STAR entry id as STAR_ENTRY_NOT_FOUND", async () => {
     install(MIXED_CATALOG);
 
     // The unscoped read makes the foreign row *found*, so the `invalidIds`
@@ -317,7 +317,7 @@ describe('generateCoverLetter tenancy (D5 — fetchStarEntries ignores the calle
     ).rejects.toBeInstanceOf(CoverLetterError);
   });
 
-  it.fails("keeps another user's rawText out of the prompt and the response", async () => {
+  it("keeps another user's rawText out of the prompt and the response", async () => {
     const { anthropic } = install(MIXED_CATALOG);
 
     // Deliberately not `await`ed into a value: once the read is scoped, the
