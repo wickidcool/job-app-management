@@ -20,6 +20,18 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Fixed — secret-scan now actually reads the `.env` family (2026-08-27)
+
+The ADR-0001 Pillar 3 secret lint is a required step in `deploy.yml`, and its comment there says it scans "any tracked file". It did not. `SCANNABLE_EXT` lists `'.env'`, but `path.extname('.env')` is `''` and `path.extname('.env.production')` is `'.production'` — so that entry only ever matched a file literally named `foo.env`, and no real env-family file has ever reached the scanner.
+
+- **A tracked `.env.production` carrying a live-shaped Anthropic key passed CI clean.** Reproduced end-to-end against the real command (`npm run scan:secrets`) on `775c288`: `.env.production`, `.env.staging`, `.envrc`, `.npmrc` and `packages/web/.env.production` each exit 0, and the scanned-file count stays at **333** — the file is never read, not merely un-flagged. `.gitignore` covers only `.env`, `.env.local` and `.env.*.local`, so every one of those is committable with a plain `git add`.
+- **The discriminator is the dotfile-ness alone.** Byte-identical content in `foo.env` exits 1. Same extension-set entry, same patterns — only the leading dot differs.
+- **Root cause is a coverage boundary, not a typo.** `test/secret-scan.test.ts` covers the pure core in `src/lib/` exhaustively; the file-*discovery* layer in `src/secret-scan.ts` had no tests at all. Deleting the new discovery test leaves the api suite green at 512 passing, which is what let a dead entry sit in `SCANNABLE_EXT` unnoticed.
+- **Fixed by matching dotfiles on basename** (`.env*`, `.envrc`, `.npmrc`, `.netrc`, `.secrets`, `.pgpass`) alongside the existing extension rule, and by giving those files generic high-entropy scanning the way `.dev.vars` already gets it — an env file is a secret-bearing manifest by definition. The clean tree stays at 333 files and exit 0: no new false positives.
+- **Two Supabase patterns added.** `sb_secret_…` is the WIC-902 leak shape and had no named pattern, so it rode through any source file (entropy is deliberately off outside config files). `sb_publishable_…` alongside it.
+- **Pinned by `test/secret-scan-discovery.test.ts`.** Six mutations, each run against the whole api suite: reverting the `shouldScan` rule, reverting the entropy rule, dropping either Supabase pattern, and over-widening the basename rule to every dotfile all go red with correct attribution; removing the test file goes green.
+- **Known residual, unchanged and deliberate:** a password inside a connection string (`postgres://user:pw@host/db`) is still not detected anywhere — the entropy heuristic needs a ≥32-char base64url run and a URL breaks on `:@/.`. Source files still get named patterns only, so an opaque token with no recognised prefix in a `.ts` is out of scope by design.
+
 ### Fixed — The route-heading sweep can no longer be switched off silently (2026-08-27)
 
 The WIC-1581 source sweep is the only thing covering 27 of the 29 routes — 18 pages ship a static `<h1>` with no render test of their own, and deleting the sweep lets a real duplicate-heading defect ship green. Its own anti-no-op guard, however, only counted `<h1>` and the total file count, and the defect it exists to catch lives on the `<h2>` side (WIC-1586).
