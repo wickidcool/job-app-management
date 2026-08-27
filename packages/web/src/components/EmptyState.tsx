@@ -1,16 +1,34 @@
 type EmptyStateVariant = 'no-applications' | 'no-results' | 'no-documents';
 
+/**
+ * Semantic depth for this component's heading. `1` is deliberately excluded: the
+ * page `<h1>` names the route, and an empty state is never the route.
+ */
+export type EmptyStateHeadingLevel = 2 | 3 | 4 | 5 | 6;
+
 export interface EmptyStateProps {
   variant: EmptyStateVariant;
   onAction?: () => void;
   actionLabel?: string;
+  /**
+   * The heading level this instance should render at, so the host page's outline
+   * stays gap-free. Defaults to `2`, which is correct when the empty state is the
+   * direct content of a page under its `<h1>` — all current call sites. Pass the
+   * real depth when nesting it under a section that already has its own heading
+   * (a card, a tab panel, a `<section>` with an `<h2>`); a skipped level breaks
+   * the outline screen-reader users navigate by.
+   *
+   * The rendered size does not change with the level — see the note on the
+   * heading below.
+   */
+  headingLevel?: EmptyStateHeadingLevel;
 }
 
 /**
  * EmptyState Component
  * Friendly message when no data is available
  */
-export function EmptyState({ variant, onAction, actionLabel }: EmptyStateProps) {
+export function EmptyState({ variant, onAction, actionLabel, headingLevel = 2 }: EmptyStateProps) {
   // Variant configuration
   const variantConfig: Record<
     EmptyStateVariant,
@@ -44,6 +62,7 @@ export function EmptyState({ variant, onAction, actionLabel }: EmptyStateProps) 
 
   const config = variantConfig[variant];
   const buttonLabel = actionLabel || config.defaultActionLabel;
+  const Heading = `h${headingLevel}` as `h${EmptyStateHeadingLevel}`;
 
   return (
     // This wrapper is deliberately a plain <div> with no ARIA. Three attributes
@@ -76,8 +95,13 @@ export function EmptyState({ variant, onAction, actionLabel }: EmptyStateProps) 
         {config.icon}
       </div>
 
-      {/* Heading */}
-      <h3 className="text-h4 text-neutral-800 mb-2 font-semibold">{config.heading}</h3>
+      {/* Heading.
+          The tag comes from `headingLevel`; the size does not. `text-h4` is a type
+          token and stays pinned at every level, because the semantic depth of this
+          block depends on where the host page renders it and its visual weight does
+          not. Keeping the two decoupled is the point — the tag was hardcoded to
+          <h3> precisely because it was standing in for the size (WIC-1417). */}
+      <Heading className="text-h4 text-neutral-800 mb-2 font-semibold">{config.heading}</Heading>
 
       {/* Message */}
       <p className="text-body text-neutral-600 max-w-md mb-6">{config.message}</p>
