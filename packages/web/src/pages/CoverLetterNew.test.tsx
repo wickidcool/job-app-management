@@ -217,21 +217,35 @@ describe("each of the generator's four steps is its own outline surface", () => 
   // is skip-free; it is only when the h3 is read as the first heading of its own branch
   // that the h1 -> h3 skip appears. Measured: a flat check passes that mutation.
 
-  /** Source of each `{currentStep === N && ( ... )}` branch, in order. */
-  function stepBranches(source: string): { step: number; body: string }[] {
+  /** Source of each `{currentStep === N && ( ... )}` branch, keyed by step number. */
+  function stepBranches(source: string): Map<number, string> {
     const marks = [...source.matchAll(/\{currentStep === (\d) &&/g)];
-    expect(marks, 'the step markers this test slices on have been renamed').toHaveLength(4);
 
-    return marks.map((mark, i) => ({
-      step: Number(mark[1]),
-      body: source.slice(mark.index, marks[i + 1]?.index ?? source.length),
-    }));
+    return new Map(
+      marks.map((mark, i) => [
+        Number(mark[1]),
+        source.slice(mark.index, marks[i + 1]?.index ?? source.length),
+      ])
+    );
   }
 
   const branches = stepBranches(stripComments(coverLetterGeneratorSource));
 
-  it.each(branches)('step $step opens at h2 and skips no level', ({ body }) => {
-    const levels = [...body.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
+  // Cases come from a literal 1-2-3-4, not from what the regex happened to find. Driving
+  // `it.each` off the matches instead looks equivalent and is not: rename the marker and
+  // the parameterisation goes empty, so the sweep generates zero cases. That does fail —
+  // an `expect` at collection time takes the whole file down — but it reports as
+  // "Test Files 1 failed / Tests no tests", which reads as an infrastructure problem and
+  // hides the other 14 cases in this file rather than naming the four that broke.
+  it('finds all four of the generator s step branches', () => {
+    expect([...branches.keys()].sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it.each([1, 2, 3, 4])('step %i opens at h2 and skips no level', (step) => {
+    const body = branches.get(step);
+    expect(body, `no {currentStep === ${step} && …} branch found`).toBeDefined();
+
+    const levels = [...(body ?? '').matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
 
     expect(levels.length, 'this step renders no heading at all').toBeGreaterThan(0);
 
