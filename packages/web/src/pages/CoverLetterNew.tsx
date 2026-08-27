@@ -17,14 +17,23 @@ interface CoverLetterNewState {
  *
  * Two things about this heading are deliberate.
  *
- * **It lives on the page, not in `CoverLetterGenerator`.** The generator's
- * `<h2>Generate Cover Letter</h2>` was previously the highest heading on
- * `/cover-letters/new`, so the outline started at `h2` with nothing above it.
- * Promoting that `<h2>` would have been the smaller diff and the wrong fix:
+ * **It lives on the page, not in `CoverLetterGenerator`.** The generator's step-bar
+ * heading — an `h2` repeating this route's name — was previously the highest heading
+ * on `/cover-letters/new`, so the outline started at `h2` with nothing above it.
+ * Promoting that heading would have been the smaller diff and the wrong fix:
  * per `docs/design/COMPONENT_SPECS.md` §10 → "Heading level", naming the route
  * is the page's job ("The page `<h1>` names the route"), and a single-call-site
  * feature panel's heading "is effectively part of its page's outline". The
- * generator is a component; its heading is a section heading beneath this one.
+ * generator is a component; its headings are section headings beneath this one.
+ *
+ * That step-bar heading is now gone entirely, not demoted: `ROUTE_HEADING_OUTLINE.md`
+ * §4 (WIC-1581) rules that a component which is the sole body of a route must not
+ * name the route at all, and assigns that change to this ticket so the duplicate
+ * never reaches `main`. The generator's step sections carry the `h2`s instead.
+ *
+ * Note for anyone editing the copy below: `routeHeadingOutline.test.ts` reads JSX
+ * *and* comments as live source, so spelling a heading tag out in prose here
+ * registers as a real heading. Describe them in words instead.
  *
  * **Every branch renders it.** The loading, error and empty-catalog states below
  * all return before `CoverLetterGenerator` mounts. A heading that sat next to the

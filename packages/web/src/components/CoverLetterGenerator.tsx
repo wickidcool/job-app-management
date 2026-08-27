@@ -178,7 +178,13 @@ export function CoverLetterGenerator({
       {/* Progress Indicator */}
       <div className="px-6 py-4 border-b bg-gray-50">
         <div className="flex items-center justify-between max-w-4xl mx-auto">
-          <h2 className="text-xl font-bold text-gray-900">Generate Cover Letter</h2>
+          {/* Not a heading. This slot used to read "Generate Cover Letter" as an <h2>,
+              which restated the route name the page's own <h1> already carries
+              (ROUTE_HEADING_OUTLINE.md §0, WIC-1581). It sits inside the progress bar, so
+              per §4 it keeps its text and gets copy for what the chrome actually is —
+              which also gives the 1-2-3-4 indicator beside it a textual state, where
+              before that state was carried by fill colour alone. */}
+          <p className="text-xl font-bold text-gray-900">Step {currentStep} of 4</p>
           <div className="flex items-center gap-4 text-sm">
             {[1, 2, 3, 4].map((step) => (
               <div key={step} className="flex items-center gap-2">
@@ -200,7 +206,6 @@ export function CoverLetterGenerator({
                 )}
               </div>
             ))}
-            <span className="text-gray-600 ml-2">Step {currentStep}/4</span>
           </div>
         </div>
       </div>
@@ -212,7 +217,7 @@ export function CoverLetterGenerator({
           {currentStep === 1 && (
             <form onSubmit={handleSubmitStep1(handleStep1Submit)} className="space-y-6">
               <div className="bg-white border rounded-lg p-6 space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900">Target Position</h3>
+                <h2 className="text-lg font-semibold text-gray-900">Target Position</h2>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -314,9 +319,9 @@ export function CoverLetterGenerator({
           {currentStep === 2 && (
             <div className="space-y-6">
               <div className="bg-white border rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">
                   Select experiences to highlight
-                </h3>
+                </h2>
                 <p className="text-sm text-gray-600 mb-6">
                   Choose 3-5 STAR entries that best demonstrate your qualifications for this role.
                 </p>
@@ -354,7 +359,7 @@ export function CoverLetterGenerator({
             <div className="space-y-6">
               <div className="bg-white border rounded-lg p-6 space-y-6">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Tone</h3>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Tone</h2>
                   <div className="space-y-3">
                     {[
                       {
@@ -401,7 +406,7 @@ export function CoverLetterGenerator({
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Length</h3>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Length</h2>
                   <div className="space-y-3">
                     {[
                       {
@@ -453,7 +458,7 @@ export function CoverLetterGenerator({
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Emphasis</h3>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Emphasis</h2>
                   <div className="space-y-3">
                     {[
                       {
@@ -550,6 +555,13 @@ export function CoverLetterGenerator({
                 </div>
               ) : (
                 <>
+                  {/* Step 4's own section heading, and the reason the two panes below stay
+                      at h3 rather than being promoted with the other step sections.
+                      "Editor" and "Cover Letter Preview" are not two sections — they are two
+                      views of one thing, so the section is this. Without it the step would
+                      run h1 → h3, which is the skip ROUTE_HEADING_OUTLINE.md §1.3 rules out.
+                      Copy taken from the step's own existing source label at :525. */}
+                  <h2 className="text-lg font-semibold text-gray-900">Review &amp; Edit</h2>
                   <div
                     className="bg-white border rounded-lg overflow-hidden"
                     style={{ height: '600px' }}
@@ -592,9 +604,15 @@ export function CoverLetterGenerator({
                       {/* Preview */}
                       <div className="flex flex-col">
                         {/* headingLevel={3}: this pane sits beside the "📝 Editor" h3 above,
-                            both nested under this component's own <h2> at :181. The default
-                            (2) is for `CoverLetterDetail`, where the preview is the page's
-                            sole content under its <h1>. */}
+                            both nested under the "Review & Edit" <h2> that opens this step.
+                            The default (2) is for `CoverLetterDetail`, where the preview is
+                            the page's sole content under its <h1>.
+
+                            This 3-vs-2 split is the whole reason the prop exists
+                            (COVER_LETTER_PANE_LABELLING.md §3, COMPONENT_SPECS.md §10), so
+                            it is load-bearing, not decoration. Promoting these two panes to
+                            h2 would make every call site pass the same level and retire the
+                            prop as unearned — see the CHANGELOG entry for WIC-1571. */}
                         <CoverLetterPreview
                           content={editableContent}
                           variant={variant}

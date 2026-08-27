@@ -151,17 +151,34 @@ describe('/cover-letters/new document outline', () => {
     expect(findOutlineSkips(outline), `outline was:\n${describeOutline(outline)}`).toEqual([]);
   });
 
-  it("keeps the generator's own heading at level 2, directly beneath the page h1", () => {
+  it("puts the generator's own first heading at level 2, directly beneath the page h1", () => {
     const { container } = renderPage();
     const outline = getOutline(container);
 
-    // The generator's section heading happens to repeat the route title, exactly as
-    // /outreach/new already does (OutreachNew h1 / OutreachComposer h2). Match on
-    // position rather than text so this asserts the *relationship*, not the copy.
+    // Position, not copy. The generator's heading text is WIC-1581's business
+    // (ROUTE_HEADING_OUTLINE.md §4 renamed it once already); what this ticket owns is
+    // that whatever it says lands one level below the page h1, with no gap.
     const generatorHeading = outline[1];
     expect(generatorHeading, `outline was:\n${describeOutline(outline)}`).toBeDefined();
     expect(generatorHeading?.level).toBe(2);
-    expect(generatorHeading?.text).toBe('Generate Cover Letter');
+  });
+
+  it('has no heading below the h1 repeat the route name', () => {
+    // ROUTE_HEADING_OUTLINE.md §0 (WIC-1581): a component that is the sole body of a
+    // route must not render a heading that names the route. `routeHeadingOutline.test.ts`
+    // enforces that across the tree by intersecting *static* h1/h2 strings in source;
+    // this is the same rule asserted on the *rendered* outline of this one route, so an
+    // interpolated or dynamically-built repeat — which the source sweep cannot see, by
+    // its own admission (WIC-1586) — still fails here.
+    const { container } = renderPage();
+    const outline = getOutline(container);
+    const h1 = outline[0]?.text;
+
+    expect(h1).toBe('Generate Cover Letter');
+    expect(
+      outline.slice(1).filter((n) => n.text === h1),
+      `outline was:\n${describeOutline(outline)}`
+    ).toEqual([]);
   });
 });
 
@@ -176,8 +193,16 @@ describe('the h1 belongs to the route, not to the shared component', () => {
   it('CoverLetterGenerator.tsx emits no h1, and still opens at h2', () => {
     const source = stripComments(coverLetterGeneratorSource);
 
+    // The forbidden fix, stated directly: the shared component emits the page's h1.
     expect(countOccurrences(source, /<h1[\s>]/g)).toBe(0);
-    expect(source).toMatch(/<h2[^>]*>Generate Cover Letter<\/h2>/);
+
+    // ...and the other way it can go wrong: deleting the component's top-level headings
+    // instead of demoting the page's. Then the outline runs h1 -> h3 and the *rendered*
+    // skip assertions above would be the only thing left holding it, on the one branch
+    // they happen to render. `>= 1` rather than a count or a copy match on purpose —
+    // WIC-1581 renamed these once already and may again; what must not change is that
+    // the generator's sections open at 2, not 1 and not 3.
+    expect(countOccurrences(source, /<h2[\s>]/g)).toBeGreaterThanOrEqual(1);
   });
 });
 
