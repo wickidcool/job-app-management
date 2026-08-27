@@ -8,6 +8,7 @@ import { PersonalInfoForm } from '../PersonalInfoForm';
 import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalInfo';
 import type { Resume } from '../../services/api';
 import type { UpdatePersonalInfoRequest } from '../../services/api/types';
+import { ONBOARDING_PROGRESS_KEY } from '../../services/appStorage';
 
 const STEP_LABELS = [
   'Welcome',
@@ -44,7 +45,7 @@ export function OnboardingModal() {
   useEffect(() => {
     if (showOnboarding && currentStep > 0) {
       localStorage.setItem(
-        'onboarding_progress',
+        ONBOARDING_PROGRESS_KEY,
         JSON.stringify({
           step: currentStep,
           timestamp: new Date().toISOString(),

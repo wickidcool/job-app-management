@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ProgressIndicator } from './ProgressIndicator';
 import { WizardStep } from './WizardStep';
 import { WizardButton } from './WizardButton';
@@ -31,7 +31,6 @@ export interface WizardContainerProps {
   existingFileId?: string;
   onComplete: (generatedFile: ProjectFile) => void;
   onCancel: () => void;
-  onSaveDraft: (draftData: Partial<ProjectData>) => void;
 }
 
 const STEP_LABELS = ['Context', 'Details', 'Industry', 'Accomplishments', 'Tags'];
@@ -40,12 +39,7 @@ const STEP_LABELS = ['Context', 'Details', 'Industry', 'Accomplishments', 'Tags'
  * WizardContainer Component
  * Main wizard controller for dialogue-based STAR file capture
  */
-export function WizardContainer({
-  variant,
-  onComplete,
-  onCancel,
-  onSaveDraft,
-}: WizardContainerProps) {
+export function WizardContainer({ variant, onComplete, onCancel }: WizardContainerProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [data, setData] = useState<Partial<ProjectData>>({
     accomplishments: [],
@@ -61,30 +55,6 @@ export function WizardContainer({
   });
   const [currentTech, setCurrentTech] = useState<string[]>([]);
   const totalSteps = 5;
-
-  // Auto-save draft every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (Object.keys(data).length > 0) {
-        onSaveDraft(data);
-      }
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [data, onSaveDraft]);
-
-  // Manual save draft (Ctrl+S)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        onSaveDraft(data);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [data, onSaveDraft]);
 
   const handleComplete = useCallback(() => {
     // Generate filename
@@ -389,9 +359,6 @@ export function WizardContainer({
               {variant === 'correct' && 'Correct Project'}
             </h1>
             <div className="flex items-center gap-3">
-              <WizardButton variant="ghost" onClick={() => onSaveDraft(data)}>
-                Save Draft
-              </WizardButton>
               <button
                 type="button"
                 onClick={onCancel}
