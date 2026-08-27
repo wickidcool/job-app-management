@@ -133,11 +133,24 @@ function expectUnscoped(clause: unknown, table: string, ids: string[]) {
  * The clause keys on `table`.id and binds exactly the ids named. The column
  * check is what stops `eq(table.normalizedName, targetId)` from passing: a bare
  * `params` check only proves the value reached the query, not which column it
- * filtered. Renders as `"t"."id" = $1` for the target and
- * `"t"."id" = ANY(($1))` for the sources; both carry the same prefix.
+ * filtered.
+ *
+ * Two renderings are legal, because the target and the sources are built by
+ * different Drizzle operators:
+ *  - the single target is `eq(t.id, targetId)`   -> `"t"."id" = $1`
+ *  - the source set is `inArray(t.id, sourceIds)` -> `"t"."id" in ($1, $2)`
+ *
+ * Accepting both is required, not lax. WIC-1377 replaced a raw
+ * ``sql`${t.id} = ANY(${sourceIds})` `` — which Drizzle renders as the row
+ * constructor `"t"."id" = ANY(($1, $2))` and Postgres rejects outright — with
+ * `inArray`. Asserting the bare prefix `"t"."id" = ` therefore encodes the
+ * *defect* as the expectation: it matches the broken `= ANY((...))` form and
+ * fails against the fix. Both accepted forms stay table-qualified, so the
+ * wrong-column check above survives.
  */
 function expectIds(sql: string, params: unknown[], table: string, ids: string[]) {
-  expect(sql).toContain(`"${table}"."id" = `);
+  const col = `"${table}"."id"`;
+  expect(sql).toMatch(new RegExp(`${col.replace(/[".]/g, '\\$&')}\\s+(?:=\\s+\\$\\d+|in\\s+\\()`));
   for (const id of ids) expect(params).toContain(id);
 }
 
