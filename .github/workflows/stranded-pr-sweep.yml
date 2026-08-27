@@ -1,0 +1,171 @@
+name: Stranded PR Sweep
+
+# WIC-1625. Merging a PR that is the BASE of another (stacked) PR deletes its
+# head branch when "Automatically delete head branches" is on, and GitHub then
+# CLOSES every child PR pointing at that branch instead of retargeting it. The
+# child's approved, green, unmerged work is silently stranded and NO signal
+# fires: no notification reaches the author, the board card stays `blocked`
+# behind a blocker that is already `done`, and `git` shows nothing wrong because
+# the branch survives — the commits are simply no longer ancestors of `main`.
+#
+# This happened live on 2026-08-27: #124 merged at 04:55:08Z; #126 (based on
+# #124's branch, carrying approved reviews and green CI) was closed at 04:55:10Z,
+# two seconds later, and the WIC-238 AC-10 returning-user fix never reached main.
+#
+# ROOT-CAUSE FIX vs. THIS GUARD. The direct lever is the repo setting
+# Settings -> General -> "Automatically delete head branches", now DISABLED
+# (`delete_branch_on_merge=false`) — with it off, merging a stack parent no
+# longer deletes the base branch, so children are not auto-closed. This workflow
+# is defence-in-depth: it catches a re-enablement of that setting, a manual
+# base-branch deletion, or any other close-without-merge that strands live work,
+# and it surfaces the exact case within minutes instead of never.
+#
+# THE FINGERPRINT (why this is near-silent). A deliberately abandoned or
+# superseded PR is closed by a person and emits a plain `closed` event. The
+# hazard is different in kind: GitHub closes the child as a side effect of its
+# BASE branch being deleted, which emits a `base_ref_deleted` timeline event
+# coincident with the close. That event is the discriminator. Measured
+# 2026-08-27 across the closed-unmerged PRs whose branch still exists and is
+# ahead of main — #51, #31, #28, #7 (all human abandonment) carry only a
+# `closed` event; only #126 carries `base_ref_deleted`. A guard keyed on
+# "no mergedAt + branch exists + ahead" alone would flag all five; keyed on the
+# `base_ref_deleted` fingerprint it flags exactly the one real casualty.
+#
+# SECURITY: like skip-ci-sweeper.yml, this job never checks out or executes PR
+# head code. There is no actions/checkout and no run: step. It reads PR state,
+# the timeline, branch existence and the main..head comparison over the API
+# only, so `pull_request_target` (which grants a base-repo token) is safe here.
+
+on:
+  # Edge trigger: fire the instant any PR closes, so an auto-close is caught
+  # within minutes rather than waiting for the next cron pass. Filtered to
+  # non-merged closes with the base_ref_deleted fingerprint inside the handler.
+  pull_request_target:
+    types: [closed]
+  # Backstop: re-sweep recent closed PRs in case an edge event was missed
+  # (e.g. the workflow did not yet exist on the base tip, or a run was dropped).
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # To leave the notification GitHub never sends: a comment on the stranded PR.
+  pull-requests: write
+
+concurrency:
+  group: stranded-pr-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Flag PRs closed-without-merge whose branch was auto-deleted
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Detect stranded PRs and comment on each
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const MARKER = '<!-- stranded-pr-sweep -->';
+            const runUrl =
+              `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // On a pull_request_target[closed] event, inspect only the PR that
+            // just closed. On schedule/dispatch, sweep the recently-closed set.
+            let candidates;
+            if (context.eventName === 'pull_request_target' && context.payload.pull_request) {
+              candidates = [context.payload.pull_request];
+            } else {
+              // `sort=updated` surfaces recently-touched closed PRs first; one
+              // page (100) is ample for a near-silent, rare signal.
+              candidates = await github.rest.pulls.list({
+                owner, repo, state: 'closed', sort: 'updated', direction: 'desc',
+                per_page: 100,
+              }).then((r) => r.data);
+            }
+
+            const stranded = [];
+            const errors = [];
+
+            for (const pr of candidates) {
+              try {
+                // Merged PRs are the happy path — their work reached main.
+                if (pr.merged_at) continue;
+
+                // THE FINGERPRINT: was this PR closed because its base branch was
+                // deleted (auto-close), rather than closed by a person?
+                const events = await github.paginate(github.rest.issues.listEventsForTimeline, {
+                  owner, repo, issue_number: pr.number, per_page: 100,
+                });
+                const autoClosed = events.some((e) => e.event === 'base_ref_deleted');
+                if (!autoClosed) continue;
+
+                // Does the head branch still exist, and does it still carry
+                // commits that are not in main? If not, nothing is stranded.
+                const headRepo = pr.head.repo && pr.head.repo.full_name;
+                if (headRepo !== `${owner}/${repo}`) continue; // fork head: not ours to compare
+                const branch = pr.head.ref;
+
+                let ahead = 0;
+                try {
+                  const cmp = await github.rest.repos.compareCommitsWithBasehead({
+                    owner, repo, basehead: `main...${branch}`,
+                  });
+                  ahead = cmp.data.ahead_by;
+                } catch (e) {
+                  if (e.status === 404) continue; // branch gone -> nothing strandable
+                  throw e;
+                }
+                if (ahead <= 0) continue;
+
+                stranded.push({ number: pr.number, branch, ahead, title: pr.title });
+
+                // Leave the notification GitHub never sends. De-dupe on MARKER so
+                // repeated sweeps do not pile comments onto the same PR.
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  owner, repo, issue_number: pr.number, per_page: 100,
+                });
+                if (comments.some((c) => c.body && c.body.includes(MARKER))) continue;
+
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: pr.number,
+                  body:
+                    `${MARKER}\n> [!WARNING]\n` +
+                    `> **This PR was auto-closed because its base branch was deleted, not because it was rejected.**\n` +
+                    `> Its head branch \`${branch}\` still exists and is **${ahead} commit(s) ahead of \`main\`**, ` +
+                    `so that work is not in \`main\`.\n>\n` +
+                    `> **To recover:** reopen this PR, retarget its base to \`main\`, merge \`main\` in ` +
+                    `(never rebase — this may be a stack), resolve any \`CHANGELOG.md\` union collision, ` +
+                    `re-run CI, and merge.\n>\n` +
+                    `> Flagged by [Stranded PR Sweep](${runUrl}) (WIC-1625).`,
+                });
+              } catch (err) {
+                errors.push(`#${pr.number}: ${err.message}`);
+              }
+            }
+
+            const summary = core.summary
+              .addHeading('Stranded PR Sweep', 2)
+              .addRaw(`Scanned **${candidates.length}** closed PR(s) via \`${context.eventName}\`.\n\n`);
+            if (stranded.length) {
+              summary.addTable([
+                [{ data: 'PR', header: true }, { data: 'Branch', header: true },
+                 { data: 'Ahead of main', header: true }],
+                ...stranded.map((s) => [`#${s.number}`, s.branch, String(s.ahead)]),
+              ]);
+            } else {
+              summary.addRaw('No stranded PRs found.\n');
+            }
+            await summary.write();
+
+            if (errors.length) {
+              core.setFailed(`Could not evaluate ${errors.length} PR(s): ${errors.join('; ')}`);
+            } else if (stranded.length) {
+              // Fail the run so the finding is visible in the Actions list and
+              // notifies watchers, not only in a comment on a closed PR.
+              core.setFailed(
+                `${stranded.length} stranded PR(s) — approved/unmerged work not in main: ` +
+                stranded.map((s) => `#${s.number} (${s.branch}, +${s.ahead})`).join(', '));
+            }
