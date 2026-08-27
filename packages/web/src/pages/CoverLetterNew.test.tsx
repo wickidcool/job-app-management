@@ -51,9 +51,7 @@ interface HeadingNode {
  * re-expressed as `<div role="heading" aria-level="1">` is still caught.
  */
 function getOutline(container: HTMLElement): HeadingNode[] {
-  const nodes = container.querySelectorAll<HTMLElement>(
-    'h1, h2, h3, h4, h5, h6, [role="heading"]'
-  );
+  const nodes = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, [role="heading"]');
   return [...nodes].map((el) => {
     const ariaLevel = el.getAttribute('aria-level');
     const tagLevel = /^H([1-6])$/.exec(el.tagName)?.[1];
@@ -246,8 +244,7 @@ describe('the h1 survives every branch of the page', () => {
       ],
       [
         'empty',
-        () =>
-          useStarEntriesMock.mockReturnValue({ data: [], isLoading: false, error: undefined }),
+        () => useStarEntriesMock.mockReturnValue({ data: [], isLoading: false, error: undefined }),
       ],
       ['loaded', seedLoadedCatalog],
     ];
@@ -263,8 +260,10 @@ describe('the h1 survives every branch of the page', () => {
         outline.filter((n) => n.level === 1),
         `${name} branch outline:\n${describeOutline(outline)}`
       ).toHaveLength(1);
-      expect(findOutlineSkips(outline), `${name} branch outline:\n${describeOutline(outline)}`)
-        .toEqual([]);
+      expect(
+        findOutlineSkips(outline),
+        `${name} branch outline:\n${describeOutline(outline)}`
+      ).toEqual([]);
       unmount();
     }
   });
