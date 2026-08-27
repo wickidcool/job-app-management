@@ -778,6 +778,11 @@ here rather than merely tidy.
   preview pane. Before that the heading rendered at one depth and the prop would have been
   unearned — which is the criterion working, not a near-miss. A component does not earn this prop
   by being shared; it earns it by having its heading land at more than one depth.
+  The ruling that put the heading there is `COVER_LETTER_PANE_LABELLING.md` — why a
+  labelled/unlabelled pane pair is a defect rather than a choice, why `aria-label` and
+  `role="region"` were both rejected, why the bar padding change is load-bearing rather than
+  cosmetic, and (its §3) the constraint on how `/cover-letters/new`'s missing `<h1>` must be
+  fixed so that this prop does not become unearned again.
 
 #### Kanban headings (WIC-1563)
 
