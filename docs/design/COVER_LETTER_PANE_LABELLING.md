@@ -5,7 +5,8 @@
 **Status:** ruling — **implemented and shipped in PR #184 (`38bd487`)**, alongside WIC-1563. This
 document is the reasoning behind that change, recorded after the fact; it is not an open work item.
 **Related:** `COMPONENT_SPECS.md` §10 → "Heading level" (WIC-1417, WIC-1155), `ROUTE_HEADING_OUTLINE.md`
-(WIC-1581), WIC-1563, WIC-1571
+(WIC-1581 — its §4 third row contradicted this document's §3 and was corrected under WIC-1598;
+**this document governs on that point**), WIC-1563, WIC-1571, WIC-1598
 
 **Ruling: YES — label the pane.** Decided 2026-08-26.
 Consequence: `CoverLetterPreview` earns a `headingLevel` prop, per the card's own "if yes" branch.
@@ -182,12 +183,45 @@ belongs to the route. "Generate Cover Letter" is a section heading inside it and
 > Filed as WIC-1571 and fixed the ✅ way in **PR #194**: the `<h1>` goes in a page shell wrapping
 > all four render branches, the generator's `<h2>` is untouched, and the distinction is pinned with
 > `?raw` source guards — necessary because an outline assertion alone passes under *both* fixes.
-> As of 2026-08-27 PR #194 is open and `CONFLICTING`, so `main` still has no `<h1>` on that route.
+> ~~As of 2026-08-27 PR #194 is open and `CONFLICTING`~~ — **merged 2026-08-27 as `0bb159b`.**
+> `/cover-letters/new` now has an `<h1>` of its own on `main`, and this is a closed question rather
+> than a live constraint. (The struck clause is left visible on purpose: it is the third stale
+> PR-status assertion this pair of documents has carried, which is why status lines now get a
+> re-measurement date rather than a bare state.)
 >
 > The ruling does not depend on that PR either way — see the structural statement below. But the
 > constraint on *how* it gets fixed is now enforced from two directions: `CoverLetterPreview.test.tsx`'s
 > `is asked for h3 by CoverLetterGenerator and h2 by CoverLetterDetail` reads the generator's source
 > and fails if its heading level moves, whichever PR moves it.
+
+> **The ❌ branch was reached from the other side, and the tripwire held (WIC-1598, 2026-08-27).**
+> `ROUTE_HEADING_OUTLINE.md` §4's third row instructed a heading sweep on `/cover-letters/new` that
+> arrived at this section's ❌ outcome **without** promoting the generator's `<h2>` to `<h1>` — by
+> demoting the headings *around* the component instead. Same destination: both call sites end up
+> asking for `2`, the prop has no non-default site, and §10 retires it. That row was written before
+> `38bd487` and therefore about a prop that did not exist.
+>
+> Three things this is worth recording for:
+>
+> 1. **§3 stands as written and governs.** The disagreement was resolved in this document's favour
+>    on the merits, not merely on recency. `ROUTE_HEADING_OUTLINE.md` §4 now carries the correction
+>    and a precedence note at its head.
+> 2. **"Fix it by promoting the `<h2>` to `<h1>`" was too narrow a statement of the ❌ branch.** The
+>    hazard is not that one edit; it is **any change that leaves the component asked for the same
+>    level at every call site**. Relative depth is what the prop encodes, so a demotion below it
+>    collapses the prop exactly as a promotion above it does. Read the ❌ bullet as naming an
+>    outcome, not a technique.
+> 3. **The structural defence below is not what the guard checks — and that is fine, but know it.**
+>    "Two different nesting depths by construction, not by the current accident of tags" is the
+>    reason the prop is *owed*. `headingLevelPassedBy()` reads the literal numbers at the call
+>    sites, so it can only see the tags. The structure cannot rescue the prop from a tag change;
+>    it can only tell you the tag change was wrong. Both are needed: the tags fail fast, the
+>    structure tells you which way to fix them.
+>
+> The shipped resolution gives step 4 its own `<h2>Review & edit</h2>` — the step *is* the section;
+> "Editor" and "Cover Letter Preview" are two views of one thing — so the panes stay at `h3` and
+> `headingLevel={3}` is untouched. If a future outline honestly collapses the two depths, retire the
+> prop in **a card of its own citing this ruling**, never as fallout from a sweep.
 
 Stated structurally, so it survives whatever happens to that `<h1>`: the preview is the **sole
 content of a page** under `CoverLetterDetail`, and **one half of a split pane inside a wizard step**
@@ -233,4 +267,5 @@ if the two ever disagree, `COMPONENT_SPECS.md` is the normative copy.
 Per-item evidence is in §0's audit table, checked against `38bd487`.
 
 **Not in scope:** the missing `<h1>` on `/cover-letters/new` (§3) — filed as WIC-1571, fixed the
-correct way in PR #194, which is still open. See §3's status note.
+correct way in PR #194, **merged 2026-08-27 as `0bb159b`**. See §3's status note, and the WIC-1598
+note beneath it for how that fix nearly went the other way via `ROUTE_HEADING_OUTLINE.md` §4.
