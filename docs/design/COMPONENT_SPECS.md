@@ -731,6 +731,10 @@ here rather than merely tidy.
   more than one nesting depth** — the same class of decision, not every hardcoded heading in
   `components/`. A single-call-site feature panel's heading level is effectively part of its
   page's outline and belongs in the page's own audit (WIC-1099, WIC-1483), not behind a prop.
+  **`ROUTE_HEADING_OUTLINE.md` (WIC-1581) is that audit's rule**, for the common case where the
+  panel *is* the route's whole body: the page `<h1>` names the route and the panel does not
+  restate it, starting at `<h2>` with its own sections. Two routes shipped restating it before
+  that was written down.
 
 ---
 
