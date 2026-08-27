@@ -127,6 +127,15 @@ export async function mergeCompanies(sourceIds: string[], targetId: string, user
 
   const totalCount = sources.reduce((s, c) => s + c.applicationCount, target.applicationCount);
   const allAliases = [...new Set([...target.aliases, ...sources.map((s) => s.name)])];
+  // The survivor inherits the earliest sighting across everything being folded
+  // together, not just its own. Duplicates usually appear because a company was
+  // re-entered under a new spelling, so the source is normally the *older* row;
+  // keeping the target's date unconditionally would walk `firstSeen` forward in
+  // time, and the source is soft-deleted, so nothing else can recover it.
+  const earliestFirstSeen = sources.reduce(
+    (earliest, s) => (s.firstSeenAt < earliest ? s.firstSeenAt : earliest),
+    target.firstSeenAt
+  );
 
   await db.transaction(async (tx) => {
     await tx
@@ -134,6 +143,7 @@ export async function mergeCompanies(sourceIds: string[], targetId: string, user
       .set({
         applicationCount: totalCount,
         aliases: allAliases,
+        firstSeenAt: earliestFirstSeen,
         updatedAt: new Date(),
         version: target.version + 1,
       })
