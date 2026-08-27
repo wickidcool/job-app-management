@@ -20,6 +20,16 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Fixed — The route-heading sweep can no longer be switched off silently (2026-08-27)
+
+The WIC-1581 source sweep is the only thing covering 27 of the 29 routes — 18 pages ship a static `<h1>` with no render test of their own, and deleting the sweep lets a real duplicate-heading defect ship green. Its own anti-no-op guard, however, only counted `<h1>` and the total file count, and the defect it exists to catch lives on the `<h2>` side (WIC-1586).
+
+- **A collision is an intersection, so it goes vacuously empty if *either* side dries up.** Two one-line changes reduced the whole sweep to a no-op with the entire suite still green: making `staticHeadings(src, 2)` return `[]`, or narrowing the glob to `pages/**` (which drops every component `<h2>` while still passing both existing assertions). Verified both directions — GREEN against the old guard, RED against the new one.
+- **The guard is now symmetric.** It asserts a static `<h2>` count and a per-directory file count alongside the existing two, so neither half can go to zero unnoticed. Measured on `6911bcb`: 22 static `<h1>`, 31 static `<h2>`, 29 files in `pages/`, 55 in `components/`.
+- **The docstring understated its own blind spot.** It called an expression-built heading "the known limit"; measured, **11 of 33 `<h1>` (33%) and 11 of 42 `<h2>` (26%) are already invisible** to the extractor — the `{title}` prop in `ConfirmationModal`/`OnboardingStep`/`WizardStep`, `{variant.title}`, `{application.jobTitle}`. Modal and wizard titles are exactly where a route-naming duplicate would come from, so a green run means "no *literal* collision", not "no collision". Now stated as a measured fraction.
+- **Also noted:** the extractor reads JSX comments as live code, so commenting a heading out does not clear a collision. Fail-noisy rather than fail-open, so it is safe — but it means "comment it out" is not a valid fix, and the docstring now says so.
+- Test-only change; no runtime or wire behaviour changes. Defect matrix filed by QA on WIC-1586, all six cells re-verified here against a clean `main`.
+
 ### Docs — The accessibility docs stop asserting WCAG 2.1 AA conformance nothing checks (2026-08-27)
 
 `docs/design/ACCESSIBILITY.md` opened with **"Target Compliance: WCAG 2.1 Level AA"** and `docs/design/README.md` described its purpose as **"Ensure WCAG 2.1 Level AA compliance"**. Neither said that no mechanism in the repository verifies any of it. Both now carry the enforcement status alongside the claim (WIC-1584, from the WIC-1480 §8 trace).
