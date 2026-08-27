@@ -187,10 +187,25 @@ stacked, in the same viewport.
 > honest outline had collapsed them, the right move would have been a deliberate card to retire the
 > prop, never a silent deletion inside a heading sweep. It did not, so there is nothing to retire.
 >
-> **Measured, not argued:** applying the row as originally written reds **2 of 34** cases across
-> the four interacting test files, both on `CoverLetterPreview.test.tsx`'s call-site guard
-> (`is asked for h3 by CoverLetterGenerator and h2 by CoverLetterDetail`). That is the tripwire
-> `COMPONENT_SPECS.md` §10 asks for, catching a prop collapse. Shipped shape is PR #194 @ `6ad592d`.
+> **Measured, not argued.** Reconstructing the row literally — drop step 4's `<h2>`, promote
+> `📝 Editor` to `<h2>`, let `headingLevel` follow to `2` — reds **2 of 34** cases across the four
+> interacting test files (`routeHeadingOutline`, `headingOutline`, `CoverLetterPreview`,
+> `CoverLetterNew`). Both are in `CoverLetterPreview.test.tsx`:
+> `is asked for h3 by CoverLetterGenerator and h2 by CoverLetterDetail` (the §10 call-site guard,
+> catching the prop collapse) and `has the generator keep its editor pane s emoji out of the
+> heading s accessible name` (which reads the source tag, so promoting that heading breaks an
+> unrelated accessibility guard as collateral). Flipping only `headingLevel={3}` → `{2}` and
+> changing nothing else reds exactly **1** — the call-site guard alone.
+>
+> **The part worth internalising: every outline test stays green.** `routeHeadingOutline`,
+> `headingOutline`, and `CoverLetterNew.test.tsx`'s per-branch step sweep all pass under the row
+> applied literally, because promoting `📝 Editor` does give step 4 an `h2` opener — the outline is
+> *legal*, it is just wrong about what a section is. **No heading check catches this; only the
+> prop's own source guard does.** A sweep that had run the outline suite and seen green would have
+> shipped the prop deletion. That is the argument for §5 rule 5 (grep the subtree for
+> `headingLevel` first) rather than trusting a green outline run.
+>
+> Shipped shape is PR #194 @ `6ad592d`.
 >
 > **A caveat worth keeping.** §3 defends the prop *structurally* — the preview is the sole content
 > of a page under `CoverLetterDetail` and one half of a split pane inside a wizard step under
