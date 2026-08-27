@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { GapMitigation, MitigationStrategy, PrepStory } from '../types/interviewPrep';
+import { GAP_SEVERITY } from '../constants/gapSeverity';
 
 interface GapMitigationPanelProps {
   gaps: GapMitigation[];
@@ -27,32 +28,6 @@ export function GapMitigationPanel({
     const severityOrder = { critical: 0, moderate: 1, minor: 2 };
     return severityOrder[a.severity] - severityOrder[b.severity];
   });
-
-  const getSeverityInfo = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return {
-          icon: '🔴',
-          color: 'border-red-500 bg-red-50',
-          textColor: 'text-red-700',
-          label: 'Critical',
-        };
-      case 'moderate':
-        return {
-          icon: '🟠',
-          color: 'border-orange-500 bg-orange-50',
-          textColor: 'text-orange-700',
-          label: 'Moderate',
-        };
-      default:
-        return {
-          icon: '🟡',
-          color: 'border-yellow-500 bg-yellow-50',
-          textColor: 'text-yellow-700',
-          label: 'Minor',
-        };
-    }
-  };
 
   const strategyKeyMap: Record<
     MitigationStrategy,
@@ -122,33 +97,30 @@ export function GapMitigationPanel({
     <div className="space-y-4">
       {sortedGaps.map((gap) => {
         const isExpanded = expandedGapId === gap.id;
-        const severityInfo = getSeverityInfo(gap.severity);
+        const severity = GAP_SEVERITY[gap.severity];
         const isAddressed = gap.isAddressed;
 
         return (
           <div
             key={gap.id}
             className={`border-2 rounded-lg p-4 transition-all ${
-              isAddressed ? 'border-gray-300 bg-gray-50 opacity-75' : severityInfo.color
+              isAddressed
+                ? 'border-gray-300 bg-gray-50 opacity-75'
+                : `${severity.mark} ${severity.surface}`
             }`}
           >
             {/* Gap Header */}
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-2xl">{severityInfo.icon}</span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs font-bold uppercase tracking-wider ${severityInfo.textColor}`}
-                      >
-                        {severityInfo.label}
-                      </span>
-                      <h3 className="text-lg font-semibold text-gray-900">{gap.skill}</h3>
-                      {isAddressed && <span className="text-green-600 text-sm">✓ Addressed</span>}
-                    </div>
-                    <p className="text-sm text-gray-700 mt-1">{gap.description}</p>
+                <div className="mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold uppercase tracking-wider ${severity.text}`}>
+                      {severity.label}
+                    </span>
+                    <h3 className="text-lg font-semibold text-gray-900">{gap.skill}</h3>
+                    {isAddressed && <span className="text-green-600 text-sm">✓ Addressed</span>}
                   </div>
+                  <p className="text-sm text-gray-700 mt-1">{gap.description}</p>
                 </div>
               </div>
               <button
