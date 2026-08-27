@@ -20,6 +20,16 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Docs — A union-driver "clean" merge is not a correct one, so the changelog rules now say how to check
+
+`CLAUDE.md` → "Changelog conventions" told you how to *diagnose* a `CHANGELOG.md` conflict GitHub sees and local tools do not, and then stopped at "keep both sides". That left the step where the damage actually happens undocumented: `merge=union` resolves the file silently, and its resolution can be wrong in ways no tool reports.
+
+- **Two failure modes, both of which reached `main`.** When both branches revise the *same existing* entry, union keeps both revisions and ships two contradictory descriptions of one change (WIC-1561, fixed by #181). And when a branch inserts an entry directly above an existing one, union can consume the blank line at the seam, welding a `### ` heading onto the previous entry's last bullet — *even though both parents had that blank line* (WIC-1567, fixed by #185). Neither shows a conflict marker; neither fails a build.
+- **A detector, not a warning.** The section now carries a short `python3` heredoc that reports duplicated bullets and headings missing a preceding blank line, to be run after any merge touching `CHANGELOG.md`. It was checked against a planted weld rather than only run — the pre-existing state of this file gave it two true positives (the two entries below, welded on `main` before this change and repaired here), and a synthetic case confirms it fires on a fresh one.
+- **Resolution is per bullet.** Stated explicitly, because take-ours/take-theirs is the tempting shortcut and is always wrong here: each side normally holds an entry the other genuinely lacks, which is why the driver exists at all.
+- **Counts in prose are called out as rot-prone.** An entry written this week said "all six `cursor` rows" and was stale within the day when PR #112 documented four more paginated endpoints. Cite the rule the file states, not a tally taken by grep.
+- Documentation and changelog formatting only. No source, schema, wire, or test change.
+
 ### Fixed — EmptyState's heading level is a prop, so it stops skipping h2 on every page (2026-08-26)
 
 `EmptyState` rendered its heading as a hardcoded `<h3>`, and all four call sites place it directly beneath the page `<h1>` — so every rendering skipped a level. WIC-1155 (#99) had just made that outline load-bearing by removing the `role="region"` landmark that used to (badly) label this block, leaving the heading as the component's only accessible entry point. Heading-level skips break the outline screen-reader users navigate by (`H` in NVDA/JAWS, the VoiceOver rotor), which for these four pages is the entire structure of an otherwise contentless screen (WIC-1417).
@@ -142,6 +152,7 @@ Each tile on `GET /api/reports/by-fit-tier`'s page carried a one-line blurb desc
 
 - **Measured, not argued.** Exercising the real `computeRecommendation` over every reachable `(match %, critical gaps, seniority)` triple at `totalRequired = 20` — 574 cases, match percentage in half-steps because partial matches weigh 0.5 — the shipped blurbs were false for **81 of them (14.1%)**. The worst case: a 100% skill match with 3 critical gaps returns `moderate_fit`, so **"50–79% of required skills" would have appeared directly above a match count of 20/20**. The independently-reported figure on a coarser 252-case grid was 32 (12.7%).
 - **Blurbs are now necessary conditions of their tier, never sufficient ones.** A tile has no room to restate a cascade and does not need to; what it must never do is contradict the number next to it. Each of the four now carries the gap and seniority conditions that can pull a tier down. Re-measured over the same grid: **0 violations.**
+
 ### Fixed — By-fit-tier tile blurbs no longer contradict the tier they label (2026-08-25)
 
 Each tile on `GET /api/reports/by-fit-tier`'s page carried a one-line blurb describing its tier, and every blurb restated only the **match-percentage** arm of `computeRecommendation`. That function is an ordered four-way cascade over *three* variables — match percentage, critical-gap count, and the seniority flag — so a tier fires far outside the percentage band its blurb claimed. Found reviewing PR #111 (WIC-1309); the tiles are `opacity-50` placeholders rendering `—` today because UC-3 analyses are not persisted, so nothing user-visible has shipped wrong yet.
@@ -206,6 +217,7 @@ Three live, clickable controls in `packages/web` pointed at paths that match no 
 - **Project empty-state "Upload Resume" → `/resumes/upload`.** `ProjectDetail`'s `no-documents` empty state did `window.location.href = '/resume-manager'`, which matches no route. The destination is the **upload** page, not the resume list — the button's own label says so, and landing a user on a list they were just told is empty makes them hunt for the upload entry point (`ResumeManager` already sends "Upload Your First Resume" to `/resumes/upload`). Now a client-side `navigate('/resumes/upload')`, which also drops a full page reload.
 
 Verified against the WIC-1037 route-integrity audit: with all three entries removed from its `KNOWN_DEAD_LINKS` baseline the audit passes, and reverting the three fixes makes it fail naming exactly those three targets.
+
 ### Accessibility — `EmptyState` no longer leaks its action button out from behind an open modal (2026-08-19)
 
 `EmptyState` carried `aria-live="polite"` on the container that wraps its action button. The `aria-hidden` package Radix Dialog uses to hide the background behind a modal **deliberately exempts `[aria-live]` elements** (`aria-hidden@1.2.6`, `dist/es2015/index.js` L131-133), and exempting a node keeps that node, all of its descendants, and its entire ancestor chain reachable to the screen-reader virtual cursor. On any page rendering `EmptyState`, opening a dialog therefore left `#root`, `<main>` and the empty state's **"Create Your First Project"-style action button** live and reachable behind the modal.
