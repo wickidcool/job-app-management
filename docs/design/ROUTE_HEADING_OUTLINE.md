@@ -2,10 +2,21 @@
 
 **Issue:** WIC-1581
 **Author:** UI/UX Developer
-**Status:** ruling; `/outreach/new` and `/resumes/exports` implemented in the same PR
+**Status:** ruling; `/outreach/new` and `/resumes/exports` implemented in the same PR.
+**Revised 2026-08-27 (WIC-1598)** — §§1.2, 1.3 and 4 carried errors, one of which instructed a
+change that would have deleted a shipped prop. Corrections are marked inline rather than silently
+applied, because the errors are the useful part: see §1.2, §1.3 and especially **§4's correction
+note**, plus the new §5 rules 4–6 that exist to stop the same class recurring.
 **Related:** `COMPONENT_SPECS.md` §10 → "Heading level" (WIC-1417),
 `COVER_LETTER_PANE_LABELLING.md` (WIC-1569 — the ruling this one's `<h1>` rule is a tripwire for;
-see its §3), WIC-1571, WIC-1563
+see its §3), `CONTENT_STYLE.md` (heading copy is sentence case), WIC-1571, WIC-1563, WIC-1586,
+WIC-1598
+
+> **Precedence.** Where this document and `COVER_LETTER_PANE_LABELLING.md` disagree about
+> `CoverLetterPreview`'s `headingLevel`, **`COVER_LETTER_PANE_LABELLING.md` §3 governs.** It is the
+> newer statement, it was written against a tree where the prop exists, and it is the ruling that
+> put the heading there in the first place. This note is here so the next reader does not have to
+> date three commits to work that out — which is what WIC-1598 had to do.
 
 ---
 
@@ -47,13 +58,23 @@ reproducible: intersect the static heading strings, then check the mount site.
 ### 1.2 WIC-1571 has not shipped, so `/cover-letters/new` is not duplicated yet
 
 `CoverLetterNew.tsx` on `origin/main` contains no `<h1>` — no heading of any level — and
-`CoverLetterNew.test.tsx` does not exist. There is no open or merged PR for WIC-1571 and no
-branch carrying it.
+`CoverLetterNew.test.tsx` does not exist. ~~There is no open or merged PR for WIC-1571 and no
+branch carrying it.~~
 
-This is good news for sequencing rather than a problem. The `/cover-letters/new` `<h1>` and the
-generator's `<h2>` can land **in the same commit**, so that route never ships the duplicate at
-all. The ticket's framing — that WIC-1571 "propagated the pattern to a second route" — describes
-an intent, not the tree. Nothing needs unwinding there.
+> **Correction (WIC-1598, 2026-08-27).** The struck sentence was false when written. PR #194
+> (`fix/wic1571-cover-letter-new-h1`) was already open and carried WIC-1571. It is the second time
+> a premise check in this family missed an open PR — see WIC-1563's thread. **Check `gh pr list`,
+> not just `git log origin/main`, before writing "there is no branch."** A statement about what
+> exists is measurable in one command; do not assert it from the default branch alone.
+>
+> The consequence was not cosmetic. "No branch carrying it" is what licensed §4's third row to be
+> written as a fresh instruction rather than as a reconciliation with work already in flight — and
+> that row went on to contradict a shipped prop. See §4's correction note.
+
+The first two sentences still hold, and the sequencing point survives: the `/cover-letters/new`
+`<h1>` and the generator's `<h2>` change land **in the same commit** (PR #194), so that route never
+ships the duplicate at all. The ticket's framing — that WIC-1571 "propagated the pattern to a second
+route" — describes an intent, not the tree. Nothing needs unwinding there.
 
 ### 1.3 Option 2 as written introduces the heading skip its own constraints forbid
 
@@ -65,15 +86,28 @@ else in between:
 |---|---|
 | `OutreachComposer` | `<h3>Context</h3>` (`:154`) |
 | `ResumeExportList` | `<h3>{exportItem.name}</h3>` (`:96`, per row) |
-| `CoverLetterGenerator` | six `<h3>`s (`:215, :317, :357, :404, :456, :561`) |
+| `CoverLetterGenerator` | **five** step-section `<h3>`s (`:215, :317, :357, :404, :456`) — plus one `<h3>` that is *not* a step section: `📝 Editor` (`:561`), a pane label inside step 4 |
+
+> **Correction (WIC-1598, 2026-08-27).** This row previously read "six `<h3>`s
+> (`:215, :317, :357, :404, :456, :561`)", counting the pane label as a sixth step section. That
+> is a miscount of **kind**, not of arithmetic — the tally is right and the classification is
+> wrong — and it is the single error that produced §4's contradiction with
+> `COVER_LETTER_PANE_LABELLING.md` §3. `📝 Editor` names one half of a split view *within* step 4;
+> promoting it alongside `Tone` and `Length` would make it a peer of the step sections it sits
+> inside. See §4.
+>
+> The underlying fact the miscount hid: **step 4 had no section heading of its own.** Its only
+> headings were the two pane labels. Steps 1–3 each own at least one. A sweep that promotes
+> "the `<h3>`s" therefore does something different in step 4 than in the other three, and the
+> table as written gave no way to see that.
 
 Delete the `<h2>` and the page goes `h1 → h3`. That is a skip, it is exactly what WIC-1563 is
 closing elsewhere in this codebase, and `CoverLetterNew.test.tsx` — once it exists — is specified
 to fail on it.
 
-**So the change is "drop the `<h2>` *and* promote the `<h3>`s", not "drop the `<h2>`".** The
-resulting outline is not merely legal, it is better: it names the page's actual sections instead
-of restating the route.
+**So the change is "drop the `<h2>` *and* promote the section `<h3>`s", not "drop the `<h2>`".**
+The resulting outline is not merely legal, it is better: it names the page's actual sections
+instead of restating the route. "Section" is load-bearing in that sentence — see §5 rule 4.
 
 ```
 before (/outreach/new)          after
@@ -121,7 +155,51 @@ stacked, in the same viewport.
 |---|---|---|
 | `/outreach/new` | delete `OutreachComposer`'s `<h2>`; `<h3>Context</h3>` → `<h2>` | done, this PR |
 | `/resumes/exports` | delete `ResumeExportList`'s `<h2>`; per-row `<h3>{name}</h3>` → `<h2>`; the header row keeps its **Create New** button and becomes `justify-end` | done, this PR |
-| `/cover-letters/new` | the step-bar `<h2>` becomes a non-heading `Step {n} of 4` label; the six step-section `<h3>`s → `<h2>`; `CoverLetterPreview`'s `headingLevel` follows | **WIC-1571**, to land with the new `<h1>` |
+| `/cover-letters/new` | the step-bar `<h2>` becomes a non-heading `Step {n} of 4` label; the **five** step-section `<h3>`s → `<h2>`; **step 4 gains an `<h2>Review & edit</h2>` of its own**; the two pane labels (`📝 Editor`, `Cover Letter Preview`) stay at `<h3>` and **`headingLevel={3}` is unchanged** | **WIC-1571** / PR #194; row corrected and confirmed by **WIC-1598** |
+
+> **Correction (WIC-1598, 2026-08-27) — this row previously retired a shipped prop.** It read:
+>
+> > the six step-section `<h3>`s → `<h2>`; `CoverLetterPreview`'s `headingLevel` follows
+>
+> Applied literally that is the ❌ branch of `COVER_LETTER_PANE_LABELLING.md` §3 — reached by
+> demoting everything around the component rather than by promoting its `<h2>`, but landing in the
+> same place: `CoverLetterGenerator` asks for `2` and `CoverLetterDetail` takes the default `2`, so
+> the prop has **no non-default call site anywhere in the tree** and `COMPONENT_SPECS.md` §10's
+> "more than one nesting depth" criterion fails. The prop and its guards, shipped in `38bd487`,
+> would have been deleted as unearned — as a side effect of a heading sweep, by a row written
+> **before that prop existed**. Order of landing: `6911bcb` (this document) → `38bd487` (the prop)
+> → `1c54133` (§3's "now live" note). §3 is the newest statement and it is the one that stands.
+>
+> **The ruling is: keep `headingLevel={3}`.** Two independent reasons, either sufficient.
+>
+> 1. **The promotion was never owed.** It rested on the §1.3 miscount above. `📝 Editor` is a pane
+>    label, not a step section, and the sweep this row describes does not reach it.
+> 2. **Step 4 needs a section heading regardless.** Delete the step-bar `<h2>` and leave step 4's
+>    only headings at `<h3>`, and that step runs `h1 → h3` — the exact skip §1.3 forbids. Something
+>    must sit at `<h2>`. Promoting the pane labels is the wrong candidate: "Editor" and "Cover
+>    Letter Preview" are not two sections, they are **two views of one thing**, so the section is
+>    the step. `Review & edit` is that section, and its copy is the step's own existing source
+>    label (`{/* Step 4: Review & Edit */}`), sentence-cased per `CONTENT_STYLE.md` — not invented.
+>
+> This satisfies the goal in §1.3 — *names the page's actual sections instead of restating the
+> route* — more faithfully than the sweep did, because step 4's actual section is now named where
+> before it was anonymous. That the two depths survive is a consequence, not the motive; if the
+> honest outline had collapsed them, the right move would have been a deliberate card to retire the
+> prop, never a silent deletion inside a heading sweep. It did not, so there is nothing to retire.
+>
+> **Measured, not argued:** applying the row as originally written reds **2 of 34** cases across
+> the four interacting test files, both on `CoverLetterPreview.test.tsx`'s call-site guard
+> (`is asked for h3 by CoverLetterGenerator and h2 by CoverLetterDetail`). That is the tripwire
+> `COMPONENT_SPECS.md` §10 asks for, catching a prop collapse. Shipped shape is PR #194 @ `6ad592d`.
+>
+> **A caveat worth keeping.** §3 defends the prop *structurally* — the preview is the sole content
+> of a page under `CoverLetterDetail` and one half of a split pane inside a wizard step under
+> `CoverLetterGenerator`, "two different nesting depths by construction, not by the current accident
+> of tags." That argument is sound and it is **not** what the guard checks. `headingLevelPassedBy()`
+> reads the literal numbers at the call sites. So the structural claim cannot save the prop from a
+> tag change; only the tags can. Treat §3's structure as the *reason* the depths differ and the tags
+> as the *thing under test* — and when a sweep proposes to move a tag, re-derive the structure
+> rather than assuming the guard encodes it.
 
 On the third row: replacing the step-bar heading with `Step {n} of 4` is not a consolation prize
 for deleting it. That slot sits beside a 1-2-3-4 indicator whose state is currently conveyed only
@@ -139,6 +217,36 @@ When adding a `/new` route or any route whose body is a single component:
 2. The component starts at `<h2>`. It does not restate the route.
 3. If the component is later mounted somewhere nested, that is when `headingLevel` appears,
    per `COMPONENT_SPECS.md` §10.
+4. **Classify each heading before you promote it — a pane label is not a section.** (WIC-1598.)
+   When a route's body has branches (wizard steps, tabs, accordion panels), "promote the `<h3>`s"
+   is not one instruction, it is one per branch, and the branches do not all have the same shape.
+   Two checks, both cheap:
+   - **Per branch, not per file.** Read each branch's outline on its own. A file-wide `<h3>` tally
+     hides a branch that has no section heading of its own — which is exactly what §1.3's table
+     did to step 4. Every branch needs its own `<h2>`; a branch that lacks one gets a new heading
+     naming the branch, not a promoted label borrowed from inside it.
+   - **A heading that names half of a matched pair is a label, not a section.** `📝 Editor` beside
+     `Cover Letter Preview`, a left/right split, a before/after diff: these are views of one
+     subject. Promoting one makes it a peer of things it sits inside, and promoting both leaves the
+     subject itself unnamed. Name the subject, keep the pair one level down.
+5. **Before promoting a level anywhere, grep for a `headingLevel` prop in the subtree.**
+   (WIC-1598.) Moving a host's tag silently changes what depth a shared child is asked for. If
+   every call site ends up passing the same value, the prop is now dead, `COMPONENT_SPECS.md` §10
+   will retire it on the next audit, and a heading sweep will have deleted working code that a
+   different ruling put there on purpose. That is not a reason to never promote — it is a reason to
+   notice, and to make the retirement a card of its own with the ruling that earned the prop cited
+   in it. `CoverLetterPreview.test.tsx`'s source guard fails loudly when this happens; do not rely
+   on it existing for the next component.
+6. **`routeHeadingOutline.test.ts` reads JSX comments as live source.** (WIC-1598.) The sweep is a
+   `?raw` regex over `<hN>…</hN>`, so a heading tag written in prose inside a `{/* … */}` block
+   registers as a real heading and can report a collision that does not exist in the rendered tree.
+   The test's own docstring says so; it is stated here too because that is one file away from where
+   you will hit it. It is fail-noisy rather than fail-open, which is the right bias — but it means
+   **"comment the heading out" is not a valid fix**, and it means a documentation comment explaining
+   a heading decision should name levels as `h2` / `h3`, not as `<h2>` / `<h3>`. Prefer that form in
+   new comments. The same blind spot in reverse is real too: interpolated headings are invisible to
+   the sweep entirely (33% of `<h1>`, 26% of `<h2>` at `6911bcb` — WIC-1586), so a green run means
+   "no *literal* collision", never "no collision".
 
 ## 6. Note on `ROUTE_TITLE_CONVENTION.md`
 
