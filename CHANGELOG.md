@@ -20,6 +20,17 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Fixed — Two routes stopped saying their own name twice (2026-08-27)
+
+`/outreach/new` and `/resumes/exports` each rendered the same string as the page `<h1>` and again as the `<h2>` of the component directly beneath it — `Compose Outreach Message` and `Resume Exports`, stacked, both above the fold. The panel was naming the route the page had already named (WIC-1581).
+
+- **The ruling, not just the fix.** `docs/design/ROUTE_HEADING_OUTLINE.md` (new) states it generally: a component that is the sole body of a route does not render a heading naming the route. The page `<h1>` names the route; the component's own sections start at `<h2>`. `COMPONENT_SPECS.md` §10 already covered the neighbouring case — heading *level* for components rendered at two depths — and explicitly scoped itself out of single-call-site panels like these three, so this is the missing half rather than a competing rule.
+- **Deleting the `<h2>` alone would have introduced a heading skip.** Both components had `<h3>`s and nothing else beneath the removed heading, so the page would have gone `h1 → h3` — the defect WIC-1563 is closing elsewhere. The `<h3>`s are promoted to `<h2>`, which is also the more honest outline: `/outreach/new` now reads `h1 Compose Outreach Message → h2 Context` instead of naming the route twice before reaching any content.
+- **A second instance the originating ticket did not have.** WIC-1581 reported `/outreach/new`. Intersecting every static `<h1>` and `<h2>` string in `pages/` and `components/` found `/resumes/exports` as well, and those two are the only exact collisions in the tree.
+- **`/cover-letters/new` is not fixed here, because it is not broken yet.** The ticket describes it as having inherited the pattern from WIC-1571, but WIC-1571 has not shipped — `CoverLetterNew.tsx` has no `<h1>` at all on `main`. Its `<h1>` and the generator's `<h2>` should land in one commit so the route never carries the duplicate; §4 of the ruling specifies what that commit does, including replacing the wizard step-bar heading with a `Step {n} of 4` label that the colour-only step indicator currently lacks.
+- **Guarded by a source sweep, not just by fixtures.** `src/test/routeHeadingOutline.test.ts` re-runs the intersection over every page and component on each test run, so the next instance fails in CI rather than in a screen reader. `/outreach/new` also gained its first test of any kind (`OutreachNew.test.tsx`), which is the other half of why the duplication survived this long.
+- **`ResumeExportList`'s header row is now `justify-end`.** It was `justify-between` to push the heading and the **Create New** button apart; without the heading the button would have been stranded on the left.
+
 ### Changed — The organic-traffic watcher reports collector health, so "0 organic" is not misread as demand (2026-08-27)
 
 `docs/analytics/organic_watch.py` answered one question ("has a real user arrived?") and its output invited a conclusion it had not earned. WIC-1358 stated that zero organic events is "a traffic/demand question, not an engineering defect". That is only half true while prod is degraded, so the watcher now measures the other half itself (WIC-1358, context from WIC-1386/WIC-1473).
