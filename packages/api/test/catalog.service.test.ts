@@ -97,16 +97,61 @@ function queryFor(clause: unknown) {
   return dialect.sqlToQuery(clause as Parameters<PgDialect['sqlToQuery']>[0]);
 }
 
-/** The clause filters on user_id, bound to this exact caller. */
-function expectScopedTo(clause: unknown, userId: string) {
+/**
+ * The clause filters `table` on user_id bound to this exact caller, AND still
+ * carries every id it is supposed to.
+ *
+ * Both halves matter, and asserting only the tenancy half lets real mutations
+ * through:
+ *  - drop the id term from the company source predicate and the soft-delete
+ *    retires *every* company the caller owns — a tenancy-only assertion calls
+ *    that correctly scoped;
+ *  - an unqualified `"user_id"` substring matches a predicate built from the
+ *    wrong table's column, because the rendered SQL is table-qualified
+ *    (`"company_catalog"."user_id" = $2`);
+ *  - reusing the target predicate for the source read merges the target into
+ *    itself, and every term in it is still perfectly scoped.
+ *
+ * `ids` is required rather than variadic on purpose: an optional rest parameter
+ * lets a future call site omit it and silently get the one-sided check back.
+ */
+function expectScopedTo(clause: unknown, userId: string, table: string, ids: string[]) {
   const { sql, params } = queryFor(clause);
-  expect(sql).toContain('"user_id" = $');
+  expect(sql).toContain(`"${table}"."user_id" = $`);
   expect(params).toContain(userId);
+  expectIds(sql, params, table, ids);
 }
 
 /** The clause carries no tenancy term at all (single-user / local mode). */
-function expectUnscoped(clause: unknown) {
-  expect(queryFor(clause).sql).not.toContain('user_id');
+function expectUnscoped(clause: unknown, table: string, ids: string[]) {
+  const { sql, params } = queryFor(clause);
+  expect(sql).not.toContain('user_id');
+  expectIds(sql, params, table, ids);
+}
+
+/**
+ * The clause keys on `table`.id and binds exactly the ids named. The column
+ * check is what stops `eq(table.normalizedName, targetId)` from passing: a bare
+ * `params` check only proves the value reached the query, not which column it
+ * filtered.
+ *
+ * Two renderings are legal, because the target and the sources are built by
+ * different Drizzle operators:
+ *  - the single target is `eq(t.id, targetId)`   -> `"t"."id" = $1`
+ *  - the source set is `inArray(t.id, sourceIds)` -> `"t"."id" in ($1, $2)`
+ *
+ * Accepting both is required, not lax. WIC-1377 replaced a raw
+ * ``sql`${t.id} = ANY(${sourceIds})` `` — which Drizzle renders as the row
+ * constructor `"t"."id" = ANY(($1, $2))` and Postgres rejects outright — with
+ * `inArray`. Asserting the bare prefix `"t"."id" = ` therefore encodes the
+ * *defect* as the expectation: it matches the broken `= ANY((...))` form and
+ * fails against the fix. Both accepted forms stay table-qualified, so the
+ * wrong-column check above survives.
+ */
+function expectIds(sql: string, params: unknown[], table: string, ids: string[]) {
+  const col = `"${table}"."id"`;
+  expect(sql).toMatch(new RegExp(`${col.replace(/[".]/g, '\\$&')}\\s+(?:=\\s+\\$\\d+|in\\s+\\()`));
+  for (const id of ids) expect(params).toContain(id);
 }
 
 function companyRow(overrides: Record<string, unknown> = {}) {
@@ -349,14 +394,15 @@ describe('merge tenancy scoping', () => {
       await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', CALLER);
 
       // Reads: target, then sources.
-      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
-      expectScopedTo(selectWhere.mock.calls[1][0], CALLER);
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER, 'company_catalog', ['01HZ_CO_001']);
+      expectScopedTo(selectWhere.mock.calls[1][0], CALLER, 'company_catalog', ['01HZ_CO_002']);
       // Writes: fold into the target, then soft-delete the sources. The second
       // one is the destructive half — an id-only predicate there would retire
-      // another user's rows even if the read above excluded them.
+      // another user's rows even if the read above excluded them, and a
+      // *tenancy-only* predicate there would retire every row the caller owns.
       expect(txUpdateWhere).toHaveBeenCalledTimes(2);
-      expectScopedTo(txUpdateWhere.mock.calls[0][0], CALLER);
-      expectScopedTo(txUpdateWhere.mock.calls[1][0], CALLER);
+      expectScopedTo(txUpdateWhere.mock.calls[0][0], CALLER, 'company_catalog', ['01HZ_CO_001']);
+      expectScopedTo(txUpdateWhere.mock.calls[1][0], CALLER, 'company_catalog', ['01HZ_CO_002']);
     });
 
     it('reports the target as not found when it belongs to another user', async () => {
@@ -377,17 +423,17 @@ describe('merge tenancy scoping', () => {
 
       await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', undefined);
 
-      expectUnscoped(selectWhere.mock.calls[0][0]);
-      expectUnscoped(selectWhere.mock.calls[1][0]);
-      expectUnscoped(txUpdateWhere.mock.calls[0][0]);
-      expectUnscoped(txUpdateWhere.mock.calls[1][0]);
+      expectUnscoped(selectWhere.mock.calls[0][0], 'company_catalog', ['01HZ_CO_001']);
+      expectUnscoped(selectWhere.mock.calls[1][0], 'company_catalog', ['01HZ_CO_002']);
+      expectUnscoped(txUpdateWhere.mock.calls[0][0], 'company_catalog', ['01HZ_CO_001']);
+      expectUnscoped(txUpdateWhere.mock.calls[1][0], 'company_catalog', ['01HZ_CO_002']);
     });
   });
 
   describe.each([
-    ['mergeJobFitTags', mergeJobFitTags],
-    ['mergeTechStackTags', mergeTechStackTags],
-  ] as const)('%s', (_name, merge) => {
+    ['mergeJobFitTags', mergeJobFitTags, 'job_fit_tags'],
+    ['mergeTechStackTags', mergeTechStackTags, 'tech_stack_tags'],
+  ] as const)('%s', (_name, merge, table) => {
     it('scopes the target read, the source read, the update and the delete', async () => {
       const { selectWhere, txUpdateWhere, txDeleteWhere } = stubDb([
         [tagRow()],
@@ -397,12 +443,12 @@ describe('merge tenancy scoping', () => {
 
       await merge(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER);
 
-      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
-      expectScopedTo(selectWhere.mock.calls[1][0], CALLER);
-      expectScopedTo(txUpdateWhere.mock.calls[0][0], CALLER);
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_001']);
+      expectScopedTo(selectWhere.mock.calls[1][0], CALLER, table, ['01HZ_TAG_002']);
+      expectScopedTo(txUpdateWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_001']);
       // The delete is unrecoverable — there is no soft-delete for tags.
       expect(txDeleteWhere).toHaveBeenCalledTimes(1);
-      expectScopedTo(txDeleteWhere.mock.calls[0][0], CALLER);
+      expectScopedTo(txDeleteWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_002']);
     });
 
     it('does not delete a source id the scoped read excluded', async () => {
@@ -434,10 +480,10 @@ describe('merge tenancy scoping', () => {
 
       await merge(['01HZ_TAG_002'], '01HZ_TAG_001', undefined);
 
-      expectUnscoped(selectWhere.mock.calls[0][0]);
-      expectUnscoped(selectWhere.mock.calls[1][0]);
-      expectUnscoped(txUpdateWhere.mock.calls[0][0]);
-      expectUnscoped(txDeleteWhere.mock.calls[0][0]);
+      expectUnscoped(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectUnscoped(selectWhere.mock.calls[1][0], table, ['01HZ_TAG_002']);
+      expectUnscoped(txUpdateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectUnscoped(txDeleteWhere.mock.calls[0][0], table, ['01HZ_TAG_002']);
     });
   });
 });
@@ -703,9 +749,9 @@ describe('tag update tenancy scoping', () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe.each([
-    ['updateJobFitTag', updateJobFitTag, 'JobFitTag'] as const,
-    ['updateTechStackTag', updateTechStackTag, 'TechStackTag'] as const,
-  ])('%s', (_name, update, resource) => {
+    ['updateJobFitTag', updateJobFitTag, 'JobFitTag', 'job_fit_tags'] as const,
+    ['updateTechStackTag', updateTechStackTag, 'TechStackTag', 'tech_stack_tags'] as const,
+  ])('%s', (_name, update, resource, table) => {
     const patch = { displayName: 'Renamed', version: 1 };
 
     it('scopes both the read and the write to the caller', async () => {
@@ -713,13 +759,15 @@ describe('tag update tenancy scoping', () => {
 
       await update('01HZ_TAG_001', patch, CALLER);
 
-      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_001']);
       // The update is a separate statement from the read, so an id-only
       // predicate here stays exploitable on its own even once the read is fixed.
       expect(updateWhere).toHaveBeenCalledTimes(1);
-      expectScopedTo(updateWhere.mock.calls[0][0], CALLER);
-      // ...and it must still carry the optimistic lock.
-      expect(queryFor(updateWhere.mock.calls[0][0]).sql).toContain('"version" = $');
+      expectScopedTo(updateWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_001']);
+      // ...and it must still carry the optimistic lock. Qualified, for the same
+      // reason expectIds qualifies its columns: a bare `"version"` substring
+      // would match a term built from any table's version column.
+      expect(queryFor(updateWhere.mock.calls[0][0]).sql).toContain(`"${table}"."version" = $`);
     });
 
     it("reports not found — not a version conflict — for another user's tag", async () => {
@@ -735,7 +783,7 @@ describe('tag update tenancy scoping', () => {
       // version 1 (any tag never edited is), so the optimistic lock the caller
       // supplies matches and the unscoped write *succeeds* — reverting the fix
       // turns this case from a rejection into a completed rename.
-      expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+      expectScopedTo(selectWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_001']);
     });
 
     it('leaves both predicates unscoped in single-user mode', async () => {
@@ -743,8 +791,8 @@ describe('tag update tenancy scoping', () => {
 
       await update('01HZ_TAG_001', patch, undefined);
 
-      expectUnscoped(selectWhere.mock.calls[0][0]);
-      expectUnscoped(updateWhere.mock.calls[0][0]);
+      expectUnscoped(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectUnscoped(updateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
     });
   });
 });
@@ -776,6 +824,26 @@ function diffRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * generateDiff's lookup keys on trigger_source + trigger_id, never on a diff id,
+ * so expectScopedTo/expectUnscoped do not apply here — expectIds would demand a
+ * `"catalog_diffs"."id" = ` term this predicate is not supposed to carry.
+ * Assert the same two halves explicitly rather than reintroducing an optional
+ * `ids`, which is exactly the one-sided escape hatch those helpers refuse.
+ */
+function expectDiffLookup(clause: unknown, opts: { userId?: string; triggerId: string }) {
+  const { sql, params } = queryFor(clause);
+  expect(sql).toContain('"catalog_diffs"."trigger_source" = $');
+  expect(sql).toContain('"catalog_diffs"."trigger_id" = $');
+  expect(params).toContain(opts.triggerId);
+  if (opts.userId === undefined) {
+    expect(sql).not.toContain('user_id');
+  } else {
+    expect(sql).toContain('"catalog_diffs"."user_id" = $');
+    expect(params).toContain(opts.userId);
+  }
+}
+
 describe('generateDiff tenancy', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -804,7 +872,10 @@ describe('generateDiff tenancy', () => {
 
     await generateDiff('resume', '01HZ_RESUME_001', CALLER);
 
-    expectScopedTo(selectWhere.mock.calls[0][0], CALLER);
+    expectDiffLookup(selectWhere.mock.calls[0][0], {
+      userId: CALLER,
+      triggerId: '01HZ_RESUME_001',
+    });
   });
 
   it('leaves the lookup unscoped in single-user mode', async () => {
@@ -812,7 +883,7 @@ describe('generateDiff tenancy', () => {
 
     await generateDiff('resume', '01HZ_RESUME_001', undefined);
 
-    expectUnscoped(selectWhere.mock.calls[0][0]);
+    expectDiffLookup(selectWhere.mock.calls[0][0], { triggerId: '01HZ_RESUME_001' });
     expect(vi.mocked(processCatalogChange).mock.calls[0][0]).toMatchObject({
       metadata: { userId: null },
     });
