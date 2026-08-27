@@ -516,29 +516,63 @@ describe('WIC-1502 — every id-addressed cover_letters read rejects a foreign i
   });
 });
 
-// ── Deliberate auth-bypass behaviour ─────────────────────────────────────────
+// ── Absent caller id fails closed ────────────────────────────────────────────
+//
+// WIC-1482. This block used to assert the opposite: that an absent `userId` left
+// `fetchStarEntries` unscoped, "matching the row-addressed siblings". That was
+// the fail-open half of the original defect, preserved deliberately on the
+// reasoning that `quantified_bullets.user_id` is NOT NULL so `IS NULL` would
+// "match zero rows and break local dev". WIC-1465's REQUIRED 2 ruled against
+// exactly that idiom on `bulletOwnerScope`: matching zero rows is the *point*,
+// not a regression. Selecting purely by caller-supplied ids is the IDOR itself,
+// and the anonymous branch is reachable whenever both SUPABASE_URL and
+// SUPABASE_JWT_SECRET are absent (ADR-003) — so it is not a safe place to
+// degrade. The owner term is now unconditional; only its value varies.
 
-describe('WIC-1437 — undefined userId keeps the documented auth-bypass behaviour', () => {
-  it('is unscoped when no identity is present, matching the row-addressed siblings', async () => {
-    // Routes pass `c.get('userId') ?? undefined`, and auth is bypassed only when
-    // both SUPABASE_URL and SUPABASE_JWT_SECRET are absent (ADR-003). The eight
-    // row-addressed handlers all degrade to unscoped in that mode; the two
-    // body-id paths fixed here now behave identically rather than filtering on
-    // an `undefined` owner (quantified_bullets.user_id is NOT NULL, so an
-    // IS NULL predicate would match zero rows and break local dev).
-    const result = await generateCoverLetter(
-      {
-        jobDescriptionText: 'We need an engineer.',
-        targetCompany: 'Acme',
-        targetRole: 'Engineer',
-        selectedStarEntryIds: [BULLET_VICTIM],
-      } as any,
+describe('WIC-1482 — an absent caller id scopes to IS NULL, not to the whole table', () => {
+  const baseInput = {
+    jobDescriptionText: 'We need an engineer.',
+    targetCompany: 'Acme',
+    targetRole: 'Engineer',
+  };
+
+  it("does not resolve another user's STAR id when no identity is present", async () => {
+    const err = await generateCoverLetter(
+      { ...baseInput, selectedStarEntryIds: [BULLET_VICTIM] } as any,
       undefined
-    );
-    expect(result.usedStarEntries.map((e) => e.id)).toEqual([BULLET_VICTIM]);
+    ).catch((e) => e);
+
+    expect(err).toBeInstanceOf(CoverLetterError);
+    expect(err.code).toBe('STAR_ENTRY_NOT_FOUND');
+    expect(err.details?.invalidIds).toEqual([BULLET_VICTIM]);
+  });
+
+  it('never reaches the LLM or the persisted row with foreign text', async () => {
+    await generateCoverLetter(
+      { ...baseInput, selectedStarEntryIds: [BULLET_ATTACKER, BULLET_VICTIM] } as any,
+      undefined
+    ).catch(() => undefined);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(allPrompts()).not.toContain(VICTIM_BULLET_TEXT);
+    expect(allPrompts()).not.toContain(ATTACKER_BULLET_TEXT);
+  });
+
+  it('carries a real IS NULL owner term rather than dropping the predicate', async () => {
+    await generateCoverLetter(
+      { ...baseInput, selectedStarEntryIds: [BULLET_ATTACKER] } as any,
+      undefined
+    ).catch(() => undefined);
+
     const bulletReads = readLog.filter((r) => r.table === 'quantified_bullets');
+    // Fails loudly if the read stopped happening altogether — an assertion that
+    // only checks "no unscoped read" passes vacuously when there is no read.
+    expect(bulletReads.length).toBeGreaterThan(0);
     for (const read of bulletReads) {
-      expect(read.sql).not.toMatch(/"quantified_bullets"\."user_id"/);
+      expect(read.sql).toMatch(/"quantified_bullets"\."user_id"\s+is\s+null/i);
+      // The absent-caller branch must not bind an owner parameter at all.
+      expect(read.params).not.toContain(ATTACKER);
+      expect(read.params).not.toContain(VICTIM);
     }
   });
 });

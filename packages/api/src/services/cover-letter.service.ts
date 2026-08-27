@@ -1,4 +1,4 @@
-import { eq, ilike, or, desc, inArray, and, sql } from 'drizzle-orm';
+import { eq, ilike, or, desc, inArray, and, isNull, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -120,15 +120,27 @@ const EMPHASIS_DESCRIPTORS: Record<string, string> = {
 // silently forget to scope a caller-supplied id list. It still accepts
 // `undefined` to match the auth-bypass path the eight row-addressed handlers
 // use (`c.get('userId') ?? undefined`); see the sibling lookups below.
+//
+// WIC-1482. The owner term is always present. It used to be the whole
+// conjunction that was conditional — `userId ? and(ids, owner) : ids` — which
+// scoped the authenticated branch and left the anonymous one selecting purely
+// by caller-supplied ids, i.e. the original defect, narrowed rather than
+// closed. An absent caller scopes to `IS NULL`, never to nothing, matching
+// `bulletOwnerScope` in `resume-variant.service.ts` / `interviewPrep.service.ts`
+// and `ownerScope` in `job-fit.service.ts`. `quantified_bullets.user_id` is
+// `uuid NOT NULL` (`schema.ts:265`), so there is no legacy-null cohort for
+// `IS NULL` to reach and the anonymous local-dev caller gets zero rows — the
+// `STAR_ENTRY_NOT_FOUND` / `CATALOG_EMPTY` empty state, not a global read.
 async function fetchStarEntries(
   ids: string[],
   userId: string | undefined
 ): Promise<{ id: string; rawText: string }[]> {
   if (ids.length === 0) return [];
   const db = getDb();
-  const whereClause = userId
-    ? and(inArray(quantifiedBullets.id, ids), eq(quantifiedBullets.userId, userId))
-    : inArray(quantifiedBullets.id, ids);
+  const whereClause = and(
+    inArray(quantifiedBullets.id, ids),
+    userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId)
+  );
   const rows = await db
     .select({ id: quantifiedBullets.id, rawText: quantifiedBullets.rawText })
     .from(quantifiedBullets)
