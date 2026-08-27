@@ -142,6 +142,45 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 ---
 
+### 7. [Route Heading Outline](./ROUTE_HEADING_OUTLINE.md)
+**Purpose:** Decide which element names a route, so a page and the component filling it stop rendering the same string twice.
+
+**Contents:**
+- The ruling: the page `<h1>` names the route; a component never emits its host page's `<h1>`
+- Per-route outcome table for the routes that duplicated their heading
+- The rule for new routes, and why the heading is not a prop
+- Why a literal-collision scan is not a heading-collision scan
+
+**Key Requirements:**
+- Exactly one `<h1>` per route, in the page, naming the route
+- No heading-level skips; sections start at `<h2>` because the page `<h1>` is their parent
+- Changing a route's `<h1>` requires updating ROUTE_TITLE_CONVENTION.md §5 in the same PR
+
+---
+
+### 8. [Route Title Convention](./ROUTE_TITLE_CONVENTION.md)
+**Purpose:** Give every route its own `document.title`, so tabs, history and bookmarks stop naming every screen identically (WCAG 2.4.2).
+
+**Contents:**
+- The `<Page> — Careerpin` pattern, taken from the already-shipping marketing site
+- Mechanism: route-table `title` field + a `useDocumentTitle()` hook for the six dynamic routes
+- The full per-route title table, measured against the tree
+- Which `<h1>` the title mirrors when a modal renders one too
+- Four pre-existing heading defects found during the audit, filed separately
+
+**Key Requirements:**
+- The title mirrors the route's `<h1>` verbatim — read the string from source, never retype it
+- Product name and separator live in exactly one module
+- Opening a modal never changes the title
+- Consumes ROUTE_HEADING_OUTLINE.md; its table is downstream of that document
+
+---
+
+### 9. [Cover Letter Pane Labelling](./COVER_LETTER_PANE_LABELLING.md)
+**Purpose:** Settle how the cover-letter editor and preview panes are labelled, and at what heading level (WIC-1569).
+
+---
+
 ## Quick Start for Frontend Developer
 
 ### 1. Read Documents in This Order
