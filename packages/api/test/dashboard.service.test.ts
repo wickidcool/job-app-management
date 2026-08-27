@@ -38,6 +38,28 @@
  * D and E are the two that matter. D *is* WIC-1478's own defect re-implemented
  * server-side — bound the counts by the sample limit and the Dashboard goes quietly
  * blind again. E leaks another user's counts (the WIC-1554 `userId: null` class).
+ *
+ * ## Four more cells, added in review — the "indistinguishable pair" axis
+ *
+ * The first revision of this file passed A–F but was blind to four mutations that
+ * swap one member of a pair the typechecker cannot separate, because no fixture row
+ * made the pair disagree:
+ *
+ * | | mutation to `dashboard.service.ts`                        | caught by |
+ * |---|---------------------------------------------------------|-----------|
+ * | I1 | `staleCondition` reads `savedThreshold` (3d), not `staleThreshold` (7d) | the two `counts.stale` assertions |
+ * | I2 | same swap on `staleActiveCondition`                     | `stale spans saved; staleActive excludes it` |
+ * | J | `staleCondition` keys off `createdAt`, not `updatedAt`   | the two `counts.stale` assertions |
+ * | N | `staleActive` sample orders by `createdAt`, not `updatedAt` | `staleActive sample leads with the most stale row` |
+ *
+ * Two rows close all four. `applied-5d` sits in the (3, 7)-day gap that nothing
+ * previously occupied, so the two `Date`s stop being interchangeable. `applied-stale-
+ * born-yesterday` is the only row here whose `createdAt` and `updatedAt` disagree,
+ * which is what makes the column choice observable at all. Both are inert under
+ * correct code — one is fresh, one is stale-and-active exactly as the bucket intends.
+ *
+ * Keep that property when editing `FIXTURE`: a row is worth adding when some mutation
+ * moves it across a boundary, and worth keeping only while it still does.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
@@ -224,6 +246,24 @@ describe('getDashboardStats — attention predicates', () => {
     { id: 'withdrawn-old', status: 'withdrawn', updatedAt: daysAgo(30) },
     // Interviewing, both statuses, fresh so they touch no stale bucket.
     { id: 'phone-screen-fresh', status: 'phone_screen', updatedAt: daysAgo(2) },
+    // Aged into the gap BETWEEN the two thresholds: older than SAVED (3d), newer
+    // than STALE (7d). Not stale. Present so the stale predicates cannot quietly
+    // read `savedThreshold` — the two Dates are declared four lines apart and are
+    // interchangeable to the typechecker, and with no row in this window the swap
+    // is invisible while the payload still reports `staleThresholdDays: 7`.
+    { id: 'applied-5d', status: 'applied', updatedAt: daysAgo(5) },
+    // Stale by `updatedAt` but brand new by `createdAt`. The mirror of the
+    // `staleSaved keys off createdAt` case below: it is the only row in this
+    // fixture where the two columns disagree, so it is the only thing standing
+    // between `stale` and a silent rewrite onto `createdAt` — and, because it
+    // sorts between the other two active rows by one column and last by the
+    // other, between the sample's `orderBy` and the same rewrite.
+    {
+      id: 'applied-stale-born-yesterday',
+      status: 'applied',
+      updatedAt: daysAgo(20),
+      createdAt: daysAgo(1),
+    },
   ];
 
   beforeEach(() => seed(FIXTURE));
@@ -232,9 +272,10 @@ describe('getDashboardStats — attention predicates', () => {
   it('stale counts rows NOT touched for STALE_THRESHOLD_DAYS', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    // saved-old + applied-oldest + interview-newer. Not applied-fresh,
-    // not phone-screen-fresh, and none of the three terminal rows.
-    expect(attention.counts.stale).toBe(3);
+    // saved-old + applied-oldest + interview-newer + applied-stale-born-yesterday.
+    // Not applied-fresh, not phone-screen-fresh, not applied-5d (inside the 7-day
+    // threshold, though outside the 3-day one), and none of the three terminal rows.
+    expect(attention.counts.stale).toBe(4);
     expect(ids(attention.samples.staleActive)).not.toContain('applied-fresh');
   });
 
@@ -242,18 +283,25 @@ describe('getDashboardStats — attention predicates', () => {
   it('stale spans saved; staleActive excludes it', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(attention.counts.stale).toBe(3); // incl. saved-old
-    expect(attention.counts.staleActive).toBe(2); // excl. saved-old
+    expect(attention.counts.stale).toBe(4); // incl. saved-old
+    expect(attention.counts.staleActive).toBe(3); // excl. saved-old
     // The strict containment is the property; equality means the scopes merged.
     expect(attention.counts.stale).toBeGreaterThan(attention.counts.staleActive);
     expect(ids(attention.samples.staleActive)).not.toContain('saved-old');
   });
 
-  /** Kills C: `asc` → `desc` puts the 10-day row first. */
+  /**
+   * Kills C: `asc` → `desc` puts the 10-day row first.
+   * Kills N: `applied-stale-born-yesterday` is second by `updatedAt` (20d) but last
+   * by `createdAt` (1d), so ordering on the wrong column drops it from the sample.
+   */
   it('staleActive sample leads with the most stale row', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(ids(attention.samples.staleActive)).toEqual(['applied-oldest', 'interview-newer']);
+    expect(ids(attention.samples.staleActive)).toEqual([
+      'applied-oldest',
+      'applied-stale-born-yesterday',
+    ]);
   });
 
   /** Kills F: dropping `phone_screen` from INTERVIEWING_STATUSES empties it from the sample. */
