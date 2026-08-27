@@ -1,10 +1,11 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { EmptyState } from '../components/EmptyState';
 import { useProjectFiles } from '../hooks/useProjects';
 
 export function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
   const { data: files = [], isLoading } = useProjectFiles(projectId!);
 
   const projectName = projectId ? decodeURIComponent(projectId).replace(/-/g, ' ') : '';
@@ -46,7 +47,7 @@ export function ProjectDetail() {
         <EmptyState
           variant="no-documents"
           onAction={() => {
-            window.location.href = '/resume-manager';
+            navigate('/resumes/upload');
           }}
           actionLabel="Upload Resume"
         />

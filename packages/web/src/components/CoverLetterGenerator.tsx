@@ -558,7 +558,11 @@ export function CoverLetterGenerator({
                       {/* Editor */}
                       <div className="border-r flex flex-col">
                         <div className="px-4 py-3 bg-gray-50 border-b">
-                          <h3 className="font-semibold text-gray-900">📝 Editor</h3>
+                          <h3 className="font-semibold text-gray-900">
+                            {/* Decorative, so it is hidden rather than read: baked into the
+                                heading text this announced as "memo Editor" (WIC-1569 §2.5). */}
+                            <span aria-hidden="true">📝</span> Editor
+                          </h3>
                         </div>
                         <div className="flex-1 overflow-auto p-4">
                           <textarea
@@ -587,10 +591,15 @@ export function CoverLetterGenerator({
 
                       {/* Preview */}
                       <div className="flex flex-col">
+                        {/* headingLevel={3}: this pane sits beside the "📝 Editor" h3 above,
+                            both nested under this component's own <h2> at :181. The default
+                            (2) is for `CoverLetterDetail`, where the preview is the page's
+                            sole content under its <h1>. */}
                         <CoverLetterPreview
                           content={editableContent}
                           variant={variant}
                           showExportActions={false}
+                          headingLevel={3}
                         />
                       </div>
                     </div>
