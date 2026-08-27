@@ -19,12 +19,29 @@ export interface OutlineEntry {
   text: string;
 }
 
+/** ARIA's default for `role="heading"` when no usable `aria-level` is given. */
+const ARIA_DEFAULT_HEADING_LEVEL = 2;
+
 /**
  * Every heading inside `container`, in document order.
  *
  * Includes `role="heading"` + `aria-level` as well as the native tags: to assistive tech
  * the two are the same thing, so an outline check that only saw `h1`–`h6` could be walked
  * around without ever going red.
+ *
+ * The level resolution below is **total** — it always yields a positive integer, never
+ * `NaN` — and that is the load-bearing property, not a detail. `findOutlineSkips` reports
+ * a problem by returning a *non-empty* array, so its failure mode is silence: `NaN`
+ * compares false in both directions, so a single uncomparable entry would suppress the
+ * check for the headings on *either* side of it and turn `h1 -> ? -> h4` into a clean
+ * report. Two inputs reach that branch, and neither is exotic:
+ *
+ *   - `role="heading"` with **no** `aria-level`, which ARIA defines as level **2**;
+ *   - `aria-level` present but not a valid level (`"abc"`, `""`, `"0"`, `"1.5"`), which
+ *     user agents ignore, falling back to the native tag if there is one and to 2 if not.
+ *
+ * Resolving either to `NaN` would falsify the paragraph above about not being walkable
+ * around, so both are pinned in `headingOutline.test.tsx`.
  */
 export function getOutline(container: HTMLElement): OutlineEntry[] {
   const nodes = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, [role="heading"]');
@@ -33,7 +50,13 @@ export function getOutline(container: HTMLElement): OutlineEntry[] {
     const ariaLevel = node.getAttribute('aria-level');
     const fromTag = /^H([1-6])$/.exec(node.tagName);
 
-    const level = ariaLevel ? Number(ariaLevel) : fromTag ? Number(fromTag[1]) : NaN;
+    const explicit = ariaLevel === null ? Number.NaN : Number(ariaLevel);
+    const level =
+      Number.isInteger(explicit) && explicit >= 1
+        ? explicit
+        : fromTag
+          ? Number(fromTag[1])
+          : ARIA_DEFAULT_HEADING_LEVEL;
 
     return { level, text: (node.textContent ?? '').trim() };
   });

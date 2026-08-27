@@ -55,10 +55,12 @@ const LETTER = 'Dear Hiring Manager,\n\nI am writing to apply.\n\nSincerely,\nA.
  * over the raw file would match the *explanation* and keep passing after the real attribute
  * was deleted — a guard that silently stops guarding.
  */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
 function headingLevelPassedBy(source: string): number {
-  const withoutComments = source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const withoutComments = stripComments(source);
 
   const callSites = withoutComments.match(/<CoverLetterPreview\b[\s\S]*?\/>/g) ?? [];
 
@@ -181,6 +183,31 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     // the detail page renders it as the sole content under its <h1>.
     expect(headingLevelPassedBy(generatorSource)).toBe(3);
     expect(headingLevelPassedBy(detailSource)).toBe(2);
+  });
+
+  it('has the generator keep its editor pane s emoji out of the heading s accessible name', () => {
+    // The same gap `headingLevelPassedBy` exists to close, one component over. The outline
+    // test below hand-builds `<span aria-hidden="true">📝</span> Editor` as its fixture, so
+    // the fixture *contains the fix*: delete the real attribute from `CoverLetterGenerator`
+    // and every test in this file stays green. The emoji is baked into heading text, which
+    // is the one place it cannot be hidden by the caller — unwrapped, the heading announces
+    // as "memo Editor". §10 and the changelog both assert that it is wrapped, so it is read
+    // from the host's source rather than reproduced in a fixture.
+    const headings = stripComments(generatorSource).match(/<h3\b[^>]*>[\s\S]*?<\/h3>/g) ?? [];
+    const editorHeadings = headings.filter((heading) => heading.includes('Editor'));
+
+    expect(editorHeadings).toHaveLength(1);
+    const [editorHeading] = editorHeadings;
+    if (!editorHeading) throw new Error('no "Editor" <h3> found in CoverLetterGenerator');
+
+    expect(editorHeading).toMatch(/<span\s+aria-hidden="true"\s*>\s*📝\s*<\/span>/);
+
+    // Asserting the wrapper is present is not the same as asserting nothing escapes it —
+    // a second, unwrapped emoji added beside it would satisfy the line above. The claim is
+    // about the accessible name, so it is made about what is left once the hidden spans are
+    // removed.
+    const announced = editorHeading.replace(/<span\s+aria-hidden="true"\s*>[\s\S]*?<\/span>/g, '');
+    expect(announced).not.toContain('📝');
   });
 
   it('adds no skip to the generator s outline in the shape that page renders', () => {
