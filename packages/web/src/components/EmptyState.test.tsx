@@ -134,3 +134,66 @@ describe('EmptyState — accessible structure (WIC-1155 design verdict)', () => 
     expect(document.activeElement).toBe(input);
   });
 });
+
+/**
+ * Regression cover for WIC-1417.
+ *
+ * The heading used to be a hardcoded `<h3>`, and all four call sites render it directly
+ * beneath the page `<h1>` — so every rendering skipped a level. WIC-1155 made that
+ * outline load-bearing by removing the `region` landmark that had (badly) labelled this
+ * block, leaving the heading as the component's only accessible entry point.
+ *
+ * The fix is a `headingLevel` prop rather than `s/h3/h2/`, because a shared presentational
+ * component cannot know how deeply its host renders it. These tests pin both halves of
+ * that: the level follows the prop, and the *size* does not.
+ */
+describe('EmptyState — heading level (WIC-1417)', () => {
+  it('defaults to h2, the correct depth directly under a page h1', () => {
+    render(
+      <>
+        <h1>Resume Manager</h1>
+        <EmptyState variant="no-documents" />
+      </>
+    );
+
+    expect(screen.getByRole('heading', { name: 'No documents found' })).toHaveProperty(
+      'tagName',
+      'H2'
+    );
+    // The whole defect: no gap between the page heading and this one.
+    expect(screen.getByRole('heading', { level: 2, name: 'No documents found' })).toBeVisible();
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
+  });
+
+  it('renders at the requested level so a nested host keeps its outline gap-free', () => {
+    // The case a hardcoded <h2> would get wrong in the opposite direction: the empty
+    // state sits inside a section that already owns the h2.
+    for (const level of [2, 3, 4, 5, 6] as const) {
+      const { unmount } = render(<EmptyState variant="no-results" headingLevel={level} />);
+
+      expect(
+        screen.getByRole('heading', { level, name: 'No matching results' })
+      ).toBeInTheDocument();
+
+      unmount();
+    }
+  });
+
+  it('keeps the type size pinned regardless of level', () => {
+    // `text-h4` is a type token. The semantic level must be free to change without
+    // changing the rendered size, or the two get re-coupled and we are back to a tag
+    // standing in for a size.
+    for (const level of [2, 6] as const) {
+      const { unmount } = render(<EmptyState variant="no-documents" headingLevel={level} />);
+
+      expect(screen.getByRole('heading', { level })).toHaveClass(
+        'text-h4',
+        'text-neutral-800',
+        'mb-2',
+        'font-semibold'
+      );
+
+      unmount();
+    }
+  });
+});
