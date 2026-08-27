@@ -243,6 +243,7 @@ The same `GapSeverity` value (`critical` / `moderate` / `minor`) was drawn by **
 ### Job Fit Analysis — overall fit and gap severity de-shouted (2026-08-19)
 
 The two remaining ALL-CAPS renders in `JobFitAnalysis` were mid-sentence caps at 20px and 14px, not Overline badges (Overline is 10px/600), so both are now sentence case. Each enum renders through a typed label map instead of `.toUpperCase().replace('_', ' ')`, so an added `Recommendation` or `GapSeverity` member is a compile error rather than a raw enum key on screen. The overall fit result is also promoted out of its sentence into a label-over-value pair built from existing type-scale steps — it is the headline answer of the screen and was previously carried only by shouting. Visible change; no logic change (WIC-1122, correcting the classification made in WIC-1069).
+
 ### Security — catalog merge endpoints are scoped to the calling user (2026-08-26)
 
 The three catalog merge services took the caller's user id and ignored it — the parameter was named `_userId` and never referenced, so every lookup and every write inside them was keyed on row id alone. An authenticated user who knew or guessed a ULID could operate on another user's catalog: `POST /api/catalog/companies/merge` folded another user's companies into a target and soft-deleted the sources, and the two tag merge routes **hard-deleted** each source row with no recovery path. The routes were never at fault; they threaded `c.get('userId')` through correctly (WIC-1365, surfaced reviewing PR #124).
