@@ -94,7 +94,8 @@ Re-fetch with `GET /api/issues/{id}` first (never the list endpoint — 1200-cha
 Replace the "Why waiting costs nothing" framing so the release condition reads two-clause:
 
 > **Release requires BOTH:** (a) a first adjudicated-organic event in 551963, AND (b) root
-> `GET /health` returning `{"status":"ok"}` with HTTP 200. Clause (b) was added 2026-08-27 —
+> `GET /health` returning HTTP 200 with **both** `"status":"ok"` **and** `"db":"ok"`.
+> Clause (b) was added 2026-08-27 —
 > while prod is degraded (WIC-1386 / pending board decision WIC-1473) the server half of the
 > WIC-814 taxonomy can only record failure, so traffic alone does not make the dashboards
 > buildable. `organic_watch.py` now measures both and prints `COLLECTOR HEALTH:` on every run.
@@ -103,7 +104,15 @@ Replace the "Why waiting costs nothing" framing so the release condition reads t
      `packages/api/src/app.ts:98` emits 'ok' | 'degraded', and "healthy" appears nowhere in
      packages/api/src. As written the clause was unsatisfiable, so pasting it into WIC-1358's
      description would have pinned the WIC-1024 hold permanently in the exact field that
-     governs release. Same defect was fixed in code in the same PR (#192, commit 2041cf6). -->
+     governs release. Same defect was fixed in code in the same PR (#192, commit 2041cf6).
+
+     Then `"status":"ok"` alone turned out to be too weak in the other direction: the SAME
+     line emits ok when `db === 'not_applicable'`, i.e. when neither the HYPERDRIVE binding
+     nor DATABASE_URL is present and the DB was never probed. Production has no Hyperdrive
+     binding and reaches Postgres only through the DATABASE_URL secret deploy.yml pushes, so
+     a dropped secret push answers 200 {"status":"ok","hyperdrive":false,"db":"not_applicable"}
+     with no database behind it. Clause (b) therefore requires `"db":"ok"` too, and
+     classify_health() returns "unknown" -- never "ok" -- for that payload. -->
 
 
 Also strike "there is nothing to fix and nothing to deploy" — there is: WIC-1473.
