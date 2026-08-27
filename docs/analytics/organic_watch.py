@@ -325,12 +325,24 @@ def prod_db_health():
 
     if not isinstance(body, dict) or "status" not in body:
         return ("unknown", {"probe_error": f"unrecognised health payload: {str(body)[:120]}"})
-    return ("ok" if body.get("status") == "healthy" else "degraded", body)
+    # The handler emits "ok", NOT "healthy" -- `packages/api/src/app.ts:98`:
+    #     const status = db === 'ok' || db === 'not_applicable' ? 'ok' : 'degraded';
+    # The literal "healthy" appears nowhere in packages/api/src. Matching on it would
+    # misread a RECOVERED prod as degraded and pin "SECOND CLAUSE NOT MET" on forever --
+    # the same release-on-a-false-premise failure this probe exists to prevent, inverted.
+    # The success path is untestable until WIC-1473 lands, so accept both spellings and
+    # let an unrecognised status fall to "unknown" rather than silently to "degraded".
+    status = body.get("status")
+    if status in ("ok", "healthy"):
+        return ("ok", body)
+    if status == "degraded":
+        return ("degraded", body)
+    return ("unknown", {"probe_error": f"unrecognised health status: {str(status)[:60]}"})
 
 
 def describe_health(state, detail):
     if state == "ok":
-        return "prod DB reachable (GET /health -> healthy)"
+        return "prod DB reachable (GET /health -> ok)"
     if state == "degraded":
         db = (detail or {}).get("db")
         hyperdrive = (detail or {}).get("hyperdrive")
