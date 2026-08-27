@@ -22,52 +22,77 @@ WIC-1543, WIC-1552, WIC-1561. Each was individually cheap — a merge, a push, a
 `skip-ci-sweeper` dispatch to re-publish the required commit status. None of them was ever priced
 against the others.
 
-### What is actually true, measured twice
+### What is actually true, measured three times
 
-Both censuses were reproduced with the low-level three-way merge — the one tool that does **not**
-read `.gitattributes` and therefore answers the same question GitHub's merge button asks — with
-the positive control from `CLAUDE.md` passing.
+All three censuses were reproduced with the low-level three-way merge — the one tool that does
+**not** read `.gitattributes` and therefore answers the same question GitHub's merge button asks —
+with the positive control from `CLAUDE.md` passing.
 
-| Measurement | `main @13cb1e3` (03-27 ~00:30Z) | `main @3396925` (03-27 ~03:35Z) |
-|---|---|---|
-| Open PRs | 58 | **62** |
-| Open PRs touching `CHANGELOG.md` | **40 (69%)** | **47 (76%)** |
-| Currently `CONFLICTING / DIRTY` | **6** | **13 (21%)** |
-| Conflict sets **containing** `CHANGELOG.md` | **6 of 6 (100%)** | **13 of 13 (100%)** |
-| Conflict sets that are **exactly** `CHANGELOG.md` | 6 of 6 | **9 of 13** |
-| Open changelog-touching PRs parked in `REVIEW_REQUIRED` | 22 | — |
-| Merges to `main`, trailing 7 days | 126 | — |
-| Of those, merges touching `CHANGELOG.md` | **76 (~11/day)** | — |
-| Git tags / published releases | **0** | — |
-| `CHANGELOG.md` size | 573 lines, 146 KB, one never-cut `[Unreleased]` | — |
+| Measurement | `main @13cb1e3` (08-27 ~00:30Z) | `main @3396925` (08-27 ~03:35Z) | `main @bf0b18e` (08-27 ~05:10Z) |
+|---|---|---|---|
+| Open PRs | 58 | **62** | **67** |
+| Open PRs touching `CHANGELOG.md` | **40 (69%)** | **47 (76%)** | **48 (71%)** |
+| Currently `CONFLICTING / DIRTY` | **6** | **13 (21%)** | **10 (21%)** |
+| Conflict sets **containing** `CHANGELOG.md` | **6 of 6 (100%)** | **13 of 13 (100%)** | **9 of 10 (90%)** |
+| Conflict sets that are **exactly** `CHANGELOG.md` | 6 of 6 | **9 of 13** | **8 of 10** |
+| Open changelog-touching PRs parked in `REVIEW_REQUIRED` | 22 | — | — |
+| Merges to `main`, trailing 7 days | 126 | — | — |
+| Of those, merges touching `CHANGELOG.md` | **76 (~11/day)** | — | — |
+| Git tags / published releases | **0** | — | — |
+| `CHANGELOG.md` size | 573 lines, 146 KB, one never-cut `[Unreleased]` | — | — |
 
-The load-bearing claim is the one that held across both measurements, and it is a
-**necessary-condition** claim rather than a sole-cause one:
+The claim to state is a **necessary-condition** one rather than a sole-cause one, and as of the
+third census it is a *near*-necessary condition with one understood exception:
 
-> `CHANGELOG.md` appears in the conflict set of **every** conflicting open PR — 6 of 6, then
-> 13 of 13. No open PR in this repository conflicts without it.
+> `CHANGELOG.md` appears in the conflict set of **9 of 10** conflicting open PRs. Removing the
+> shared line would take the conflict count from **10 to 2**.
 
-An earlier revision of this section stated the stronger form — *"for all 6 the conflict file set
-is exactly `CHANGELOG.md`"* — which was true at `13cb1e3` and is not true at `3396925`, where
-four PRs carry a second conflicted file (#165 and #103 on `docs/design/COMPONENT_SPECS.md`, #93
-and #92 on `packages/web/src/pages/NotFound.test.tsx`). The weaker claim is the more useful one
-anyway: removing the shared line does not take the conflict count to zero, it takes it from
-**13 to 4**.
+This has now been corrected twice, in the same direction both times — each census weakens the
+claim slightly, and each time the weaker version is the more useful one.
+
+- The **first** revision stated the sole-cause form — *"for all 6 the conflict file set is exactly
+  `CHANGELOG.md`"* — true at `13cb1e3`, false at `3396925`, where four PRs carry a second
+  conflicted file.
+- The **second** revision stated the strict necessary-condition form — *"no open PR here conflicts
+  without it"*. That is **false as of `bf0b18e`**: **PR #93 is a genuine counterexample.** It
+  touches `CHANGELOG.md`, `main` has changed `CHANGELOG.md` since its merge base (`94375c1`), and
+  the two **merge cleanly** (`git merge-file` rc=0); its only real conflict is on
+  `packages/web/src/pages/NotFound.test.tsx`.
+
+**Why #93 escaped is the most useful thing in this document, and it does not weaken the proposal —
+it sharpens it.** #93 inserts its entry at **line 11**, immediately under the backfill note: the
+*pre-WIC-1543* top anchor. Everything landing on `main` now inserts at **line 23** — the
+below-top anchor WIC-1543 introduced (5 of the last 8 changelog-touching commits on `main` land
+at line 23 exactly; this PR's own entry and `bf0b18e`'s collided there, which is how this census
+came to be run at all). The two populations do not overlap, so the one PR that **ignored the
+convention** is the one PR that did not collide.
+
+That is the whole argument in one observation. WIC-1543 did not remove the collision point, it
+**relocated** it — from "the top of `[Unreleased]`" to "one heading below the top of
+`[Unreleased]`" — and made it just as deterministic for everyone who complies. There is no third
+line that would work better, because the property that causes the collision is not *which* line is
+shared but *that* one is. A convention whose only observed escapee is its own violator is not a
+convention that can be tightened; it is one that has to be replaced by not sharing a line at all.
 
 PR #141 is the case that settles the diagnosis, and it is sharper now than when first written.
 It touches `packages/api/src/services/application.service.ts` and `catalog.service.ts`, both of
-which `main` also changed since the merge base. **Those two files merge cleanly — at both
+which `main` also changed since the merge base. **Those two files merge cleanly — at all three
 measurements.** At `13cb1e3` it was the control: a PR with genuinely contended source files and
 no conflict. At `3396925` it is `CONFLICTING`, and its conflict set is *exactly* `CHANGELOG.md`.
-The control became an instance without its code changing. The repository does not have a
-merge-conflict problem; it has a changelog problem that presents as one.
+At `bf0b18e`, two days of merges later, that is **still** exactly its conflict set — the two
+contended service files have now merged cleanly across three censuses spanning ~5 hours and
+~15 changelog merges. The control became an instance without its code changing, and has stayed
+one. The repository does not have a merge-conflict problem; it has a changelog problem that
+presents as one.
 
-**Scope limit this ADR does not fix.** The four two-file conflicts are not changelog collisions
+**Scope limit this ADR does not fix.** The non-changelog conflicts are not changelog collisions
 and fragments will not remove them. Both `COMPONENT_SPECS.md` cases trace to `38bd487`, which
 reformatted 1141/986 lines of that file (694/623 ignoring whitespace) while landing a narrow
 heading-level fix, and so collided with every open PR annotating it. Incidental whole-file
 reformats riding along with narrow changes are a **distinct** collision source with a distinct
-remedy, and are out of scope here. A reader should expect the residual 4 to survive this proposal.
+remedy, and are out of scope here. At `bf0b18e` the residual that survives this proposal is
+**2 of 10** — #103 on `COMPONENT_SPECS.md` and #93 on `NotFound.test.tsx`. A reader should expect
+those two to remain, and should not read "fragments" as a claim about merge conflicts generally.
 
 ### Why the two prior fixes did not end it
 
@@ -79,13 +104,18 @@ remedy, and are out of scope here. A reader should expect the residual 4 to surv
   so collision was *guaranteed by construction*. After it, collision requires two PRs cut from
   near-identical commits. Measured on #174: zero new conflicts across #111, #165 and #166 — a
   real reduction, and a temporary one. #165 and #166 have both conflicted since; #165 stands
-  `CONFLICTING` at `3396925` and #166 was repaired twice more the same morning.
+  `CONFLICTING` at `3396925` and #166 was repaired twice more the same morning. **The third census
+  shows why the reduction could only ever be temporary: compliant PRs now share line 23 the way
+  they used to share line 11.** The anchor is branch-point independent again as soon as the top
+  entry stops changing between two branch points — which, at ~11 changelog merges a day, is most
+  of the time.
 
 Both were real improvements to a shared-line insertion protocol. The measurement above is what
 they leave behind: **15% of the changelog-touching open-PR population standing conflicted at any
-instant, and 21% at the second census**, and that population regenerates. At ~11
-changelog-touching merges per day against 40–47 exposed PRs, the residual is not rare — it is a
-steady-state occupancy.
+instant, 21% at the second census and 21% again at the third**, and that population regenerates.
+At ~11 changelog-touching merges per day against 40–48 exposed PRs, the residual is not rare — it
+is a steady-state occupancy. Two censuses three hours apart returning 21% twice, either side of a
+day's merges, is what a steady state looks like; it is not a spike being observed twice.
 
 **The stock understates it, because repaired PRs leave the stock.** Neither this PR (#190) nor
 #166 appears in the 13 above, and both went `CONFLICTING` and were repaired in the hours between
