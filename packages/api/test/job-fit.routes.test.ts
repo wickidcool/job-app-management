@@ -50,7 +50,7 @@ import { JobFitInputError, RateLimitError } from '../src/types/index.js';
 
 const mockAnalysisResponse = {
   recommendation: 'moderate_fit' as const,
-  summary: 'You match 4 of 6 required skills.',
+  summary: 'You match 4 of 6 required skills. This role is within reach.',
   confidence: 'high' as const,
   parsedJd: {
     roleTitle: 'Senior Software Engineer',

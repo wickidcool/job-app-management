@@ -1,8 +1,30 @@
 import type { APIClient } from './apiClient';
+import type { Recommendation } from '../../types/jobFit';
 
 export type UrgencyLevel = 'overdue' | 'due_soon' | 'upcoming';
 export type ActiveStatus = 'saved' | 'applied' | 'phone_screen' | 'interview';
-export type FitTier = 'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed';
+
+/**
+ * The fit verdict for one application in the by-fit-tier report. Mirrors
+ * `FitTier` in `packages/api/src/types/index.ts` — keep the two in step.
+ *
+ * Written as `Recommendation` plus the two no-verdict states, not as a fresh
+ * list of strings, because it *is* the UC-3 judgement (WIC-1298). Before that it
+ * was an independent union whose `weak_fit` folded `stretch` and `low_fit`
+ * together, hiding the difference between "your skills are short" and "your
+ * level is wrong"; and whose `not_analyzed` also stood in for "an analysis ran
+ * and could not score", which is now `unscored`.
+ *
+ * `Recommendation` includes `null`, so `NonNullable` strips it: on this type the
+ * no-verdict case is a tier of its own rather than an absent value.
+ */
+export type FitTier =
+  | NonNullable<Recommendation>
+  /** An analysis ran but produced no verdict (`recommendation: null`). */
+  | 'unscored'
+  /** No fit analysis has ever been run for this application. */
+  | 'not_analyzed';
+
 export type ClosedStatus = 'offer' | 'rejected' | 'withdrawn';
 
 export interface PipelineApplication {
