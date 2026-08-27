@@ -289,20 +289,33 @@ const EXAMPLE_PATTERNS: readonly RegExp[] = [
  * airtight against parking the *current* figure out of reach and blind to hiding
  * a *stale* one — which is the drift this file exists to catch.
  *
- * The clause split narrows that blind spot; it does not close it, and this
- * comment should not be read as claiming otherwise (WIC-1578). A marker inside a
- * parenthetical still reaches a figure later in the same clause, because `(` and
- * `)` are not clause boundaries. Measured on `5fd367a`:
+ * `)` is in the delimiter class for the same reason `|` is (WIC-1587). WIC-1578
+ * left this open on the reasoning that it was worth only "a rare phrasing"; that
+ * was wrong on both counts. Measured on `5fd367a`, a marker inside a parenthetical
+ * reached a figure later in the same clause:
  *
- *     The inline hint (no longer shown on mobile) says PDF, DOCX, TXT (Max 3MB)
+ *     The cap (previously 5MB) is Max 10MB          ->  live=[]  hist=[5, 10]
  *
- * leaves the file fully green with a live, wrong 3MB cap unguarded, exactly as
- * the line-scoped version did. Adding `(` to the delimiter class is not the fix:
- * it cuts the marker off a parenthesised figure, so ordinary historical prose —
- * "the cap was previously smaller (5MB) before WIC-1382" — stops being exempt and
- * REDs as an unclassified figure. Closing this is a judgement about how much
- * apparatus a rare phrasing is worth, and is deliberately left open rather than
- * papered over here.
+ * The *live* cap is swallowed into the historical bucket, so appending
+ * `The cap (previously 5MB) is Max 3MB for resume uploads.` to COMPONENT_SPECS.md
+ * left the file fully green with a wrong cap — and that sentence shape is the most
+ * ordinary way anyone documents a raised cap, not a rare one.
+ *
+ * Only the CLOSE paren is a boundary. Adding `(` as well is not the fix: it cuts
+ * the marker off a parenthesised figure, so ordinary historical prose — "the cap
+ * was previously smaller (5MB) before WIC-1382" — stops being exempt and REDs as
+ * an unclassified figure, silently reclassified rather than merely re-scoped.
+ *
+ * The accepted cost of `)` is the mirror phrasing, marker before `(` and figure
+ * after `)`:
+ *
+ *     previously (in WIC-1382) the cap was Max 5MB  ->  live=[5], a false RED
+ *
+ * That is a residual, not a hole. It fails in the direction this docstring already
+ * declares safe: it NARROWS the exemption, so it surfaces as a loud RED with a
+ * message on a genuinely historical figure, and can never widen the hatch into a
+ * silent green. Both closed rows are pinned by fixtures in `the audit's own
+ * reading rules` below.
  */
 const HISTORICAL_MARKERS =
   /\b(?:previously|formerly|historically|used to (?:be|specify|say)|prior to|no longer|superseded|before WIC-)\b/i;
@@ -334,7 +347,7 @@ function lineStartAt(source: string, index: number): number {
  */
 function clauseBefore(source: string, index: number): string {
   const before = source.slice(lineStartAt(source, index), index);
-  return before.slice(before.search(/[^.;!?|]*$/));
+  return before.slice(before.search(/[^.;!?|)]*$/));
 }
 
 /**
@@ -581,10 +594,36 @@ describe('resume upload size limit', () => {
       ).toEqual([3]);
     });
 
+    it('a marker inside a parenthetical does not exempt the figure after it', () => {
+      // `)` in the delimiter class (WIC-1587). Without it the LIVE cap is
+      // swallowed into the historical bucket — `live=[] hist=[5, 10]` — which is
+      // a silent green on a wrong cap, not a loud RED.
+      expect(limitFiguresIn('The cap (previously 5MB) is Max 10MB')).toEqual([10]);
+    });
+
+    it('a parenthetical aside does not exempt a later parenthesised figure', () => {
+      // The WIC-1578 row, now closed. The aside carries a generic marker used for
+      // an unrelated reason; the 3MB after it is live and wrong.
+      expect(
+        limitFiguresIn('The inline hint (no longer shown on mobile) says PDF, DOCX, TXT (Max 3MB)')
+      ).toEqual([3]);
+    });
+
     it('a marker in the same clause still exempts the figure', () => {
       // The other polarity: narrowing the hatch must not close it, or PR #150's
       // genuine historical prose goes RED on correct writing.
       expect(limitFiguresIn('This doc previously specified Max 3MB for uploads')).toEqual([]);
+    });
+
+    it('a parenthesised historical figure stays exempt, so `(` is not a boundary', () => {
+      // Pins the OTHER half of the WIC-1587 decision: close paren only. Adding `(`
+      // to the delimiter class cuts the marker off this figure, and it stops being
+      // exempt — it REDs out of `unclassifiedFiguresIn`, not out of here, so this
+      // row is the only thing that would catch that edit.
+      expect(limitFiguresIn('the cap was previously smaller (5MB) before WIC-1382')).toEqual([]);
+      expect(unclassifiedFiguresIn('the cap was previously smaller (5MB) before WIC-1382')).toEqual(
+        []
+      );
     });
 
     it('table cells scope apart, so a marker in one cell does not exempt the next', () => {
