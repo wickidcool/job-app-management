@@ -29,9 +29,11 @@ import { AppError, NotFoundError } from '../types/index.js';
  * `interview_prep_stories`. RLS does not backstop it: the Worker is not the
  * `authenticated` role and never sets a JWT claim, so `auth.uid()` is NULL.
  *
- * Never `undefined` — an absent caller id scopes to `IS NULL` (the rows the
- * unauthenticated local-dev path writes via `userId ?? null`) rather than
- * failing open to the whole table.
+ * Never `undefined` — an absent caller id scopes to `IS NULL` rather than
+ * failing open to the whole table. Since migration `0017_enforce_userid_not_null.sql`
+ * (NULLs rewritten to the `00000000-…-0` placeholder, then `SET NOT NULL`) that
+ * predicate matches **no rows**, so an anonymous caller reaches an empty catalog
+ * and this service raises `CATALOG_EMPTY`. Failing closed is the intent.
  */
 function bulletOwnerScope(userId?: string) {
   return userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId);

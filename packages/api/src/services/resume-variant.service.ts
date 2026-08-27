@@ -42,11 +42,19 @@ import {
  * `postgres://` string and never sets a JWT claim, so `auth.uid()` is NULL and
  * the policies never apply. The predicate has to be in the query.
  *
- * Returned unconditionally, never `undefined`: an absent caller id is the
- * unauthenticated local-dev path, whose rows are written with `user_id = NULL`
- * (`userId ?? null` on every insert here), so it scopes to `IS NULL` rather
- * than failing open to the whole table. Same shape as
- * `personal-info.service.ts:34`.
+ * Returned unconditionally, never `undefined`: an absent caller id must not
+ * fail open to the whole table. It scopes to `IS NULL`, which since migration
+ * `0017_enforce_userid_not_null.sql` matches **no rows at all** — Step 1 rewrote
+ * every pre-existing NULL to the placeholder `00000000-0000-0000-0000-000000000000`
+ * and Step 2 ran `ALTER COLUMN user_id SET NOT NULL`, so `quantifiedBullets.userId`
+ * is `.notNull()` and a NULL owner is unrepresentable. That is deliberate: an
+ * anonymous caller gets nothing rather than everything.
+ *
+ * The `userId ?? null` insert path this predicate used to be justified by is
+ * dead for the same reason — post-0017 it is rejected with `23502`. Do not cite
+ * `personal-info.service.ts:34` as precedent either: `personalInfo.userId` is
+ * nullable, so `IS NULL` genuinely selects that table's anonymous rows. Here it
+ * selects the empty set, and the read's caller must be prepared for it.
  */
 function bulletOwnerScope(userId?: string) {
   return userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId);

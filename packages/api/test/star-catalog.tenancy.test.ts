@@ -48,6 +48,7 @@ import {
   stubAnthropic,
   expectScopedTo,
   render,
+  ORPHAN_OWNER,
   type CatalogRow,
 } from './helpers/star-catalog-stub.js';
 
@@ -372,13 +373,23 @@ describe('generateInterviewPrep tenancy (UC-7, D3)', () => {
     expect(ai.prompts).toHaveLength(0);
   });
 
-  it('scopes an anonymous caller to the null-owner rows, not to every row', async () => {
-    // Counterpart of the UC-6 case: absent identity must mean "the rows with no
-    // owner" here too, or the fail-open branch reopens the whole leak on the
-    // local-dev path.
+  it('fails an anonymous caller closed — IS NULL reaches no row, so no foreign STAR text is generated', async () => {
+    // Counterpart of the UC-6 case: absent identity must never fail open to the
+    // whole table.
+    //
+    // WIC-1465 review, REQUIRED 2: this case used to seed a `userId: null` row
+    // and assert it came *back*. That row cannot exist. Migration
+    // `0017_enforce_userid_not_null.sql` rewrites pre-existing NULLs to the
+    // `00000000-…-0` placeholder (Step 1) and then runs
+    // `ALTER COLUMN user_id SET NOT NULL` (Step 2); `quantifiedBullets.userId`
+    // is `.notNull()`, and the insert path is rejected with `23502`. So
+    // `IS NULL` selects the empty set, always — and the honest assertion is that
+    // the anonymous caller reaches `CATALOG_EMPTY`, not that it is served
+    // null-owned rows. The old version passed only because the stub's
+    // `CatalogRow.userId` was more permissive than the schema; it is `string` now.
     const stub = stubDb({
       catalog: [
-        bullet({ id: '01HZ_BUL_ANON', rawText: MINE, userId: null }),
+        bullet({ id: '01HZ_BUL_ORPHAN', rawText: MINE, userId: ORPHAN_OWNER }),
         bullet({ id: '01HZ_BUL_THEIRS', rawText: THEIRS, userId: OTHER }),
       ],
       tables: [...appFixture(), [interviewPreps, []], [interviewPrepStories, []]],
@@ -386,11 +397,16 @@ describe('generateInterviewPrep tenancy (UC-7, D3)', () => {
     const ai = aiEchoingStories();
     install(stub, ai);
 
-    await generateInterviewPrep({ applicationId: APP_ID }, undefined);
+    await expect(generateInterviewPrep({ applicationId: APP_ID }, undefined)).rejects.toMatchObject(
+      { code: 'CATALOG_EMPTY' }
+    );
 
+    // Fails closed by predicate, not by an empty fixture: the read really did
+    // ask for `IS NULL`, and the table it asked has two owned rows in it.
     expect(render(stub.catalogClauses()[0]).sql).toContain(
       '"quantified_bullets"."user_id" is null'
     );
-    expect(ai.prompts[0]).not.toContain(THEIRS);
+    // Never reached the model, so no foreign `rawText` can be persisted.
+    expect(ai.prompts).toHaveLength(0);
   });
 });

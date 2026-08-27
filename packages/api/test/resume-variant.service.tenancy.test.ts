@@ -23,7 +23,13 @@ vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
 import { getDb } from '../src/db/client.js';
 import { suggestBullets } from '../src/services/resume-variant.service.js';
-import { stubDb, expectScopedTo, render, type CatalogRow } from './helpers/star-catalog-stub.js';
+import {
+  stubDb,
+  expectScopedTo,
+  render,
+  ORPHAN_OWNER,
+  type CatalogRow,
+} from './helpers/star-catalog-stub.js';
 
 const CALLER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
 const OTHER = 'c2a91e77-5f30-4d18-8a41-6b0e9d3c8f12';
@@ -123,14 +129,22 @@ describe('suggestBullets tenancy (UC-6)', () => {
     expect(result.suggestions.map((s) => s.bulletId)).toEqual(['01HZ_BUL_MINE']);
   });
 
-  it('scopes an anonymous caller to the null-owner rows, not to every row', async () => {
-    // The unauthenticated local-dev path: `authMiddleware` sets `userId` to null
-    // when no Supabase config is present, and every insert here writes
-    // `userId ?? null`. Absent identity must mean "the rows with no owner", not
-    // "all rows" — the fail-open reading is how this class of defect starts, and
-    // is the idiom the card flags on `listResumeVariants` / `listCoverLetters`.
+  it('fails an anonymous caller closed — IS NULL reaches no row, so nothing is suggested', async () => {
+    // The unauthenticated local-dev path: `authMiddleware` leaves `userId`
+    // undefined when no Supabase config is present. Absent identity must never
+    // mean "all rows" — the fail-open reading is how this class of defect
+    // starts, and is the idiom the card flags on `listResumeVariants` /
+    // `listCoverLetters`.
+    //
+    // WIC-1465 review, REQUIRED 2: this case used to seed `userId: null` and
+    // require that row back. It cannot exist — `quantifiedBullets.userId` is
+    // `.notNull()` since `0017_enforce_userid_not_null.sql`, which also rewrote
+    // the pre-existing NULLs to the `00000000-…-0` placeholder. `IS NULL`
+    // therefore matches nothing and the real outcome is an empty suggestion
+    // list. Failing closed is the ruling; asserting a row shape the database
+    // rejects with `23502` was not.
     const stub = stubCatalog([
-      bulletRow({ id: '01HZ_BUL_ANON', userId: null }),
+      bulletRow({ id: '01HZ_BUL_ORPHAN', userId: ORPHAN_OWNER }),
       bulletRow({ id: '01HZ_BUL_THEIRS', userId: OTHER }),
     ]);
 
@@ -139,10 +153,12 @@ describe('suggestBullets tenancy (UC-6)', () => {
       undefined
     );
 
+    // Fails closed by predicate, not by an empty fixture: the read asked for
+    // `IS NULL` against a table holding two owned rows.
     expect(render(stub.catalogClauses()[1]).sql).toContain(
       '"quantified_bullets"."user_id" is null'
     );
-    expect(result.suggestions.map((s) => s.bulletId)).toEqual(['01HZ_BUL_ANON']);
-    expect(result.totalCatalogBullets).toBe(1);
+    expect(result.suggestions).toEqual([]);
+    expect(result.totalCatalogBullets).toBe(0);
   });
 });
