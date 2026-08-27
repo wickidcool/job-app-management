@@ -73,15 +73,23 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
   };
 }
 
-export async function mergeCompanies(sourceIds: string[], targetId: string, _userId?: string) {
+export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  const [target] = await db.select().from(companyCatalog).where(eq(companyCatalog.id, targetId));
+  // Every read AND every write is scoped to the caller, so a known id belonging
+  // to another user can neither be folded into a target nor soft-deleted. The
+  // predicate is conditional on userId for the same reason as resolveDiffItem:
+  // single-user/local mode (SUPABASE_JWT_SECRET unset) has no userId to scope by.
+  const targetWhere = userId
+    ? and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId))
+    : eq(companyCatalog.id, targetId);
+  const sourcesWhere = userId
+    ? and(sql`${companyCatalog.id} = ANY(${sourceIds})`, eq(companyCatalog.userId, userId))
+    : sql`${companyCatalog.id} = ANY(${sourceIds})`;
+
+  const [target] = await db.select().from(companyCatalog).where(targetWhere);
   if (!target) throw new NotFoundError('Company');
 
-  const sources = await db
-    .select()
-    .from(companyCatalog)
-    .where(sql`${companyCatalog.id} = ANY(${sourceIds})`);
+  const sources = await db.select().from(companyCatalog).where(sourcesWhere);
 
   const totalCount = sources.reduce((s, c) => s + c.applicationCount, target.applicationCount);
   const allAliases = [...new Set([...target.aliases, ...sources.map((s) => s.name)])];
@@ -95,14 +103,14 @@ export async function mergeCompanies(sourceIds: string[], targetId: string, _use
         updatedAt: new Date(),
         version: target.version + 1,
       })
-      .where(eq(companyCatalog.id, targetId));
+      .where(targetWhere);
     await tx
       .update(companyCatalog)
       .set({ isDeleted: true, updatedAt: new Date() })
-      .where(sql`${companyCatalog.id} = ANY(${sourceIds})`);
+      .where(sourcesWhere);
   });
 
-  const [updated] = await db.select().from(companyCatalog).where(eq(companyCatalog.id, targetId));
+  const [updated] = await db.select().from(companyCatalog).where(targetWhere);
   return { mergedCompany: toCompanyDTO(updated!), mergedCount: sources.length };
 }
 
@@ -195,15 +203,19 @@ export async function updateJobFitTag(
   return toJobFitTagDTO(updated);
 }
 
-export async function mergeJobFitTags(sourceIds: string[], targetId: string, _userId?: string) {
+export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  const [target] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, targetId));
+  const targetWhere = userId
+    ? and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId))
+    : eq(jobFitTags.id, targetId);
+  const sourcesWhere = userId
+    ? and(sql`${jobFitTags.id} = ANY(${sourceIds})`, eq(jobFitTags.userId, userId))
+    : sql`${jobFitTags.id} = ANY(${sourceIds})`;
+
+  const [target] = await db.select().from(jobFitTags).where(targetWhere);
   if (!target) throw new NotFoundError('JobFitTag');
 
-  const sources = await db
-    .select()
-    .from(jobFitTags)
-    .where(sql`${jobFitTags.id} = ANY(${sourceIds})`);
+  const sources = await db.select().from(jobFitTags).where(sourcesWhere);
 
   const totalMentions = sources.reduce((s, t) => s + t.mentionCount, target.mentionCount);
   const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap((s) => s.sourceIds)])];
@@ -219,13 +231,22 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string, _us
         updatedAt: new Date(),
         version: target.version + 1,
       })
-      .where(eq(jobFitTags.id, targetId));
-    for (const id of sourceIds) {
-      await tx.delete(jobFitTags).where(eq(jobFitTags.id, id));
+      .where(targetWhere);
+    // Delete is a hard delete, so it iterates the rows the *scoped* read
+    // returned rather than the caller's raw sourceIds — an id the read
+    // excluded must not still be deleted by an id-only predicate.
+    for (const source of sources) {
+      await tx
+        .delete(jobFitTags)
+        .where(
+          userId
+            ? and(eq(jobFitTags.id, source.id), eq(jobFitTags.userId, userId))
+            : eq(jobFitTags.id, source.id)
+        );
     }
   });
 
-  const [updated] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, targetId));
+  const [updated] = await db.select().from(jobFitTags).where(targetWhere);
   return { mergedTag: toJobFitTagDTO(updated!), mergedCount: sources.length };
 }
 
@@ -309,15 +330,19 @@ export async function updateTechStackTag(
   return toTechStackTagDTO(updated);
 }
 
-export async function mergeTechStackTags(sourceIds: string[], targetId: string, _userId?: string) {
+export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  const [target] = await db.select().from(techStackTags).where(eq(techStackTags.id, targetId));
+  const targetWhere = userId
+    ? and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId))
+    : eq(techStackTags.id, targetId);
+  const sourcesWhere = userId
+    ? and(sql`${techStackTags.id} = ANY(${sourceIds})`, eq(techStackTags.userId, userId))
+    : sql`${techStackTags.id} = ANY(${sourceIds})`;
+
+  const [target] = await db.select().from(techStackTags).where(targetWhere);
   if (!target) throw new NotFoundError('TechStackTag');
 
-  const sources = await db
-    .select()
-    .from(techStackTags)
-    .where(sql`${techStackTags.id} = ANY(${sourceIds})`);
+  const sources = await db.select().from(techStackTags).where(sourcesWhere);
 
   const totalMentions = sources.reduce((s, t) => s + t.mentionCount, target.mentionCount);
   const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap((s) => s.sourceIds)])];
@@ -333,13 +358,20 @@ export async function mergeTechStackTags(sourceIds: string[], targetId: string, 
         updatedAt: new Date(),
         version: target.version + 1,
       })
-      .where(eq(techStackTags.id, targetId));
-    for (const id of sourceIds) {
-      await tx.delete(techStackTags).where(eq(techStackTags.id, id));
+      .where(targetWhere);
+    // See mergeJobFitTags: hard delete iterates the scoped read, not sourceIds.
+    for (const source of sources) {
+      await tx
+        .delete(techStackTags)
+        .where(
+          userId
+            ? and(eq(techStackTags.id, source.id), eq(techStackTags.userId, userId))
+            : eq(techStackTags.id, source.id)
+        );
     }
   });
 
-  const [updated] = await db.select().from(techStackTags).where(eq(techStackTags.id, targetId));
+  const [updated] = await db.select().from(techStackTags).where(targetWhere);
   return { mergedTag: toTechStackTagDTO(updated!), mergedCount: sources.length };
 }
 
