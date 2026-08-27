@@ -8,6 +8,39 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Added — The cover-letter preview pane labelling ruling is in the repository (2026-08-27)
+
+The WIC-1569 design ruling — *label the generator's preview pane, which earns `CoverLetterPreview`
+a `headingLevel` prop* — existed only in the UI/UX Developer's workspace. The implementer, the
+`COMPONENT_SPECS.md` §10 audit, and anyone asking "why does this component have that prop?" could
+read the decision's *consequences* on the card but not the decision itself. It is now
+`docs/design/COVER_LETTER_PANE_LABELLING.md`.
+
+- **Documentation only. No code, no test, no behaviour changes** — and specifically, the
+  `headingLevel` prop this ruling approves **still does not exist**. Implementation is WIC-1569,
+  owned by the Frontend Developer and sequenced after PR #184 (WIC-1563).
+- **§10 gets a pointer, not the spec text.** The prose that describes `CoverLetterPreview` as
+  taking the prop is held in the ruling's §5 and lands *with* the code. Writing it into §10 now
+  would make the spec assert a prop the tree does not have — the exact class of drift the §10
+  audit exists to catch. The bullet added instead says "ruled but not yet built" and names its own
+  replacement.
+- **Re-verified against `main` @ `775c288` before landing**, because the ruling was originally
+  measured on PR #182's branch. All four structural claims hold (`CoverLetterPreview.tsx:55-57`
+  heading inside the `showExportActions` guard at `p-4`; `CoverLetterGenerator.tsx:560-561` editor
+  bar at `px-4 py-3`; `:590` mounting with `showExportActions={false}`; `:181` the generator's
+  `<h2>`). The `EmptyState` precedent it tells the implementer to copy verbatim is on `main` and
+  reads as described. A new §0 records what was measured against which tree, and that PR #184 is
+  still open — so the `h3`→`h2` correction the ruling assumes is not yet in `main`.
+- **The §3 tripwire is now annotated with its outcome.** That section warns that fixing
+  `/cover-letters/new`'s missing `<h1>` the wrong way (promoting the generator's `<h2>`) would
+  flatten the component to one depth and un-earn the prop. That was filed as WIC-1571 and fixed
+  the correct way in PR #194, which adds the `<h1>` to a page shell and guards the distinction
+  with `?raw` source assertions. Recorded with its status — PR #194 is open and `CONFLICTING` as
+  of this entry, so `main` still has no `<h1>` on that route.
+- Cross-linked from `COMPONENT_SPECS.md` §10 → "Scope of the rule" and from
+  `ROUTE_HEADING_OUTLINE.md`'s **Related** line, which already cited WIC-1569 by bare ticket
+  number with nothing to follow.
+
 ### Fixed — Every match and gap row states whether the skill is required (2026-08-26)
 
 The three per-skill sections on the Job Fit Analysis screen disclosed the same `isRequired` flag three different ways at row level: gap rows named both branches, strong-match rows carried a red `Required` badge **or nothing**, and partial-match rows said nothing at all. This is the residue of the WIC-1528 entry below, not a regression from it — that change fixed the section *headings*, and this is what was left one level down (WIC-1534).

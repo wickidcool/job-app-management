@@ -735,6 +735,13 @@ here rather than merely tidy.
   panel *is* the route's whole body: the page `<h1>` names the route and the panel does not
   restate it, starting at `<h2>` with its own sections. Two routes shipped restating it before
   that was written down.
+- **Second component in this class, ruled but not yet built:** `CoverLetterPreview` (WIC-1569).
+  A design ruling has approved labelling `CoverLetterGenerator`'s preview pane, which puts the
+  component's heading at two depths (`h2` under `CoverLetterDetail`, `h3` beside the generator's
+  `📝 Editor`) and therefore earns it the same optional `headingLevel`. **The prop does not exist
+  yet** — see `COVER_LETTER_PANE_LABELLING.md` for the ruling, the build spec, and the reason the
+  order of operations matters: it qualified only *after* the ruling, not by being shared. When
+  that work lands it replaces this bullet with §5 of that document.
 
 ---
 
