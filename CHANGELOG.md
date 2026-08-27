@@ -20,6 +20,16 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Docs — The accessibility docs stop asserting WCAG 2.1 AA conformance nothing checks (2026-08-27)
+
+`docs/design/ACCESSIBILITY.md` opened with **"Target Compliance: WCAG 2.1 Level AA"** and `docs/design/README.md` described its purpose as **"Ensure WCAG 2.1 Level AA compliance"**. Neither said that no mechanism in the repository verifies any of it. Both now carry the enforcement status alongside the claim (WIC-1584, from the WIC-1480 §8 trace).
+
+- **The claim was load-bearing in the wrong direction.** A reader arriving at a document headed "Target Compliance: WCAG 2.1 Level AA" reasonably infers the target is held to. It is not: there is no `eslint-plugin-jsx-a11y`, `axe`, `pa11y` or Lighthouse budget anywhere on `main` @ `6911bcb`, `packages/web/eslint.config.js` loads five plugins and none of them is accessibility, and `deploy.yml` has no accessibility step. An unverified claim stated confidently is what stops the next person looking.
+- **The Automated Testing checklist was the sharpest instance.** Its three boxes have been unchecked since the file was written, and an unchecked box reads as *queued*. They are annotated as *not installed* rather than pending, because the difference is the whole point.
+- **No count is restated.** The WIC-1480 scan's per-page figures were measured at `8e19705` and fixes have landed since; the note cites the shape of the finding and points at WIC-1480 for numbers, per the "counts in changelog prose rot" rule this file already carries.
+- **Written so the update is a swap, not a rewrite.** When WIC-1483 lands its two-layer mechanism, the note is replaced by a citation naming the `lint-and-test` job and the command that fails the build — and the replacement is required to keep stating what remains unverified, since heading order plus a lint rule set is not WCAG 2.1 AA. Crediting the lint layer with SC 1.3.1 would restate the exact overclaim WIC-1483 exists to end: `jsx-a11y` is per-file and cannot see a heading skip that exists only in the composition of a page and its children.
+- **Scope note for the parent trace.** All seven accepted feature specs now carry an `AC-Q3` accessibility criterion (the WIC-1480 decomposition landed), so the "1 of 7 specs" figure in earlier write-ups is superseded. What none of the seven carries is a mechanism — the same gap, one level down.
+
 ### Fixed — Two routes stopped saying their own name twice (2026-08-27)
 
 `/outreach/new` and `/resumes/exports` each rendered the same string as the page `<h1>` and again as the `<h2>` of the component directly beneath it — `Compose Outreach Message` and `Resume Exports`, stacked, both above the fold. The panel was naming the route the page had already named (WIC-1581).
