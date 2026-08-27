@@ -63,10 +63,14 @@ function headingLevelPassedBy(source: string): number {
   const callSites = withoutComments.match(/<CoverLetterPreview\b[\s\S]*?\/>/g) ?? [];
 
   // Exactly one call site per host is part of the claim. Two would mean this function is
-  // reporting one of them and silently ignoring the other.
+  // reporting one of them and silently ignoring the other. Destructured rather than indexed
+  // because `toHaveLength` does not narrow the type, and under `noUncheckedIndexedAccess`
+  // `callSites[0]` is `string | undefined`.
   expect(callSites).toHaveLength(1);
+  const [callSite] = callSites;
+  if (!callSite) throw new Error('no <CoverLetterPreview> call site found');
 
-  const explicit = callSites[0].match(/\bheadingLevel=\{(\d)\}/);
+  const explicit = callSite.match(/\bheadingLevel=\{(\d)\}/);
   // No attribute means the host relies on the default, which is 2. That is the intended
   // shape for `CoverLetterDetail`, so it has to read as a real answer, not as "not found".
   return explicit ? Number(explicit[1]) : 2;
