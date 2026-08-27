@@ -11,10 +11,11 @@
 // were red only because PR #153 had just written cases that address them with a
 // foreign id.
 //
-// The predicates are correct today. This file is not a fix; it is the missing
-// detector. Same distinction as WIC-1502: adopting a stronger evaluator makes a
-// defect *detectable*, not *detected* — something has to actually pass a foreign
-// id to the entry point.
+// Those predicates were correct as written; WIC-1537 added no fix, only the
+// missing detector. Same distinction as WIC-1502: adopting a stronger evaluator
+// makes a defect *detectable*, not *detected* — something has to actually pass a
+// foreign id to the entry point. WIC-1601 then supplied the defects (see below),
+// so the file now carries both halves.
 //
 // ## Enumerated by property, not by call shape
 //
@@ -27,8 +28,10 @@
 // pushes the owner term into an array and combines it as `and(...conditions)`,
 // so no `and(id, ownerId)` grep can see it either.
 //
-// Re-derived from the tree, the two services carry **thirteen** owner-bearing
-// predicates, not eleven, and all thirteen are covered below.
+// Re-derived from the tree, the two services carried **thirteen** owner-bearing
+// predicates, not eleven, and all thirteen are covered below. WIC-1601 added the
+// owner term to seven more reads that had none, so the matrix is twenty sites
+// plus the two shared anonymous-fallback cells.
 //
 // ## Why the negative case is the one that means anything
 //
@@ -43,57 +46,113 @@
 // reports green against the scoped and the leaking service alike — that is how
 // these twelve sites stayed uncovered while looking covered.
 //
+// ## WIC-1601 — what this file became
+//
+// WIC-1537 left two residuals explicitly unfixed, and WIC-1601 closed both in
+// the change that also grew this file. So the sections below the original twelve
+// cases are a *fix*'s detector rather than a coverage backfill, and the header
+// matrix is re-derived for the fixed tree:
+//
+//   a. **Reads with no owner term at all.** The same entry points read
+//      `resumes`, `tech_stack_tags` and `applications` on a caller-supplied id
+//      with no owner term — three of them with no `.where()` whatsoever. Same
+//      detector, pointed one table across.
+//   b. **The absent-caller fail-open.** Every predicate was
+//      `userId ? and(idTerm, ownerTerm) : <idTerm alone>` and
+//      `listResumeVariants` was `if (userId) conditions.push(...)`, so an
+//      anonymous caller read the whole table. Both now go through a single
+//      `ownerScope(table, userId)` that returns `isNull(table.userId)` rather
+//      than `undefined`.
+//
+// The `quantified_bullets` half of the original WIC-1601 report is **not** here:
+// all seven of those sites are fixed on the WIC-1449 branch (PR #153), which was
+// not in this branch's base when the card was written. Re-derived against the
+// tree rather than the card, this change's residual was seven sites, not eleven.
+//
 // ## The matrix this file is accepted against
 //
 // Re-run by flipping `and(` → `or(` on exactly one line and running this file.
-// Line numbers are as of the commit that adds this file; re-derive them with
-// `grep -n 'and('` before trusting them, because five of the `resume_variants`
-// lines are byte-identical and the card's own numbers had already drifted.
+// Line numbers are as of the commit that adds them; re-derive them with
+// `grep -n 'ownerScope('` before trusting them, because five of the
+// `resume_variants` lines are byte-identical and the original card's numbers had
+// already drifted.
 //
-//   resume-variant.service.ts:511  getResumeVariant                    RED ×1
-//   resume-variant.service.ts:599  listResumeVariants and(...conditions) RED ×1
-//   resume-variant.service.ts:633  updateResumeVariant UPDATE           RED ×2
-//   resume-variant.service.ts:644  updateResumeVariant re-check         RED ×1
-//   resume-variant.service.ts:659  deleteResumeVariant                  RED ×1
-//   resume-variant.service.ts:680  reviseResumeVariant                  RED ×1
-//   resume-variant.service.ts:895  exportResumeVariant                  RED ×1
-//   interviewPrep.service.ts:579   getInterviewPrep                     RED ×1
-//   interviewPrep.service.ts:626   getInterviewPrepByApplication        RED ×1
-//   interviewPrep.service.ts:648   updateInterviewPrep                  RED ×1
-//   interviewPrep.service.ts:796   logPracticeSession                   RED ×1
-//   interviewPrep.service.ts:960   exportInterviewPrep                  RED ×1
-//   interviewPrep.service.ts:1146  deleteInterviewPrep                  RED ×1
+//   resume-variant.service.ts:228   generateResumeVariant baseResumeId    RED ×2
+//   resume-variant.service.ts:267   generateResumeVariant techTags        RED ×2
+//   resume-variant.service.ts:555   getResumeVariant                      RED ×2
+//   resume-variant.service.ts:589   getResumeVariant baseResume           RED ×1
+//   resume-variant.service.ts:619   listResumeVariants owner condition †  RED ×2
+//   resume-variant.service.ts:679   updateResumeVariant UPDATE            RED ×3
+//   resume-variant.service.ts:688   updateResumeVariant re-check          RED ×2
+//   resume-variant.service.ts:701   deleteResumeVariant                   RED ×2
+//   resume-variant.service.ts:720   reviseResumeVariant                   RED ×1
+//   resume-variant.service.ts:933   exportResumeVariant                   RED ×1
+//   resume-variant.service.ts:72    ownerScope anonymous fallback ‡       RED ×6
+//   interviewPrep.service.ts:427    generateInterviewPrep application     RED ×2
+//   interviewPrep.service.ts:443    generateInterviewPrep prep uniqueness RED ×1
+//   interviewPrep.service.ts:608    getInterviewPrep                      RED ×2
+//   interviewPrep.service.ts:629    getInterviewPrep application          RED ×1
+//   interviewPrep.service.ts:653    getInterviewPrepByApplication         RED ×2
+//   interviewPrep.service.ts:676    updateInterviewPrep                   RED ×1
+//   interviewPrep.service.ts:822    logPracticeSession                    RED ×1
+//   interviewPrep.service.ts:984    exportInterviewPrep                   RED ×1
+//   interviewPrep.service.ts:1000   exportInterviewPrep application       RED ×1
+//   interviewPrep.service.ts:1168   deleteInterviewPrep                   RED ×1
+//   interviewPrep.service.ts:48     ownerScope anonymous fallback ‡       RED ×3
 //
-// The `×n` is the point. A site count only proves a mutation was *applied*; the
-// kill count proves it changed *behaviour* this file can see. `:633` kills two
-// because `or(id, version, userId)` breaks the 404 path and the 409 path at once
-// — predicted before the run, and that is what the run returned.
+//   † not an `and(`→`or(` flip — the owner term is an array element, so the
+//     mutation is dropping it: `[ownerScope(…) as any]` → `[]`.
+//   ‡ `isNull(table.userId)` → `undefined`, i.e. restoring the fail-open. This
+//     is the only aggregate cell in the matrix, because the fallback genuinely
+//     is one shared decision rather than a per-site one.
+//
+// All 22 went red at exactly the count predicted before the run. The `×n` is the
+// point: a site count only proves a mutation was *applied*, the kill count
+// proves it changed *behaviour* this file can see (WIC-1574). `:679` kills three
+// because `or(id, version, userId)` breaks the 404 path, the 409 path and the
+// anonymous path at once.
+//
+// Two traps this matrix hit and had to be re-run past, both worth keeping:
+//
+// - `interviewPrep.service.ts` does not import `or`. The first pass flipped
+//   `and(`→`or(` there and every cell went red on `ReferenceError: or is not
+//   defined` — a kill that fires against a perfectly scoped predicate too, so
+//   those cells measured nothing. The operator has to be imported as part of the
+//   mutant, and an **import-only** cell (kills 0) is what proves the import is
+//   not itself what the tests are seeing.
+// - Three ip cells over-shot their prediction before that fix, which is what
+//   exposed it. A cell that kills *more* than predicted deserves the same
+//   scrutiny as one that kills less.
+//
+// The reads that carried no owner term at all are not in the table above,
+// because their revert-to-the-bug cell is the state of the tree before this
+// change: all seven of the WIC-1601 cases below were run red against it first
+// and each named the value it leaked — a foreign `resumes.fileName`, `['CFO',
+// 'Umbrella']` out of `getInterviewPrep`, and the filename
+// `interview-prep-umbrella-2026-08-27.md` out of `exportInterviewPrep`.
 //
 // ## Negative controls — these must stay GREEN
 //
-//   resume-variant.service.ts:774  revise optimistic-lock write and(id, version)
-//   resume-variant.service.ts:638  update anonymous fallback    and(id, version)
-//   interviewPrep.service.ts:681   story update  and(storyId, interviewPrepId)
-//   interviewPrep.service.ts:901   story result  and(storyId, interviewPrepId)
+//   resume-variant.service.ts:813  revise optimistic-lock write and(id, version)
+//   interviewPrep.service.ts:708   story update  and(storyId, interviewPrepId)
+//   interviewPrep.service.ts:926   story result  and(storyId, interviewPrepId)
 //
 // None carries an owner term; each is guarded upstream by one of the scoped
-// reads above. All four stayed green, which is what distinguishes this file from
-// one that is merely mutation-sensitive in general.
+// reads above. All three stayed green, which is what distinguishes this file
+// from one that is merely mutation-sensitive in general.
 //
-// ## Adjacent, deliberately not fixed here
-//
-// Every site is `userId ? and(idTerm, ownerTerm) : <idTerm alone>`, and
-// `listResumeVariants` is `if (userId) conditions.push(...)`. The absent-caller
-// branch therefore reads the whole table rather than failing closed — the
-// fail-open idiom WIC-1482 records. This card is test-only and the predicates it
-// covers are correct as written, so that is left to its own change rather than
-// smuggled in behind a coverage PR.
+// WIC-1537's fourth control — `resume-variant.service.ts:638`, the anonymous
+// `and(id, version)` fallback of `updateResumeVariant` — is **gone rather than
+// passing**: WIC-1601 deleted the branch it lived on. Recording that here
+// because a control silently disappearing from a list is indistinguishable from
+// one that was quietly dropped for failing.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
 import { getDb } from '../src/db/client.js';
 import {
+  generateResumeVariant,
   getResumeVariant,
   listResumeVariants,
   updateResumeVariant,
@@ -102,6 +161,7 @@ import {
   exportResumeVariant,
 } from '../src/services/resume-variant.service.js';
 import {
+  generateInterviewPrep,
   getInterviewPrep,
   getInterviewPrepByApplication,
   updateInterviewPrep,
@@ -111,7 +171,7 @@ import {
 } from '../src/services/interviewPrep.service.js';
 import { NotFoundError, VersionConflictError } from '../src/types/index.js';
 import { scopedReadStub, type ScopedReadStub } from './helpers/scoped-read-stub.js';
-import { expectScopedTo, type ProbeRow } from './helpers/tenancy.js';
+import { expectScopedTo, predicateFor, type ProbeRow } from './helpers/tenancy.js';
 
 const CALLER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
 const OTHER = 'c2a91e77-5f30-4d18-8a41-6b0e9d3c8f12';
@@ -120,9 +180,18 @@ const MINE = '01HZVARIANTMINE00000000001';
 const THEIRS = '01HZVARIANTTHEIRS000000001';
 const MY_APP = '01HZAPPMINE00000000000001';
 const THEIR_APP = '01HZAPPTHEIRS000000000001';
+const MY_RESUME = '01HZRESUMEMINE0000000001';
+const THEIR_RESUME = '01HZRESUMETHEIRS00000001';
+const MY_TAG = '01HZTAGMINE00000000000001';
+const THEIR_TAG = '01HZTAGTHEIRS0000000001';
 
 const VARIANTS = 'resume_variants';
 const PREPS = 'interview_preps';
+const RESUMES = 'resumes';
+const TAGS = 'tech_stack_tags';
+const APPS = 'applications';
+const BULLETS = 'quantified_bullets';
+const STORIES = 'interview_prep_stories';
 
 /** A `resume_variants` row rich enough that the service can read past the guard. */
 function variantRow(over: ProbeRow = {}): ProbeRow {
@@ -170,13 +239,41 @@ function prepRow(over: ProbeRow = {}): ProbeRow {
   };
 }
 
+/** An `applications` row, as the two services read it. */
+function appRow(over: ProbeRow = {}): ProbeRow {
+  return {
+    id: MY_APP,
+    userId: CALLER,
+    jobTitle: 'Senior Backend Engineer',
+    company: 'Acme',
+    status: 'applied',
+    version: 1,
+    ...over,
+  };
+}
+
+/** A `resumes` row, as `generateResumeVariant`/`getResumeVariant` read it. */
+function resumeRow(over: ProbeRow = {}): ProbeRow {
+  return { id: MY_RESUME, userId: CALLER, fileName: 'mine.pdf', version: 1, ...over };
+}
+
+/** A `tech_stack_tags` row. `user_id` is NOT NULL and `(user_id, tag_slug)` is unique. */
+function tagRow(over: ProbeRow = {}): ProbeRow {
+  return { id: MY_TAG, userId: CALLER, tagSlug: 'postgres', displayName: 'Postgres', ...over };
+}
+
 /**
  * Both rows always exist. The foreign row is what the mutation would hand back,
  * so it has to be in the fixture — an empty table would make every entry point
  * "fail closed" for the wrong reason and the whole file would pass under `or`.
  */
 function stub(table: string, rows: ProbeRow[]): ScopedReadStub {
-  const s = scopedReadStub({ [table]: rows });
+  return stubTables({ [table]: rows });
+}
+
+/** The same, for the entry points that read more than one table. */
+function stubTables(fixtures: Record<string, ProbeRow[]>): ScopedReadStub {
+  const s = scopedReadStub(fixtures);
   vi.mocked(getDb).mockReturnValue(s.db as ReturnType<typeof getDb>);
   return s;
 }
@@ -436,6 +533,316 @@ describe('interview_preps — caller-supplied id reads are scoped to the caller'
       ids: [THEIRS],
       extra: { applicationId: MY_APP },
     });
+  });
+});
+
+// ── WIC-1601 — the reads on the *other* tables these services touch ───────────
+//
+// Everything above asks whether the read of the service's own table is scoped.
+// These ask the question the moment the same entry point reads a *different*
+// table on a caller-supplied id — `resumes`, `tech_stack_tags`, `applications`
+// — where the predicate was `eq(id, <caller-supplied>)` with no owner term at
+// all. Same detector, pointed one table across.
+
+const JD = { targetCompany: 'Acme', targetRole: 'Staff Engineer', jobDescriptionText: 'Postgres' };
+
+describe('resume_variants — the foreign tables the same entry points read', () => {
+  it('generateResumeVariant does not accept another user’s resume as the base', async () => {
+    // Unscoped this is an existence oracle on `resumes` — `BASE_RESUME_NOT_FOUND`
+    // vs. anything-else tells the caller whether an id they guessed is real —
+    // and it writes the foreign id into `resume_variants.baseResumeId`, which is
+    // what `getResumeVariant` then re-reads (next case but one).
+    const s = stubTables({
+      [RESUMES]: [resumeRow(), resumeRow({ id: THEIR_RESUME, userId: OTHER })],
+      [BULLETS]: [],
+    });
+
+    await expect(
+      generateResumeVariant({ ...JD, baseResumeId: THEIR_RESUME } as never, CALLER)
+    ).rejects.toMatchObject({ code: 'BASE_RESUME_NOT_FOUND' });
+
+    expectNothingForeignReached(s, RESUMES, {
+      table: RESUMES,
+      userId: CALLER,
+      ids: [THEIR_RESUME],
+    });
+  });
+
+  it('generateResumeVariant does not accept another user’s tech tag', async () => {
+    // `tech_stack_tags.user_id` is NOT NULL with a unique index on
+    // `(user_id, tag_slug)`, so the table is per-user and not the global catalog
+    // the card left open as a question.
+    const s = stubTables({
+      [TAGS]: [tagRow(), tagRow({ id: THEIR_TAG, userId: OTHER, tagSlug: 'kafka' })],
+      [BULLETS]: [],
+    });
+
+    await expect(
+      generateResumeVariant({ ...JD, selectedTechTags: [THEIR_TAG] } as never, CALLER)
+    ).rejects.toMatchObject({ code: 'TAG_NOT_FOUND' });
+
+    expectNothingForeignReached(s, TAGS, { table: TAGS, userId: CALLER, ids: [THEIR_TAG] });
+  });
+
+  it('getResumeVariant does not hand back another user’s resume fileName', async () => {
+    // The variant is the caller's own; only its `baseResumeId` is foreign, which
+    // is exactly the row state the unscoped write above leaves behind. Fixing
+    // the write does not clean what it already wrote (WIC-1437), so the read has
+    // to carry the predicate too.
+    const s = stubTables({
+      [VARIANTS]: [variantRow({ baseResumeId: THEIR_RESUME })],
+      [RESUMES]: [resumeRow({ id: THEIR_RESUME, userId: OTHER, fileName: 'their-resume.pdf' })],
+      [BULLETS]: [],
+    });
+
+    const result = await getResumeVariant(MINE, CALLER);
+
+    expect(
+      result.baseResume,
+      'a foreign baseResumeId must resolve to nothing, not to its fileName'
+    ).toBeUndefined();
+    expectNothingForeignReached(s, RESUMES, {
+      table: RESUMES,
+      userId: CALLER,
+      ids: [THEIR_RESUME],
+    });
+  });
+});
+
+describe('interview_preps — the foreign tables the same entry points read', () => {
+  it('generateInterviewPrep does not read another user’s application', async () => {
+    // `jobTitle` and `company` go straight into the LLM prompt and into the prep
+    // the caller then owns and can read back, so this one leaks content, not
+    // just existence.
+    const s = stubTables({
+      [APPS]: [appRow(), appRow({ id: THEIR_APP, userId: OTHER, company: 'Umbrella' })],
+      [PREPS]: [],
+      [BULLETS]: [],
+    });
+
+    await expect(
+      generateInterviewPrep({ applicationId: THEIR_APP } as never, CALLER)
+    ).rejects.toMatchObject({ code: 'APPLICATION_NOT_FOUND' });
+
+    expectNothingForeignReached(s, APPS, { table: APPS, userId: CALLER, ids: [THEIR_APP] });
+  });
+
+  it('generateInterviewPrep’s 409 does not disclose another user’s prep', async () => {
+    // A foreign prep on the caller's own application is reachable precisely
+    // because the read above was unscoped. Unfixed, this branch answers 409 and
+    // puts the foreign prep's id in `details.existingPrepId`.
+    const s = stubTables({
+      [APPS]: [appRow()],
+      [PREPS]: [prepRow({ id: THEIRS, userId: OTHER, applicationId: MY_APP })],
+      [BULLETS]: [],
+    });
+
+    await expect(
+      generateInterviewPrep({ applicationId: MY_APP } as never, CALLER)
+    ).rejects.toMatchObject({
+      // Past the existence check, into the caller's own (empty) catalog.
+      code: 'CATALOG_EMPTY',
+    });
+
+    expectNothingForeignReached(s, PREPS, {
+      table: PREPS,
+      userId: CALLER,
+      idKey: 'applicationId',
+      ids: [MY_APP],
+      extra: { id: MINE },
+    });
+  });
+
+  it('getInterviewPrep does not hand back another user’s job title and company', async () => {
+    const s = stubTables({
+      [PREPS]: [prepRow({ applicationId: THEIR_APP })],
+      [APPS]: [appRow({ id: THEIR_APP, userId: OTHER, jobTitle: 'CFO', company: 'Umbrella' })],
+      [STORIES]: [],
+    });
+
+    const result = await getInterviewPrep(MINE, CALLER);
+
+    expect(
+      [result.application.jobTitle, result.application.company],
+      'a foreign applicationId must degrade to the empty placeholder, not to the real row'
+    ).toEqual(['', '']);
+    expectNothingForeignReached(s, APPS, { table: APPS, userId: CALLER, ids: [THEIR_APP] });
+  });
+
+  it('exportInterviewPrep does not put another user’s company in the export', async () => {
+    const s = stubTables({
+      [PREPS]: [prepRow({ applicationId: THEIR_APP })],
+      [APPS]: [appRow({ id: THEIR_APP, userId: OTHER, jobTitle: 'CFO', company: 'Umbrella' })],
+      [STORIES]: [],
+    });
+
+    const result = await exportInterviewPrep(MINE, 'markdown', undefined, CALLER);
+
+    expect(
+      result.filename,
+      'the foreign company name is interpolated into the filename'
+    ).not.toContain('umbrella');
+    expect(result.buffer.toString('utf8')).not.toContain('Umbrella');
+    expectNothingForeignReached(s, APPS, { table: APPS, userId: CALLER, ids: [THEIR_APP] });
+  });
+});
+
+// ── WIC-1601 — the absent-caller branch ──────────────────────────────────────
+//
+// The half above is "the predicate forgot the owner". This half is "the
+// predicate had an owner term and threw it away when `userId` was undefined".
+// Every site was `userId ? and(idTerm, ownerTerm) : idTerm`, so an anonymous
+// caller read the whole table — the fail-open idiom WIC-1482 records on
+// `fetchStarEntries` and WIC-1500 found reachable in a fully-configured
+// deployment through a `sub`-less JWT.
+//
+// `expectScopedTo` is deliberately the wrong assertion here: its probe 3 rejects
+// `user_id IS NULL` rows, which is exactly what the anonymous caller is supposed
+// to get. So this section asserts the anonymous predicate directly.
+
+/**
+ * The anonymous counterpart of `expectScopedTo`: the orphan row is admitted and
+ * every *owned* row — the caller's and a stranger's alike — is not.
+ *
+ * The third probe is the one that matters. Two of the three would pass under the
+ * old `: idTerm` fallback as well, because a bare id term admits the orphan row
+ * too; only "a row owned by somebody is rejected" tells the scoped predicate
+ * from the discarded one.
+ */
+function expectScopedToOrphans(
+  clause: unknown,
+  table: string,
+  opts: { idKey?: string; id?: string; extra?: ProbeRow } = {}
+): void {
+  const { idKey = 'id', id = MINE, extra = {} } = opts;
+  const admits = predicateFor(clause, table);
+  const row = (userId: string | null): ProbeRow => ({ [idKey]: id, ...extra, userId });
+
+  expect(admits(row(null)), `anonymous read excludes the unowned row it is for`).toBe(true);
+  expect(admits(row(CALLER)), `anonymous read admits a row owned by a real user`).toBe(false);
+  expect(admits(row(OTHER)), `anonymous read admits a row owned by a real user`).toBe(false);
+}
+
+describe('an absent caller reads the rows nobody owns, not every row', () => {
+  const orphanVariant = () => [
+    variantRow({ userId: null }),
+    variantRow({ id: THEIRS, userId: OTHER }),
+  ];
+  const orphanPrep = () => [
+    prepRow({ userId: null }),
+    prepRow({ id: THEIRS, userId: OTHER, applicationId: THEIR_APP }),
+  ];
+
+  it('getResumeVariant refuses an owned variant', async () => {
+    const s = stubTables({ [VARIANTS]: orphanVariant(), [BULLETS]: [] });
+
+    await expect(getResumeVariant(THEIRS, undefined)).rejects.toBeInstanceOf(NotFoundError);
+    expectScopedToOrphans(s.clausesOn(VARIANTS)[0], VARIANTS, { id: THEIRS });
+  });
+
+  it('getResumeVariant still resolves the unowned variant it is for', async () => {
+    // Without this the fix could be "match nothing", which is not scoping —
+    // the same trap `expectScopedTo`'s probe 1 exists to catch.
+    const s = stubTables({ [VARIANTS]: orphanVariant(), [BULLETS]: [] });
+
+    const result = await getResumeVariant(MINE, undefined);
+
+    expect(result.variant.id).toBe(MINE);
+    expect(s.opsOn(VARIANTS)[0].rows.map((r) => r.id)).toEqual([MINE]);
+  });
+
+  it('deleteResumeVariant refuses an owned variant', async () => {
+    const s = stubTables({ [VARIANTS]: orphanVariant() });
+
+    await expect(deleteResumeVariant(THEIRS, undefined)).rejects.toBeInstanceOf(NotFoundError);
+    expectScopedToOrphans(s.clausesOn(VARIANTS)[0], VARIANTS, { id: THEIRS });
+  });
+
+  it('updateResumeVariant refuses an owned variant on both predicates', async () => {
+    const s = stubTables({ [VARIANTS]: orphanVariant() });
+
+    await expect(
+      updateResumeVariant(THEIRS, { title: 'Renamed', version: 1 } as never, undefined)
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    // The three-term UPDATE and the two-term re-check are separate sites and the
+    // fallback was dropped on each independently.
+    const [update, recheck] = s.opsOn(VARIANTS);
+    expectScopedToOrphans(update.clause, VARIANTS, { id: THEIRS, extra: { version: 1 } });
+    expectScopedToOrphans(recheck.clause, VARIANTS, { id: THEIRS });
+  });
+
+  it('listResumeVariants does not spill owned variants into the unfiltered list', async () => {
+    // The `conditions.length === 1` shortcut means an anonymous unfiltered list
+    // used to reach `.where(undefined)` — no predicate at all, whole table.
+    const s = stubTables({ [VARIANTS]: orphanVariant() });
+
+    const result = await listResumeVariants({}, undefined);
+
+    expect(result.variants.map((v) => v.id)).toEqual([MINE]);
+    expectScopedToOrphans(s.clausesOn(VARIANTS)[0], VARIANTS);
+  });
+
+  it('getInterviewPrep refuses an owned prep', async () => {
+    const s = stubTables({ [PREPS]: orphanPrep(), [STORIES]: [], [APPS]: [] });
+
+    await expect(getInterviewPrep(THEIRS, undefined)).rejects.toBeInstanceOf(NotFoundError);
+    expectScopedToOrphans(s.clausesOn(PREPS)[0], PREPS, { id: THEIRS });
+  });
+
+  it('getInterviewPrepByApplication refuses an owned prep', async () => {
+    const s = stubTables({ [PREPS]: orphanPrep(), [STORIES]: [], [APPS]: [] });
+
+    await expect(getInterviewPrepByApplication(THEIR_APP, undefined)).rejects.toBeInstanceOf(
+      NotFoundError
+    );
+    expectScopedToOrphans(s.clausesOn(PREPS)[0], PREPS, {
+      idKey: 'applicationId',
+      id: THEIR_APP,
+    });
+  });
+
+  it('generateResumeVariant refuses an owned resume as the base', async () => {
+    const s = stubTables({
+      [RESUMES]: [resumeRow({ userId: null }), resumeRow({ id: THEIR_RESUME, userId: OTHER })],
+      [BULLETS]: [],
+    });
+
+    await expect(
+      generateResumeVariant({ ...JD, baseResumeId: THEIR_RESUME } as never, undefined)
+    ).rejects.toMatchObject({ code: 'BASE_RESUME_NOT_FOUND' });
+    expectScopedToOrphans(s.clausesOn(RESUMES)[0], RESUMES, { id: THEIR_RESUME });
+  });
+
+  it('generateInterviewPrep refuses an owned application', async () => {
+    const s = stubTables({
+      [APPS]: [appRow({ userId: null }), appRow({ id: THEIR_APP, userId: OTHER })],
+      [PREPS]: [],
+      [BULLETS]: [],
+    });
+
+    await expect(
+      generateInterviewPrep({ applicationId: THEIR_APP } as never, undefined)
+    ).rejects.toMatchObject({ code: 'APPLICATION_NOT_FOUND' });
+    expectScopedToOrphans(s.clausesOn(APPS)[0], APPS, { id: THEIR_APP });
+  });
+
+  it('tech_stack_tags scopes an absent caller to the empty set, by design', async () => {
+    // `tech_stack_tags.user_id` is `.notNull()` since 0017, so `IS NULL` reaches
+    // no rows at all. That is the intended answer, not an accident: an anonymous
+    // caller gets nothing rather than everything. Pinned because it is the one
+    // table in these two services where `IS NULL` is not a reachable row state,
+    // and a future reader is entitled to know the empty result is deliberate.
+    const s = stubTables({
+      [TAGS]: [tagRow(), tagRow({ id: THEIR_TAG, userId: OTHER })],
+      [BULLETS]: [],
+    });
+
+    await expect(
+      generateResumeVariant({ ...JD, selectedTechTags: [MY_TAG] } as never, undefined)
+    ).rejects.toMatchObject({ code: 'TAG_NOT_FOUND' });
+
+    expect(s.opsOn(TAGS)[0].rows, 'no tag row is owned by nobody').toEqual([]);
   });
 });
 

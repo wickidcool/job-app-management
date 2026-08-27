@@ -1,4 +1,5 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -19,6 +20,33 @@ import {
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { AppError, NotFoundError } from '../types/index.js';
+
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+/**
+ * Owner predicate for any table this service reads (WIC-1601) — mirror of the
+ * one in `resume-variant.service.ts`, and the same two failure modes:
+ *
+ * 1. *No owner term at all.* Every read of `applications` here was keyed on an
+ *    id alone. In `generateInterviewPrep` that id is caller-supplied, and the
+ *    `jobTitle`/`company` it resolves go straight into the LLM prompt and into
+ *    the prep the caller then owns and can read back — content disclosure, not
+ *    merely existence. The `interview_preps` uniqueness probe in the same
+ *    function answered `409` with the *foreign* prep's id in `details`.
+ *    RLS does not backstop any of it: the Worker is not the `authenticated`
+ *    role and never sets a JWT claim, so `auth.uid()` is NULL.
+ *
+ * 2. *The absent-caller fail-open* — `userId ? and(idTerm, ownerTerm) : idTerm`
+ *    read the whole table for a caller without a `sub` claim (WIC-1482 /
+ *    WIC-1500). Anonymous now means the rows nobody owns, not every row.
+ *
+ * `interview_preps.user_id` and `applications.user_id` are both nullable and
+ * both insert paths write `userId ?? null`, so `IS NULL` selects genuine
+ * anonymous rows and the ADR-003 local-dev bypass keeps working.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
 
 // ── Error classes ─────────────────────────────────────────────────────────────
 
@@ -396,7 +424,7 @@ export async function generateInterviewPrep(
   const [app] = await db
     .select({ id: applications.id, jobTitle: applications.jobTitle, company: applications.company })
     .from(applications)
-    .where(eq(applications.id, input.applicationId))
+    .where(and(eq(applications.id, input.applicationId), ownerScope(applications, userId)))
     .limit(1);
 
   if (!app) {
@@ -411,7 +439,9 @@ export async function generateInterviewPrep(
   const [existing] = await db
     .select({ id: interviewPreps.id })
     .from(interviewPreps)
-    .where(eq(interviewPreps.applicationId, input.applicationId))
+    .where(
+      and(eq(interviewPreps.applicationId, input.applicationId), ownerScope(interviewPreps, userId))
+    )
     .limit(1);
 
   if (existing) {
@@ -575,9 +605,7 @@ export async function getInterviewPrep(
 }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -598,7 +626,7 @@ export async function getInterviewPrep(
       status: applications.status,
     })
     .from(applications)
-    .where(eq(applications.id, prep.applicationId))
+    .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
     .limit(1);
 
   return {
@@ -622,9 +650,10 @@ export async function getInterviewPrepByApplication(
 }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.applicationId, applicationId), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.applicationId, applicationId);
+  const whereClause = and(
+    eq(interviewPreps.applicationId, applicationId),
+    ownerScope(interviewPreps, userId)
+  );
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -644,9 +673,7 @@ export async function updateInterviewPrep(
 ): Promise<{ interviewPrep: InterviewPrepDTO; completenessChange: number }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -792,9 +819,7 @@ export async function logPracticeSession(
 }> {
   const db = getDb();
 
-  const prepWhereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const prepWhereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(prepWhereClause).limit(1);
 
@@ -956,9 +981,7 @@ export async function exportInterviewPrep(
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -974,7 +997,7 @@ export async function exportInterviewPrep(
   const [app] = await db
     .select({ jobTitle: applications.jobTitle, company: applications.company })
     .from(applications)
-    .where(eq(applications.id, prep.applicationId))
+    .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
     .limit(1);
 
   const company = app?.company ?? 'company';
@@ -1142,9 +1165,7 @@ function markdownToHtml(md: string): string {
 export async function deleteInterviewPrep(id: string, userId?: string): Promise<void> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db
     .select({ id: interviewPreps.id })
