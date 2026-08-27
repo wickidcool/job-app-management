@@ -70,8 +70,13 @@ describe('NotFound', () => {
     // what still carries the §1 argument.
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Empty state')).not.toBeInTheDocument();
-    // A heading at h3 with no h1 above it is the outline defect §1 (D2) describes.
-    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
+    // A sub-level heading with no h1 above it is the outline defect §1 (D2) describes.
+    // Asserted across all sub-levels rather than pinned to one, so it keeps
+    // discriminating now that EmptyState's level is a prop (WIC-1417) — the defect is
+    // "the top heading is not an h1", not "the heading is an h3".
+    for (const level of [2, 3, 4, 5, 6] as const) {
+      expect(screen.queryByRole('heading', { level })).not.toBeInTheDocument();
+    }
 
     // Focus is moved to the heading on mount, so it is what AT announces on arrival.
     expect(heading).toHaveFocus();
@@ -103,10 +108,13 @@ describe('NotFound', () => {
     // the option was rejected any more.
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Empty state')).not.toBeInTheDocument();
-    // D2 — still the live discriminator: an h3 with no h1 above it is exactly the
-    // broken document outline a 404 page must not ship.
+    // D2 — still the live discriminator: a sub-level heading with no h1 above it is
+    // exactly the broken document outline a 404 page must not ship. WIC-1417 moved
+    // this from a hardcoded h3 to a `headingLevel` prop defaulting to 2; the level
+    // changed, the defect did not. A page-level 404 needs an h1, and no value of
+    // this prop produces one.
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument();
   });
 
   // §7.4 — the keyboard user's first Tab from page load lands on the primary action.

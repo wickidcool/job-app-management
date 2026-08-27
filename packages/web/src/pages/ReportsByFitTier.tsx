@@ -1,6 +1,72 @@
 import { useNavigate } from 'react-router-dom';
 import { useReportsByFitTier } from '../hooks/useReports';
 import { FIT_TIER_LABELS } from '../constants/fitLevel';
+import type { FitTier } from '../services/api/reportsService';
+
+/**
+ * The tiers that carry an actual verdict, best first. `unscored` and
+ * `not_analyzed` are deliberately absent — they are states of the analysis, not
+ * judgements about the job, and get their own row above rather than a tile that
+ * invites comparison against a real fit level.
+ *
+ * Each blurb states a **necessary** condition of its tier — never a sufficient
+ * one. `computeRecommendation` is a four-way cascade over three variables (match
+ * percentage, critical-gap count, seniority flag), and a tile has no room to
+ * restate a cascade. What it must never do is contradict the tier it labels.
+ *
+ * (The number beside each blurb is `byTier[tier]` — how many applications fall
+ * in that tier. It is not a skill-match count, and no skill-match count is
+ * rendered on this page.)
+ *
+ * These originally restated the match-percentage arm alone, which made them
+ * false for 14.1% of reachable scoring inputs: 100% of required skills matched
+ * with 3 critical gaps returns `moderate_fit`, so the tier was captioned
+ * "50–79% of required skills" — contradicting both its own definition and the
+ * "You match 20 of 20 required skills" the user reads on drill-in
+ * (`computeSummary`, `job-fit.service.ts`) (WIC-1309). Every blurb below
+ * therefore carries the gap and seniority conditions that can pull a tier down.
+ *
+ * `packages/api/test/fit-tier-blurbs.test.ts` reads these exact strings and
+ * checks each one against the real `computeRecommendation` over every reachable
+ * input, so a blurb that stops being true fails the API suite. Reword freely —
+ * update the paired predicate in that file when you do.
+ */
+const VERDICT_TIERS: ReadonlyArray<{
+  tier: Extract<FitTier, 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'>;
+  blurb: string;
+  container: string;
+  heading: string;
+  body: string;
+}> = [
+  {
+    tier: 'strong_fit',
+    blurb: '80%+ of required skills, at most one critical gap',
+    container: 'border-green-200 bg-green-50',
+    heading: 'text-green-900',
+    body: 'text-green-700',
+  },
+  {
+    tier: 'moderate_fit',
+    blurb: '50%+ of required skills, up to three critical gaps, no seniority mismatch',
+    container: 'border-yellow-200 bg-yellow-50',
+    heading: 'text-yellow-900',
+    body: 'text-yellow-700',
+  },
+  {
+    tier: 'stretch',
+    blurb: 'A partial skill match, too many critical gaps, or a seniority mismatch',
+    container: 'border-orange-100 bg-orange-50',
+    heading: 'text-orange-700',
+    body: 'text-orange-700',
+  },
+  {
+    tier: 'low_fit',
+    blurb: 'Under 30% of required skills, and no seniority mismatch',
+    container: 'border-neutral-200 bg-neutral-50',
+    heading: 'text-neutral-900',
+    body: 'text-neutral-700',
+  },
+];
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
@@ -61,8 +127,10 @@ export function ReportsByFitTier() {
         </div>
       </div>
 
-      {/* Not Analyzed count from API */}
-      <div className="mt-8">
+      {/* Counts from the API for the two tiers that carry no verdict. Kept apart
+          from the tier tiles below: these say something about the analysis, not
+          about the job. */}
+      <div className="mt-8 grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border border-neutral-200 bg-white p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -74,47 +142,35 @@ export function ReportsByFitTier() {
             <div className="text-3xl font-bold text-neutral-900">{summary.notAnalyzed}</div>
           </div>
         </div>
+
+        <div className="rounded-lg border border-neutral-200 bg-white p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-900">{FIT_TIER_LABELS.unscored}</h3>
+              <p className="mt-1 text-sm text-neutral-600">
+                Analysed, but the job description had no required skills to score against
+              </p>
+            </div>
+            <div className="text-3xl font-bold text-neutral-900">
+              {summary.byTier['unscored'] ?? '—'}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Placeholder tier groups */}
-      <div className="mt-6 grid gap-4 md:grid-cols-3 opacity-50">
-        <div className="rounded-lg border border-green-200 bg-green-50 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-green-900">{FIT_TIER_LABELS.strong_fit}</h3>
-              <p className="mt-1 text-sm text-green-700">High match score</p>
-            </div>
-            <div className="text-3xl font-bold text-green-900">
-              {summary.byTier['strong_fit'] ?? '—'}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-yellow-900">
-                {FIT_TIER_LABELS.moderate_fit}
-              </h3>
-              <p className="mt-1 text-sm text-yellow-700">Medium match score</p>
-            </div>
-            <div className="text-3xl font-bold text-yellow-900">
-              {summary.byTier['moderate_fit'] ?? '—'}
+      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4 opacity-50">
+        {VERDICT_TIERS.map(({ tier, blurb, container, heading, body }) => (
+          <div key={tier} className={`rounded-lg border p-6 ${container}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className={`text-lg font-semibold ${heading}`}>{FIT_TIER_LABELS[tier]}</h3>
+                <p className={`mt-1 text-sm ${body}`}>{blurb}</p>
+              </div>
+              <div className={`text-3xl font-bold ${heading}`}>{summary.byTier[tier] ?? '—'}</div>
             </div>
           </div>
-        </div>
-
-        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-neutral-900">{FIT_TIER_LABELS.weak_fit}</h3>
-              <p className="mt-1 text-sm text-neutral-700">Low match score</p>
-            </div>
-            <div className="text-3xl font-bold text-neutral-900">
-              {summary.byTier['weak_fit'] ?? '—'}
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
       {data && (
