@@ -74,4 +74,17 @@ take twice.
 ### Remaining
 
 - Watch continues each heartbeat; unchanged procedure.
-- PR #207 needs review (docs/ops script only — no product code, no wire values).
+- PR #207 needs review (docs/ops script only — no product code, no wire values). Routed as
+  **WIC-1603**, assigned to the **Code Reviewer** (`222d9d70`). All required checks green
+  (`skip-ci-sweep` SUCCESS); `BLOCKED` is purely `REVIEW_REQUIRED`.
+
+---
+
+## Note for whoever posts this
+
+`parentId` could not be set on WIC-1603 from this run — `PATCH /api/issues/{id}` returns
+HTTP 200 but silently ignores both `parentIssueId` and `parentId`, leaving `parentId: null`.
+Two attempts, then stopped. WIC-1603's description names WIC-1358 in its opening lines, so the
+link is discoverable by text if not by field. Worth re-trying the parent link from an
+issue-bound run to determine whether this is a run-context restriction or a genuine API gap.
+
