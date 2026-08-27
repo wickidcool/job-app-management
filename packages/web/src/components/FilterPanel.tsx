@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import type { ApplicationStatus } from '../types/application';
 
 export interface FilterOptions {
@@ -26,54 +25,39 @@ const statusLabels: Record<ApplicationStatus, { label: string; icon: string }> =
   withdrawn: { label: 'Withdrawn', icon: '↩️' },
 };
 
-// Debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
-
 export function FilterPanel({
   onFilterChange,
   activeFilters,
   availableCompanies,
   availableStatuses,
 }: FilterPanelProps) {
-  const [searchInput, setSearchInput] = useState(activeFilters.search || '');
-  const [selectedStatuses, setSelectedStatuses] = useState<ApplicationStatus[]>(
-    activeFilters.status || []
-  );
-  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(activeFilters.company || []);
-  const [activeOnly, setActiveOnly] = useState(activeFilters.activeOnly || false);
-
-  const debouncedSearch = useDebounce(searchInput, 300);
-
-  // Update filters when debounced search changes
-  useEffect(() => {
-    const newFilters: FilterOptions = {
-      ...activeFilters,
-      search: debouncedSearch || undefined,
-    };
-    onFilterChange(newFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
+  // This panel is CONTROLLED, and holds no state of its own at all: `activeFilters` is
+  // the single source of truth for every control below, and `onFilterChange` is the
+  // only writer.
+  //
+  // It has to be, because the panel is not the only writer to that state. On
+  // `/applications`, `SavedFilterShortcuts` sits directly above it and writes the same
+  // page state through `onApplyFilter`. Until WIC-1612 this component copied the prop
+  // into four `useState`s, whose initialisers run on first mount only — so every
+  // shortcut applied while the panel was open stayed invisible here. The panel showed
+  // nothing checked and hid `Clear All` over a list that really was filtered, disagreed
+  // with the shortcuts bar rendered inches above it, and worst, the next toggle spread
+  // its own stale `[]` and discarded statuses the user had never touched.
+  //
+  // Deriving needs no sync effect and cannot go stale. The search box's 300ms debounce,
+  // which was the one honest reason to keep local state here, now sits on the page
+  // between `filters` and the API (`ApplicationsList`), so keystrokes still do not cost
+  // a request each.
+  const selectedStatuses: ApplicationStatus[] = activeFilters.status ?? [];
+  const selectedCompanies: string[] = activeFilters.company ?? [];
+  const activeOnly = activeFilters.activeOnly ?? false;
+  const searchInput = activeFilters.search ?? '';
 
   const handleStatusToggle = (status: ApplicationStatus) => {
     const newStatuses = selectedStatuses.includes(status)
       ? selectedStatuses.filter((s) => s !== status)
       : [...selectedStatuses, status];
 
-    setSelectedStatuses(newStatuses);
     onFilterChange({
       ...activeFilters,
       status: newStatuses.length > 0 ? newStatuses : undefined,
@@ -85,7 +69,6 @@ export function FilterPanel({
       ? selectedCompanies.filter((c) => c !== company)
       : [...selectedCompanies, company];
 
-    setSelectedCompanies(newCompanies);
     onFilterChange({
       ...activeFilters,
       company: newCompanies.length > 0 ? newCompanies : undefined,
@@ -94,7 +77,6 @@ export function FilterPanel({
 
   const handleActiveOnlyToggle = () => {
     const newActiveOnly = !activeOnly;
-    setActiveOnly(newActiveOnly);
     onFilterChange({
       ...activeFilters,
       activeOnly: newActiveOnly || undefined,
@@ -102,16 +84,11 @@ export function FilterPanel({
   };
 
   const handleClearAll = () => {
-    setSearchInput('');
-    setSelectedStatuses([]);
-    setSelectedCompanies([]);
-    setActiveOnly(false);
     onFilterChange({});
   };
 
   const handleRemoveStatusFilter = (status: ApplicationStatus) => {
     const newStatuses = selectedStatuses.filter((s) => s !== status);
-    setSelectedStatuses(newStatuses);
     onFilterChange({
       ...activeFilters,
       status: newStatuses.length > 0 ? newStatuses : undefined,
@@ -120,15 +97,21 @@ export function FilterPanel({
 
   const handleRemoveCompanyFilter = (company: string) => {
     const newCompanies = selectedCompanies.filter((c) => c !== company);
-    setSelectedCompanies(newCompanies);
     onFilterChange({
       ...activeFilters,
       company: newCompanies.length > 0 ? newCompanies : undefined,
     });
   };
 
-  const hasActiveFilters =
-    searchInput || selectedStatuses.length > 0 || selectedCompanies.length > 0 || activeOnly;
+  // Computed from the prop for the same reason as the controls above: read off the
+  // stale local copies, this hid the whole chip row and `Clear All` for exactly as long
+  // as a shortcut was the thing that had applied the filters.
+  const hasActiveFilters = Boolean(
+    activeFilters.search ||
+    selectedStatuses.length > 0 ||
+    selectedCompanies.length > 0 ||
+    activeOnly
+  );
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
@@ -141,7 +124,9 @@ export function FilterPanel({
           id="search"
           type="text"
           value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
+          onChange={(e) =>
+            onFilterChange({ ...activeFilters, search: e.target.value || undefined })
+          }
           placeholder="Search by job title or company..."
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           aria-label="Search applications"
@@ -245,14 +230,14 @@ export function FilterPanel({
 
           <div className="flex flex-wrap gap-2">
             {/* Search chip - Touch-optimized */}
-            {searchInput && (
+            {activeFilters.search && (
               <div className="inline-flex items-center gap-1 px-3 py-2 bg-blue-100 text-blue-800 rounded-md text-sm">
-                <span>Search: {searchInput}</span>
+                <span>Search: {activeFilters.search}</span>
                 <button
-                  onClick={() => setSearchInput('')}
+                  onClick={() => onFilterChange({ ...activeFilters, search: undefined })}
                   className="ml-1 hover:text-blue-900 p-1"
                   style={{ minWidth: '24px', minHeight: '24px' }}
-                  aria-label={`Remove search filter: ${searchInput}`}
+                  aria-label={`Remove search filter: ${activeFilters.search}`}
                 >
                   ✕
                 </button>
