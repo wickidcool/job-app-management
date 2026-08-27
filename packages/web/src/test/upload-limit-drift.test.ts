@@ -106,12 +106,19 @@ function resolveApiLimit(): Resolution {
  * fails the build, so the audit could not otherwise be written against both the
  * pre- and post-#143 trees at once. A glob simply matches whatever is present.
  *
- * (The directory itself is not new — `main` already carries six unrelated
+ * (The directory itself is not new — `main` already carries four unrelated
  * constants modules, none of which declares a byte expression. The glob picking
  * them up is harmless: `resolveZoneLimit` only looks for the one identifier
  * `ResumeUploadZone.tsx` actually names.)
+ *
+ * `*.test.ts` is excluded (WIC-1572). Sibling tests are not a source of truth for
+ * a constant's value, and a test that declares its own `<n> * 1024 * 1024` at
+ * column 0 would make `resolveZoneLimit` see two declarations and go
+ * unresolvable — a RED about arithmetic, not about drift. PR #143 lands exactly
+ * such a file (`constants/upload.drift.test.ts`) and gets away with it today only
+ * because it happens not to declare one.
  */
-const WEB_CONSTANT_MODULES = import.meta.glob('../constants/*.ts', {
+const WEB_CONSTANT_MODULES = import.meta.glob(['../constants/*.ts', '!../constants/*.test.ts'], {
   query: '?raw',
   eager: true,
   import: 'default',
@@ -257,16 +264,30 @@ const EXAMPLE_PATTERNS: readonly RegExp[] = [
  *
  * - **Lexically**: a bare `\bwas\b` would exempt most sentences a stale cap could
  *   hide in. Every marker here states explicitly that the figure is superseded.
- * - **Positionally**: the marker must appear *before* the figure on the same line.
- *   An exemption scoped to the whole line lets a live cap ride along in front of
- *   a trailing "(previously)" — measured, not theorised: that mutation passed a
- *   line-scoped version of this rule while the doc said `max 3MB`. The card asked
- *   for a positional/contextual rule over an allowlist for exactly this reason.
+ * - **Positionally**: the marker must appear *before* the figure, and *in the same
+ *   clause* — not merely somewhere earlier on the line (WIC-1572 / F5).
+ *
+ * Both halves of that positional rule were paid for by a measured mutation.
+ * Dropping "before" lets a live cap ride along in front of a trailing
+ * "(previously)": `(Max 9MB) (previously)` passed a line-scoped-either-direction
+ * version of this rule. Dropping "same clause" is the mirror image, and is what
+ * the clause split below fixes — these markers are generic English, so one used
+ * for an unrelated reason earlier on the line used to exempt every figure after
+ * it. Measured on `560f5df`: rewriting COMPONENT_SPECS.md's spec line as
+ *
+ *     The inline hint is no longer shown on mobile. PDF, DOCX, TXT (Max 3MB)
+ *
+ * left the whole file green, shipping a live, wrong 3MB cap unguarded.
  *
  * The hatch also carries its own staleness test — see `historical size mentions
  * are actually historical` below — so it cannot be used to park the *current*
  * figure somewhere unread either. That is WIC-1439's complaint about
  * `KNOWN_DEAD_LINKS` answered up front rather than left for a later ticket.
+ *
+ * Note the two are complementary and neither subsumes the other: the staleness
+ * test only fires when the exempted figure EQUALS the live limit, so it is
+ * airtight against parking the *current* figure out of reach and blind to hiding
+ * a *stale* one — which is the drift this file exists to catch.
  */
 const HISTORICAL_MARKERS =
   /\b(?:previously|formerly|historically|used to (?:be|specify|say)|prior to|no longer|superseded|before WIC-)\b/i;
@@ -281,11 +302,30 @@ function lineStartAt(source: string, index: number): number {
 }
 
 /**
- * True when a historical marker precedes `index` on its own line — i.e. the
+ * The text between the last clause boundary before `index` and `index` itself,
+ * never crossing a line start.
+ *
+ * `|` is in the delimiter class and is load-bearing, not decorative:
+ * `COMPONENT_SPECS.md:841` is a markdown table row, and neighbouring cells have
+ * to scope apart or a marker in one cell exempts the figures in the next.
+ *
+ * The failure direction is safe. An abbreviation the split does not know about
+ * — `e.g.`, `i.e.`, a decimal — can only cut the clause *shorter* than the
+ * writer meant, which NARROWS the exemption. A mis-split therefore makes a
+ * genuinely historical figure measurable and goes RED with a message, and can
+ * never widen the hatch into a silent green.
+ */
+function clauseBefore(source: string, index: number): string {
+  const before = source.slice(lineStartAt(source, index), index);
+  return before.slice(before.search(/[^.;!?|]*$/));
+}
+
+/**
+ * True when a historical marker precedes `index` *in the same clause* — i.e. the
  * figure at `index` is being described as superseded.
  */
 function isHistoricalAt(source: string, index: number): boolean {
-  return HISTORICAL_MARKERS.test(source.slice(lineStartAt(source, index), index));
+  return HISTORICAL_MARKERS.test(clauseBefore(source, index));
 }
 
 interface Span {
@@ -382,15 +422,25 @@ function historicalFiguresIn(source: string): { line: number; mb: number; text: 
  * The exact counts this replaced were justified as "a count that needs updating
  * puts a human on the change" — but in practice they put the human on the *wrong*
  * change: PR #150 reflows this prose, and an exact count turns that into a RED
- * with a message about arithmetic rather than about drift. The real coverage proof
- * is the unclassified-figure check, which cannot be satisfied by a doc that has
- * quietly reworded its cap out of reach.
+ * with a message about arithmetic rather than about drift.
+ *
+ * Each floor is set to the doc's **currently measured** count rather than a
+ * uniform 2 (WIC-1572 / F6), which gives the floors ratchet semantics: additions
+ * are free, so prose reflow still never fails on arithmetic, but deletions are
+ * loud. A uniform 2 left ONBOARDING_FLOW.md with seven figures of slack —
+ * measured: seven of its nine cap statements could be deleted with the file still
+ * fully green. The unclassified-figure check catches a cap *reworded* out of
+ * reach; nothing caught one simply *removed* down to the floor.
+ *
+ * Counts measured on the merge of `origin/main` at `9ba5041`, which is the tree
+ * CI builds. Raising a floor when a doc legitimately gains a cap line is the
+ * intended (and only) maintenance cost.
  */
 const AUDITED_DOCS = [
   {
     path: 'docs/design/COMPONENT_SPECS.md',
     source: componentSpecsDoc,
-    minLimitFigures: 2,
+    minLimitFigures: 3,
   },
   {
     path: 'docs/design/RESUME_UPLOAD_EXPORT_FLOW.md',
@@ -398,10 +448,11 @@ const AUDITED_DOCS = [
     minLimitFigures: 2,
   },
   {
-    // Currently at 5MB against a 10MB server. PR #150 (WIC-1436) moves all of them.
+    // Currently at 5MB against a 10MB server. PR #150 (WIC-1436) moves all of them,
+    // and takes this doc from nine figures to ten — above the floor, so free.
     path: 'docs/design/ONBOARDING_FLOW.md',
     source: onboardingFlowDoc,
-    minLimitFigures: 2,
+    minLimitFigures: 9,
   },
 ] as const;
 
@@ -444,13 +495,14 @@ describe('resume upload size limit', () => {
     }
   });
 
-  it('every audited doc still states the limit at least twice', () => {
+  it('no audited doc states the limit fewer times than it does today', () => {
     for (const doc of AUDITED_DOCS) {
       expect(
         limitFiguresIn(doc.source).length,
-        `${doc.path} states no cap this audit can read, so every value check over it ` +
-          'would pass over an empty set. Either the doc stopped specifying the limit, ' +
-          'or its phrasing moved out of LIMIT_PATTERNS.'
+        `${doc.path} states the cap fewer times than the ${doc.minLimitFigures} this audit ` +
+          'reads today. Either a cap statement was deleted, or its phrasing moved out of ' +
+          'LIMIT_PATTERNS. Adding cap lines is free; if one was removed on purpose, lower ' +
+          'the floor in AUDITED_DOCS in the same commit so the deletion is in the diff.'
       ).toBeGreaterThanOrEqual(doc.minLimitFigures);
     }
   });
