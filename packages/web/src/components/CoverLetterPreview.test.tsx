@@ -222,13 +222,23 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
   });
 
   it('adds no skip to the generator s outline in the shape that page renders', () => {
-    // The `CoverLetterGenerator` shape end to end: its own h2, the "Editor" pane heading,
-    // then the labelled preview pane beside it. Asserted as a whole outline rather than as a
-    // per-component tag check, because the defect this closes was never visible in one
-    // component's tag — it was the relationship between two panes.
+    // The `CoverLetterGenerator` step-4 shape: the step's own section heading, the "Editor"
+    // pane heading, then the labelled preview pane beside it. Asserted as a whole outline
+    // rather than as a per-component tag check, because the defect this closes was never
+    // visible in one component's tag — it was the relationship between two panes.
+    //
+    // This is a hand-built stand-in for the host, so it can only show that the shape *is*
+    // legal — never that the generator still emits it. Two guards elsewhere close that gap
+    // and are the ones that fail when the host moves: `headingLevelPassedBy` above reads the
+    // real call site, and `CoverLetterNew.test.tsx`'s per-step source sweep reads the real
+    // step-4 branch. Keep this copy in step with them.
+    //
+    // It opened `<h2>Generate Cover Letter</h2>` until WIC-1581 deleted that heading from the
+    // generator outright — a fixture asserting a shape the tree no longer had, still green.
+    // That is the failure mode the paragraph above is about, caught on its first outing.
     const { container } = render(
       <>
-        <h2>Generate Cover Letter</h2>
+        <h2>Review &amp; Edit</h2>
         <div>
           <h3>
             <span aria-hidden="true">📝</span> Editor
@@ -244,7 +254,7 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     expect(findOutlineSkips(outline)).toEqual([]);
     expect(outline.map((h) => h.level)).toEqual([2, 3, 3]);
     expect(describeOutline(outline)).toBe(
-      'h2 "Generate Cover Letter" -> h3 "📝 Editor" -> h3 "Cover Letter Preview"'
+      'h2 "Review & Edit" -> h3 "📝 Editor" -> h3 "Cover Letter Preview"'
     );
   });
 });

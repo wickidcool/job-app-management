@@ -206,6 +206,45 @@ describe('the h1 belongs to the route, not to the shared component', () => {
   });
 });
 
+describe("each of the generator's four steps is its own outline surface", () => {
+  // The rendered tests above only ever reach step 1: the wizard advances on form
+  // submission and, for step 4, on a completed generate mutation. So four of the five
+  // outline surfaces this route can show are untested by them — the same shape as the
+  // page's early-return branches, one component down.
+  //
+  // Asserted on source, per step, because *flat* order cannot see it. Delete step 4's
+  // section heading and the file still reads h2 h2 h2 h2 h2 h3 in document order, which
+  // is skip-free; it is only when the h3 is read as the first heading of its own branch
+  // that the h1 -> h3 skip appears. Measured: a flat check passes that mutation.
+
+  /** Source of each `{currentStep === N && ( ... )}` branch, in order. */
+  function stepBranches(source: string): { step: number; body: string }[] {
+    const marks = [...source.matchAll(/\{currentStep === (\d) &&/g)];
+    expect(marks, 'the step markers this test slices on have been renamed').toHaveLength(4);
+
+    return marks.map((mark, i) => ({
+      step: Number(mark[1]),
+      body: source.slice(mark.index, marks[i + 1]?.index ?? source.length),
+    }));
+  }
+
+  const branches = stepBranches(stripComments(coverLetterGeneratorSource));
+
+  it.each(branches)('step $step opens at h2 and skips no level', ({ body }) => {
+    const levels = [...body.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
+
+    expect(levels.length, 'this step renders no heading at all').toBeGreaterThan(0);
+
+    // The page h1 is directly above every one of these, so 2 is both the floor and the
+    // only legal opener. `Review & Edit` on step 4 exists for exactly this line.
+    expect(levels[0], `heading levels in this step: ${levels.join(', ')}`).toBe(2);
+    expect(
+      levels.filter((level, i) => i > 0 && level - Math.min(...levels.slice(0, i)) > 1),
+      `heading levels in this step: ${levels.join(', ')}`
+    ).toEqual([]);
+  });
+});
+
 describe('the h1 survives every branch of the page', () => {
   // The loading, error and empty-catalog branches all return before
   // CoverLetterGenerator mounts. A heading placed next to the generator would leave
