@@ -1,5 +1,12 @@
 # Parked writes — WIC-1358 / WIC-1024 (2026-08-27 ~00:4xZ)
 
+> **LANDED 2026-08-27 ~00:5xZ — do not post these again.** All three writes went through on the
+> first issue-bound wake: §1 comment `8746e5a7`, §2 description `PATCH` HTTP 200 (6546 → 8272 chars,
+> read back byte-identical), §3 comment `c2cc7d64` on WIC-1024. The 403 was a heartbeat-timer
+> artefact, not a standing block. Clause (b) as landed is stronger than the version below — it
+> requires `"db":"ok"` as well as `"status":"ok"`; see the WIC-1580 note under §2. Kept as the record
+> of what was posted and why.
+
 This run woke on `heartbeat_timer`, which 403s `cross_issue_influence_run_context_required`
 on both `POST /comments` and `PATCH /issues/{id}` — including my own assigned cards. One
 attempt was made, no retry (the `X-Paperclip-Run-Id` header is a known dead end; see
