@@ -29,6 +29,7 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **Consequence for the WIC-1024 hold: a first organic visitor is now necessary but not sufficient.** On the candidate path the watcher says so explicitly rather than leaving the reader to infer it, because completion/timing insights and the C1–C3 `person_id` tiles cannot be populated until the DB is reachable.
 - **Reporting only — it cannot suppress a real first user.** Exit codes are unchanged (`0` / `10` / `1`); every health fault path collapses to `unknown` and the organic verdict stands alone. Verified by pointing the probe at an unresolvable host: still exit `0`, verdict intact.
 - **A 403 is not a 503.** Cloudflare answers urllib's default `Python-urllib/3.x` with a bot challenge, which read naively is indistinguishable from a degraded app — the first cut of this change reported "DB unreachable" on that basis. The probe now sends an explicit User-Agent and treats only a response that parses as the health payload as authoritative.
+
 ### Docs — All ten `cursor` parameter rows in API_CONTRACTS.md now say the cursor is opaque (2026-08-27)
 
 `docs/architecture/API_CONTRACTS.md` had six `| cursor |` query-parameter rows, each carrying `(opaque — see [Pagination](#pagination))` inline. PR #112 documented four more paginated report endpoints and took the count to ten, and three of the four new rows read a bare `Pagination cursor`.
