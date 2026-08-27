@@ -80,6 +80,18 @@ jobs:
       - name: Audit wireframe casing
         run: python3 docs/design/wireframe-casing-audit.py
 
+      # ADR-010 / AC-T0 (WIC-1600): an authenticated request with no resolved
+      # owner must match zero rows. 48 predicates reached `main` doing the
+      # opposite, in three different syntactic shapes, because nothing executed
+      # the criterion. ESLint cannot be that check — packages/api has no ESLint
+      # config at all — and `tsc` makes the fail-open branch unreachable but not
+      # rejected. This runs against the frozen baseline in
+      # packages/api/scripts/owner-predicates.baseline.json and fails only on
+      # NEW sites, so it lands before the burndown rather than after it.
+      # Burn the baseline down; never append to it.
+      - name: Audit owner-absent tenancy predicates
+        run: node packages/api/scripts/audit-owner-predicates.mjs
+
       - name: Run tests
         run: npm run test
 

@@ -1,0 +1,293 @@
+# ADR-010: Absent-owner posture — an authenticated request with no owner reads nothing
+
+## Status
+
+Proposed — supersedes the owner-absent affordance in
+[ADR-003: Multi-User Authentication with Supabase](./ADR-003-multi-user-auth.md).
+
+Tracking: WIC-1600. Per-site remediation: WIC-1549, WIC-1554, WIC-1596, WIC-1435.
+Analysis of record: WIC-1430 document `tenancy-absent-caller-audit`.
+
+## Context
+
+Every tenancy fix in this repository so far has been scoped to one function, and the count
+has still grown. The reason is that the question _"what may an authenticated request with no
+resolved owner do?"_ has never been answered anywhere — so each card answers it again, locally,
+and the shared fallback survives. WIC-1554 asks for the tree-wide answer and cannot give it from
+inside one function; WIC-1596 and WIC-1549 re-derive the same question independently. WIC-238's
+`plan` recommended settling it on 2026-08-26 and explicitly declined to file it. Three cards
+re-derived it within a day.
+
+This ADR is that answer.
+
+### Where the affordance came from
+
+It was deliberate, and it was never retired. ADR-003 specified the `user_id` column as
+_"Nullable initially for migration from single-user data"_, with a migration path ending
+_"existing data gets assigned to first logged-in user (or left as null for local-only)"_.
+"Owner absent" was a **migration state**. The migration happened; the state became permanent,
+because nothing was ever written down that said it should end.
+
+(ADR-003 is also stale in its mechanism description: it documents Fastify and
+`packages/api/src/plugins/auth.ts`. The code is Hono and `packages/api/src/middleware/auth.ts`.
+Note that `src/plugins` is excluded from the API `tsconfig.json` — nothing in it is typechecked.)
+
+### The measurement
+
+Measured on `origin/main` at `0bb159b` (the card's table was taken at `1c54133`; the
+48 sites are unchanged between the two).
+
+The canonical shape is:
+
+```ts
+const w = userId ? and(eq(t.id, id), eq(t.userId, userId)) : eq(t.id, id);
+```
+
+With no caller, the `id` half runs alone — _absent owner_ and _all owners_ are the same value.
+
+**The predicate is not one shape. It is at least three**, and this matters enormously for
+choosing a mechanism:
+
+| shape                            | example                                                  | sites                                                                                                                  |
+| -------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| ternary                          | `userId ? and(...) : eq(t.id, id)`                       | `resume.service.ts:787`                                                                                                |
+| `if`-guard on a conditions array | `if (userId) { conditions.push(eq(t.userId, userId)); }` | `reports.service.ts:488`, `resume-variant.service.ts:569`, `cover-letter.service.ts:365`, `application.service.ts:141` |
+| spread                           | `...(userId ? [eq(t.userId, userId)] : [])`              | `reports.service.ts:162, 266, 358`                                                                                     |
+
+A fourth class exists that the card's table does not count at all — **write-side laundering**:
+`userId: userId ?? null` inside `.values({...})` (`application.service.ts:68, 91, 324`;
+`catalog.service.ts:741`; `cover-letter.service.ts:294, 678`; `interviewPrep.service.ts:483`;
+`resume-variant.service.ts:459`; `resume.service.ts:544, 585`), and
+`buildObjectKey(userId ?? null, ...)` (`resume.service.ts:529, 566`), which puts an ownerless
+prefix on the storage path. These do not _read_ across tenants; they _create_ the ownerless rows
+that the read predicates then match.
+
+### Why the specs did not catch it
+
+AC-T1..AC-T7 are quantified _"on behalf of user U"_ / _"carries `user_id = U`"_. Every clause
+presupposes a U; none says what happens when there is none. Fail-open code satisfies all of them
+**vacuously**. **AC-T0** was appended to all seven specs on 2026-08-27 (WIC-47 r4, WIC-94 r4,
+WIC-101 r4, WIC-113 r4, WIC-127 r13, WIC-143 r7, WIC-238 r6):
+
+> **AC-T0.** When no owner is resolved for a request, every read, write and existence check must
+> match **zero rows**.
+
+AC-T0 is a criterion. This ADR is the mechanism.
+
+### It is not only the local-dev bypass
+
+- `middleware/auth.ts:28-31` — the bypass needs **both** `SUPABASE_URL` and
+  `SUPABASE_JWT_SECRET` absent. This is the branch the specs call "local-dev only".
+- `middleware/auth.ts:62` and `:68` — **both** verify paths end
+  `c.set('userId', (payload.sub as string) ?? null)`. A token that **verifies** but carries no
+  `sub` yields `userId === null` with Supabase fully configured, and then calls `next()`.
+- `middleware/auth.ts:6` — `PUBLIC_PATHS` is only the three `/api/auth/*` routes.
+
+This is **not** a claim that Supabase issues `sub`-less tokens; that is unverified and probably
+false. The point is that nothing asserts it cannot, so the production guarantee rests on an
+unstated assumption about the issuer — and the fallback that assumption protects is "read every
+tenant" rather than "fail". A guarantee whose failure mode is silent cross-tenant disclosure
+should not rest on an unstated assumption.
+
+## Decision
+
+Adopt **both** postures. They are not alternatives; one closes the class and the other is
+defence in depth.
+
+### D1 — No anonymous authenticated caller exists (the posture)
+
+An authenticated route either has an owner or returns 401. Concretely:
+
+1. `middleware/auth.ts` rejects a token that verifies but carries no `sub`, on both the ES256/RS256
+   and HS256 paths. `(payload.sub as string) ?? null` becomes an explicit 401.
+2. `HonoVariables.userId` narrows from `string | null` to `string`.
+3. The `c.get('userId') ?? undefined` laundering is deleted at every route.
+   **74 of the 79 `c.get('userId')` call sites in `packages/api/src/routes` are exactly this
+   expression** — this is the single choke point, and it is a far tighter funnel than the 48
+   service-layer sites suggest.
+
+### D2 — The owner is required per function (defence in depth)
+
+Service signatures tighten from `userId?: string` to `userId: string`, per service, tracked by the
+existing per-site cards. Once D1 lands, this is mechanical and the compiler locates every call site.
+
+### D3 — Local development gets an owner, not an absence
+
+This is the cost the card flags against Option A, and it dissolves rather than trades off.
+
+Local dev without Supabase keeps working, but the bypass at `middleware/auth.ts:28-31` sets a
+**real owner** instead of `null`: a `LOCAL_DEV_USER_ID` environment variable defaulting to the
+`00000000-0000-0000-0000-000000000000` sentinel that migration `0017` already backfills to.
+
+Single-user local dev therefore becomes _"one specific tenant"_ rather than _"no tenant"_. Every
+tenancy predicate then runs its owner branch in local dev exactly as it does in production — which
+also means local dev and E2E finally **exercise** the isolation logic instead of bypassing it.
+There is no owner-absent code path left to protect, and ADR-003's "left as null for local-only"
+affordance is retired.
+
+### D4 — The enforcing mechanism is a CI guard, not a lint rule
+
+**ESLint cannot be the mechanism here, and the reason is stronger than the card assumed.** The
+card anticipated that _"an ESLint rule that cannot see a ternary's false branch catches zero of
+them"_. Measured: the situation is simpler and worse — **`packages/api` has no ESLint config and
+no `lint` script at all**. The only `eslint.config.js` in the repo is `packages/web/`, and root
+`lint` is `npm run lint --workspaces --if-present`, so the API package is silently skipped. **Zero
+of the 48 sites are lintable today.** Standing up ESLint for the API is a worthwhile project, but
+it is not this one, and making it a prerequisite would block the guard indefinitely.
+
+**The compiler alone is also insufficient**, though it is necessary. `tsc -b packages/api` _does_
+run in the required `Lint & Test` job and _does_ cover `packages/api/src/services`
+(verified below). But even with `userId: string`, the expression `userId ? A : B` still
+typechecks, because the empty string is falsy. D1+D2 make the false branch **unreachable**; they
+do not make it **rejected**. AC-2 asks for rejection.
+
+So the mechanism is a small AST-based CI guard,
+`packages/api/scripts/audit-owner-predicates.mjs`, using the TypeScript compiler's own parser —
+so it sees every syntactic shape, not the one shape a regex was written for. It runs from the
+existing `Lint & Test` job, following the precedent already set there by
+`python3 docs/design/wireframe-casing-audit.py` and `npm run scan:secrets`.
+
+It reports two checks:
+
+- **`[SIG]`** — an exported function whose owner parameter is optional or nullable. This is the
+  _precondition_ for a fail-open predicate: you cannot branch on an absent owner if absence is
+  unrepresentable. This is the check that enforces D2.
+- **`[COND]`** — the owner identifier in a conditional position (ternary test, `if`, `&&`/`||`).
+  This catches a predicate reintroduced against a still-optional signature.
+
+**It ships in baseline mode.** `origin/main` carries 138 findings today; failing on all of them
+would make the guard unlandable until the very last site is fixed — which is precisely the
+deadlock that let the count reach 48. The guard freezes the known set in
+`packages/api/scripts/owner-predicates.baseline.json` and fails only on **new** sites. The baseline
+is keyed on file + check + normalised detail, never on line number, so unrelated edits above a site
+do not spuriously trip it. Occurrences are counted, so removing one site cannot mask adding
+another. The baseline is burned down by WIC-1549 / WIC-1554 / WIC-1596 and never appended to by hand.
+
+## Verification
+
+AC-2 requires that the mechanism be shown to actually fire, not asserted to. All figures below were
+measured on `origin/main` `0bb159b`.
+
+**The compiler is a real, running mechanism** (negative control, per repo convention):
+
+| run                                                                               | result           |
+| --------------------------------------------------------------------------------- | ---------------- |
+| `tsc -b packages/api --noEmit` on clean `main`                                    | exit 0           |
+| same, with `const __negControl: string = 123;` appended to `dashboard.service.ts` | exit 1, `TS2322` |
+
+So `packages/api/src/services/**` _is_ typechecked and _does_ fail CI — unlike the API `test/`
+directory and the solution-style `packages/web/tsconfig.json`, neither of which typechecks anything.
+
+**The guard covers the entire table.** Cross-checked against all 48 sites in WIC-1600:
+
+| service                     | sites in table | detected        | missed |
+| --------------------------- | -------------- | --------------- | ------ |
+| `catalog.service.ts`        | 9              | 9               | 0      |
+| `resume-variant.service.ts` | 7              | 7               | 0      |
+| `cover-letter.service.ts`   | 7              | 7               | 0      |
+| `application.service.ts`    | 6              | 6               | 0      |
+| `interviewPrep.service.ts`  | 6              | 6               | 0      |
+| `resume.service.ts`         | 5              | 5               | 0      |
+| `project.service.ts`        | 4              | 4               | 0      |
+| `reports.service.ts`        | 2              | 2               | 0      |
+| `dashboard.service.ts`      | 1              | 1               | 0      |
+| `personal-info.service.ts`  | 1              | 1 (allowlisted) | 0      |
+| **total**                   | **48**         | **48 (100%)**   | **0**  |
+
+The guard finds **62 `[COND]` sites tree-wide, not 48** — the card's table undercounts by 14,
+because it was assembled by reading for the ternary shape. It also finds **76 `[SIG]` sites**, the
+root cause. `job-fit.service.ts` and `onboarding.service.ts` report zero, as expected.
+
+**The guard rejects newly added predicates in every shape** (each injected into
+`dashboard.service.ts` against a frozen baseline):
+
+| injected                                                                      | guard              |
+| ----------------------------------------------------------------------------- | ------------------ |
+| new ternary — `userId ? eq(...) : undefined`                                  | **fails**, exit 1  |
+| new `if`-guard — `if (userId) { conds.push(...) }`                            | **fails**, exit 1  |
+| new optional signature — `newLeak(userId?: string)`                           | **fails**, exit 1  |
+| _negative control:_ three comment lines prepended, shifting every line number | **passes**, exit 0 |
+
+The last row is the one that makes the guard survivable in practice: it is line-independent, so it
+does not cry wolf on unrelated edits.
+
+## Consequences
+
+### AC-3 — check the column before choosing the predicate
+
+`isNull(user_id)` is fail-closed **only** where migration `0017` rewrote pre-existing NULLs to the
+sentinel. Everywhere else `IS NULL` matches real rows, so using it as the owner-absent predicate
+reintroduces the bug in a new costume. **The card lists 7 nullable tables. The true count is 14 of
+21** — the ones below must never use `isNull` as an ownership predicate:
+
+**NOT NULL (7):** `onboarding_status`, `projects`, `company_catalog`, `job_fit_tags`,
+`tech_stack_tags`, `quantified_bullets`, `recurring_themes`.
+
+**NULLABLE (14):** `applications`, `status_history`, `resumes`, `resume_exports`,
+`catalog_change_log`, `catalog_diffs`, `wikilink_registry`, `cover_letters`, `outreach_messages`,
+`resume_variants`, `interview_preps`, `interview_prep_stories`, `prep_question_story_links`,
+`personal_info`.
+
+**A gap worth fixing separately: `catalog_diffs` is backfilled but not constrained.** Migration
+`0017` STEP 1 rewrites its NULLs to the sentinel, but STEP 2 never adds `SET NOT NULL` — it is the
+only one of the seven backfilled tables omitted. So historical NULLs were cleaned up and new ones
+can be written again, which is exactly what `catalog.service.ts:741`'s `userId: userId ?? null`
+does. Five of `catalog.service.ts`'s nine sites key on `catalogDiffs.id`. This should be its own
+card; it is not fixed by this ADR.
+
+### AC-4 — assert the query, not the status code
+
+A not-found guard and an ownership guard return the same status, so a response-code assertion
+cannot distinguish them. Per-entry-point tests must assert the emitted query or spy the write path.
+Note that after D1+D2 the _service-layer_ absent-owner test becomes unwriteable by construction —
+which is the point. The test that remains, and matters, is at the **middleware**: a token that
+verifies with no `sub` must 401. That is one test, not 47.
+
+Note also that `packages/api/tsconfig.json` excludes `test/`, so these tests are not typechecked;
+they must therefore be run, not merely compiled, to have any force.
+
+### AC-5 — two sites are already correct and must not change
+
+- `personal-info.service.ts:34` — `userId ? eq(...) : isNull(personalInfo.userId)` is deliberate
+  and correct: `personal_info.user_id` really is nullable and single-user local rows really do
+  carry NULL (`0014:44-48`). It is allowlisted in the guard **by file and line with a stated
+  reason**, and the guard reports zero findings for it.
+- `onboarding.service.ts` — the owner is required by every signature already. The guard reports
+  zero findings. This service is the model for what D2 produces everywhere else.
+
+### Costs and risks
+
+- **D3 changes local-dev behaviour.** Any existing local database with genuine `NULL` `user_id`
+  rows will appear empty after the change, because local dev now queries as the sentinel tenant.
+  This is correct behaviour and a real one-time migration cost for anyone holding such data; a
+  one-line `UPDATE ... SET user_id = '00000000-...-0' WHERE user_id IS NULL` recovers it.
+- **D1 is a behaviour change at the edge.** Any caller today relying on an ownerless request
+  succeeding will begin receiving 401. That is the intent, but it should land on its own commit so
+  it is trivially revertable.
+- **The baseline can rot.** A baseline that is appended to instead of burned down is worse than no
+  guard, because it looks like coverage. The baseline file should only ever shrink; a PR that grows
+  it needs an explicit reviewer note.
+- **The guard is name-based.** It keys on identifiers named `userId` / `ownerId`. A predicate
+  written against a differently-named binding evades it. This is an accepted limitation: the guard
+  is the ratchet, and D1+D2 are the actual fix.
+
+## Sequencing
+
+- **This ADR (AC-1)** — no code dependency; landable now.
+- **The guard + baseline (AC-2)** — `packages/api/scripts/audit-owner-predicates.mjs` plus one CI
+  step. Independent of the service edits by design, and worth landing early: from the moment it
+  merges, the population can only shrink.
+- **D1 (middleware + `HonoVariables` + route laundering)** — one commit, 74 mechanical deletions.
+- **D2 (per-service signatures)** — WIC-1549, WIC-1554, WIC-1596, WIC-1435. WIC-1596 asks that
+  code changes not start before PR #203 merges, which lands the mutation detector this work is
+  verified by. PR #203 is `MERGEABLE` / `CLEAN` with all checks green as of 2026-08-27 03:18Z.
+- **`catalog_diffs` NOT NULL** — separate card, not covered here.
+
+## References
+
+- WIC-1600 — this decision
+- WIC-1430 — document `tenancy-absent-caller-audit`; AC-T0 appended to all seven specs
+- WIC-1549, WIC-1554, WIC-1596, WIC-1435 — per-site remediation
+- ADR-003 — multi-user auth; origin of the nullable-`user_id` affordance retired here
+- `packages/api/src/db/migrations/0017_enforce_userid_not_null.sql`
+- `packages/api/src/db/migrations/0014_fix_personal_info_schema.sql` (lines 44-48)
