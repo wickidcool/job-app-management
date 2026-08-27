@@ -5,10 +5,18 @@
 This document defines the REST API contracts for the Job Application Manager backend.
 The API is a **Hono** application deployed as a single **Cloudflare Worker**
 (`packages/api/src/worker.ts`), which serves both the `/api/*` routes and the built React
-SPA. It is backed by Supabase Postgres — reached through a Cloudflare Hyperdrive
-connection pool — and Cloudflare R2 for document storage. The same Hono app
-(`packages/api/src/app.ts`) also runs on Node.js via `@hono/node-server` for local
-development.
+SPA. It is backed by Supabase Postgres and by Cloudflare R2 for document storage. The
+same Hono app (`packages/api/src/app.ts`) also runs on Node.js via `@hono/node-server`
+for local development.
+
+> How the API reaches Postgres depends on the environment, and production is **not** the
+> Hyperdrive path. `wrangler.jsonc` declares the `HYPERDRIVE` binding under `env.preview`
+> only, so preview pools through Cloudflare Hyperdrive while **production connects to the
+> Supabase transaction pooler (port 6543) using the `DATABASE_URL` secret**. The
+> resolution order is `HYPERDRIVE` → `DATABASE_URL` → Node singleton
+> (`packages/api/src/db/client.ts`). This affects failure modes rather than
+> request/response shapes: on the Hyperdrive path a connection timeout is retried up to
+> 3 times and only then surfaces as `503` with `Retry-After: 1` (`worker.ts:9-32`).
 
 This is a hosted, multi-user cloud service. It is not a local-only application, and
 authentication is required in production — see [Authentication](#authentication).
@@ -20,11 +28,76 @@ authentication is required in production — see [Authentication](#authenticatio
 | Production | `https://app.careerpin.app/api` | The deployed Worker |
 | Browser / SPA | `/api` | Same-origin; the Worker serves the SPA and the API together. Overridable at build time with `VITE_API_BASE_URL` |
 | Local dev (Node) | `http://localhost:3000/api` | `npm run dev:api` |
-| Local dev (Worker) | `http://localhost:8787/api` | `npm run dev:worker` — `wrangler dev`'s default port, with R2/Hyperdrive emulation |
+| Local dev (Worker) | `http://localhost:8787/api` | `npm run dev:worker` — `wrangler dev`'s default port. Serves the SPA and R2; no Hyperdrive binding (it is a bare `wrangler dev`, so it loads the top-level config), so it reads `DATABASE_URL` from `.dev.vars` |
 
 > The apex domain `careerpin.app` is the **marketing site**, not the API. Requests to
 > `https://careerpin.app/api/...` return the marketing HTML page with a `200`, not JSON.
 > Use the `app.` subdomain.
+
+## Transport Security
+
+Two pieces of global middleware run ahead of every handler
+(`packages/api/src/middleware/security.ts`, mounted at `app.ts:79-80`). They apply to
+**all** endpoints below, including the unauthenticated `/api/auth/*` routes and `/health`.
+
+### Cleartext requests are redirected, not served
+
+A request that reaches the Worker over plain HTTP is answered with a redirect to the
+same URL on HTTPS — it is never passed to a route handler.
+
+| Request method | Status | Why |
+|----------------|--------|-----|
+| `GET`, `HEAD` | `301 Moved Permanently` | Cacheable, and what browsers/clients expect for a scheme upgrade |
+| Everything else | `308 Permanent Redirect` | `301` rewrites the method to `GET`; `308` preserves the method **and** the body so the retry is intact |
+
+`Location` is `https://{hostname}{path}{query}`. The port is deliberately dropped, so an
+explicit `:80` does not survive into an `https://…:80` target that nothing answers.
+
+**The redirect is skipped for private hostnames**, so local development over HTTP works
+unchanged: loopback (`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`), RFC1918 and link-local
+IP literals, IPv6 unique-local/link-local, the `.localhost` / `.local` / `.internal` /
+`.test` / `.home.arpa` suffixes, and any dotless name (a bare `api` is a container name,
+not a routable host).
+
+The client's scheme is read from Cloudflare's `cf-visitor` header, which is the only
+authoritative source at the edge. `x-forwarded-proto` is **ignored unless
+`TRUST_PROXY_PROTO` is `true` or `1`** — it is client-settable, so an attacker-supplied
+`x-forwarded-proto: https` on a cleartext request would otherwise suppress the redirect.
+
+> **In production the `301` you observe comes from Cloudflare, not from this middleware.**
+> The `careerpin.app` zone has `Always Use HTTPS` enabled, so the edge answers `:80`
+> before the Worker is invoked — which is why that response carries no
+> `Strict-Transport-Security` and has a `text/html` body. The Worker-side redirect is
+> defence-in-depth: it preserves the guarantee if the zone setting is toggled off, and
+> covers non-zone routes (`workers.dev`, a proxied Node deployment). Note that HSTS sent
+> over cleartext is ignored by browsers (RFC 6797 §8.1), which is why the zone-level
+> redirect was required in the first place.
+
+### Security headers on every response
+
+Every Worker-generated response — success and error alike — carries:
+
+| Header | Value |
+|--------|-------|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Content-Security-Policy` | `frame-ancestors 'none'` |
+
+These are set **without clobbering**: a handler that sets one of these itself keeps its
+own value.
+
+Two deliberate omissions, both pending follow-up work rather than oversights:
+
+- `preload` is left off the HSTS directive until the cleartext redirect is verified in
+  production — preload is not reversible on a useful timescale.
+- The CSP is scoped to `frame-ancestors` (clickjacking) only. A full policy requires an
+  audit of the Supabase, PostHog, and R2 origins the SPA talks to.
+
+Static assets served by the Worker's asset router (`/`, `/assets/*`, `/favicon.svg`)
+never reach this middleware; those are covered separately by
+`packages/web/public/_headers` at the edge.
 
 ## Authentication
 
@@ -60,10 +133,24 @@ single-user local-development case. Both are set in production, so production al
 requires a valid JWT. If Supabase is not configured, the `/api/auth/*` endpoints
 themselves return `503 NOT_CONFIGURED`.
 
-> Some `curl` examples further down this document use the local dev base URL and omit the
-> `Authorization` header, which only works under that local bypass. To run any of them
-> against production, swap the host for `https://app.careerpin.app` **and** add
-> `-H "Authorization: Bearer <jwt>"`.
+### Running the `curl` examples
+
+Every `curl` example below is written against two shell variables, so the host is chosen
+in one place rather than baked into each example:
+
+```bash
+export API_BASE="https://app.careerpin.app/api"   # or a Base URL row above
+export TOKEN="<jwt>"                               # from POST /api/auth/login
+```
+
+`$TOKEN` is required against any environment where Supabase is configured — which is every
+environment except the local bypass described above. It is sent on every example rather
+than only the ones that would fail without it: an example that omits the header documents
+an endpoint as unauthenticated, and none of these are.
+
+> The four `https://api.example.com/v1/...` examples in [Applications](#applications) are
+> a separate, older surface and are left as-is; they already carry an `Authorization`
+> header.
 
 ## Common Response Codes
 
@@ -72,6 +159,8 @@ themselves return `503 NOT_CONFIGURED`.
 | 200 | Success |
 | 201 | Created |
 | 204 | No Content (successful delete) |
+| 301 | Moved Permanently (cleartext `GET`/`HEAD` upgraded to HTTPS — see [Transport Security](#transport-security)) |
+| 308 | Permanent Redirect (cleartext request with a body upgraded to HTTPS, method and body preserved) |
 | 400 | Bad Request (validation error) |
 | 401 | Unauthorized (`UNAUTHORIZED` — missing/malformed `Authorization` header, or an invalid or expired token) |
 | 404 | Not Found |
@@ -918,7 +1007,8 @@ interface ApplyDiffResponse {
 **Example**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/diffs/01HXK5R3J7/apply" \
+curl -X POST "$API_BASE/catalog/diffs/01HXK5R3J7/apply" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "action": "partial",
@@ -1354,19 +1444,42 @@ interface RecommendedStarEntry {
 
 **Scoring Algorithm**:
 
-The `recommendation` field is computed as follows:
-- `strong_fit`: ≥80% of required skills matched, ≤1 critical gap
-- `moderate_fit`: 50-79% of required skills matched, ≤3 critical gaps  
-- `stretch`: 30-49% of required skills matched, or seniority mismatch
-- `low_fit`: <30% of required skills matched
-- `null`: Catalog is empty (see `catalogEmpty: true`)
+The `recommendation` field is an **ordered cascade over three variables** — match percentage, the
+count of `critical`-severity required gaps, and the seniority flag — not four percentage bands. The
+first rule that matches wins, so a tier's percentage range is *not* bounded above by the tier before
+it: a job can match 100% of required skills and still return `moderate_fit`, because 2–3 critical
+gaps disqualify it from `strong_fit` and `moderate_fit` is simply the next rule that accepts it.
+Reading these as exclusive bands is how the by-fit-tier report came to print blurbs that contradicted
+the counts beside them (WIC-1309).
+
+Evaluated in this order:
+- `strong_fit`: ≥80% of required skills matched **and** ≤1 critical gap
+- `moderate_fit`: otherwise, ≥50% matched **and** ≤3 critical gaps **and** no seniority mismatch —
+  so this fires anywhere from 50% to 100% matched
+- `stretch`: otherwise, ≥30% matched **or** a seniority mismatch — this is where a strong skill match
+  with >3 critical gaps lands, and where any seniority mismatch lands regardless of percentage
+- `low_fit`: <30% matched **and** no seniority mismatch
+- `null`: the analysis ran but could not score. Two distinct causes: the catalog is empty (returned
+  with `catalogEmpty: true`), **or** no required skills were found in the job description
+  (`catalogEmpty: false`, and `parsedJd.requiredStack` is empty). Clients must not read `null` as
+  "no analysis" — it is a result. The by-fit-tier report names this state `unscored` and keeps it
+  separate from `not_analyzed`; see `GET /api/reports/by-fit-tier`.
 
 Partial matches (alias/related) count at 0.5x weight toward match percentage.
+
+> **`recommendation` is a wire value, not a display string.** The four members above are stable and
+> clients must send/receive them verbatim. What the UI *shows* is remapped — `moderate_fit` renders
+> as "Possible fit" and `low_fit` as "Unlikely fit", because `moderate` and `low` are words already
+> owned by the `severity` and `confidence` scales in this same response and rendered on the same
+> screen (WIC-1288). The label table and the rule behind it live in `docs/design/DESIGN_SYSTEM.md`
+> ("Scale Vocabulary"); the map is `packages/web/src/constants/fitLevel.ts`. Changing a label is a
+> UI change and does not version this endpoint; changing a member of the union does.
 
 **Example Request (text)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionText": "Senior Software Engineer at Acme Corp...\n\nRequirements:\n- 5+ years TypeScript/JavaScript\n- React or Vue experience\n- PostgreSQL or MySQL\n- AWS or GCP cloud experience\n\nNice to have:\n- GraphQL\n- Kubernetes"
@@ -1376,7 +1489,8 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 **Example Request (URL)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionUrl": "https://boards.greenhouse.io/acme/jobs/12345"
@@ -1388,7 +1502,7 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 ```json
 {
   "recommendation": "moderate_fit",
-  "summary": "You match 4 of 6 required skills. Gaps in AWS/GCP cloud experience and PostgreSQL are addressable with your Azure and MongoDB experience.",
+  "summary": "You match 4 of 6 required skills. This role is within reach. Gaps in AWS/GCP cloud experience, PostgreSQL.",
   "confidence": "high",
   "parsedJd": {
     "roleTitle": "Senior Software Engineer",
@@ -1657,7 +1771,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/generate" \
+curl -X POST "$API_BASE/cover-letters/generate" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
@@ -1764,7 +1879,8 @@ interface ReviseCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "instructions": "Make the opening more enthusiastic and add a sentence about my passion for developer tooling",
@@ -1876,7 +1992,8 @@ interface OutreachMessage {
 **Example Request (LinkedIn)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "linkedin",
@@ -1908,7 +2025,8 @@ curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
 **Example Request (Email)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "email",
@@ -2003,7 +2121,8 @@ interface ExportCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "format": "docx",
@@ -2173,6 +2292,433 @@ The cover letter generation system enforces these constraints:
    - Email: max 1000 characters
 
 ---
+
+---
+
+### Reports (UC-5)
+
+Read-only reports over the user's applications. All five are mounted in
+`packages/api/src/routes/reports.ts`, implemented in
+`packages/api/src/services/reports.service.ts`, and typed in `packages/api/src/types/index.ts`.
+Four of them read `applications` and `status_history` only; `by-fit-tier` is the one that consumes a
+UC-3 value, and so is the only one with a cross-use-case contract to state (WIC-1298).
+
+No report endpoint mutates anything, and none accepts a request body.
+
+#### Common to all five report endpoints
+
+**User scoping.** Every report is scoped to the caller's `userId` (the `sub` claim). When **both**
+`SUPABASE_URL` and `SUPABASE_JWT_SECRET` are absent — the single-user local-development case — the
+middleware sets the user id to `null` and the scoping filter is dropped, so the reports cover all
+rows. A token that verifies but carries no `sub` claim also yields a `null` user id, and therefore
+an unscoped report, even with Supabase fully configured (WIC-1554). See
+[Authentication](#authentication) and `docs/AUTHENTICATION.md`.
+
+**`generatedAt`.** Every response carries `generatedAt`, an ISO 8601 timestamp taken when the
+report was assembled. Reports are computed per request; nothing is cached.
+
+**Validation errors.** Query parameters are validated by Zod schemas at the top of
+`routes/reports.ts`, which are the authority on accepted values — with one exception. `cursor` is
+declared there as a plain optional string, so the schema accepts any string; whether a particular
+cursor is valid is decided later, when it is decoded in `reports.service.ts`. For every other
+parameter the schema is the whole story, and any violation — an unknown enum member, a non-numeric
+`days`, `limit` above 100 — fails the whole request:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid query parameters",
+    "details": { "formErrors": [], "fieldErrors": { "limit": ["..."] } }
+  }
+}
+```
+
+`400 Bad Request`. `details` is Zod's `flatten()` output. Omitting a parameter is always valid;
+every parameter is optional and has the default given in its table below. This is not the only
+`VALIDATION_ERROR` shape on these endpoints — a malformed `cursor` is rejected past the Zod layer
+and carries no `details`; see **Pagination** below.
+
+A parameter a schema does not declare at all is **stripped, not rejected** — the schemas are plain
+`z.object()`, not `.strict()`. So the `limit` above 100 example is a `400` only on the three
+endpoints that declare `limit`: on the unpaginated `pipeline` and `by-fit-tier`, `?limit=500` is a
+silent `200 OK` with the parameter discarded.
+
+**Pagination.** `needs-action`, `stale` and `closed-loop` are cursor-paginated. `pipeline` and
+`by-fit-tier` are **not** — they return the complete set in one response and accept neither `limit`
+nor `cursor`.
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `limit` | integer, 1–100 | `50` | Page size. Above 100 is a `400`, not a clamp. |
+| `cursor` | string | *(start)* | Opaque page token, issued by the server as `nextCursor` |
+
+`nextCursor` is present **only when a further page exists**; it is absent from the JSON on the
+final page, which is how a client detects the end. Treat the cursor as opaque and pass it back
+verbatim — its encoding is an implementation detail and is not part of the contract.
+
+**A cursor the server did not issue is a `400`.** Hand-crafted, truncated or otherwise malformed
+cursors are rejected rather than being treated as page one (WIC-1308):
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid `cursor`. Pass back the `nextCursor` from a previous response verbatim, or omit it for the first page."
+  }
+}
+```
+
+`400 Bad Request`. Note the two differences from the query-parameter errors above: the `message` is
+specific to the cursor, and **`details` is deliberately absent** — the cursor is client-supplied, so
+reflecting it back buys the caller nothing.
+
+An **absent or empty** `cursor` is not an error. `?cursor=` and no `cursor` at all are
+indistinguishable at the query-parameter layer, and both mean the first page.
+
+Because the cursor is opaque and server-issued, a client that echoes `nextCursor` back verbatim can
+never reach this error. One that does has a bug, and silently serving page one would both hide that
+bug and invite an endless pagination loop — hence reject rather than fall back.
+
+> **Paginated summaries describe the page, not the result set.** In `needs-action`, `stale` and
+> `closed-loop`, every field under `summary` — including `total` — is computed from the
+> applications in the current page, after `limit` has been applied. `summary.total` is therefore
+> the length of `applications`, never a grand total across pages, and the averages and breakdowns
+> are page-local. A client that wants whole-result-set figures must accumulate them across pages
+> itself.
+
+#### `GET /api/reports/pipeline`
+
+Groups the user's **active** applications by status. Terminal applications (`offer`, `rejected`,
+`withdrawn`) are excluded and this is not configurable.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `sortBy` | `'updatedAt' \| 'createdAt' \| 'company'` | `updatedAt` | Sort field within each group |
+| `sortOrder` | `'asc' \| 'desc'` | `desc` | Sort direction |
+
+**Response**: `200 OK`
+
+```typescript
+interface PipelineReportResponse {
+  groups: {
+    status: ActiveStatus;
+    count: number;
+    applications: {
+      id: string;
+      jobTitle: string;
+      company: string;
+      location?: string | null;
+      nextAction?: string | null;
+      nextActionDue?: string | null;   // YYYY-MM-DD (date, not a timestamp)
+      updatedAt: string;               // ISO 8601
+      createdAt: string;               // ISO 8601
+    }[];
+  }[];
+  totals: {
+    active: number;
+    byStatus: Partial<Record<ActiveStatus, number>>;
+  };
+  generatedAt: string;                 // ISO 8601
+}
+
+type ActiveStatus = 'saved' | 'applied' | 'phone_screen' | 'interview';
+```
+
+`groups` always contains all four active statuses, in board order — `saved`, `applied`,
+`phone_screen`, `interview` — including groups with `count: 0`. Clients can render the columns
+without checking for absence.
+
+The application objects carry **no `status` field**: the status is the group they are in. This is
+the one report whose row shape differs from the others in that respect.
+
+`totals.active` is the sum of the four group counts. Because this endpoint is unpaginated, it is a
+true total.
+
+#### `GET /api/reports/needs-action`
+
+Applications with an outstanding next action falling due inside a window. An application qualifies
+only if **both** `nextAction` and `nextActionDue` are set and its status is non-terminal.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `days` | integer, 1–365 | `7` | Look-ahead window: include actions due on or before today + `days` |
+| `includeOverdue` | `'true' \| 'false'` | `true` | Include actions already past due |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
+
+`includeOverdue` accepts only the literal strings `true` and `false`. Any other value — `1`, `0`,
+`no`, or an empty `includeOverdue=` — is a `VALIDATION_ERROR`, not a coercion. Only
+`includeOverdue=false` turns overdue items off; `true` and omitting the parameter both leave them
+in. With it off, the window is bounded below by today as well as above.
+
+**Response**: `200 OK`
+
+```typescript
+interface NeedsActionReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: ApplicationStatus;
+    nextAction: string;
+    nextActionDue: string;             // YYYY-MM-DD
+    daysUntilDue: number;              // negative when overdue
+    urgency: 'overdue' | 'due_soon' | 'upcoming';
+    contact?: string | null;
+    updatedAt: string;                 // ISO 8601
+  }[];
+  summary: {
+    overdue: number;
+    dueSoon: number;
+    upcoming: number;
+    total: number;
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+`urgency` is derived from `daysUntilDue`, measured in whole days from today's local midnight:
+
+| `daysUntilDue` | `urgency` |
+|--------|--------|
+| `< 0` | `overdue` |
+| `0`–`3` | `due_soon` |
+| `> 3` | `upcoming` |
+
+Rows are ordered by due date ascending, so the most overdue action is first and the furthest-out
+action is last.
+
+#### `GET /api/reports/stale`
+
+Applications that have not been touched in a while — `updatedAt` older than **now** minus `days`.
+The threshold keeps the current time of day rather than snapping to midnight, so unlike
+`needs-action` (which anchors on today's local midnight) this boundary moves through the day.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `days` | integer, 1–365 | `14` | An application is stale once `updatedAt` is this many days old |
+| `status` | comma-separated statuses | `applied,phone_screen` | Which statuses to consider |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
+
+`status` accepts any comma-separated subset of the seven `ApplicationStatus` values, whitespace
+around commas tolerated (`applied, interview`). A single unrecognised member fails the whole
+request with `VALIDATION_ERROR` — invalid entries are not silently dropped. Note the default is
+**not** "all active": only `applied` and `phone_screen` are considered stale-able unless you say
+otherwise, because those are the two states where the ball is in the employer's court.
+
+**Response**: `200 OK`
+
+```typescript
+interface StaleReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: ApplicationStatus;
+    daysSinceUpdate: number;
+    lastStatusChange: string;          // ISO 8601
+    contact?: string | null;
+    url?: string | null;
+    updatedAt: string;                 // ISO 8601
+  }[];
+  summary: {
+    total: number;
+    byStatus: Partial<Record<ApplicationStatus, number>>;
+    averageDaysStale: number;          // rounded to the nearest whole day
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+Rows are ordered by `updatedAt` ascending — stalest first.
+
+`daysSinceUpdate` counts whole days since `updatedAt`.
+
+`lastStatusChange` is the most recent `status_history.changedAt` for the application. Applications
+with no history rows — created but never transitioned — report their `createdAt` instead, so the
+field is never null. It answers a different question from `updatedAt`: an application edited
+yesterday but last *moved* two months ago has a recent `updatedAt` and an old `lastStatusChange`.
+
+#### `GET /api/reports/closed-loop`
+
+Outcome analysis over **terminal** applications: what closed, how it closed, and how long it took.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `period` | `'30d' \| '60d' \| '90d' \| 'all'` | `all` | Restrict to applications updated within the period |
+| `status` | comma-separated terminal statuses | `offer,rejected,withdrawn` | Which outcomes to include |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
+
+`status` here accepts only the three terminal statuses; passing an active status such as
+`interview` is a `VALIDATION_ERROR`, not an empty result.
+
+`period` filters on `applications.updatedAt`, not on the computed `closedAt` below. For an
+application that has not been edited since it closed the two coincide, but a later edit to a closed
+application will keep it inside a narrow `period` window.
+
+**Response**: `200 OK`
+
+```typescript
+interface ClosedLoopReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: 'offer' | 'rejected' | 'withdrawn';
+    closedAt: string;                  // ISO 8601
+    previousStatus?: ApplicationStatus | null;
+    daysInPipeline: number;
+    salaryRange?: string | null;
+    compTarget?: string | null;
+  }[];
+  summary: {
+    total: number;
+    offers: number;
+    rejections: number;
+    withdrawn: number;
+    rejectionsByStage: {
+      stage: ApplicationStatus;
+      count: number;
+      percentage: number;              // of rejections in this page, rounded
+    }[];
+    averageTimeToClose: number;        // days, rounded
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+Rows are ordered by `updatedAt` descending — most recently closed first.
+
+`closedAt` is the `changedAt` of the application's most recent `status_history` entry, which for a
+terminal application is the transition that closed it. Applications with no history rows fall back
+to `updatedAt`.
+
+`previousStatus` is the status the application held immediately before that closing transition,
+read from the second-to-last history entry. It is `null` when the history is too short to have
+one — an application closed in a single recorded step, or one with no `status_history` rows at all
+(the same fallback case `closedAt` names above).
+
+`daysInPipeline` is whole days from `createdAt` to `closedAt`.
+
+`rejectionsByStage` counts rejected applications by `previousStatus`, answering "where in the
+funnel do I lose them". Two consequences of that derivation are worth knowing: rejected
+applications whose `previousStatus` is `null` **contribute to `rejections` but appear in no stage
+bucket**, so the stage counts can sum to less than `rejections`; and `percentage` is a share of
+`rejections`, not of `total`, so the percentages sum to 100 only when every rejection has a known
+previous stage. Stages with no rejections are omitted from the array entirely rather than reported
+as zero — unlike `pipeline.groups`.
+
+#### `GET /api/reports/by-fit-tier`
+
+Groups the user's applications by the fit verdict UC-3 reached for each.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `includeTerminal` | `'true' \| 'false'` | `false` | Include `offer` / `rejected` / `withdrawn` applications |
+| `sortBy` | `'updatedAt' \| 'createdAt'` | `updatedAt` | Sort field within each group |
+| `sortOrder` | `'asc' \| 'desc'` | `desc` | Sort direction |
+
+**Response**: `200 OK`
+
+```typescript
+interface ByFitTierReportResponse {
+  groups: {
+    tier: FitTier;
+    count: number;
+    applications: {
+      id: string;
+      jobTitle: string;
+      company: string;
+      status: ApplicationStatus;
+      fitTier: FitTier;
+      updatedAt: string;          // ISO 8601
+    }[];
+  }[];
+  summary: {
+    total: number;
+    analyzed: number;             // applications an analysis has run for — includes `unscored`
+    notAnalyzed: number;          // the `not_analyzed` count, i.e. no analysis exists
+    byTier: Partial<Record<FitTier, number>>;
+  };
+  generatedAt: string;            // ISO 8601
+}
+```
+
+`groups` is always present for every tier, in the order below, including tiers with `count: 0`.
+
+**`FitTier` and its relationship to `recommendation`**
+
+`FitTier` is **`recommendation` plus the two states an analysis result can be in when it carries no
+verdict**. The two are one judgement, reported at one granularity — a report does not coarsen the
+analysis:
+
+```typescript
+type FitTier =
+  | 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'   // = AnalyzeJobFitResponse['recommendation']
+  | 'unscored'                                              // an analysis ran; it produced no verdict
+  | 'not_analyzed';                                         // no analysis has ever been run
+```
+
+The mapping is total and lossless. `recommendationToFitTier()` in
+`packages/api/src/services/reports.service.ts` is the only place it is applied:
+
+| Stored analysis | `recommendation` | `fitTier` |
+|--------|--------|--------|
+| present | `'strong_fit'` | `strong_fit` |
+| present | `'moderate_fit'` | `moderate_fit` |
+| present | `'stretch'` | `stretch` |
+| present | `'low_fit'` | `low_fit` |
+| present | `null` | `unscored` |
+| **absent** | — | `not_analyzed` |
+
+Two distinctions the table is load-bearing for:
+
+- **`stretch` is not a magnitude, so it is not merged into `low_fit`.** Per the scoring algorithm
+  under `POST /api/catalog/job-fit/analyze`, `stretch` fires on a *seniority* mismatch even at a good
+  skill match. A client that treats `stretch` as "weak" tells the user their skills are short when
+  the finding was that the level is wrong, and those call for opposite actions.
+- **`unscored` is not `not_analyzed`.** `recommendation: null` means the analysis ran and could not
+  score — an empty catalog (`catalogEmpty: true`), or a JD in which no required skills were found.
+  `not_analyzed` means no analysis exists for that application. The first is answered by fixing the
+  catalog or the JD; the second by running the analysis.
+
+> **History (WIC-1298).** `FitTier` was previously an independent union
+> `'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed'`, agreeing with `recommendation` at
+> the top and diverging at the bottom, with the relationship written down nowhere. `weak_fit` merged
+> `stretch` and `low_fit`; `not_analyzed` also absorbed `recommendation: null`. Both members changed
+> in the same revision. Because UC-3 analyses are not persisted yet, this endpoint had never emitted
+> a non-zero `weak_fit` count — every application returns `not_analyzed` — so no client can have
+> depended on the removed member. Once UC-3 persistence lands, the same change would be a genuine
+> breaking revision.
+
+**Both `FitTier` and `recommendation` are wire values.** Adding or removing a member of either
+versions this endpoint and `POST /api/catalog/job-fit/analyze`. Because `FitTier` is *defined* as
+`FitRecommendation | 'unscored' | 'not_analyzed'` in `packages/api/src/types/index.ts`, a change to
+`recommendation` propagates here by construction and fails the build at `FIT_TIER_ORDER` until the
+new member is ranked — the two cannot silently drift apart again. Display labels are a separate
+concern and do not version anything (`packages/web/src/constants/fitLevel.ts`; see the note under
+the UC-3 scoring algorithm).
+
+**Current limitation**: UC-3 analyses are not persisted — there is no `job_fit_analyses` table and
+`applications` carries no analysis reference — so every application currently reports
+`not_analyzed`, `analyzed: 0`. The contract above is what the endpoint returns once that lands; only
+the data source changes.
 
 ---
 
@@ -2362,7 +2908,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps" \
+curl -X POST "$API_BASE/interview-preps" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
@@ -2623,7 +3170,8 @@ interface UpdateInterviewPrepResponse {
 **Example Request**:
 
 ```bash
-curl -X PATCH "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+curl -X PATCH "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "storyUpdates": [
@@ -2721,7 +3269,8 @@ interface ExportQuickReferenceResponse {
 **Example Request**:
 
 ```bash
-curl -X GET "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+curl -X GET "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+  -H "Authorization: Bearer $TOKEN" \
   -o interview-prep.pdf
 ```
 
@@ -2802,7 +3351,8 @@ interface LogPracticeSessionResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+curl -X POST "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "full_interview",
