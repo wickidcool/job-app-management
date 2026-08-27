@@ -74,6 +74,30 @@ INTERNAL_ERROR` indistinguishable from a broken query.
   and every service call shared it.
 - Any KPI derived from `*_failed` events under-reports, and does so worst during
   incidents. Panels built on those events need the gap-derived definition above.
+- **The analytics deliverable is a second consumer of this decision, not just a
+  bystander.** Reported from WIC-1580 on 2026-08-27 and worth recording here,
+  because it was not written down anywhere. The WIC-814 event taxonomy splits
+  across two transports and the legs behave oppositely under this outage:
+
+  | leg | events | path | under the outage |
+  |---|---|---|---|
+  | client | `_started`, `_validation_failed`, `_cta_clicked` | browser → `us.i.posthog.com` | unaffected |
+  | server | `_submitted`, `_completed`, `_failed` | Worker (`resume.service.ts`) | broken |
+
+  Verified against `origin/main` (`d84da39`): `_submitted` is emitted at
+  `resume.service.ts:451`, outside and above the `try` whose first statement is
+  `getDb()` (`:458`), so it survives. There are **two** `_completed` emit sites,
+  not one — `:486` (the duplicate-detection early return) and `:597` (the normal
+  path) — and both sit downstream of `getDb()` and at least one `await db`
+  read, so both are structurally unreachable. Every upload therefore falls
+  through to `_failed` in the catch (`:760`). **While the DB is
+  unreachable the server funnel can only ever record 100% failure.** So the
+  completion/timing insights and the C1–C3 `person_id` retention tiles in
+  WIC-1024 are unbuildable no matter how much traffic arrives — first organic
+  traffic is necessary but *not* sufficient to release that hold. The second
+  clause is this decision. Note this does not weaken §4: the gap-derived
+  definition is what lets the funnel be *read correctly* under the outage; it
+  does not manufacture the terminal events that never fired.
 
 ## What this does not fix
 
@@ -91,16 +115,39 @@ the probe was pointed at `/api/health`, which sits behind `authMiddleware` and
 does not exist — 401 unauthenticated, 404 authenticated. **Point the monitor at
 `/health`.** No code change is required for this outage class to be caught.
 
+**Match on the literal the handler actually emits.** Verified against
+`origin/main` (`d84da39`) this heartbeat, `packages/api/src/app.ts:104-105`:
+
+```ts
+const status = db === 'ok' || db === 'not_applicable' ? 'ok' : 'degraded';
+return c.json({ status, hyperdrive, db }, status === 'ok' ? 200 : 503);
+```
+
+The recovered state is `{"status":"ok"}` with HTTP 200. The string `healthy`
+appears nowhere in `packages/api/src`, so any watcher or release condition keyed
+on it is **unsatisfiable** — it would wait forever through an actual recovery.
+Two had been written that way (a WIC-1580 watcher and the parked WIC-1358
+release condition) and both were corrected on 2026-08-27; recorded here so the
+next consumer of this section does not reintroduce it. Prefer asserting on the
+HTTP status code (200 vs 503), which carries the same signal and has no literal
+to get wrong.
+
 ## Open decision
 
-**Still live as of 2026-08-26T12:51Z.** Re-measured this heartbeat, both origins:
+**Still live as of 2026-08-27T00:53Z — roughly 20 hours continuous.**
+Re-measured this heartbeat, both origins, byte-identical to the 2026-08-26T12:51Z
+reading:
 
 ```
-GET https://app.careerpin.app/health          -> 503  (3.9s)
-GET https://jobtrail.al-23f.workers.dev/health -> 503  (4.1s)
+GET https://app.careerpin.app/health           -> 503  (4.5s)
+GET https://jobtrail.al-23f.workers.dev/health  -> 503  (4.1s)
 {"status":"degraded","hyperdrive":false,
  "db":"Too many subrequests by single Worker invocation. …"}
 ```
+
+The signature has not drifted in 20 hours of sampling, which rules out a
+transient and is consistent with a host that is simply unreachable rather than
+overloaded.
 
 `GET /api/applications` still returns a clean `401`, so the Worker is routing and
 only the data path is down. `hyperdrive:false` confirms prod takes the
