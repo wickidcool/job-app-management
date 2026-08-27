@@ -101,6 +101,29 @@ import urllib.request
 PROJECT = "551963"
 HOST = "https://us.posthog.com"
 
+# Unauthenticated prod liveness probe. `GET /health` at the ROOT (not `/api/health`,
+# which is auth-guarded and 404s once authenticated) already dials the database and
+# reports the underlying error, so it costs no credential to read -- see ADR-007 and
+# the Architect's correction on WIC-1386.
+#
+# Why the watcher cares. "0 organic events" is only a demand signal if the app a
+# visitor lands on actually works. It does not, today: every DB-touching endpoint
+# fails with Workers subrequest exhaustion, pending the pooler-vs-Hyperdrive board
+# decision on WIC-1473. That splits the WIC-814 taxonomy in two:
+#
+#   * CLIENT leg (`resume_upload_started` / `_validation_failed` / `_cta_clicked`)
+#     goes browser -> us.i.posthog.com directly and is UNAFFECTED by the outage.
+#     This is why 0 organic still validly means "nobody arrived".
+#   * SERVER leg is emitted from the Worker (`resume.service.ts`). `_submitted` fires
+#     BEFORE `getDb()` so it survives, but `_completed` sits after the DB writes and
+#     is structurally UNREACHABLE while the DB is down -- the catch path emits
+#     `_failed` instead. So the server funnel can only ever record 100% failure.
+#
+# Consequence for the WIC-1024 hold: a first organic visitor is necessary but NOT
+# sufficient to release the dashboard build. Completion- and timing-keyed insights
+# (and the C1-C3 person_id retention tiles) cannot be populated until this returns ok.
+PROD_HEALTH_URL = "https://app.careerpin.app/health"
+
 # Newest known-synthetic event at the time the baseline was struck. Organic traffic must
 # postdate it, so a late-arriving duplicate of an old probe cannot trip the watch.
 # Deliberately NOT advanced to the 2026-08-26 WIC-967 probe: a later baseline would
@@ -273,6 +296,130 @@ def run(query):
         return json.load(resp)
 
 
+def prod_db_health():
+    """Read the unauthenticated prod health probe. Returns (state, detail).
+
+    state is one of "ok" | "degraded" | "unknown". This is REPORTING ONLY and is
+    deliberately incapable of changing the organic verdict or the exit code: a
+    health probe that fails must never suppress a real first user, so every fault
+    path collapses to "unknown" and the organic result stands on its own.
+    """
+    # An explicit UA is required, not cosmetic: Cloudflare answers urllib's default
+    # `Python-urllib/3.x` with a 403 bot challenge, which read naively looks exactly
+    # like a degraded app. Only a response that actually parses as the health payload
+    # is authoritative; anything else is "unknown", never "degraded".
+    headers = {"User-Agent": "wic-organic-watch/1.0 (+WIC-1358)", "Accept": "application/json"}
+    try:
+        req = urllib.request.Request(PROD_HEALTH_URL, method="GET", headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        # 503 is the *expected* degraded response and carries the useful payload, so
+        # read the error body rather than discarding it with the exception.
+        try:
+            body = json.loads(exc.read().decode("utf-8", "replace"))
+        except (ValueError, OSError):
+            return ("unknown", {"probe_error": f"HTTP {exc.code}, unparseable body"})
+    except (urllib.error.URLError, ValueError, OSError) as exc:
+        return ("unknown", {"probe_error": str(exc)})
+
+    return classify_health(body)
+
+
+def classify_health(body):
+    """Map a parsed /health payload to (state, detail).
+
+    Pure -- no I/O. That is the point: the recovered-prod branch cannot be exercised
+    against live prod while the outage is the reason this code exists (WIC-1580), so it
+    is exercised against captured payloads instead. See `--selftest`.
+    """
+    if not isinstance(body, dict) or "status" not in body:
+        return ("unknown", {"probe_error": f"unrecognised health payload: {str(body)[:120]}"})
+    # The handler emits "ok", NOT "healthy" -- `packages/api/src/app.ts:98`:
+    #     const status = db === 'ok' || db === 'not_applicable' ? 'ok' : 'degraded';
+    # The literal "healthy" appears nowhere in packages/api/src. Matching on it would
+    # misread a RECOVERED prod as degraded and pin "SECOND CLAUSE NOT MET" on forever --
+    # the same release-on-a-false-premise failure this probe exists to prevent, inverted.
+    # Accept both spellings, and let an unrecognised status fall to "unknown" rather
+    # than silently to "degraded".
+    status = body.get("status")
+    db = body.get("db")
+    if status in ("ok", "healthy"):
+        # `status: ok` alone is NOT evidence the DB is reachable. The same line emits ok
+        # when `db === 'not_applicable'`, which is what the handler returns when NEITHER
+        # the HYPERDRIVE binding NOR DATABASE_URL is present -- the DB was never probed.
+        # Production has no Hyperdrive binding and reaches Postgres purely through the
+        # DATABASE_URL secret that `deploy.yml` pushes, so a dropped or failed secret push
+        # answers 200 `{"status":"ok","hyperdrive":false,"db":"not_applicable"}` with no
+        # database behind it at all. Reading that as "reachable" would release the WIC-1024
+        # hold onto a prod that cannot serve one authenticated request -- the same
+        # false-premise release, arrived at from the opposite direction.
+        if db == "ok":
+            return ("ok", body)
+        return (
+            "unknown",
+            {"probe_error": f"status={status} but db={str(db)[:60]} -- DB not probed", "payload": body},
+        )
+    if status == "degraded":
+        return ("degraded", body)
+    return ("unknown", {"probe_error": f"unrecognised health status: {str(status)[:60]}"})
+
+
+def describe_health(state, detail):
+    if state == "ok":
+        return "prod DB reachable (GET /health -> ok, db=ok)"
+    if state == "degraded":
+        db = (detail or {}).get("db")
+        hyperdrive = (detail or {}).get("hyperdrive")
+        return (
+            f"prod DB UNREACHABLE (GET /health -> degraded, hyperdrive={hyperdrive}): "
+            f"{str(db)[:120]}"
+        )
+    return f"prod DB health UNKNOWN ({(detail or {}).get('probe_error', 'n/a')})"
+
+
+# Captured payloads, so the branch that only runs after the outage clears can be
+# exercised while the outage is still the reason this code exists (WIC-1580). The
+# degraded case is a verbatim capture from https://app.careerpin.app/health on
+# 2026-08-27 00:53Z; the ok cases are constructed from `packages/api/src/app.ts:98`,
+# which is the contract of record.
+HEALTH_CASES = [
+    # (label, payload, expected state)
+    ("recovered prod", {"status": "ok", "hyperdrive": False, "db": "ok"}, "ok"),
+    ("recovered prod, hyperdrive path", {"status": "ok", "hyperdrive": True, "db": "ok"}, "ok"),
+    ("legacy spelling", {"status": "healthy", "hyperdrive": False, "db": "ok"}, "ok"),
+    # 200 + status ok, but the DB was never probed -- must NOT read as reachable.
+    ("no DB binding at all", {"status": "ok", "hyperdrive": False, "db": "not_applicable"}, "unknown"),
+    ("status ok, db field absent", {"status": "ok", "hyperdrive": False}, "unknown"),
+    (
+        "live prod 2026-08-27",
+        {
+            "status": "degraded",
+            "hyperdrive": False,
+            "db": "Too many subrequests by single Worker invocation.",
+        },
+        "degraded",
+    ),
+    ("unrecognised status", {"status": "starting", "db": "ok"}, "unknown"),
+    ("not a health payload", {"error": "cloudflare bot challenge"}, "unknown"),
+    ("not a dict", "<!DOCTYPE html>", "unknown"),
+]
+
+
+def selftest():
+    """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
+    failures = 0
+    for label, payload, expected in HEALTH_CASES:
+        state, detail = classify_health(payload)
+        ok = state == expected
+        failures += 0 if ok else 1
+        print(f"  [{'PASS' if ok else 'FAIL'}] {label}: got {state!r}, want {expected!r}")
+        if not ok:
+            print(f"         detail: {detail}")
+    print(f"\n{len(HEALTH_CASES) - failures}/{len(HEALTH_CASES)} health-classification cases pass.")
+    return 1 if failures else 0
+
+
 def arg_value(flag):
     if flag in sys.argv:
         idx = sys.argv.index(flag)
@@ -284,6 +431,9 @@ def arg_value(flag):
 def main():
     verbose = "--verbose" in sys.argv
     audit = "--audit" in sys.argv
+
+    if "--selftest" in sys.argv:
+        return selftest()
 
     registry, source, problems = load_registry(arg_value("--registry"))
     distinct_ids, event_uuids, session_ids = set(), set(), set()
@@ -328,12 +478,24 @@ def main():
             file=sys.stderr,
         )
 
+    health_state, health_detail = prod_db_health()
+    health_line = describe_health(health_state, health_detail)
+
     if row["organic_events"] > 0:
         print(
             f"CANDIDATE ORGANIC TRAFFIC -- ADJUDICATE BEFORE RE-RAISING WIC-1024: "
             f"{row['organic_events']} event(s) from {row['organic_people']} actor(s), "
             f"newest {row['organic_newest']}."
         )
+        print(f"COLLECTOR HEALTH: {health_line}")
+        if health_state != "ok":
+            print(
+                "\nSECOND CLAUSE NOT MET -- organic traffic alone does NOT release the "
+                "WIC-1024 hold while prod is degraded. `resume_upload_completed` sits "
+                "after the DB writes and cannot fire, so completion/timing insights and "
+                "the C1-C3 person_id tiles would render empty or 100%-failure. Report "
+                "the traffic, but keep the dashboard build held on WIC-1473."
+            )
         print(
             "\nThese events failed every synthetic fingerprint AND are absent from "
             "probe-registry.json. That is NOT proof they are real users -- an unregistered "
@@ -360,6 +522,14 @@ def main():
         f"No organic traffic. lifetime={row['lifetime_events']} "
         f"(all synthetic), newest={row['lifetime_newest']}. Hold WIC-1024, no comment."
     )
+    print(f"COLLECTOR HEALTH: {health_line}")
+    if health_state != "ok":
+        print(
+            "NOTE: the client capture leg is independent of the Worker DB, so 0 organic "
+            "still means 0 arrivals -- but prod is broken for anyone who does arrive "
+            "and signs in. Treat 0 organic as a demand reading taken under an outage, "
+            "not as clean demand evidence. Unblock owner: WIC-1473 (board decision)."
+        )
     return 0
 
 
