@@ -44,18 +44,23 @@ export const FIT_LEVEL_LABELS = {
 export const NO_FIT_LEVEL_LABEL = 'No recommendation';
 
 /**
- * Display labels for the reports' `FitTier`, a **different** enum that happens
- * to share two members with `Recommendation`. The shared members must render
- * identically — one wire value must not read two ways across two screens.
+ * Display labels for the reports' `FitTier`.
  *
- * `weak_fit` has no `Recommendation` counterpart (`Recommendation` splits the
- * bottom of the range into `stretch` and `low_fit`); reconciling the two enums
- * is a contract question, tracked separately.
+ * This was a hand-written table whose `weak_fit` entry had no `Recommendation`
+ * counterpart to borrow from, carrying a comment that the orphan was a
+ * workaround around two enums for one judgement. WIC-1298 resolved that at the
+ * contract instead: `FitTier` is now `Recommendation` plus the two states that
+ * carry no verdict, so every fit level here *is* a fit level, spelled by the one
+ * table above. Nothing left to keep in step by hand.
+ *
+ * `unscored` is the report's name for `recommendation: null` — the same
+ * condition `NO_FIT_LEVEL_LABEL` names on the analysis screen, so it reads the
+ * same. `not_analyzed` is the one genuinely report-only state: no analysis has
+ * been run at all.
  */
 export const FIT_TIER_LABELS: Record<FitTier, string> = {
-  strong_fit: FIT_LEVEL_LABELS.strong_fit,
-  moderate_fit: FIT_LEVEL_LABELS.moderate_fit,
-  weak_fit: 'Weak fit',
+  ...FIT_LEVEL_LABELS,
+  unscored: NO_FIT_LEVEL_LABEL,
   not_analyzed: 'Not analyzed',
 };
 

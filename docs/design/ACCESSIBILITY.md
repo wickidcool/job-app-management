@@ -4,6 +4,14 @@ This document outlines accessibility requirements and best practices to ensure t
 
 **Target Compliance:** WCAG 2.1 Level AA
 
+> **Enforcement status: none. This target is not mechanically verified.** Checked against `main` @ `6911bcb` (2026-08-27): the repository carries no `eslint-plugin-jsx-a11y`, no `axe`/`vitest-axe`/`jest-axe`, no `pa11y` and no Lighthouse budget, and `packages/web/eslint.config.js` loads only `js`, `typescript-eslint`, `react-hooks`, `react-refresh` and `prettier`. Nothing in `.github/workflows/deploy.yml` fails when a page violates this document.
+>
+> The gap is measured, not theoretical. A heading-order scan that resolves component-rendered headings at their usage site — recursively, across every branch a view can render — found a **majority of pages skipping a heading level** (WCAG SC 1.3.1), several with no `<h1>` at all, including `Login`, the product's only pre-authentication page. Figures and the per-page breakdown are recorded on **WIC-1480**, measured 2026-08-26 at `8e19705`; they predate the fixes landed since and are not restated here, because a count in prose goes stale the day after it is taken.
+>
+> **Read every requirement below as guidance a reviewer checks by hand.** The [Testing Checklist](#testing-checklist) is the entire process today, and no box in it is automated.
+>
+> A mechanism is in progress under **WIC-1483**: `eslint-plugin-jsx-a11y` plus rendered per-render-branch heading-outline assertions, both hosted by the existing `lint-and-test` job. When it lands, this note is replaced by a citation naming that job and the command that fails the build — and the replacement must still state what remains unverified, because heading order plus a lint rule set is not WCAG 2.1 AA. Tracked for this document by **WIC-1584**.
+
 ---
 
 ## Table of Contents
@@ -534,9 +542,11 @@ Provide "Load More" button as alternative to infinite scroll for keyboard/screen
 
 ### Automated Testing
 
-- [ ] Run [axe DevTools](https://www.deque.com/axe/devtools/) in browser
-- [ ] Run [Pa11y](https://pa11y.org/) or [Lighthouse](https://developers.google.com/web/tools/lighthouse) in CI
-- [ ] Check HTML validation (W3C Validator)
+**None of these is wired up.** These three boxes have been unchecked since this document was written; they describe tools someone could run, not a pipeline that runs them. An unchecked box here means "nobody has done this", not "this is queued" — see the enforcement-status note at the top of this document, and **WIC-1483**.
+
+- [ ] Run [axe DevTools](https://www.deque.com/axe/devtools/) in browser — manual, per-session; no CI equivalent installed
+- [ ] Run [Pa11y](https://pa11y.org/) or [Lighthouse](https://developers.google.com/web/tools/lighthouse) in CI — **not installed**; `deploy.yml` has no accessibility step
+- [ ] Check HTML validation (W3C Validator) — manual
 
 ### Manual Testing
 
