@@ -258,16 +258,17 @@ describe('mergeCompanies', () => {
     await expect(mergeCompanies(['01HZ_CO_002'], 'nonexistent')).rejects.toThrow(NotFoundError);
   });
 
-  // ── first_seen_at retention ────────────────────────────────────────────────
+  // ── first_seen_at retention (WIC-1360) ─────────────────────────────────────
   //
-  // KNOWN GAP (WIC-1360). Merging is meant to preserve the earliest sighting of
-  // a company — that date is what the catalog reports as `firstSeen`, and it is
-  // the only record that the older duplicate ever existed. mergeCompanies never
-  // writes firstSeenAt, so it silently keeps the *target's* date. Merging an old
-  // duplicate into a newer survivor moves the company's first-seen date forward
-  // in time and the history is unrecoverable.
+  // Merging preserves the earliest sighting across everything folded together —
+  // that date is what the catalog reports as `firstSeen`, and it is the only
+  // record that the older duplicate ever existed. The survivor's date must move
+  // backwards or stay put, never forwards, and the sources are soft-deleted, so
+  // getting it wrong is unrecoverable through the API. The three cases below
+  // pin the minimum: it can lower, it does not raise, and it looks at every
+  // source rather than just the first.
 
-  it.fails('keeps the earliest firstSeenAt when an older duplicate is merged in', async () => {
+  it('keeps the earliest firstSeenAt when an older duplicate is merged in', async () => {
     const target = companyRow({ firstSeenAt: new Date('2026-06-01T00:00:00.000Z') });
     const older = companyRow({
       id: '01HZ_CO_002',
@@ -283,12 +284,45 @@ describe('mergeCompanies', () => {
     });
   });
 
-  it('gap sentinel: the merge update payload does not mention firstSeenAt today', async () => {
-    const { txSet } = stubDb([[companyRow()], [companyRow({ id: '01HZ_CO_002' })], [companyRow()]]);
+  it('keeps the target firstSeenAt when every source was seen later', async () => {
+    const target = companyRow({ firstSeenAt: new Date('2026-01-15T00:00:00.000Z') });
+    const newer = companyRow({
+      id: '01HZ_CO_002',
+      name: 'Acme Corporation',
+      firstSeenAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+    const { txSet } = stubDb([[target], [newer], [companyRow()]]);
 
     await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001');
 
-    expect(txSet.mock.calls[0][0]).not.toHaveProperty('firstSeenAt');
+    // Merging must never walk the date forward — an unconditional
+    // `firstSeenAt: sources[0].firstSeenAt` would pass the test above and fail here.
+    expect(txSet.mock.calls[0][0]).toMatchObject({
+      firstSeenAt: new Date('2026-01-15T00:00:00.000Z'),
+    });
+  });
+
+  it('takes the minimum across every source, not just the first one', async () => {
+    const target = companyRow({ firstSeenAt: new Date('2026-06-01T00:00:00.000Z') });
+    const sources = [
+      companyRow({
+        id: '01HZ_CO_002',
+        name: 'Acme Corporation',
+        firstSeenAt: new Date('2026-05-01T00:00:00.000Z'),
+      }),
+      companyRow({
+        id: '01HZ_CO_003',
+        name: 'ACME',
+        firstSeenAt: new Date('2026-01-15T00:00:00.000Z'),
+      }),
+    ];
+    const { txSet } = stubDb([[target], sources, [companyRow()]]);
+
+    await mergeCompanies(['01HZ_CO_002', '01HZ_CO_003'], '01HZ_CO_001');
+
+    expect(txSet.mock.calls[0][0]).toMatchObject({
+      firstSeenAt: new Date('2026-01-15T00:00:00.000Z'),
+    });
   });
 });
 
