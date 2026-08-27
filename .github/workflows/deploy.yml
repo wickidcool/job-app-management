@@ -80,6 +80,14 @@ jobs:
       - name: Audit wireframe casing
         run: python3 docs/design/wireframe-casing-audit.py
 
+      # WIC-1582: ROUTE_TITLE_CONVENTION.md §5 is a copy of strings that live in
+      # source, and it spent eight days outside the repo drifting — a heading moved
+      # file, the 404's copy changed, and a route was added with no row. All three
+      # were found by a careful reader. This fails the build on the next one, and in
+      # particular on a new <Route> added without a title row.
+      - name: Audit route title table
+        run: python3 docs/design/route-title-table-audit.py
+
       - name: Run tests
         run: npm run test
 
