@@ -743,6 +743,10 @@ here rather than merely tidy.
   more than one nesting depth** — the same class of decision, not every hardcoded heading in
   `components/`. A single-call-site feature panel's heading level is effectively part of its
   page's outline and belongs in the page's own audit (WIC-1099, WIC-1483), not behind a prop.
+  **`ROUTE_HEADING_OUTLINE.md` (WIC-1581) is that audit's rule**, for the common case where the
+  panel _is_ the route's whole body: the page `<h1>` names the route and the panel does not
+  restate it, starting at `<h2>` with its own sections. Two routes shipped restating it before
+  that was written down.
   The rest of `components/` was measured against this boundary in WIC-1563: of the **30**
   components under `components/**` that render a heading, **25 are rendered by exactly one host
   component** and are therefore out of scope by definition. Count _distinct hosts_, not
