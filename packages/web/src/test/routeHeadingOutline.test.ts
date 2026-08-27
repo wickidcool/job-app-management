@@ -15,8 +15,16 @@ import { describe, expect, it } from 'vitest';
  * `App.tsx?raw` import, widened.
  *
  * It only sees *static* heading text. A heading built from an expression is invisible
- * here, which is the known limit — the two real defects were both literals, and a
- * literal is what the next one will be too.
+ * here, and that blind spot is wider than "an edge case": measured on `6911bcb`,
+ * 11 of 33 `<h1>` (33%) and 11 of 42 `<h2>` (26%) are already invisible — `{variant.title}`,
+ * `{application.jobTitle}`, the `{title}` prop in `ConfirmationModal`/`OnboardingStep`/
+ * `WizardStep`, and `WizardContainer`'s `{variant === 'create' && 'New Project'}`. The modal
+ * and wizard titles are exactly where a route-naming duplicate would come from, so read a
+ * green run as "no *literal* collision", not as "no collision". Both real defects were
+ * literals; the next one need not be. (WIC-1586)
+ *
+ * It also reads JSX comments as live code, so commenting a heading out does not clear a
+ * collision — fail-noisy, not fail-open, but it means "comment it out" is not a valid fix.
  */
 
 const sources = import.meta.glob('../{pages,components}/**/*.tsx', {
@@ -37,6 +45,18 @@ describe('route heading outline (WIC-1581)', () => {
   it('finds headings to check at all (guards the glob against silently matching nothing)', () => {
     expect(files.length).toBeGreaterThan(20);
     expect(files.flatMap(([, src]) => staticHeadings(src, 1)).length).toBeGreaterThan(10);
+
+    // Both halves, or the check below is a no-op. The collision is an intersection, so it
+    // goes vacuously empty if EITHER side dries up — and the side that carries the defect
+    // is <h2>, which counting <h1> alone does not pin. Measured on 6911bcb: 22 static
+    // <h1> and 31 static <h2>.
+    expect(files.flatMap(([, src]) => staticHeadings(src, 2)).length).toBeGreaterThan(10);
+
+    // Both directories, for the same reason: a glob narrowed to pages/ still passes the
+    // file-count and <h1> assertions above while dropping every component <h2>.
+    for (const dir of ['/pages/', '/components/']) {
+      expect(files.filter(([p]) => p.includes(dir)).length).toBeGreaterThan(5);
+    }
   });
 
   it('renders no string as both an <h1> and an <h2>', () => {
