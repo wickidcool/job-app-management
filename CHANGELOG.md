@@ -20,6 +20,15 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Docs — All ten `cursor` parameter rows in API_CONTRACTS.md now say the cursor is opaque (2026-08-27)
+
+`docs/architecture/API_CONTRACTS.md` had six `| cursor |` query-parameter rows, each carrying `(opaque — see [Pagination](#pagination))` inline. PR #112 documented four more paginated report endpoints and took the count to ten, and three of the four new rows read a bare `Pagination cursor`.
+
+- **A consistency gap, not a contract error — and it is worth being exact about that.** The three endpoints (`needs-action`, `stale`, `closed-loop`) sit under the UC-5 section preamble, which already states opacity for all three and tells clients to pass the cursor back verbatim. No endpoint was mis-specified and no client reading the section could be misled. The cost fell on the reader who deep-links to a single endpoint heading and sees a bare row with no qualifier and no link back to § Pagination — which is how these tables are actually read.
+- **Why uniformity is worth a PR here.** `parseCursor`'s docstring justifies its `400` on cursors being opaque *everywhere*, and after the entry below that argument rests on § Pagination rather than on per-row text. Keeping the rows uniform keeps the cheapest confirmation of that claim cheap.
+- **The shared reports table at the top of § UC-5 is deliberately left alone.** It reads "Opaque page token, issued by the server as `nextCursor`" — already correct, and better suited to a table that covers three endpoints at once than the per-endpoint phrasing would be.
+- Documentation only. No source, schema, wire, or test change.
+
 ### Docs — A union-driver "clean" merge is not a correct one, so the changelog rules now say how to check
 
 `CLAUDE.md` → "Changelog conventions" told you how to *diagnose* a `CHANGELOG.md` conflict GitHub sees and local tools do not, and then stopped at "keep both sides". That left the step where the damage actually happens undocumented: `merge=union` resolves the file silently, and its resolution can be wrong in ways no tool reports.
