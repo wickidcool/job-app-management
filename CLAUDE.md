@@ -116,3 +116,36 @@ git merge-file -p          "$D/main.md" "$D/base.md" "$D/main.md"  # positive co
 Always run the control. Without it, a wrong path or a stale `origin` yields a silent "clean" that you will believe.
 
 **Resolving:** keep both sides, and **merge `main` in — never rebase.** Many open PRs here are stacked (a PR whose base is another PR's branch), and rebasing a stack parent invalidates every child.
+
+### Check what the driver did — "clean" is not "correct"
+
+When you merge `main` in, the union driver resolves `CHANGELOG.md` for you and reports success. It
+is resolving by concatenating both sides at each differing hunk, which is right often enough to be
+trusted and wrong in ways nothing reports. Two failure modes have reached `main`:
+
+- **Both sides revised the same existing entry.** Union keeps both revisions, so the file ships two
+  contradictory descriptions of one change, with no conflict ever shown (WIC-1561, fixed by #181).
+- **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
+  one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
+  last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185).
+
+So after any merge that touches `CHANGELOG.md`, run the two checks the driver cannot:
+
+```bash
+python3 - CHANGELOG.md <<'PY'
+import sys, collections
+L = open(sys.argv[1]).read().split('\n')
+dup = {k: v for k, v in collections.Counter(
+    l.strip() for l in L if l.strip().startswith('- ') and len(l.strip()) > 40).items() if v > 1}
+sep = [n + 1 for n, l in enumerate(L) if l.startswith('### ') and n and L[n - 1].strip()]
+print('duplicate bullets:', dup or 'none')
+print('headings missing a preceding blank line (line nos):', sep or 'none')
+PY
+```
+
+Resolution is **per bullet**. Never take-ours or take-theirs wholesale: each side usually holds an
+entry the other genuinely lacks, which is the whole reason the driver is there.
+
+**Counts in changelog prose rot.** An entry saying "all six `cursor` rows" was correct when written
+and stale the same day, because another PR documented four more endpoints. Cite the rule the file
+states, not a tally you took by grep (WIC-1567).
