@@ -133,11 +133,24 @@ function expectUnscoped(clause: unknown, table: string, ids: string[]) {
  * The clause keys on `table`.id and binds exactly the ids named. The column
  * check is what stops `eq(table.normalizedName, targetId)` from passing: a bare
  * `params` check only proves the value reached the query, not which column it
- * filtered. Renders as `"t"."id" = $1` for the target and
- * `"t"."id" = ANY(($1))` for the sources; both carry the same prefix.
+ * filtered.
+ *
+ * Two renderings are legal, because the target and the sources are built by
+ * different Drizzle operators:
+ *  - the single target is `eq(t.id, targetId)`   -> `"t"."id" = $1`
+ *  - the source set is `inArray(t.id, sourceIds)` -> `"t"."id" in ($1, $2)`
+ *
+ * Accepting both is required, not lax. WIC-1377 replaced a raw
+ * ``sql`${t.id} = ANY(${sourceIds})` `` — which Drizzle renders as the row
+ * constructor `"t"."id" = ANY(($1, $2))` and Postgres rejects outright — with
+ * `inArray`. Asserting the bare prefix `"t"."id" = ` therefore encodes the
+ * *defect* as the expectation: it matches the broken `= ANY((...))` form and
+ * fails against the fix. Both accepted forms stay table-qualified, so the
+ * wrong-column check above survives.
  */
 function expectIds(sql: string, params: unknown[], table: string, ids: string[]) {
-  expect(sql).toContain(`"${table}"."id" = `);
+  const col = `"${table}"."id"`;
+  expect(sql).toMatch(new RegExp(`${col.replace(/[".]/g, '\\$&')}\\s+(?:=\\s+\\$\\d+|in\\s+\\()`));
   for (const id of ids) expect(params).toContain(id);
 }
 
@@ -472,6 +485,82 @@ describe('merge tenancy scoping', () => {
       expectUnscoped(txUpdateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
       expectUnscoped(txDeleteWhere.mock.calls[0][0], table, ['01HZ_TAG_002']);
     });
+  });
+});
+
+// ── WIC-1377: the merge source read has to be valid Postgres ─────────────────
+// The source predicate used to be sql`${table.id} = ANY(${sourceIds})`. Drizzle
+// expands a JS array interpolated into a `sql` template as a comma-separated
+// parameter list, not as an array parameter, so that rendered
+// `"t"."id" = ANY(($1, $2))`. `($1, $2)` is a row constructor and `= ANY(...)`
+// wants an array or a subquery, so Postgres rejected it with `op ANY/ALL (array)
+// requires array on right side` — all three merge endpoints returned 500 for
+// every input, in both scoped and single-user mode.
+//
+// Nothing above catches this: stubDb resolves rows for whatever predicate it is
+// handed, and the tenancy assertions only look at the user_id term and the bound
+// params — which are identical for the broken and the fixed spelling. Only the
+// rendered SQL string tells them apart, so that is what these assert on.
+
+describe.each([
+  ['mergeCompanies', mergeCompanies, 'company_catalog', companyRow],
+  ['mergeJobFitTags', mergeJobFitTags, 'job_fit_tags', tagRow],
+  ['mergeTechStackTags', mergeTechStackTags, 'tech_stack_tags', tagRow],
+] as const)('%s source read', (_name, merge, table, row) => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /** Render the source read — the second select — for a given call. */
+  async function sourceRead(sourceIds: string[], userId?: string) {
+    const { selectWhere } = stubDb([[row()], sourceIds.map((id) => row({ id })), [row()]]);
+    await merge(sourceIds, 'TARGET', userId);
+    return queryFor(selectWhere.mock.calls[1][0]);
+  }
+
+  it('renders an IN list, not a row constructor, for several ids', async () => {
+    const { sql, params } = await sourceRead(['A', 'B'], CALLER);
+
+    expect(sql).toBe(`("${table}"."id" in ($1, $2) and "${table}"."user_id" = $3)`);
+    expect(params).toEqual(['A', 'B', CALLER]);
+  });
+
+  it('renders an IN list for a single id', async () => {
+    // The one-id case failed differently and more confusingly: `= ANY(($1))`
+    // parses, then dies at run time with `malformed array literal: "A"`, which
+    // reads like bad input rather than a bad query.
+    const { sql, params } = await sourceRead(['A'], CALLER);
+
+    expect(sql).toBe(`("${table}"."id" in ($1) and "${table}"."user_id" = $2)`);
+    expect(params).toEqual(['A', CALLER]);
+  });
+
+  it('renders an IN list in single-user mode too', async () => {
+    const { sql, params } = await sourceRead(['A', 'B'], undefined);
+
+    expect(sql).toBe(`"${table}"."id" in ($1, $2)`);
+    expect(params).toEqual(['A', 'B']);
+  });
+
+  it('never emits ANY(( in any mode', async () => {
+    for (const ids of [['A', 'B'], ['A']]) {
+      for (const caller of [CALLER, undefined]) {
+        expect((await sourceRead(ids, caller)).sql).not.toContain('ANY(');
+      }
+    }
+  });
+
+  it('rejects an empty source list instead of failing inside the query builder', async () => {
+    // `inArray(col, [])` throws `inArray requires at least one value` on the
+    // drizzle-orm pinned here (0.30.10) rather than rendering `false`, so the
+    // service has to reject the empty list itself or the caller gets a 500.
+    // The routes already enforce `.min(1)`; this covers a direct service call.
+    const { selectWhere } = stubDb([[row()]]);
+
+    await expect(merge([], 'TARGET', CALLER)).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'BAD_REQUEST',
+      statusCode: 400,
+    });
+    expect(selectWhere).not.toHaveBeenCalled();
   });
 });
 
