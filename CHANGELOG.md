@@ -20,6 +20,14 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Fixed — The organic-traffic watcher stops reporting a measured outage as UNKNOWN (2026-08-27)
+
+`organic_watch.py`'s clause-(b) health probe used a 30s timeout. While prod is subrequest-exhausted — the entire period the probe exists for — `/health` only answers after the Worker burns its retry budget, measured at 25.6–27.2s on 2026-08-27 03:4xZ. That ~3s margin was thin enough to lose intermittently, and a lost race printed `prod DB health UNKNOWN (The read operation timed out)` for a prod that had in fact returned a clean `degraded` payload (WIC-1358).
+
+- **UNKNOWN is not a harmless reading here.** It is indistinguishable from "never measured", and it is the one output a reader could mistake for the outage having lifted — the false-premise release that clause (b) was added to prevent, arrived at through the probe rather than the payload. The timeout is now 90s: on this endpoint the slow path *is* the expected path, so it is budgeted for rather than raced against. Three consecutive runs now report `degraded` where the run at the top of the same heartbeat reported UNKNOWN.
+- **Cloudflare edge 5xx codes are now named instead of rendered as an ambiguous fault.** A 52x never reaches the Worker, so the body is plain text and the old handler collapsed it to `HTTP 522, unparseable body`. That matters because a 52x is *not* the WIC-1386 subrequest exhaustion — exhaustion is the Worker running and answering `503` with JSON, while a 52x means it never ran at all — and conflating the two sends the next reader to the wrong card. 520–526 now render their specific cause; anything else keeps the generic wording rather than inventing one.
+- **No change to the verdict or the exit code.** Health remains reporting-only and every fault path still collapses to `unknown`, preserving the property that a health probe can never suppress a real first user. `--selftest` covers the new rendering (14 cases, up from 9), including two non-edge codes that must *not* pick up a cause.
+
 ### Fixed — `/cover-letters/new` has a page heading of its own (2026-08-27)
 
 `CoverLetterNew` mounted `<CoverLetterGenerator>` inside a bare `<div>` and emitted no heading, and no shared layout supplies one. The highest heading on the route was therefore the generator's own step-bar `h2`, which read "Generate Cover Letter", so the document outline began at `h2` with nothing above it (WIC-1571). The generator's heading structure is reworked in the same commit, because `ROUTE_HEADING_OUTLINE.md` §4 (WIC-1581) assigns that change to this ticket — see the last two bullets.

@@ -311,7 +311,15 @@ def prod_db_health():
     headers = {"User-Agent": "wic-organic-watch/1.0 (+WIC-1358)", "Accept": "application/json"}
     try:
         req = urllib.request.Request(PROD_HEALTH_URL, method="GET", headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        # 90s, not 30s. While prod is subrequest-exhausted -- which is the entire period this
+        # clause-(b) check exists for -- the handler only answers *after* the Worker burns its
+        # retry budget, measured at 25.6-27.2s on 2026-08-27 03:4xZ. A 30s timeout leaves a
+        # ~3s margin, so the probe intermittently raised "The read operation timed out" and
+        # reported clause (b) as UNKNOWN when prod had in fact answered a clean `degraded`.
+        # An UNKNOWN here is not harmless: it is indistinguishable from "never measured", and
+        # it is the exact reading that would let a reader conclude the outage had lifted.
+        # The slow path is the expected path here; budget for it.
+        with urllib.request.urlopen(req, timeout=90) as resp:
             body = json.load(resp)
     except urllib.error.HTTPError as exc:
         # 503 is the *expected* degraded response and carries the useful payload, so
@@ -319,11 +327,37 @@ def prod_db_health():
         try:
             body = json.loads(exc.read().decode("utf-8", "replace"))
         except (ValueError, OSError):
-            return ("unknown", {"probe_error": f"HTTP {exc.code}, unparseable body"})
+            return ("unknown", {"probe_error": describe_edge_failure(exc.code)})
     except (urllib.error.URLError, ValueError, OSError) as exc:
         return ("unknown", {"probe_error": str(exc)})
 
     return classify_health(body)
+
+
+# Cloudflare's own edge-generated 5xx codes. These never reach the Worker, so the body is
+# plain text ("error code: 522") and carries no health payload -- the generic
+# "HTTP <code>, unparseable body" that used to be printed here read as an ambiguous probe
+# fault, when in fact each of these is a specific, actionable statement about prod.
+# Naming them matters because the failure they describe is NOT the WIC-1386 subrequest
+# exhaustion: exhaustion is the Worker *running* and answering 503 with a JSON body, while
+# a 52x means the Worker/origin never answered at all. Confusing the two sends the next
+# reader to the wrong card.
+CF_EDGE_CODES = {
+    520: "origin returned an empty/invalid response",
+    521: "origin refused the connection (origin down)",
+    522: "connection to origin timed out (origin unreachable)",
+    523: "origin is unreachable (bad DNS/routing at the edge)",
+    524: "origin accepted the connection but never sent a response in time",
+    525: "SSL handshake with the origin failed",
+    526: "origin presented an invalid SSL certificate",
+}
+
+
+def describe_edge_failure(code):
+    """Pure. Render an unparseable HTTP failure into an actionable one-liner."""
+    if code in CF_EDGE_CODES:
+        return f"HTTP {code} from the Cloudflare edge -- {CF_EDGE_CODES[code]}; the app never ran"
+    return f"HTTP {code}, unparseable body"
 
 
 def classify_health(body):
@@ -405,6 +439,16 @@ HEALTH_CASES = [
     ("not a dict", "<!DOCTYPE html>", "unknown"),
 ]
 
+# (label, code, substring that must appear in the rendered probe_error)
+EDGE_CASES = [
+    ("522 origin unreachable", 522, "connection to origin timed out"),
+    ("521 origin down", 521, "refused the connection"),
+    ("524 origin never responded", 524, "never sent a response"),
+    # Not a CF edge code -- must keep the generic rendering rather than inventing a cause.
+    ("502 is not a CF edge code", 502, "unparseable body"),
+    ("403 bot challenge", 403, "unparseable body"),
+]
+
 
 def selftest():
     """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
@@ -416,7 +460,15 @@ def selftest():
         print(f"  [{'PASS' if ok else 'FAIL'}] {label}: got {state!r}, want {expected!r}")
         if not ok:
             print(f"         detail: {detail}")
-    print(f"\n{len(HEALTH_CASES) - failures}/{len(HEALTH_CASES)} health-classification cases pass.")
+    for label, code, want in EDGE_CASES:
+        rendered = describe_edge_failure(code)
+        ok = want in rendered
+        failures += 0 if ok else 1
+        print(f"  [{'PASS' if ok else 'FAIL'}] {label}: {rendered!r}")
+        if not ok:
+            print(f"         wanted substring: {want!r}")
+    total = len(HEALTH_CASES) + len(EDGE_CASES)
+    print(f"\n{total - failures}/{total} health-classification cases pass.")
     return 1 if failures else 0
 
 
