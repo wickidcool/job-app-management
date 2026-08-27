@@ -13,7 +13,7 @@ import { ApplicationForm } from '../components/ApplicationForm';
 import { WorkflowChecklist } from '../components/WorkflowChecklist';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useCoverLetters } from '../hooks/useCoverLetters';
-import { coverLettersForApplication } from '../constants/coverLetterMatch';
+import { COVER_LETTER_PAGE_MAX, coverLettersForApplication } from '../constants/coverLetterMatch';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
@@ -30,8 +30,17 @@ export function ApplicationDetail() {
   // `coverLettersForApplication` makes the company+role match exact. See
   // `constants/coverLetterMatch.ts` for why the association has to be
   // reconstructed at all (WIC-1533).
+  //
+  // `limit` is the endpoint's maximum page (server default is 20) and is
+  // load-bearing, not a round number. The server filter is a *substring* match
+  // on company, so every letter for every other role at this company competes
+  // for the same page; the exact predicate below runs after that page is
+  // chosen and cannot recover a row the server never sent. At the default 20 a
+  // user with 20 newer letters for other roles at this company sees "No cover
+  // letters yet for this role" and an unticked checklist — this card's own
+  // defect, re-created at the tail. Residual: it still fails above 100.
   const { data: companyCoverLetters = [] } = useCoverLetters(
-    { company: application?.company },
+    { company: application?.company, limit: COVER_LETTER_PAGE_MAX },
     { enabled: !!application }
   );
   const coverLetters = application

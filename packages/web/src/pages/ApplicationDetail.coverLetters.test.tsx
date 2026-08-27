@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApplicationDetail } from './ApplicationDetail';
 import { useApplication } from '../hooks/useApplications';
 import { useCoverLetters } from '../hooks/useCoverLetters';
+import { COVER_LETTER_PAGE_MAX } from '../constants/coverLetterMatch';
 import type { Application } from '../types/application';
 import type { CoverLetterSummary } from '../services/api/types';
 
@@ -143,6 +144,35 @@ describe('ApplicationDetail — Cover Letters section', () => {
       'href',
       '/cover-letters/cl_1'
     );
+  });
+
+  /**
+   * The page cap, asserted at the only place that can be wrong: the arguments
+   * this page passes to the query.
+   *
+   * The exact `(company, role)` predicate runs on whatever page the server
+   * returned. The only server-side narrowing available is `?company=`, an
+   * `ilike '%…%'`, so letters for every other role at this company — and at
+   * every company whose name contains it — share that page, ordered
+   * `created_at desc`. At the endpoint's default of 20 rows, an application
+   * with 20 newer sibling letters gets a page containing none of its own: the
+   * section renders "No cover letters yet for this role" and the checklist row
+   * falls back to `/cover-letters/new`. That is this card's own defect
+   * reappearing at the tail of the list, and **no assertion over rendered
+   * output can see it**, because the rendering is correct for the data it was
+   * handed. It has to be asserted on the request.
+   *
+   * `coverLetters.list.test.ts` carries the other half — that the limit
+   * survives as far as the request URL.
+   */
+  it('asks the server for the maximum page, not the default 20', () => {
+    renderDetail([letter()]);
+
+    expect(vi.mocked(useCoverLetters)).toHaveBeenCalledWith(
+      expect.objectContaining({ company: 'Acme', limit: COVER_LETTER_PAGE_MAX }),
+      expect.anything()
+    );
+    expect(COVER_LETTER_PAGE_MAX).toBeGreaterThan(20);
   });
 
   /**

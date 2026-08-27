@@ -27,12 +27,21 @@ export const coverLetterKeys = {
  * firing an unfiltered fetch-everything and then refetching. `ApplicationDetail`
  * needs it — its `company` filter comes from the application it is still
  * loading.
+ *
+ * `limit` is exposed because the endpoint's default page is **20 rows**
+ * (`cover-letter.service.ts`: `Math.min(params.limit ?? 20, 100)`) and this
+ * hook has no pagination. A caller that filters the result *further* on the
+ * client — `ApplicationDetail` does, because there is no `applicationId` filter
+ * to send — is filtering a page the server already truncated, so rows it
+ * needed can be missing before its own predicate ever runs. Such a caller must
+ * ask for a bigger page. See `constants/coverLetterMatch.ts` (WIC-1533).
  */
 export function useCoverLetters(
   params?: {
     status?: 'draft' | 'finalized';
     company?: string;
     search?: string;
+    limit?: number;
   },
   options?: { enabled?: boolean }
 ) {

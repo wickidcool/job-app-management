@@ -1,6 +1,33 @@
 import type { CoverLetterSummary } from '../services/api/types';
 
 /**
+ * The page size a caller must request before filtering cover letters on the
+ * client, and the endpoint's own maximum.
+ *
+ * `GET /api/cover-letters` pages at `Math.min(params.limit ?? 20, 100)` and its
+ * Zod schema is `.max(100)`, so 100 is the ceiling, not a preference — asking
+ * for more is a 400.
+ *
+ * Why this cannot be left at the default 20: the only server-side narrowing
+ * available is `?company=`, which is `ilike '%company%'`. Every letter for
+ * every *other* role at that company — and at every company whose name merely
+ * contains it — competes for the same page, and the page is chosen by
+ * `created_at desc` before {@link coverLettersForApplication} ever sees it. So
+ * the exact predicate can only ever remove rows; it cannot recover one the
+ * server did not send. At 20, an application with 20 newer sibling letters
+ * renders "No cover letters yet for this role" and leaves the workflow
+ * checklist unticked — which is precisely the unreachability WIC-1533 was
+ * filed to fix, reappearing at the tail of the list.
+ *
+ * **Residual, unfixed and deliberate:** above 100 letters matching the
+ * substring filter, the same silent under-inclusion returns. Raising the cap
+ * cannot close it — only WIC-1544's real `applicationId` association can, and
+ * pagination UI on a section that should show a handful of letters would be
+ * treating the symptom. Recorded here rather than hidden.
+ */
+export const COVER_LETTER_PAGE_MAX = 100;
+
+/**
  * Decides whether a cover letter belongs to a given application.
  *
  * ## Why this function has to exist at all
@@ -40,20 +67,30 @@ import type { CoverLetterSummary } from '../services/api/types';
  * written for "Metabase". The endpoint filter is still worth sending as a
  * server-side pre-narrowing; this predicate is what makes the result correct.
  *
- * ## Known limit, stated rather than hidden
+ * ## Known limits, stated rather than hidden
  *
- * Two applications for the **same role at the same company** are
- * indistinguishable here, and each will show both letters. That is not a bug
- * in this function — it is the precision ceiling of a reconstructed key, and
- * it can only be lifted by persisting `applicationId` on the letter, which is
- * an API and schema change that WIC-1533 explicitly puts out of scope.
+ * There are **two**, and they fail in opposite directions. Both are ceilings of
+ * a reconstructed key, and both are lifted by the same fix — persisting
+ * `applicationId` on the letter, an API and schema change WIC-1533 explicitly
+ * puts out of scope, filed as **WIC-1544**.
  *
- * That change is filed as **WIC-1544**. When it lands, this module should be
- * **deleted** in favour of an `?applicationId=` filter rather than kept beside
- * it — two sources of truth for one relation is how the type drift this file
- * exists to work around got started. The `coverLetterMatch.test.ts` case named
- * "cannot separate two applications for the same role at the same company" is
- * the tripwire: it starts failing when the real association arrives.
+ * **1. Over-inclusion, visible.** Two applications for the same role at the
+ * same company are indistinguishable here, and each shows both letters. The
+ * user sees too much and can tell.
+ *
+ * **2. Under-inclusion, silent — see `COVER_LETTER_PAGE_MAX` below.** The
+ * server filter is a substring match and the page is capped, so a letter this
+ * predicate would have matched can be absent from the array before the
+ * predicate ever runs. The user sees *nothing* and cannot tell. This is the
+ * worse of the two, and it is the reason the cap is a named constant rather
+ * than left at the endpoint's default.
+ *
+ * When WIC-1544 lands, this module should be **deleted** in favour of an
+ * `?applicationId=` filter rather than kept beside it — two sources of truth
+ * for one relation is how the type drift this file exists to work around got
+ * started. The `coverLetterMatch.test.ts` case named "cannot separate two
+ * applications for the same role at the same company" is the tripwire: it
+ * starts failing when the real association arrives.
  */
 export function coverLetterMatchesApplication(
   letter: Pick<CoverLetterSummary, 'targetCompany' | 'targetRole'>,
