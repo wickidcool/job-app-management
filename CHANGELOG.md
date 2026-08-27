@@ -29,6 +29,8 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **Resolution is per bullet.** Stated explicitly, because take-ours/take-theirs is the tempting shortcut and is always wrong here: each side normally holds an entry the other genuinely lacks, which is why the driver exists at all.
 - **Counts in prose are called out as rot-prone.** An entry written this week said "all six `cursor` rows" and was stale within the day when PR #112 documented four more paginated endpoints. Cite the rule the file states, not a tally taken by grep.
 - Documentation and changelog formatting only. No source, schema, wire, or test change.
+- **The rule caught its own merge.** Bringing `main` in after #185 landed reproduced failure mode 2 exactly: the driver reported a clean resolution and had welded this entry onto the one below. The detector in this change found it; nothing else would have.
+
 ### Docs — `parseCursor`'s rationale no longer cites an encoding the API contract stopped publishing (2026-08-26)
 
 `packages/api/src/lib/pagination.ts` justified rejecting a malformed cursor with a `400` by pointing at `API_CONTRACTS.md`: the catalog endpoints' encoding was *published* rather than called opaque, so a hand-crafted base64url offset was a legitimate input that still worked, and the `400` therefore only ever caught broken clients. PR #120 (`172802b`) removed that published encoding. The citation has been wrong on `main` ever since (WIC-1567).
