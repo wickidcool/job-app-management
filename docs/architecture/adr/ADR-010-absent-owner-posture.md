@@ -155,7 +155,9 @@ It reports two checks:
 - **`[COND]`** — the owner identifier in a conditional position (ternary test, `if`, `&&`/`||`).
   This catches a predicate reintroduced against a still-optional signature.
 
-**It ships in baseline mode.** `origin/main` carries 138 findings today; failing on all of them
+**It ships in baseline mode.** `origin/main` carries 157 findings at the commit this guard lands on
+(`5e2956b`); it carried 138 when the set was first frozen at `1c54133` a day earlier — see
+"The guard fires on real merged code" below, which is the whole argument for this ADR. Failing on all of them
 would make the guard unlandable until the very last site is fixed — which is precisely the
 deadlock that let the count reach 48. The guard freezes the known set in
 `packages/api/scripts/owner-predicates.baseline.json` and fails only on **new** sites. The baseline
@@ -210,6 +212,49 @@ root cause. `job-fit.service.ts` and `onboarding.service.ts` report zero, as exp
 
 The last row is the one that makes the guard survivable in practice: it is line-independent, so it
 does not cry wolf on unrelated edits.
+
+### The guard fires on real merged code, not just injected code
+
+The rows above are injections. This one is not, and it is the reason this ADR should land.
+
+The baseline was frozen against `origin/main` `1c54133`. One day later, this branch merged
+`origin/main` `5e2956b` and the guard **failed** — on code nobody injected:
+
+| key                                                        | baseline → now |
+| ---------------------------------------------------------- | -------------- |
+| `catalog.service.ts` `[COND]` ternary                      | +10            |
+| `catalog.service.ts` `[SIG]` optional owner                | +3             |
+| `catalog.service.ts` `[COND]` `if`                         | +1             |
+| `resume-variant.service.ts` `[SIG]` optional owner         | +2             |
+| `resume-variant.service.ts` `[COND]` ternary               | +1             |
+| `interviewPrep.service.ts` `[SIG]` optional owner          | +1             |
+| `interviewPrep.service.ts` `[COND]` ternary                | +1             |
+| **total**                                                  | **138 → 157**  |
+
+Thirty shape-keys before, thirty after: **no key went down.** Not one site was fixed in that window;
+nineteen were added.
+
+The commits that added them are, without exception, tenancy fixes — WIC-1365, WIC-1373, WIC-1377,
+WIC-1395, WIC-1360, WIC-1449, WIC-1465. The new sites are new exported functions written in the
+exact shape this ADR exists to prohibit:
+
+```ts
+export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
+  const target = userId
+    ? and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId))
+    : eq(companyCatalog.id, targetId);
+```
+
+`mergeJobFitTags` and `mergeTechStackTags` are the same, and each also degrades its `inArray`
+source read. So the burndown is not converging: **the per-site fixes are reproducing the defect
+faster than they retire it**, which is precisely the recurrence WIC-1554 named and precisely what
+AC-2 asks a mechanism to stop. A criterion that nothing executes did not survive one day.
+
+**On re-freezing the baseline.** This ADR's own rule is *burn the baseline down, never append to
+it*. Re-freezing at the landing commit (`5e2956b`, 157) is not an exception to that rule but its
+precondition: a guard pinned to a baseline older than the commit it merges into fails on debt it did
+not create and can never land. The +19 is recorded above rather than absorbed silently — that is the
+difference between re-freezing and appending. Every site added **after** `5e2956b` fails CI.
 
 ## Consequences
 
