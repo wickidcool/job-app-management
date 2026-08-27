@@ -26,18 +26,31 @@ import {
 import { processCatalogChange } from './extraction.service.js';
 
 /**
- * Reject an empty source list before a merge builds its `inArray` predicate.
+ * Reject a source list a merge cannot safely act on, before it builds any
+ * predicate or touches the database.
  *
- * `inArray(col, [])` does not render `false` on the drizzle-orm pinned here
- * (0.30.10) — it throws `inArray requires at least one value` while the query
- * is being built, which would surface as an opaque 500. The routes already
- * enforce `.min(1)` on both merge bodies (`catalog.routes.ts:70,75`), so this
- * only guards a direct service call — but it makes that call fail with a 400
- * like the route would, rather than a 500 from inside the query builder.
+ * Empty list: `inArray(col, [])` does not render `false` on the drizzle-orm
+ * pinned here (0.30.10) — it throws `inArray requires at least one value` while
+ * the query is being built, which would surface as an opaque 500. The routes
+ * already enforce `.min(1)` on both merge bodies (`catalog.routes.ts:70,75`), so
+ * that only guards a direct service call — but it makes that call fail with a
+ * 400 like the route would, rather than a 500 from inside the query builder.
+ *
+ * Target listed as its own source: `sourcesWhere` is exactly the predicate the
+ * merge soft-deletes by (companies) or hard-deletes by (tags), and it is built
+ * from `sourceIds` alone — nothing excludes the target. So a target that also
+ * appears in its own source list is destroyed by its own merge: companies come
+ * back HTTP 200 with the survivor already `isDeleted`, and the tag paths delete
+ * the row outright, after which the `updated!` re-read is undefined and the DTO
+ * mapper throws an opaque 500. Both are unrecoverable for the tag case, so this
+ * rejects the input rather than trying to repair it. See WIC-1395.
  */
-function assertMergeSources(sourceIds: string[]) {
+function assertMergeSources(sourceIds: string[], targetId: string) {
   if (sourceIds.length === 0) {
     throw new AppError('BAD_REQUEST', 'A merge needs at least one source id', undefined, 400);
+  }
+  if (sourceIds.includes(targetId)) {
+    throw new AppError('BAD_REQUEST', 'A merge target cannot also be a source', undefined, 400);
   }
 }
 
@@ -91,7 +104,7 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
 
 export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  assertMergeSources(sourceIds);
+  assertMergeSources(sourceIds, targetId);
   // Every read AND every write is scoped to the caller, so a known id belonging
   // to another user can neither be folded into a target nor soft-deleted. The
   // predicate is conditional on userId for the same reason as resolveDiffItem:
@@ -234,7 +247,7 @@ export async function updateJobFitTag(
 
 export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  assertMergeSources(sourceIds);
+  assertMergeSources(sourceIds, targetId);
   const targetWhere = userId
     ? and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId))
     : eq(jobFitTags.id, targetId);
@@ -366,7 +379,7 @@ export async function updateTechStackTag(
 
 export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  assertMergeSources(sourceIds);
+  assertMergeSources(sourceIds, targetId);
   const targetWhere = userId
     ? and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId))
     : eq(techStackTags.id, targetId);
