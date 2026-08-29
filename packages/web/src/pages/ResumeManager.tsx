@@ -63,6 +63,16 @@ export function ResumeManager() {
   const handleDeleteClick = (id: string, fileName: string) => {
     setResumeToDelete({ id, fileName });
     setDeleteModalOpen(true);
+    // Clear the previous announcement as the dialog opens, so the next one is a
+    // real change to the live region rather than a re-set of the same string.
+    // Uploads dedupe on contentHash, not fileName (`resume.service.ts`), so two
+    // resumes called "resume.pdf" are ordinary — and deleting the second would
+    // otherwise assign a string identical to the first announcement, React would
+    // bail on Object.is, no text node would mutate, and assistive tech would say
+    // nothing at all about an irreversible action. Clearing here rather than
+    // around the set in handleConfirmDelete keeps the two writes in separate
+    // commits driven by separate user actions, so neither can be batched away.
+    setDeleteAnnouncement('');
   };
 
   const handleConfirmDelete = async () => {

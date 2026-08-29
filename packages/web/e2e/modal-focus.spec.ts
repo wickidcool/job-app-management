@@ -270,11 +270,32 @@ const MOCK_RESUMES = [
 ];
 
 /**
+ * Two resumes sharing a fileName. Upload dedupes on contentHash, not fileName
+ * (`resume.service.ts`), so this is an ordinary library — "resume.pdf" edited and
+ * re-uploaded — and it is the only shape in which a repeated announcement string
+ * can occur. `MOCK_RESUMES` has two distinct filenames, so the suite is
+ * structurally blind to that case without this fixture.
+ */
+const SAME_NAME_RESUMES = [
+  { ...MOCK_RESUMES[0], id: 'resume-same-001', fileName: 'resume.pdf' },
+  {
+    ...MOCK_RESUMES[1],
+    id: 'resume-same-002',
+    fileName: 'resume.pdf',
+    mimeType: 'application/pdf',
+  },
+];
+
+/**
  * Serves a resume list that a DELETE genuinely removes from, so the refetch that
  * follows a confirm really does unmount the trigger row.
  */
-async function setupShrinkingResumeList(page: Page, count: 1 | 2) {
-  const remaining = MOCK_RESUMES.slice(0, count);
+async function setupShrinkingResumeList(
+  page: Page,
+  count: 1 | 2,
+  catalog: typeof MOCK_RESUMES = MOCK_RESUMES
+) {
+  const remaining = catalog.slice(0, count);
 
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({
@@ -387,6 +408,62 @@ test.describe('ConfirmationModal — confirm path (WIC-1181)', () => {
     // has to live outside #root. Rendered in place it would keep #root itself
     // unhidden behind every dialog — measured, it does exactly that.
     expect(await announcer.evaluate((el) => !!el.closest('#root'))).toBe(false);
+  });
+
+  test('deleting a second identically-named resume announces it again, not silently', async ({
+    page,
+  }) => {
+    await setupShrinkingResumeList(page, 2, SAME_NAME_RESUMES);
+
+    // This case CANNOT be tested by reading the announcer's text. After the second
+    // delete the text is non-empty and names the right file either way — because it
+    // is the *first* announcement, still sitting there untouched. The defect is that
+    // the region never mutated, so assistive tech never announced it, and only the
+    // sequence of writes distinguishes the two worlds. Count the writes.
+    await page.evaluate(() => {
+      const announcer = document.querySelector('body > [aria-live="polite"]');
+      if (!announcer) throw new Error('live region not found — the fixture is wrong, not the app');
+      const store = window as unknown as { __announcerWrites: string[] };
+      store.__announcerWrites = [];
+      new MutationObserver(() => {
+        store.__announcerWrites.push(announcer.textContent ?? '');
+      }).observe(announcer, { childList: true, characterData: true, subtree: true });
+    });
+
+    const announcementsSoFar = async () =>
+      page.evaluate(() =>
+        (window as unknown as { __announcerWrites: string[] }).__announcerWrites.filter((text) =>
+          /resume\.pdf.*deleted/i.test(text)
+        )
+      );
+
+    const deleteFirstRow = async () => {
+      await page
+        .getByRole('button', { name: /delete/i })
+        .first()
+        .focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.getByRole('button', { name: 'Delete', exact: true }).click();
+      await expect(page.getByRole('dialog')).toBeHidden();
+    };
+
+    await deleteFirstRow();
+    await expect(page.getByRole('button', { name: /delete/i })).toHaveCount(1);
+    await expect.poll(async () => (await announcementsSoFar()).length).toBe(1);
+
+    await deleteFirstRow();
+    await expect(page.getByRole('button', { name: 'Upload Your First Resume' })).toBeVisible();
+
+    // Two deletes, two announcements. Pre-fix this polls out at 1: the second
+    // setState assigns a string equal to the first, React bails on Object.is and
+    // writes no text node, so the user is told nothing about a second irreversible
+    // action while the row visibly disappears.
+    await expect.poll(async () => (await announcementsSoFar()).length).toBe(2);
+
+    // ...and the announcement is what is actually left standing, not the blank the
+    // clear passes through. Guards the half-fix that clears but never re-announces.
+    await expect(page.locator('body > [aria-live="polite"]')).toHaveText(/resume\.pdf.*deleted/i);
   });
 
   test('cancelling still restores the trigger — the fallback does not hijack the safe path', async ({
