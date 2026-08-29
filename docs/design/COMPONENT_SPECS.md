@@ -479,21 +479,42 @@ interface FilterOptions {
   search?: string;
   status?: ApplicationStatus[];
   company?: string[];
-  dateRange?: { start: Date; end: Date };
-  salaryMin?: number;
-  salaryMax?: number;
+  // WIC-1613: `YYYY-MM-DD` local calendar days, each end independently optional.
+  // NOT `Date` — `SavedFilterShortcuts` persists whole `FilterOptions` objects
+  // through `JSON.stringify`, which a `Date` does not survive. See
+  // `packages/web/src/utils/dateRangeFilter.ts`.
+  dateRange?: { start?: string; end?: string };
+  activeOnly?: boolean;
 }
 ```
 
+`salaryMin` / `salaryMax` were specified here and never built; they are omitted above
+rather than left as a declaration nobody implements. `activeOnly` is the reverse — built
+and never specified — and is now written down. (WIC-1613 exists because `dateRange` sat
+in the third category: declared, spelled the way the requirement spells it, and wired to
+nothing. A field listed in this block is a promise, so this block only lists what is real.)
+
 ### UI Elements
 
-| Element    | Type                      | Behavior                                      |
-| ---------- | ------------------------- | --------------------------------------------- |
-| Search     | Text input                | Debounced (300ms), searches title + company   |
-| Status     | Multi-select checkboxes   | Filter by one or more statuses                |
-| Company    | Multi-select autocomplete | Filter by company name                        |
-| Date Range | Date picker               | Presets: This Week, This Month, Last 3 Months |
-| Salary     | Range slider              | Min $0k, Max $500k, step $10k                 |
+| Element     | Type                      | Behavior                                                                  |
+| ----------- | ------------------------- | ------------------------------------------------------------------------- |
+| Search      | Text input                | Debounced (300ms), searches title + company                               |
+| Status      | Multi-select checkboxes   | Filter by one or more statuses                                            |
+| Company     | Multi-select autocomplete | Filter by company name                                                    |
+| Date Range  | Two date inputs + presets | Presets: This Week, This Month, Last 3 Months. Either end may stand alone |
+| Active Only | Toggle switch             | Hides the terminal statuses (Offer, Rejected, Withdrawn)                  |
+
+**Which date the Date Range filters on.** US-6.3 says "filter by ... date" and does not
+say which; `Application` carries `createdAt`, `appliedAt` and `updatedAt`, and they
+select different rows. The control filters on **`appliedAt`, falling back to `createdAt`**
+and is labelled **"Date added / applied"** so the user is told rather than left to infer
+it. `updatedAt` is excluded deliberately: it moves whenever a status changes, so a row
+would leave and re-enter a fixed window without the user touching it. Both bounds are
+inclusive local calendar days.
+
+The presets are shorthand for the two inputs, not a separate filter — each writes the
+same `dateRange`, and either end stays editable afterwards. Presets alone cannot satisfy
+US-6.3, which asks for filtering by date, not by three enumerated windows.
 
 ### Active Filter Chips
 
@@ -784,7 +805,7 @@ here rather than merely tidy.
   cosmetic, and (its §3) the constraint on how `/cover-letters/new`'s missing `<h1>` must be
   fixed so that this prop does not become unearned again.
 - **A prop in this class can be un-earned from below, not only from above** (WIC-1598). The
-  criterion is where the heading lands *relative to its hosts*, so **demoting the headings around a
+  criterion is where the heading lands _relative to its hosts_, so **demoting the headings around a
   component collapses the prop exactly as promoting the component's own heading does** — both leave
   every call site passing the same level. This is not hypothetical: a `/cover-letters/new` heading
   sweep specified in `ROUTE_HEADING_OUTLINE.md` §4 would have flattened `CoverLetterPreview` to one
@@ -796,7 +817,7 @@ here rather than merely tidy.
     ruling that earned it.** A prop deleted as fallout from an unrelated sweep loses the reasoning
     with it, and the next person re-derives the same design question from scratch. The source guard
     (`CoverLetterPreview.test.tsx` → `is asked for h3 by CoverLetterGenerator and h2 by
-    CoverLetterDetail`) exists to force that conversation rather than to forbid the change — note
+CoverLetterDetail`) exists to force that conversation rather than to forbid the change — note
     that it reads the literal levels, so a structural argument about nesting will not satisfy it.
 
 #### Kanban headings (WIC-1563)
