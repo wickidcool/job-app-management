@@ -13,7 +13,9 @@ import { ApplicationForm } from '../components/ApplicationForm';
 import { WorkflowChecklist } from '../components/WorkflowChecklist';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useCoverLetters } from '../hooks/useCoverLetters';
-import { COVER_LETTER_PAGE_MAX, coverLettersForApplication } from '../constants/coverLetterMatch';
+import { useResumeVariants } from '../hooks/useResumeVariants';
+import { useInterviewPrepByApplication } from '../hooks/useInterviewPrep';
+import { TARGETED_LIST_PAGE_MAX, itemsForApplication } from '../constants/applicationMatch';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
@@ -27,8 +29,8 @@ export function ApplicationDetail() {
   // Cover letters written for this application. The endpoint has no
   // `applicationId` filter — no such column exists — so `company` narrows
   // server-side (an `ilike '%…%'`, so it over-matches) and
-  // `coverLettersForApplication` makes the company+role match exact. See
-  // `constants/coverLetterMatch.ts` for why the association has to be
+  // `itemsForApplication` makes the company+role match exact. See
+  // `constants/applicationMatch.ts` for why the association has to be
   // reconstructed at all (WIC-1533).
   //
   // `limit` is the endpoint's maximum page (server default is 20) and is
@@ -40,13 +42,40 @@ export function ApplicationDetail() {
   // letters yet for this role" and an unticked checklist — this card's own
   // defect, re-created at the tail. Residual: it still fails above 100.
   const { data: companyCoverLetters = [] } = useCoverLetters(
-    { company: application?.company, limit: COVER_LETTER_PAGE_MAX },
+    { company: application?.company, limit: TARGETED_LIST_PAGE_MAX },
     { enabled: !!application }
   );
-  const coverLetters = application
-    ? coverLettersForApplication(companyCoverLetters, application)
-    : [];
+  const coverLetters = application ? itemsForApplication(companyCoverLetters, application) : [];
   const latestCoverLetter = coverLetters[0];
+
+  // Resume variants written for this application. Reconstructed exactly as the
+  // cover letters above are, and for the same reason: `resume_variants` has no
+  // `application_id` column either, so `company` narrows server-side (again an
+  // over-matching `ilike '%…%'`) and `itemsForApplication` makes it exact. The
+  // two artefacts deliberately share one predicate rather than a copy — see the
+  // module header for why (WIC-1536).
+  const { data: companyResumeVariants } = useResumeVariants(
+    { company: application?.company, limit: TARGETED_LIST_PAGE_MAX },
+    { enabled: !!application }
+  );
+  const resumeVariants = application
+    ? itemsForApplication(companyResumeVariants?.variants ?? [], application)
+    : [];
+  const latestResumeVariant = resumeVariants[0];
+
+  // Interview prep, which needs none of the above. `interview_preps` has a
+  // real `application_id` — `notNull`, `unique`, a genuine foreign key — so the
+  // prep is *looked up*, not reconstructed, and the service maps the endpoint's
+  // 404 to `null` rather than throwing. That `unique` is why one prep per
+  // application is the right shape here.
+  //
+  // The step is ticked off `interviewPrep.interviewPrep`, the payload, and not
+  // off the envelope: `getByApplicationId` returns `GetInterviewPrepResponse |
+  // null`, so a truthy-but-empty body would otherwise tick a step for a prep
+  // that is not there. `ApplicationDetail.pageCap.test.tsx` serves exactly that
+  // body and caught it.
+  const { data: interviewPrep } = useInterviewPrepByApplication(id);
+  const hasInterviewPrep = !!interviewPrep?.interviewPrep;
 
   const updateStatusMutation = useUpdateApplicationStatus();
   const updateMutation = useUpdateApplication();
@@ -185,6 +214,9 @@ export function ApplicationDetail() {
             hasJobDescription={!!application.jobDescription}
             hasCoverLetter={coverLetters.length > 0}
             coverLetterId={latestCoverLetter?.id}
+            hasResumeVariant={resumeVariants.length > 0}
+            resumeVariantId={latestResumeVariant?.id}
+            hasInterviewPrep={hasInterviewPrep}
           />
         </div>
 
