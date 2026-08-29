@@ -321,10 +321,17 @@ function lineStartAt(source: string, index: number): number {
  * never crossing a line start.
  *
  * `|` is in the delimiter class and is load-bearing, not decorative:
- * `COMPONENT_SPECS.md:874` is a markdown table row, and neighbouring cells have
- * to scope apart or a marker in one cell exempts the figures in the next.
- * (`:841` on `560f5df`; the `9ba5041` merge moved it 33 lines. Pinned by
- * `table cells scope apart` below, which does not depend on the line number.)
+ * COMPONENT_SPECS.md's `File Too Large` row — `| File Too Large | Drop 15MB file
+ * (max 10MB) | Show error toast: "File must be under 10MB" |` — is a markdown
+ * table row, and neighbouring cells have to scope apart or a marker in one cell
+ * exempts the figures in the next.
+ *
+ * That row is named by content, not by line number, because every line number
+ * this comment has carried went stale before anyone read it. It has moved twice
+ * under merges already, and the number cited here previously now points at an
+ * unrelated `acceptedFormats` field in a TypeScript block. `grep` for the row
+ * instead. The behaviour is pinned by `table cells scope apart` below, which
+ * likewise does not depend on a line number.
  *
  * The failure direction is safe. An abbreviation the split does not know about
  * — `e.g.`, `i.e.`, a decimal — can only cut the clause *shorter* than the
