@@ -78,7 +78,12 @@ const variant = (
   id: string,
   owner: string | null,
   bulletIds: string[],
-  extra: { projects?: string[]; revisionExperience?: string[]; selected?: string[] } = {}
+  extra: {
+    projects?: string[];
+    revisionExperience?: string[];
+    revisionProjects?: string[];
+    selected?: string[];
+  } = {}
 ) => {
   const bullets = (ids: string[]) =>
     ids.map((b) => ({ id: b, text: `rewritten copy of ${b}`, source: 'catalog' }));
@@ -89,26 +94,44 @@ const variant = (
       : [],
     skills: { categories: [] },
   };
-  const revisionHistory = extra.revisionExperience
-    ? [
-        {
-          id: 'rev-1',
-          instructions: 'tighten',
-          appliedAt: '2026-01-01T00:00:00Z',
-          previousContent: {
-            experience: [
-              {
-                id: 'exp-1',
-                company: 'Acme',
-                role: 'Eng',
-                bullets: bullets(extra.revisionExperience),
-              },
-            ],
-            skills: { categories: [] },
+  // `previousContent` is a whole frozen ResumeContent, so it carries a
+  // `BulletContent[]` under *both* `experience` and `projects` — the SQL crosses
+  // `(VALUES ('experience'), ('projects'))`, which makes revision_history two
+  // carrier sites, not one. Both are populated independently so each can be
+  // asserted on its own.
+  const revisionHistory =
+    extra.revisionExperience || extra.revisionProjects
+      ? [
+          {
+            id: 'rev-1',
+            instructions: 'tighten',
+            appliedAt: '2026-01-01T00:00:00Z',
+            previousContent: {
+              experience: extra.revisionExperience
+                ? [
+                    {
+                      id: 'exp-1',
+                      company: 'Acme',
+                      role: 'Eng',
+                      bullets: bullets(extra.revisionExperience),
+                    },
+                  ]
+                : [],
+              projects: extra.revisionProjects
+                ? [
+                    {
+                      id: 'proj-1',
+                      name: 'P',
+                      techStack: [],
+                      bullets: bullets(extra.revisionProjects),
+                    },
+                  ]
+                : [],
+              skills: { categories: [] },
+            },
           },
-        },
-      ]
-    : [];
+        ]
+      : [];
   const selected = extra.selected ? [{ sectionId: 'exp-1', bulletIds: extra.selected }] : [];
   return db.query(
     `INSERT INTO resume_variants (id, user_id, content, selected_bullets, revision_history)
@@ -188,6 +211,7 @@ beforeAll(async () => {
   // Carriers WIC-1464's description does not name.
   await variant('v-projects-only', ALICE, [], { projects: ['b-bob'] });
   await variant('v-revision-only', ALICE, [], { revisionExperience: ['b-bob'] });
+  await variant('v-revision-projects-only', ALICE, [], { revisionProjects: ['b-bob'] });
 
   // Malformed JSONB must degrade, not abort the audit.
   await db.query(`INSERT INTO resume_variants (id, user_id, content) VALUES ($1, $2, $3::jsonb)`, [
@@ -248,10 +272,21 @@ describe('WIC-1464 identification predicate — resume_variants', () => {
     ]);
   });
 
-  it('finds foreign text frozen in revision_history.previousContent', () => {
+  it('finds foreign text frozen in revision_history.previousContent.experience', () => {
     // A remediation scoped to `content` alone would leave this copy behind.
     expect(verdictsFor('v-revision-only', 'b-bob')).toEqual([
       { carrier: 'revision_history.previousContent.experience', verdict: 'foreign' },
+    ]);
+  });
+
+  it('finds foreign text frozen in revision_history.previousContent.projects', () => {
+    // The `projects` half of the revision-history arm. Without this fixture,
+    // dropping `('projects')` from the SQL's `(VALUES ...)` list leaves the whole
+    // suite green — the experience half alone satisfies every other assertion,
+    // so the mutation matrix's "drop the revision_history carrier" row was only
+    // ever exercising one of the two sites it crosses.
+    expect(verdictsFor('v-revision-projects-only', 'b-bob')).toEqual([
+      { carrier: 'revision_history.previousContent.projects', verdict: 'foreign' },
     ]);
   });
 
@@ -266,15 +301,21 @@ describe('WIC-1464 identification predicate — resume_variants', () => {
     await variant('v-multi', ALICE, ['b-bob'], {
       projects: ['b-bob'],
       revisionExperience: ['b-bob'],
+      revisionProjects: ['b-bob'],
     });
     const rows = (await db.query<VariantRow>(VARIANT_BULLETS_SQL)).rows;
     const multi = rows.filter((r) => r.variant_id === 'v-multi');
-    expect(multi).toHaveLength(3);
+    // Four carrier *sites*, not three: the revision-history arm crosses
+    // `(VALUES ('experience'), ('projects'))`, so `previousContent` contributes
+    // one site per key. This assertion is the exhaustiveness gate — a carrier
+    // added to or dropped from the SQL has to change it.
+    expect(multi).toHaveLength(4);
     expect(new Set(multi.map((r) => r.carrier))).toEqual(
       new Set([
         'content.experience',
         'content.projects',
         'revision_history.previousContent.experience',
+        'revision_history.previousContent.projects',
       ])
     );
     expect(multi.every((r) => r.verdict === 'foreign')).toBe(true);
@@ -359,11 +400,12 @@ describe('WIC-1464 selected_bullets id-only references', () => {
 describe('WIC-1464 summarise()', () => {
   it('separates victims from the users exposed to their text', () => {
     const s = summarise(variantRows, 'variant_id', 'variant_owner_id');
-    // v-foreign, v-projects-only, v-revision-only — all Alice's, all carrying Bob's.
-    expect(s.affectedRows).toBe(3);
+    // v-foreign, v-projects-only, v-revision-only, v-revision-projects-only —
+    // one per carrier site, all Alice's, all carrying Bob's text.
+    expect(s.affectedRows).toBe(4);
     expect(s.victimOwnerIds).toEqual([BOB]);
     expect(s.exposedToOwnerIds).toEqual([ALICE]);
-    expect(s.byVerdict.foreign).toBe(3);
+    expect(s.byVerdict.foreign).toBe(4);
   });
 
   it('counts a container once however many foreign occurrences it holds', () => {

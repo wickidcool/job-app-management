@@ -56,18 +56,22 @@
 // Carriers
 // ---------------------------------------------------------------------------
 //
-// WIC-1464 names `content->'experience'->...->'bullets'`. That is one of three
-// places a `BulletContent[]` is persisted on a variant (see `db/schema.ts`):
+// WIC-1464 names `content->'experience'->...->'bullets'`. That is one of **four**
+// sites a `BulletContent[]` is persisted on a variant (see `db/schema.ts`):
 //
 //   * `content.experience[].bullets[]`                     (named on the card)
 //   * `content.projects[].bullets[]`                       (ProjectSection also
 //                                                            carries BulletContent[])
-//   * `revision_history[].previousContent.{experience,projects}[].bullets[]`
-//     (VariantRevisionEntry.previousContent is a whole frozen ResumeContent)
+//   * `revision_history[].previousContent.experience[].bullets[]`
+//   * `revision_history[].previousContent.projects[].bullets[]`
+//     (VariantRevisionEntry.previousContent is a whole frozen ResumeContent, so
+//      it contributes one site per key — the arm below crosses `(VALUES
+//      ('experience'), ('projects'))` and is therefore two sites, not one.)
 //
 // Auditing only the first would undercount, and — worse for AC-c — a remediation
 // built from that count would leave the same text sitting in `revision_history`.
-// All three are enumerated. `selected_bullets[].bulletIds` is deliberately *not*
+// All four are enumerated, and each is pinned by its own fixture in
+// `test/foreign-star-audit.predicate.test.ts`. `selected_bullets[].bulletIds` is deliberately *not*
 // a carrier: it holds ids with no text, so it is a dangling reference rather
 // than a copy of foreign text. It is reported separately by the CLI.
 
