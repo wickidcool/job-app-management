@@ -91,6 +91,7 @@ local set is one workspace reset away from being lost, which is the failure this
 rewritten to remove.
 """
 
+import http.client
 import json
 import os
 import re
@@ -311,14 +312,31 @@ def prod_db_health():
     headers = {"User-Agent": "wic-organic-watch/1.0 (+WIC-1358)", "Accept": "application/json"}
     try:
         req = urllib.request.Request(PROD_HEALTH_URL, method="GET", headers=headers)
-        # 90s, not 30s. While prod is subrequest-exhausted -- which is the entire period this
-        # clause-(b) check exists for -- the handler only answers *after* the Worker burns its
-        # retry budget, measured at 25.6-27.2s on 2026-08-27 03:4xZ. A 30s timeout leaves a
-        # ~3s margin, so the probe intermittently raised "The read operation timed out" and
-        # reported clause (b) as UNKNOWN when prod had in fact answered a clean `degraded`.
-        # An UNKNOWN here is not harmless: it is indistinguishable from "never measured", and
-        # it is the exact reading that would let a reader conclude the outage had lifted.
-        # The slow path is the expected path here; budget for it.
+        # 90s, not 30s. The probe's real ceiling is the API's Postgres `connect_timeout`:
+        # `packages/api/src/db/client.ts:23` builds `postgres(DATABASE_URL, {prepare: false,
+        # ssl: 'require'})` and sets NO connect_timeout, so postgres-js's default of 30s
+        # applies (`postgres@3.4.9`, `src/index.js:453`) -- plus TLS and edge overhead.
+        # 90s clears that with margin. Note the default is UNPINNED: package.json declares
+        # `"postgres": "^3.4.4"`, so a bump that raises it silently re-opens this race.
+        #
+        # This is a budget over a known ceiling, not over an observation. Observed latency
+        # varies widely on the same exhausted prod: 25.6-27.2s on 2026-08-27 03:4xZ (one
+        # connect attempt expiring just under the 30s ceiling), ~4s at 08:2xZ. A 30s timeout
+        # left only a ~3s margin over the former, so the probe intermittently raised "The read
+        # operation timed out" and reported clause (b) as UNKNOWN when prod had in fact
+        # answered a clean `degraded`. An UNKNOWN here is not harmless: it is indistinguishable
+        # from "never measured", and it is the exact reading that would let a reader conclude
+        # the outage had lifted.
+        #
+        # NOT the mechanism, though an earlier revision of this comment said so: the Worker's
+        # Hyperdrive retry loop (`worker.ts:13-21`) is unreachable for this endpoint. `/health`
+        # catches its own DB error and returns 503 (`app.ts:97-102`), so nothing propagates out
+        # of `app.fetch` to retry on; the loop also needs a Hyperdrive-specific message and prod
+        # has no Hyperdrive binding, and its whole budget is 150ms regardless. Nor is
+        # subrequest exhaustion the slow path -- once the invocation's budget is spent the
+        # runtime refuses the connection immediately, which is the ~4s reading above.
+        # Raising the timeout costs nothing on a healthy response: it bounds a hang, so a 4s
+        # answer still returns in 4s.
         with urllib.request.urlopen(req, timeout=90) as resp:
             body = json.load(resp)
     except urllib.error.HTTPError as exc:
@@ -326,9 +344,17 @@ def prod_db_health():
         # read the error body rather than discarding it with the exception.
         try:
             body = json.loads(exc.read().decode("utf-8", "replace"))
-        except (ValueError, OSError):
+        except (ValueError, OSError, http.client.HTTPException):
             return ("unknown", {"probe_error": describe_edge_failure(exc.code)})
-    except (urllib.error.URLError, ValueError, OSError) as exc:
+    # `http.client.HTTPException` is load-bearing and easy to lose: it subclasses
+    # Exception, NOT OSError, so `IncompleteRead` (truncated /health body),
+    # `BadStatusLine` and `LineTooLong` all escape an (OSError, ValueError) tuple.
+    # Escaping here propagates out of the prod_db_health() call at :533 -- which sits
+    # *before* the organic branch -- so the process dies with exit 1 and the
+    # CANDIDATE ORGANIC TRAFFIC block never prints. That is a probe fault suppressing
+    # a real first user: the precise failure the docstring above forbids. Caught in
+    # review of PR #207 (WIC-1636); `test_prod_db_health_faults` below pins it.
+    except (urllib.error.URLError, http.client.HTTPException, ValueError, OSError) as exc:
         return ("unknown", {"probe_error": str(exc)})
 
     return classify_health(body)
@@ -450,6 +476,83 @@ EDGE_CASES = [
 ]
 
 
+# (label, exception the stubbed urlopen raises). Every one must collapse to "unknown"
+# rather than escape prod_db_health().
+#
+# Why this table exists: HEALTH_CASES and EDGE_CASES cover `classify_health` and
+# `describe_edge_failure`, which are pure -- but the safety invariant in the
+# prod_db_health() docstring lives in the *except tuples*, and those had zero coverage.
+# Review of PR #207 (WIC-1636) demonstrated the gap two ways: mutating the fault return
+# from "unknown" to "degraded" left the suite at 14/14, and `http.client.HTTPException`
+# was genuinely missing from the tuple, so a truncated /health body escaped, propagated
+# out of the call at :533 -- before the organic branch -- and exited 1 instead of 10.
+# A probe fault suppressed a real first user. Assert the collapse, not the rendering.
+PROBE_FAULTS = [
+    # HTTPException subclasses OSError NOWHERE. These are the ones that escaped.
+    ("truncated /health body", http.client.IncompleteRead(b"", 5)),
+    ("garbage status line", http.client.BadStatusLine("\x00\x00")),
+    ("oversized header line", http.client.LineTooLong("header line")),
+    # Caught before the fix too, but only incidentally -- it also inherits ConnectionResetError.
+    ("peer hung up mid-response", http.client.RemoteDisconnected("closed")),
+    ("socket read timeout", urllib.error.URLError("The read operation timed out")),
+    ("bare timeout", TimeoutError("timed out")),
+    ("DNS failure", OSError("Name or service not known")),
+    ("unparseable 200 body", ValueError("Expecting value: line 1 column 1")),
+]
+
+
+class _UnreadableBody:
+    """A response body that fails mid-read -- exercises the inner tuple at the HTTPError
+    branch, where the 503 payload read can fail exactly as the outer call can."""
+
+    def read(self, *_args):
+        raise http.client.IncompleteRead(b"", 5)
+
+    def close(self):
+        pass
+
+
+def probe_fault_cases():
+    """(label, urlopen-stub) pairs covering both except tuples in prod_db_health."""
+    cases = [(label, (lambda e: lambda *a, **k: _raise(e))(exc)) for label, exc in PROBE_FAULTS]
+
+    def http_error_unreadable(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            PROD_HEALTH_URL, 522, "origin timeout", {}, _UnreadableBody()
+        )
+
+    cases.append(("522 whose body read fails", http_error_unreadable))
+    return cases
+
+
+def _raise(exc):
+    raise exc
+
+
+def selftest_probe_faults():
+    """Stub urlopen and assert every fault path collapses to "unknown" without escaping."""
+    failures = 0
+    real_urlopen = urllib.request.urlopen
+    try:
+        for label, stub in probe_fault_cases():
+            urllib.request.urlopen = stub
+            try:
+                state, detail = prod_db_health()
+                ok = state == "unknown"
+                got = f"{state!r}"
+            except Exception as exc:  # noqa: BLE001 -- escaping IS the failure under test
+                ok = False
+                got = f"ESCAPED {type(exc).__name__}: {exc}"
+                detail = None
+            failures += 0 if ok else 1
+            print(f"  [{'PASS' if ok else 'FAIL'}] probe fault, {label}: got {got}, want 'unknown'")
+            if not ok and detail is not None:
+                print(f"         detail: {detail}")
+    finally:
+        urllib.request.urlopen = real_urlopen
+    return failures
+
+
 def selftest():
     """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
     failures = 0
@@ -467,7 +570,8 @@ def selftest():
         print(f"  [{'PASS' if ok else 'FAIL'}] {label}: {rendered!r}")
         if not ok:
             print(f"         wanted substring: {want!r}")
-    total = len(HEALTH_CASES) + len(EDGE_CASES)
+    failures += selftest_probe_faults()
+    total = len(HEALTH_CASES) + len(EDGE_CASES) + len(probe_fault_cases())
     print(f"\n{total - failures}/{total} health-classification cases pass.")
     return 1 if failures else 0
 
