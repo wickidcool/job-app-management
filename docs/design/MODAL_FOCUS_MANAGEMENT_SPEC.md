@@ -1,8 +1,10 @@
 # Modal focus management — design spec
 
 **Author:** UI/UX Developer · **Original date:** 2026-08-19 · **Amended:** 2026-08-25 (WIC-1295,
-WIC-1320), 2026-08-26 (WIC-1467)
+WIC-1320), 2026-08-26 (WIC-1467), 2026-08-29 (WIC-1670 — §5.3)
 **Ported into the repo and re-measured against `a59b869`:** 2026-08-27 (WIC-1626, part 2 of WIC-1582)
+**This file is the canonical copy.** The UI/UX agent's workspace holds a frozen pre-port original;
+amend here.
 
 > **Why this file exists.** `docs/design/ACCESSIBILITY.md` cites *"`MODAL_FOCUS_MANAGEMENT_SPEC.md`
 > → **Rule — app-level live regions belong outside `#root`**"* as the rationale of record for a
@@ -40,7 +42,8 @@ WIC-1320), 2026-08-26 (WIC-1467)
 |---|---|
 | §2 audit — all six hand-rolled dialogs non-compliant | **Still entirely accurate.** Zero of the six import `@radix-ui/react-dialog`; zero handle `Escape`. |
 | §4 decision — migrate to Radix rather than write a trap | **Unimplemented.** PR #95 / #97 open. |
-| §5 hook contract — `useDialogFocusRestore` | **Unimplemented.** File absent; PR #97 open. |
+| §5 hook contract — `useDialogFocusRestore` | **Unimplemented.** File absent; PR #97 open. Re-measured at `d2cd7b3` (2026-08-29): still absent, still open. |
+| §5.3 obligation — *when* `restoreFocusTo` is required | **Normative and in force**, and enforced by `docs/design/confirmation-modal-focus-audit.py` in `Lint & Test` — but the audit is **dormant until the prop exists** (PR #115) and says so on every run. |
 | §6 **Rule — app-level live regions belong outside `#root`** | **Normative and in force.** Also stated in `ACCESSIBILITY.md` §Live Regions. |
 | §6.2 the `EmptyState` consequence | **Closed** — fixed on `main` by WIC-1155. |
 | §9 docs follow-up — the checked box in `ACCESSIBILITY.md` | ~~**Still outstanding.**~~ **Closed at `0e5d97a` (2026-08-29):** the box now reads `- [ ]` and cites §5. Re-measuring it found **all six** Phase 1 boxes wrong; all six are now unchecked with their measurement inline. |
@@ -249,6 +252,95 @@ Two constraints on rung 2:
 cannot see. A polite live region on the create/delete-success path is required. Read §6 before
 adding one anywhere.
 
+### 5.3 When a fallback is **obligatory** — adopted 2026-08-29 (WIC-1670)
+
+**Normative.** §5.1 and §5.2 both answer *which* element to pass once you have already decided you
+need to pass one. Neither states the obligation, and `restoreFocusTo` is an optional prop — so a
+call site that needs it and omits it produces **no type error, no lint error and no failing test.**
+This section is the missing half. Raised by the Code Reviewer on PR #115 and adopted as written,
+with the sharpenings below.
+
+> **The rule.** If the dialog's confirm action can remove the trigger's own DOM node — directly, or
+> by changing a list or branch the trigger renders inside — `restoreFocusTo` is **required**, not
+> optional.
+>
+> **The test is a structural one about the render tree, not a judgement about the trigger.** Do not
+> ask *"is the trigger detached when the dialog closes?"* — it usually is **not** (§4.2: the restore
+> succeeds and is undone a macrotask later). Ask:
+>
+> > **Does the trigger render inside anything the action's refetch re-renders?**
+>
+> Two answers are mechanical, and between them cover every case in this app today:
+>
+> - **A per-row control inside a `.map()` over the mutated collection** — always **yes**.
+>   (`ResumeManager`'s `🗑️ Delete`. This is WIC-1181 exactly.)
+> - **A control inside one arm of a branch whose predicate the action can flip** — `list.length === 0
+>   ? <EmptyState/> : <list/>`, or the loading/error arms — also **yes**, including when the arm it
+>   sits in is not the one that changes.
+>
+> If the answer is no, **say so on the record** at the call site (below). Do not leave it silent:
+> "no fallback needed" and "nobody considered it" are indistinguishable in a diff, and the second is
+> what shipped WIC-1181.
+
+**Three things that do *not* discharge the obligation.** All three were tried and measured:
+
+1. **An `isConnected` guard at restore time.** The node is still connected when the guard runs; it
+   passes, focus is restored, and *then* the node is removed (§4.2, measured in Chromium on PR #97).
+2. **Declining to `preventDefault()`** in `onCloseAutoFocus`. `composeEventHandlers` defaults to
+   `checkForDefaultPrevented: true`, so falling through runs Radix's own handler, which
+   `preventDefault()`s regardless and focuses its always-`null` `triggerRef` — every route ends on
+   `<body>` (§4.1, §4.2).
+3. **A manual pass that looked fine.** The damage lands after the decision point, in a `setTimeout(…,
+   0)` the mutation's commit can straddle in either order. A tester who does not tab immediately
+   after confirming sees nothing wrong.
+
+**Why the prop stays optional, and why there is no lint rule.** Making it required would be wrong for
+a cancel-only dialog whose trigger survives, and worse than the status quo in practice: authors would
+satisfy the type by passing a throwaway ref, which converts a *visible omission* into an *invisible
+dead ref* — §5.1 rule 2's failure mode, on purpose. A lint rule would have to decide whether a given
+dialog's `onConfirm` unmounts its own trigger, which is a data-flow question across a mutation, a
+query invalidation and a conditional render, and is not statically decidable in the general case. So
+the enforcement is a **declaration**, not an inference.
+
+#### Verification — every call site declares, one way or the other
+
+Every `<ConfirmationModal …>` call site must **either** pass `restoreFocusTo`, **or** carry a
+`focus-restore-exempt` comment saying why its trigger survives the confirm:
+
+```tsx
+{/* focus-restore-exempt: the Filters button sits in the toolbar above the ternary
+    this action flips, so no confirm outcome can unmount it. */}
+<ConfirmationModal … />
+```
+
+Enforced by **`docs/design/confirmation-modal-focus-audit.py`**, wired into `Lint & Test` in
+`.github/workflows/deploy.yml` alongside the other three design audits. A reason under 40 characters
+is rejected — the exemption has to be a sentence a reviewer can disagree with.
+
+**What a green check from that script does not mean**, stated so it is not over-read:
+
+- **It does not check that the ref you passed is any good.** §5.1 rule 1 (the fallback must render on
+  *both* arms of the branch the action flips) and rule 2 (a `fallbackRef` still `null` at
+  `onCloseAutoFocus` disables the watch silently) remain structural judgements no grep can make.
+  Passing a throwaway ref satisfies the audit and ships the bug — which is the whole reason the prop
+  is not simply made required.
+- **It covers `ConfirmationModal` call sites only.** The rule above is normative for **every** dialog
+  in this app; the script mechanises the one component with a uniform prop to grep for. The other
+  five dialogs (§7) are on the author.
+- **It skips `*.test.tsx` / `*.spec.tsx` and `test/` and `e2e/` directories.**
+- **It is dormant until `restoreFocusTo` exists on the component.** At `d2cd7b3` the prop is not
+  declared — it lands with PR #115 — so the script prints a `NOTICE` naming every unenforced call
+  site and exits 0. It arms itself automatically on the commit that adds the prop. **Today's green
+  check on this rule therefore proves nothing**, by construction and on the record.
+
+> **State at `d2cd7b3` (2026-08-29), re-measured for this amendment.** `restoreFocusTo` does not
+> exist on `main`: `ConfirmationModal.tsx` is still the hand-rolled `<div className="fixed inset-0
+> …">` of §2, `useDialogFocusRestore.ts` is still absent, and there is exactly **one**
+> `<ConfirmationModal` call site in the tree (`pages/ResumeManager.tsx:176`) — the one whose trigger
+> the action destroys. PR #95, #97 and #115 are all still open. This section is therefore a rule
+> written *ahead* of the mechanism it governs, deliberately: the audit is what makes it bind the
+> moment #115 lands, without anyone having to remember this document exists.
+
 ## 6. Rule — app-level live regions belong **outside `#root`**
 
 **Adopted 2026-08-25 (WIC-1320), from a finding on PR #115. Ratified 2026-08-26 (WIC-1467) as the
@@ -421,6 +513,10 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
   not just this one.
 - **Convert §8's manual checklist to RTL regression tests** — the harness gap it was written around
   has closed.
+- **Confirm `confirmation-modal-focus-audit.py` armed** on the commit that lands PR #115. The script
+  prints a `NOTICE` and passes while `restoreFocusTo` is undeclared; the first CI run after #115
+  merges should print `ConfirmationModal focus restore OK — 1 call site(s) declared` instead. If it
+  still prints the notice, the prop landed under a different name and the audit is watching nothing.
 
 ## 11. Related
 
