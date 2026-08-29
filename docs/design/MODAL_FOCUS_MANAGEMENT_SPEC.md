@@ -43,7 +43,7 @@ WIC-1320), 2026-08-26 (WIC-1467)
 | §5 hook contract — `useDialogFocusRestore` | **Unimplemented.** File absent; PR #97 open. |
 | §6 **Rule — app-level live regions belong outside `#root`** | **Normative and in force.** Also stated in `ACCESSIBILITY.md` §Live Regions. |
 | §6.2 the `EmptyState` consequence | **Closed** — fixed on `main` by WIC-1155. |
-| §9 docs follow-up — the checked box in `ACCESSIBILITY.md` | **Still outstanding.** `ACCESSIBILITY.md:640` still reads `- [x] Focus management in modals`. |
+| §9 docs follow-up — the checked box in `ACCESSIBILITY.md` | ~~**Still outstanding.**~~ **Closed at `0e5d97a` (2026-08-29):** the box now reads `- [ ]` and cites §5. Re-measuring it found **all six** Phase 1 boxes wrong; all six are now unchecked with their measurement inline. |
 
 ---
 
@@ -392,20 +392,33 @@ Verify per dialog:
 > `EmptyState.test.tsx` and `NotFound.test.tsx` are in the tree. Items 1–5 are RTL-testable **now**
 > and should ship as regression tests with PR #95 / #97 rather than as a manual pass.
 
-## 9. Docs follow-up — still outstanding
+## 9. Docs follow-up — ~~still outstanding~~ **closed 2026-08-29**
 
-`docs/design/ACCESSIBILITY.md:640` marks `- [x] Focus management in modals` complete. **It should be
-`- [ ]` until this ships.** A checked box on an unimplemented a11y requirement is why this went six
-dialogs deep before anyone looked.
+~~`docs/design/ACCESSIBILITY.md:640` marks `- [x] Focus management in modals` complete.~~ **It should
+be `- [ ]` until this ships.** A checked box on an unimplemented a11y requirement is why this went
+six dialogs deep before anyone looked.
 
-> **Re-measured at `a59b869`: still `- [x]`, still wrong.** The original spec cited this at
-> `:566`; it is now `:640`. Not fixed in this PR — flipping it is a claim about `ACCESSIBILITY.md`'s
-> checklist semantics and belongs with the PR that actually lands the behaviour. Tracked in §10.
+~~**Re-measured at `a59b869`: still `- [x]`, still wrong.** The original spec cited this at `:566`;
+it is now `:640`. Not fixed in this PR — flipping it is a claim about `ACCESSIBILITY.md`'s checklist
+semantics and belongs with the PR that actually lands the behaviour. Tracked in §10.~~
+
+> **Closed at `0e5d97a` (2026-08-29).** The box is now `- [ ]` and points here, at §5, for its
+> authority. Line number deliberately dropped — this item has already moved twice (`:566` → `:640`)
+> and the anchor rotted both times; cite *§Implementation Priority → Phase 1* instead.
+>
+> The flip did **not** wait for the behaviour after all. Re-measuring that one box prompted
+> re-measuring all six in that checklist, and **all six were wrong** — contrast validation was
+> checked here while `DESIGN_SYSTEM.md` carried the identical item unchecked, and "screen reader
+> testing (basic)" had no recorded result anywhere in the repo. That made the flip a correction of
+> fact, not a claim about checklist semantics, so it no longer belonged with the behaviour PR.
+> Each box now carries its measurement inline.
 
 ## 10. Follow-ups
 
 - **Land PR #95 and PR #97.** Both open, both blocking every row of §2.
-- **Flip `ACCESSIBILITY.md:640`** to `- [ ]`, or land the behaviour that makes it true.
+- ~~**Flip `ACCESSIBILITY.md:640`** to `- [ ]`, or land the behaviour that makes it true.~~
+  **Done at `0e5d97a`, 2026-08-29** — see §9. All six Phase 1 boxes were re-measured and unchecked,
+  not just this one.
 - **Convert §8's manual checklist to RTL regression tests** — the harness gap it was written around
   has closed.
 
