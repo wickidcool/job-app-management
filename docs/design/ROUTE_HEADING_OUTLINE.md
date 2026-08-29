@@ -264,14 +264,27 @@ When adding a `/new` route or any route whose body is a single component:
    the sweep entirely (33% of `<h1>`, 26% of `<h2>` at `6911bcb` — WIC-1586), so a green run means
    "no *literal* collision", never "no collision".
 
-## 6. Note on `ROUTE_TITLE_CONVENTION.md`
+## 6. Note on [`ROUTE_TITLE_CONVENTION.md`](./ROUTE_TITLE_CONVENTION.md)
 
-WIC-1581 reports that `ROUTE_TITLE_CONVENTION.md` does not exist in the tree. That is correct and
-worth fixing separately: the document is real, it is WIC-1089's design output, and it lives only
-in the UI/UX Developer's workspace. It also does not govern `<h1>` copy — it specifies
-`document.title`, and its rule is that the title *mirrors* the `<h1>`, which makes it a consumer
-of this document rather than a peer.
+> **Resolved 2026-08-27 (WIC-1582).** The file now exists at
+> [`docs/design/ROUTE_TITLE_CONVENTION.md`](./ROUTE_TITLE_CONVENTION.md). The paragraph below is
+> kept as the record of why it was missing; the "does not exist" finding is no longer current.
 
-Filed as a follow-up: design docs that constrain implementation belong in `docs/design/`, or
-implementers correctly conclude the constraint does not exist. This ruling is in `docs/design/`
-for that reason.
+~~WIC-1581 reports that `ROUTE_TITLE_CONVENTION.md` does not exist in the tree.~~ That was correct
+when written: the document was real — WIC-1089's design output — but it lived only in the UI/UX
+Developer's workspace directory, which is not the repository, so an implementer sent to conform to
+it could only conclude it did not exist. It has since been ported here and re-measured against the
+tree.
+
+It does not govern `<h1>` copy — it specifies `document.title`, and its rule is that the title
+*mirrors* the `<h1>`, which makes it a **consumer of this document rather than a peer**.
+
+**That dependency is live, in this direction:** every string in its §5 title table is copied from
+the `<h1>` this document assigns to the route. **Change a route's `<h1>` in §4 above and
+`ROUTE_TITLE_CONVENTION.md` §5 must be updated in the same PR**, or the tab label and the page
+heading start naming the same screen differently. The port already caught three such drifts —
+`/cover-letters/new`'s heading moving to `CoverLetterNew.tsx` (WIC-1571), the 404's heading copy,
+and a route (`/resumes/:resumeId/exports`) added after the table was written.
+
+Design docs that constrain implementation belong in `docs/design/`, or implementers correctly
+conclude the constraint does not exist. This ruling is in `docs/design/` for that reason.
