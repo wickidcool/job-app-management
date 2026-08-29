@@ -5,8 +5,8 @@ This document defines all reusable UI components with their states, variants, pr
 ## Reading the wireframes: casing
 
 The ASCII wireframes below depict **rendered output**, not source strings. An all-caps label in a
-wireframe is therefore *either* the **Overline** token (`DESIGN_SYSTEM.md` §Typography — 10px / 600 /
-all-caps labels) applied as `text-transform: uppercase` in `className`, *or* a wireframe that is lying
+wireframe is therefore _either_ the **Overline** token (`DESIGN_SYSTEM.md` §Typography — 10px / 600 /
+all-caps labels) applied as `text-transform: uppercase` in `className`, _or_ a wireframe that is lying
 about what the component actually ships. The two are visually identical here, so the wireframes mark
 which one they mean.
 
@@ -25,12 +25,12 @@ Markers sit outside the closing box border, so they cost no alignment work:
 │ OVERVIEW                                    🟢 Strong │   ‹overline›
 ```
 
-| Marker | Meaning | What to do |
-|---|---|---|
-| `‹overline›` | Source ships the string **mixed case** with a CSS `uppercase` class. The wireframe is drawing the Overline correctly. | Leave both alone. Do **not** "fix" the source string. |
-| `‹sample›` | Not a UI label — placeholder, example content, acronym, or a wireframe annotation. | Leave alone. Not governed by the casing standard. |
-| `‹deferred›` | Known-wrong, but resolution is owned by another ticket (see the table below). | Leave alone; do not file a new card. |
-| *(no marker)* | The caps are a defect. | De-shout the wireframe to the string the source ships, preserving display width. |
+| Marker        | Meaning                                                                                                               | What to do                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `‹overline›`  | Source ships the string **mixed case** with a CSS `uppercase` class. The wireframe is drawing the Overline correctly. | Leave both alone. Do **not** "fix" the source string.                            |
+| `‹sample›`    | Not a UI label — placeholder, example content, acronym, or a wireframe annotation.                                    | Leave alone. Not governed by the casing standard.                                |
+| `‹deferred›`  | Known-wrong, but resolution is owned by another ticket (see the table below).                                         | Leave alone; do not file a new card.                                             |
+| _(no marker)_ | The caps are a defect.                                                                                                | De-shout the wireframe to the string the source ships, preserving display width. |
 
 That is the whole rule. It requires no judgement and no trip to the component source, which is what the
 previous version of this note demanded and what made the defect recur — see "Why this note is shaped
@@ -38,7 +38,7 @@ this way" below.
 
 **What counts as a caps label is positional: it opens its box row.** A label starts the row's content
 (after any leading emoji, bullet or box padding) and is followed by nothing but trailing space, a colon,
-or a right-aligned badge. Caps appearing *inside* a sentence or list item are acronyms or inline status
+or a right-aligned badge. Caps appearing _inside_ a sentence or list item are acronyms or inline status
 words, not labels, and need no marker — `STAR`, `PDF`, `DOCX`, `TXT`, `LINKED`, `FAILED`. Bracketed
 placeholders (`[VALUE]`, `[LABEL]`) are likewise exempt.
 
@@ -53,14 +53,14 @@ than merely written down.
 
 ### Fixing an unmarked caps line
 
-1. **Read the source string.** If the component ships mixed case *with* a `uppercase` class, the line was
+1. **Read the source string.** If the component ships mixed case _with_ a `uppercase` class, the line was
    mismarked — add `‹overline›` rather than de-shouting. `pages/ResumeVariantDetail.tsx:195/:203/:215/:242`
    is the model case: four `<h3>`s carrying `uppercase tracking-wide`. They render in caps and are
    **correct** — the caps never reach the accessibility tree. De-shouting those source strings, which the
    previous version of this note would have told you to do, is the mirror-image defect.
 2. **If the source string ends in a colon**, it is an inline field label introducing the content beneath
    it, not an Overline. De-shout it and add **no** `uppercase` class. (`Key phrases:`, `Redirect to:` —
-   WIC-1205.) Apply this test to the *source string*, never to the wireframe glyphs: `🔴 CRITICAL:` at
+   WIC-1205.) Apply this test to the _source string_, never to the wireframe glyphs: `🔴 CRITICAL:` at
    §26 draws a separator colon the source does not contain, which is why it keeps its caps.
 3. **If the source string is literal caps**, that is a live accessibility defect (WIC-1069 class). Fix the
    source first, then mark or de-shout the wireframe to match.
@@ -73,10 +73,10 @@ convention checks itself rather than only being looked up.
 
 ### Deferred lines
 
-| Lines | What | Owner |
-|---|---|---|
-| §13 `MODERATE FIT` | Runtime `.toUpperCase()` in `JobFitAnalysis.tsx` | WIC-1125, WIC-1288 |
-| StoryEditor / answer-composer `SITUATION` `TASK` `ACTION` `RESULT` | Wireframes depict an unbuilt component; `wizard/STARInput.tsx` ships different strings | Resolve when StoryEditor is built |
+| Lines                                                              | What                                                                                                                                         | Owner                             |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| §13 `MODERATE FIT`                                                 | Runtime `.toUpperCase()` in `JobFitAnalysis.tsx`                                                                                             | WIC-1125, WIC-1288                |
+| StoryEditor / answer-composer `SITUATION` `TASK` `ACTION` `RESULT` | Wireframes depict an unbuilt component; `wizard/STARInput.tsx` ships different strings                                                       | Resolve when StoryEditor is built |
 
 The QuickReferenceExport Main View, Mobile Preview and PDF Layout wireframes are no longer listed here:
 PR #98, PR #100 and PR #102 have all merged, so those lines now match the strings the component ships.
@@ -99,31 +99,33 @@ tree. Marking intent per line removes the derivation, and with it the recurrence
 ## 1. ApplicationCard
 
 ### Purpose
+
 Displays a job application in a compact, actionable card format. Used in Kanban columns and list views.
 
 ### Variants
 
 #### Default (Kanban)
+
 ```tsx
 interface ApplicationCardProps {
-  application: Application
-  variant?: 'kanban' | 'list'
-  draggable?: boolean
-  onCardClick?: (id: string) => void
-  onStatusChange?: (id: string, newStatus: ApplicationStatus) => void
-  onDelete?: (id: string) => void
+  application: Application;
+  variant?: 'kanban' | 'list';
+  draggable?: boolean;
+  onCardClick?: (id: string) => void;
+  onStatusChange?: (id: string, newStatus: ApplicationStatus) => void;
+  onDelete?: (id: string) => void;
 }
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | - | Border: neutral-200, Shadow: sm |
-| Hover | Mouse over | Border: primary-300, Shadow: md, Cursor: pointer |
-| Dragging | Drag initiated | Opacity: 0.5, Rotate: 2deg, Shadow: lg |
-| Selected | Click (multi-select mode) | Border: primary-500, Background: primary-50 |
-| Disabled | Loading/Error | Opacity: 0.6, Cursor: not-allowed |
+| State    | Trigger                   | Visual Changes                                   |
+| -------- | ------------------------- | ------------------------------------------------ |
+| Default  | -                         | Border: neutral-200, Shadow: sm                  |
+| Hover    | Mouse over                | Border: primary-300, Shadow: md, Cursor: pointer |
+| Dragging | Drag initiated            | Opacity: 0.5, Rotate: 2deg, Shadow: lg           |
+| Selected | Click (multi-select mode) | Border: primary-500, Background: primary-50      |
+| Disabled | Loading/Error             | Opacity: 0.6, Cursor: not-allowed                |
 
 ### Anatomy (Kanban Variant)
 
@@ -150,23 +152,23 @@ interface ApplicationCardProps {
 ```typescript
 interface ApplicationCardProps {
   application: {
-    id: string
-    jobTitle: string
-    company: string
-    location?: string
-    salaryRange?: string
-    status: ApplicationStatus
-    hasDocuments: boolean
-    createdAt: Date
-    appliedAt?: Date
-  }
-  variant: 'kanban' | 'list'
-  draggable: boolean
-  showQuickActions: boolean
-  onCardClick: (id: string) => void
-  onStatusChange: (id: string, newStatus: ApplicationStatus) => void
-  onEdit: (id: string) => void
-  onDelete: (id: string) => void
+    id: string;
+    jobTitle: string;
+    company: string;
+    location?: string;
+    salaryRange?: string;
+    status: ApplicationStatus;
+    hasDocuments: boolean;
+    createdAt: Date;
+    appliedAt?: Date;
+  };
+  variant: 'kanban' | 'list';
+  draggable: boolean;
+  showQuickActions: boolean;
+  onCardClick: (id: string) => void;
+  onStatusChange: (id: string, newStatus: ApplicationStatus) => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
 }
 ```
 
@@ -189,45 +191,47 @@ interface ApplicationCardProps {
 ## 2. StatusBadge
 
 ### Purpose
+
 Visual indicator for application status with consistent color coding.
 
 ### Variants
 
 ```tsx
-type StatusBadgeSize = 'sm' | 'md' | 'lg'
-type StatusBadgeVariant = 'filled' | 'outlined' | 'dot'
+type StatusBadgeSize = 'sm' | 'md' | 'lg';
+type StatusBadgeVariant = 'filled' | 'outlined' | 'dot';
 
 interface StatusBadgeProps {
-  status: ApplicationStatus
-  size?: StatusBadgeSize
-  variant?: StatusBadgeVariant
-  showIcon?: boolean
+  status: ApplicationStatus;
+  size?: StatusBadgeSize;
+  variant?: StatusBadgeVariant;
+  showIcon?: boolean;
 }
 ```
 
 ### Status Color Mapping
 
-| Status | Color | Icon | Meaning |
-|--------|-------|------|---------|
-| saved | blue-500 | 🔵 | Not yet applied |
-| applied | yellow-500 | 🟡 | Application submitted |
-| phone_screen | orange-500 | 🟠 | Initial screening |
-| interview | purple-500 | 🟣 | In-person/video interview |
-| offer | green-500 | 🟢 | Offer received |
-| rejected | red-500 | 🔴 | Application rejected |
-| withdrawn | gray-500 | ⚪ | Candidate withdrew |
+| Status       | Color      | Icon | Meaning                   |
+| ------------ | ---------- | ---- | ------------------------- |
+| saved        | blue-500   | 🔵   | Not yet applied           |
+| applied      | yellow-500 | 🟡   | Application submitted     |
+| phone_screen | orange-500 | 🟠   | Initial screening         |
+| interview    | purple-500 | 🟣   | In-person/video interview |
+| offer        | green-500  | 🟢   | Offer received            |
+| rejected     | red-500    | 🔴   | Application rejected      |
+| withdrawn    | gray-500   | ⚪   | Candidate withdrew        |
 
 ### Size Specifications
 
-| Size | Padding | Font Size | Icon Size | Border Radius |
-|------|---------|-----------|-----------|---------------|
-| sm | 2px 8px | 12px | 12px | 12px |
-| md | 4px 12px | 14px | 16px | 16px |
-| lg | 6px 16px | 16px | 20px | 20px |
+| Size | Padding  | Font Size | Icon Size | Border Radius |
+| ---- | -------- | --------- | --------- | ------------- |
+| sm   | 2px 8px  | 12px      | 12px      | 12px          |
+| md   | 4px 12px | 14px      | 16px      | 16px          |
+| lg   | 6px 16px | 16px      | 20px      | 20px          |
 
 ### Visual Examples
 
 **Filled Variant (Default):**
+
 ```
 ┌────────────┐
 │ 🟡 Applied │  Background: yellow-100, Text: yellow-800, Border: none
@@ -235,6 +239,7 @@ interface StatusBadgeProps {
 ```
 
 **Outlined Variant:**
+
 ```
 ┌────────────┐
 │ 🟡 Applied │  Background: transparent, Text: yellow-600, Border: yellow-600
@@ -242,6 +247,7 @@ interface StatusBadgeProps {
 ```
 
 **Dot Variant:**
+
 ```
 ● Applied     Dot: yellow-500, Text: neutral-700
 ```
@@ -257,9 +263,11 @@ interface StatusBadgeProps {
 ## 3. ApplicationForm
 
 ### Purpose
+
 Modal form for creating or editing job applications.
 
 ### Variants
+
 - **Create Mode:** Empty form, title "Add New Application"
 - **Edit Mode:** Pre-filled form, title "Edit Application"
 
@@ -267,28 +275,28 @@ Modal form for creating or editing job applications.
 
 ```typescript
 interface ApplicationFormData {
-  jobTitle: string           // Required, min 2 chars
-  company: string            // Required, min 2 chars
-  url?: string               // Optional, URL validation
-  location?: string          // Optional, free text
-  salaryRange?: string       // Optional, free text
-  jobDescription?: string    // Optional, textarea, for job description matching
-  status: ApplicationStatus  // Required, dropdown
-  linkCoverLetter?: boolean  // Checkbox toggle
-  coverLetterId?: string     // Selected from picker
+  jobTitle: string; // Required, min 2 chars
+  company: string; // Required, min 2 chars
+  url?: string; // Optional, URL validation
+  location?: string; // Optional, free text
+  salaryRange?: string; // Optional, free text
+  jobDescription?: string; // Optional, textarea, for job description matching
+  status: ApplicationStatus; // Required, dropdown
+  linkCoverLetter?: boolean; // Checkbox toggle
+  coverLetterId?: string; // Selected from picker
 }
 ```
 
 ### States
 
-| State | Trigger | Visual Feedback |
-|-------|---------|-----------------|
-| Pristine | Form opened | Save button disabled |
-| Dirty | Any field changed | Save button enabled (if valid) |
-| Validating | Blur on field | Show field-level errors |
-| Submitting | Save clicked | Loading spinner, buttons disabled |
-| Success | Server responds 200 | Close modal, show toast |
-| Error | Server error | Show error message, enable retry |
+| State      | Trigger             | Visual Feedback                   |
+| ---------- | ------------------- | --------------------------------- |
+| Pristine   | Form opened         | Save button disabled              |
+| Dirty      | Any field changed   | Save button enabled (if valid)    |
+| Validating | Blur on field       | Show field-level errors           |
+| Submitting | Save clicked        | Loading spinner, buttons disabled |
+| Success    | Server responds 200 | Close modal, show toast           |
+| Error      | Server error        | Show error message, enable retry  |
 
 ### Validation Rules
 
@@ -298,29 +306,29 @@ const validationSchema = {
     required: true,
     minLength: 2,
     maxLength: 200,
-    message: 'Job title must be between 2-200 characters'
+    message: 'Job title must be between 2-200 characters',
   },
   company: {
     required: true,
     minLength: 2,
     maxLength: 100,
-    message: 'Company name must be between 2-100 characters'
+    message: 'Company name must be between 2-100 characters',
   },
   url: {
     required: false,
     pattern: /^https?:\/\/.+/,
-    message: 'Must be a valid URL starting with http:// or https://'
+    message: 'Must be a valid URL starting with http:// or https://',
   },
   jobDescription: {
     required: false,
     maxLength: 10000,
-    message: 'Job description must be less than 10,000 characters'
+    message: 'Job description must be less than 10,000 characters',
   },
   status: {
     required: true,
-    enum: ['saved', 'applied', 'phone_screen', 'interview', 'offer', 'rejected', 'withdrawn']
-  }
-}
+    enum: ['saved', 'applied', 'phone_screen', 'interview', 'offer', 'rejected', 'withdrawn'],
+  },
+};
 ```
 
 ### Behavior
@@ -336,7 +344,7 @@ const validationSchema = {
 
 - **Focus Management:** First field receives focus on open
 - **Error Announcement:** Screen reader announces validation errors
-- **Required Fields:** Marked with * and `aria-required="true"`
+- **Required Fields:** Marked with \* and `aria-required="true"`
 - **Error Association:** `aria-describedby` links errors to fields
 
 ---
@@ -344,16 +352,17 @@ const validationSchema = {
 ## 4. KanbanBoard
 
 ### Purpose
+
 Drag-and-drop board for visualizing applications by status.
 
 ### Structure
 
 ```tsx
 interface KanbanBoardProps {
-  applications: Application[]
-  onStatusChange: (appId: string, newStatus: ApplicationStatus) => void
-  onCardClick: (appId: string) => void
-  loading?: boolean
+  applications: Application[];
+  onStatusChange: (appId: string, newStatus: ApplicationStatus) => void;
+  onCardClick: (appId: string) => void;
+  loading?: boolean;
 }
 ```
 
@@ -366,19 +375,19 @@ const columns: KanbanColumn[] = [
   { id: 'phone_screen', title: 'Phone Screen', color: 'orange', icon: '📞' },
   { id: 'interview', title: 'Interview', color: 'purple', icon: '🤝' },
   { id: 'offer', title: 'Offer', color: 'green', icon: '🎉' },
-  { id: 'rejected', title: 'Rejected', color: 'red', icon: '❌' }
-]
+  { id: 'rejected', title: 'Rejected', color: 'red', icon: '❌' },
+];
 ```
 
 ### Drag & Drop Behavior
 
-| Action | Feedback | Validation |
-|--------|----------|------------|
-| Pick up card | Card lifts with shadow, other columns highlight | - |
-| Drag over valid column | Column background: primary-50, border: dashed | Check valid transition |
-| Drag over invalid column | Column background: red-50, cursor: not-allowed | Show error toast |
-| Drop in valid column | Animate card to position, update status | Server request |
-| Drop in invalid column | Card returns to origin with bounce animation | - |
+| Action                   | Feedback                                        | Validation             |
+| ------------------------ | ----------------------------------------------- | ---------------------- |
+| Pick up card             | Card lifts with shadow, other columns highlight | -                      |
+| Drag over valid column   | Column background: primary-50, border: dashed   | Check valid transition |
+| Drag over invalid column | Column background: red-50, cursor: not-allowed  | Show error toast       |
+| Drop in valid column     | Animate card to position, update status         | Server request         |
+| Drop in invalid column   | Card returns to origin with bounce animation    | -                      |
 
 ### States
 
@@ -404,6 +413,7 @@ const columns: KanbanColumn[] = [
 ## 5. DashboardStats
 
 ### Purpose
+
 Display key metrics at a glance.
 
 ### Props
@@ -411,12 +421,12 @@ Display key metrics at a glance.
 ```tsx
 interface DashboardStatsProps {
   stats: {
-    total: number
-    appliedThisWeek: number
-    responseRate: number      // 0-100
-    inReview: number           // phone_screen + interview count
-  }
-  loading?: boolean
+    total: number;
+    appliedThisWeek: number;
+    responseRate: number; // 0-100
+    inReview: number; // phone_screen + interview count
+  };
+  loading?: boolean;
 }
 ```
 
@@ -454,37 +464,38 @@ interface DashboardStatsProps {
 ## 6. FilterPanel
 
 ### Purpose
+
 Allow users to filter and search applications.
 
 ### Props
 
 ```tsx
 interface FilterPanelProps {
-  onFilterChange: (filters: FilterOptions) => void
-  activeFilters: FilterOptions
-  availableCompanies: string[]
-  availableStatuses: ApplicationStatus[]
+  onFilterChange: (filters: FilterOptions) => void;
+  activeFilters: FilterOptions;
+  availableCompanies: string[];
+  availableStatuses: ApplicationStatus[];
 }
 
 interface FilterOptions {
-  search?: string
-  status?: ApplicationStatus[]
-  company?: string[]
-  dateRange?: { start: Date; end: Date }
-  salaryMin?: number
-  salaryMax?: number
+  search?: string;
+  status?: ApplicationStatus[];
+  company?: string[];
+  dateRange?: { start: Date; end: Date };
+  salaryMin?: number;
+  salaryMax?: number;
 }
 ```
 
 ### UI Elements
 
-| Element | Type | Behavior |
-|---------|------|----------|
-| Search | Text input | Debounced (300ms), searches title + company |
-| Status | Multi-select checkboxes | Filter by one or more statuses |
-| Company | Multi-select autocomplete | Filter by company name |
-| Date Range | Date picker | Presets: This Week, This Month, Last 3 Months |
-| Salary | Range slider | Min $0k, Max $500k, step $10k |
+| Element    | Type                      | Behavior                                      |
+| ---------- | ------------------------- | --------------------------------------------- |
+| Search     | Text input                | Debounced (300ms), searches title + company   |
+| Status     | Multi-select checkboxes   | Filter by one or more statuses                |
+| Company    | Multi-select autocomplete | Filter by company name                        |
+| Date Range | Date picker               | Presets: This Week, This Month, Last 3 Months |
+| Salary     | Range slider              | Min $0k, Max $500k, step $10k                 |
 
 ### Active Filter Chips
 
@@ -506,16 +517,17 @@ Applied Filters:  [Status: Applied ✕]  [Company: TechCo ✕]  [Clear All]
 ## 7. StatusDropdown
 
 ### Purpose
+
 Quick status change dropdown for cards and detail pages.
 
 ### Props
 
 ```tsx
 interface StatusDropdownProps {
-  currentStatus: ApplicationStatus
-  onStatusChange: (newStatus: ApplicationStatus) => void
-  allowedTransitions?: ApplicationStatus[]  // If undefined, show all
-  size?: 'sm' | 'md'
+  currentStatus: ApplicationStatus;
+  onStatusChange: (newStatus: ApplicationStatus) => void;
+  allowedTransitions?: ApplicationStatus[]; // If undefined, show all
+  size?: 'sm' | 'md';
 }
 ```
 
@@ -553,28 +565,29 @@ interface StatusDropdownProps {
 ## 8. DocumentLinker
 
 ### Purpose
+
 Component to link cover letters or resumes to applications.
 
 ### Props
 
 ```tsx
 interface DocumentLinkerProps {
-  type: 'cover-letter' | 'resume'
-  linkedDocumentId?: string
-  availableDocuments: Document[]
-  onLink: (documentId: string) => void
-  onUnlink: () => void
-  onPreview: (documentId: string) => void
+  type: 'cover-letter' | 'resume';
+  linkedDocumentId?: string;
+  availableDocuments: Document[];
+  onLink: (documentId: string) => void;
+  onUnlink: () => void;
+  onPreview: (documentId: string) => void;
 }
 ```
 
 ### States
 
-| State | Visual | Actions Available |
-|-------|--------|-------------------|
-| No Document | "No {type} linked" (muted) | [Link {type}] button |
-| Document Linked | Document preview card | [View] [Unlink] buttons |
-| Picker Open | Modal with document list | [Select] [Cancel] |
+| State           | Visual                     | Actions Available       |
+| --------------- | -------------------------- | ----------------------- |
+| No Document     | "No {type} linked" (muted) | [Link {type}] button    |
+| Document Linked | Document preview card      | [View] [Unlink] buttons |
+| Picker Open     | Modal with document list   | [Select] [Cancel]       |
 
 ### Document Picker
 
@@ -588,20 +601,21 @@ interface DocumentLinkerProps {
 ## 9. StatusTimeline
 
 ### Purpose
+
 Display chronological history of status changes.
 
 ### Props
 
 ```tsx
 interface StatusTimelineProps {
-  history: StatusChange[]
-  compact?: boolean
+  history: StatusChange[];
+  compact?: boolean;
 }
 
 interface StatusChange {
-  status: ApplicationStatus
-  timestamp: Date
-  note?: string
+  status: ApplicationStatus;
+  timestamp: Date;
+  note?: string;
 }
 ```
 
@@ -641,30 +655,30 @@ interface StatusChange {
 ## 10. EmptyState
 
 ### Purpose
+
 Friendly message when no data is available.
 
 ### Variants
 
 ```tsx
-type EmptyStateVariant = 
-  | 'no-applications'
-  | 'no-results'
-  | 'no-documents'
+type EmptyStateVariant = 'no-applications' | 'no-results' | 'no-documents';
 
 interface EmptyStateProps {
-  variant: EmptyStateVariant
-  onAction?: () => void
-  actionLabel?: string
+  variant: EmptyStateVariant;
+  onAction?: () => void;
+  actionLabel?: string;
+  /** Semantic depth of the heading. Default 2. See Accessibility → Heading level. */
+  headingLevel?: 2 | 3 | 4 | 5 | 6;
 }
 ```
 
 ### Variant Content
 
-| Variant | Icon | Heading | Message | Action |
-|---------|------|---------|---------|--------|
-| no-applications | 📋 | "No applications yet!" | "Track your job applications in one place..." | "Add Your First Application" |
-| no-results | 🔍 | "No matching results" | "Try adjusting your filters or search terms" | "Clear Filters" |
-| no-documents | 📄 | "No documents found" | "Generate a cover letter to get started" | "Create Cover Letter" |
+| Variant         | Icon | Heading                | Message                                       | Action                       |
+| --------------- | ---- | ---------------------- | --------------------------------------------- | ---------------------------- |
+| no-applications | 📋   | "No applications yet!" | "Track your job applications in one place..." | "Add Your First Application" |
+| no-results      | 🔍   | "No matching results"  | "Try adjusting your filters or search terms"  | "Clear Filters"              |
+| no-documents    | 📄   | "No documents found"   | "Generate a cover letter to get started"      | "Create Cover Letter"        |
 
 ### Accessibility
 
@@ -674,15 +688,15 @@ them shipped as a real defect (WIC-1155). They are recorded below so they are no
 
 - **No live region.** This content is static per `variant` and never updates in place, so
   there is nothing for a live region to announce. It also does not work: the component is
-  *inserted* by a load-state branch (`{items.length === 0 ? <EmptyState /> : …}`), and a
+  _inserted_ by a load-state branch (`{items.length === 0 ? <EmptyState /> : …}`), and a
   live region that arrives already populated is not reliably announced — assistive tech
-  watches for mutations *within* a region that was already present.
+  watches for mutations _within_ a region that was already present.
   It is not merely inert, it is harmful. The `aria-hidden` package Radix Dialog uses to hide
   the background behind a modal [deliberately exempts `[aria-live]` elements](https://github.com/theKashey/aria-hidden/issues/10),
   and an exempt node keeps its descendants **and its whole ancestor chain** reachable. Because
   this container wraps the action button, `aria-live="polite"` here left `#root`, `<main>` and
   a live control exposed behind every open dialog.
-  If a variant ever needs to announce a *change* — e.g. "No matching results" after a filter
+  If a variant ever needs to announce a _change_ — e.g. "No matching results" after a filter
   edit — the live region belongs on the **results container that swaps between states**, which
   is present across the swap, not on the empty state itself.
 - **No `region` landmark.** A `region` is a navigable landmark, reserved for major structural
@@ -693,7 +707,7 @@ them shipped as a real defect (WIC-1155). They are recorded below so they are no
   was the component's name leaking into the accessibility tree. Note the two cannot be split:
   `aria-label` on a role-less `<div>` maps to `generic`, which does not support an accessible
   name, so the label is dropped by most AT and flagged by axe as `aria-prohibited-attr`.
-- **Do not move focus.** An empty state renders as the *result* of something the user did —
+- **Do not move focus.** An empty state renders as the _result_ of something the user did —
   a filter edit, a delete, a load. Focusing the action button on appearance would yank focus
   out of the control they are still using (typically the filter input they are mid-way through
   typing into). The button is reachable in normal tab order, which is the correct affordance.
@@ -701,11 +715,128 @@ them shipped as a real defect (WIC-1155). They are recorded below so they are no
 - **The icon is decorative** and carries `aria-hidden="true"` — the heading and message already
   say everything the emoji does, and emoji names read poorly in a screen reader.
 
+#### Heading level
+
+The heading is the component's only accessible entry point — WIC-1155 removed the `region`
+landmark that used to (badly) label this block, which makes the document outline load-bearing
+here rather than merely tidy.
+
+- **The level is a prop, not a constant** (`headingLevel`, WIC-1417). It shipped hardcoded to
+  `<h3>` while all four call sites render it directly under the page `<h1>`, so every rendering
+  skipped a level. `s/h3/h2/` would have been correct at all four sites _today_, which is what
+  makes it a trap: a shared presentational component cannot know how deeply its host nests it,
+  and the first time someone renders it inside a card or a tab panel that already owns an `<h2>`,
+  a hardcoded `<h2>` is wrong in the other direction. That is the same failure WIC-1155 closed —
+  a component-level constant standing in for a decision that belongs to the host page.
+- **The default is `2`, and the prop stays optional.** Two is right for the shape this component
+  is nearly always used in: the sole content of a page, beneath its `<h1>`. Requiring the prop
+  would force an explicit decision at every call site, but the decision it actually produces is
+  "whatever the file next door passed" — a required prop with one obvious answer is filled in
+  mechanically, so it buys ceremony rather than thought. Pass the real depth when the host is
+  nested; the default costs nothing when it is not.
+- **`1` is not a legal value.** The page `<h1>` names the route, and an empty state is never the
+  route. A page whose top heading is an empty state's heading is the 404 defect
+  (`NOTFOUND_PAGE_DESIGN_SPEC.md` §1, D2), not a use of this prop.
+- **The size does not follow the level.** `text-h4` stays pinned at every level. Semantic depth
+  depends on where the host renders the component; visual weight does not, and the two must be
+  free to move independently. Re-coupling them is how the tag ended up standing in for the size
+  in the first place.
+- **Scope of the rule.** This treatment is for **shared presentational components rendered at
+  more than one nesting depth** — the same class of decision, not every hardcoded heading in
+  `components/`. A single-call-site feature panel's heading level is effectively part of its
+  page's outline and belongs in the page's own audit (WIC-1099, WIC-1483), not behind a prop.
+  **`ROUTE_HEADING_OUTLINE.md` (WIC-1581) is that audit's rule**, for the common case where the
+  panel _is_ the route's whole body: the page `<h1>` names the route and the panel does not
+  restate it, starting at `<h2>` with its own sections. Two routes shipped restating it before
+  that was written down.
+  The rest of `components/` was measured against this boundary in WIC-1563: of the **30**
+  components under `components/**` that render a heading, **25 are rendered by exactly one host
+  component** and are therefore out of scope by definition. Count _distinct hosts_, not
+  occurrences — `OnboardingStep` (6 render sites, all in `OnboardingModal`) and `WizardStep`
+  (5, all in `WizardContainer`) look like multi-site components to a naive grep, but every
+  occurrence is the same host at the same depth, one shown at a time, so there is no host
+  decision to delegate and both were verified gap-free as they stand. That leaves five:
+  `EmptyState` (fixed in WIC-1417), `CoverLetterPreview` and `ApplicationCard` (below), and
+  `PersonalInfoForm` and `ApplicationForm`, which were already correct at both of their depths.
+- **The criterion is where the _heading_ renders, not where the _component_ mounts** (WIC-1563).
+  These come apart whenever the heading sits behind a conditional, and `CoverLetterPreview` is
+  the worked example in both directions. It mounts at two depths, which reads like a clear case
+  for the prop — but its header was inside `{showExportActions && …}`, and the nested host
+  (`CoverLetterGenerator`) is precisely the one that passes `false`. Exactly one rendering had a
+  heading, so the prop would have had **no call site able to pass a non-default value**:
+  ceremony, and worse than ceremony, because `headingLevel={3}` alongside
+  `showExportActions={false}` is a dead assignment that reads as a fix. So count the _renderings
+  of the heading_, not the mount sites — and **pin the count with a test**, which is the part
+  that paid off here. `CoverLetterPreview.test.tsx` asserted the component contributed no
+  heading in the suppressed configuration; WIC-1569 then ruled that the generator's preview pane
+  must be labelled, that assertion went red, and the red was the design telling us the prop had
+  become owed rather than a regression. Both halves of this bullet stand: the component is
+  correct in place until its heading lands at a second depth, and the test is what tells you the
+  day it does.
+- **`CoverLetterPreview` is the second component in this class** (WIC-1569). It renders at `h2`
+  as the sole content of `CoverLetterDetail` and at `h3` as one half of `CoverLetterGenerator`'s
+  editor/preview split, so it takes the same optional `headingLevel` defaulting to `2`. Note the
+  order of operations: it qualified only _after_ a design ruling put a heading on the generator's
+  preview pane. Before that the heading rendered at one depth and the prop would have been
+  unearned — which is the criterion working, not a near-miss. A component does not earn this prop
+  by being shared; it earns it by having its heading land at more than one depth.
+  The ruling that put the heading there is `COVER_LETTER_PANE_LABELLING.md` — why a
+  labelled/unlabelled pane pair is a defect rather than a choice, why `aria-label` and
+  `role="region"` were both rejected, why the bar padding change is load-bearing rather than
+  cosmetic, and (its §3) the constraint on how `/cover-letters/new`'s missing `<h1>` must be
+  fixed so that this prop does not become unearned again.
+- **A prop in this class can be un-earned from below, not only from above** (WIC-1598). The
+  criterion is where the heading lands *relative to its hosts*, so **demoting the headings around a
+  component collapses the prop exactly as promoting the component's own heading does** — both leave
+  every call site passing the same level. This is not hypothetical: a `/cover-letters/new` heading
+  sweep specified in `ROUTE_HEADING_OUTLINE.md` §4 would have flattened `CoverLetterPreview` to one
+  depth without touching the component or either call site's props, and it was written before the
+  prop shipped. Two consequences for this section:
+  - **Before you promote or demote a heading, grep the subtree for a `headingLevel` prop.** The
+    host's tag is one half of what a child is asked for.
+  - **When the depths genuinely do collapse, retire the prop in a card of its own, citing the
+    ruling that earned it.** A prop deleted as fallout from an unrelated sweep loses the reasoning
+    with it, and the next person re-derives the same design question from scratch. The source guard
+    (`CoverLetterPreview.test.tsx` → `is asked for h3 by CoverLetterGenerator and h2 by
+    CoverLetterDetail`) exists to force that conversation rather than to forbid the change — note
+    that it reads the literal levels, so a structural argument about nesting will not satisfy it.
+
+#### Kanban headings (WIC-1563)
+
+`KanbanColumn` and `ApplicationCard` both hardcoded `<h3>`, which made every card a structural
+**sibling** of its own column instead of a child — the column's contents were not nested under
+the column in the outline at all, and that outline is exactly how a screen-reader user moves
+between columns. Neither took a prop:
+
+- **`KanbanColumn` is corrected in place to `<h2>`.** It has one call site (`KanbanBoard:159`),
+  which is the single-call-site boundary above. `KanbanBoard` owns no heading of its own, so the
+  column titles sit directly under `ApplicationsList:113`'s `<h1>` and `h3` skipped a level.
+- **`ApplicationCard` is left at `<h3>` and takes no prop.** It has two render sites — inside a
+  column via `SortableApplicationCard`, and inside `KanbanBoard`'s `<DragOverlay>` — but both
+  want the same level once the column is `h2`, so there is no host decision to delegate. The
+  overlay follows the column grid in document order, so `h3` there trails the last column's `h2`
+  and is still gap-free. A per-component tag assertion would have called both of these components
+  correct before the fix, which is why `KanbanBoard.test.tsx` asserts the **rendered outline** of
+  the whole tree rather than tag names.
+- **`src/test/headingOutline.ts` is the shared helper for that, and it has its own cover.**
+  `findOutlineSkips` reports a problem by returning a **non-empty** array, so its failure mode is
+  silence rather than a wrong answer: anything that makes one entry uncomparable turns a broken
+  page into a clean report. Resolving a heading's level therefore has to be _total_ — always a
+  positive integer, never `NaN` — because `NaN` compares false in both directions, so one such
+  entry suppresses the check for the headings on **either** side of it. `role="heading"` with no
+  `aria-level` is level **2** per ARIA, and an `aria-level` that is present but unusable
+  (`"abc"`, `""`, `"0"`) is ignored in favour of the native tag, or of 2 where there is none.
+  `headingOutline.test.tsx` pins both, and pins the ARIA spelling of a page against its
+  native-tag twin so "cannot be walked around" is an assertion rather than a docstring claim.
+  Anything reaching for this helper — the per-page WCAG audit in **WIC-1483** first — depends on
+  that property, so treat it as part of the contract and not an implementation detail.
+
 ---
 
 ## Component Library Recommendations
 
 For implementation, consider using:
+
 - **Headless UI** (Tailwind Labs) for accessible primitives
 - **React DnD** or **dnd-kit** for drag-and-drop
 - **React Hook Form** for form state
@@ -716,75 +847,77 @@ For implementation, consider using:
 
 ## Animation Guidelines
 
-| Interaction | Animation | Duration | Easing |
-|-------------|-----------|----------|--------|
-| Card hover | Scale 1.02, shadow increase | 200ms | ease-out |
-| Status change | Color fade, badge morph | 300ms | ease-in-out |
-| Modal open | Fade in + slide up | 250ms | ease-out |
-| Modal close | Fade out + slide down | 200ms | ease-in |
-| Drag card | Lift + rotate | 150ms | ease-out |
-| Drop card | Snap to position | 250ms | spring |
-| Toast notification | Slide in from top | 300ms | ease-out |
-| Loading skeleton | Shimmer wave | 1500ms | linear infinite |
+| Interaction        | Animation                   | Duration | Easing          |
+| ------------------ | --------------------------- | -------- | --------------- |
+| Card hover         | Scale 1.02, shadow increase | 200ms    | ease-out        |
+| Status change      | Color fade, badge morph     | 300ms    | ease-in-out     |
+| Modal open         | Fade in + slide up          | 250ms    | ease-out        |
+| Modal close        | Fade out + slide down       | 200ms    | ease-in         |
+| Drag card          | Lift + rotate               | 150ms    | ease-out        |
+| Drop card          | Snap to position            | 250ms    | spring          |
+| Toast notification | Slide in from top           | 300ms    | ease-out        |
+| Loading skeleton   | Shimmer wave                | 1500ms   | linear infinite |
 
 ---
 
 ## 11. ResumeUpload
 
 ### Purpose
+
 Upload and parse resume files to automatically extract work experience, education, and skills.
 
 ### Props
 
 ```tsx
 interface ResumeUploadProps {
-  onUploadComplete: (resumeId: string, parsedData: ParsedResume) => void
-  onUploadError: (error: Error) => void
-  maxFileSizeMB?: number
-  acceptedFormats?: string[]
-  existingResumeId?: string
+  onUploadComplete: (resumeId: string, parsedData: ParsedResume) => void;
+  onUploadError: (error: Error) => void;
+  maxFileSizeMB?: number;
+  acceptedFormats?: string[];
+  existingResumeId?: string;
 }
 
 interface ParsedResume {
-  id: string
-  fileName: string
-  uploadedAt: Date
-  parsedExperiences: STARExperience[]
-  education: Education[]
-  skills: string[]
+  id: string;
+  fileName: string;
+  uploadedAt: Date;
+  parsedExperiences: STARExperience[];
+  education: Education[];
+  skills: string[];
 }
 
 interface STARExperience {
-  id: string
-  company: string
-  role: string
-  startDate: Date
-  endDate?: Date
-  bullets: STARBullet[]
+  id: string;
+  company: string;
+  role: string;
+  startDate: Date;
+  endDate?: Date;
+  bullets: STARBullet[];
 }
 
 interface STARBullet {
-  situation: string
-  task: string
-  action: string
-  result: string
-  originalText: string
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+  originalText: string;
 }
 ```
 
 ### Variants
 
-| Variant | Trigger | Use Case |
-|---------|---------|----------|
-| Empty | No file uploaded | Initial state, encourages upload |
-| Uploading | File selected, upload in progress | Shows progress bar |
-| Processing | Upload complete, parsing in progress | Shows spinner with "Analyzing..." |
-| Complete | Parsing finished | Shows preview of extracted data |
-| Error | Upload/parse failed | Shows error message with retry option |
+| Variant    | Trigger                              | Use Case                              |
+| ---------- | ------------------------------------ | ------------------------------------- |
+| Empty      | No file uploaded                     | Initial state, encourages upload      |
+| Uploading  | File selected, upload in progress    | Shows progress bar                    |
+| Processing | Upload complete, parsing in progress | Shows spinner with "Analyzing..."     |
+| Complete   | Parsing finished                     | Shows preview of extracted data       |
+| Error      | Upload/parse failed                  | Shows error message with retry option |
 
 ### Visual States
 
 #### Empty State
+
 ```
 ┌─────────────────────────────────────────┐
 │                                         │
@@ -799,6 +932,7 @@ interface STARBullet {
 ```
 
 #### Uploading State
+
 ```
 ┌─────────────────────────────────────────┐
 │  resume.pdf                         ✕   │
@@ -808,6 +942,7 @@ interface STARBullet {
 ```
 
 #### Processing State
+
 ```
 ┌─────────────────────────────────────────┐
 │  🔄 Analyzing resume...                 │
@@ -819,6 +954,7 @@ interface STARBullet {
 ```
 
 #### Complete State
+
 ```
 ┌─────────────────────────────────────────┐
 │  ✅ Resume parsed successfully!         │
@@ -833,15 +969,15 @@ interface STARBullet {
 
 ### Behavior
 
-| Action | Trigger | Response |
-|--------|---------|----------|
-| Drag Over | File dragged into zone | Border highlights (primary-500), background: primary-50 |
-| Drop | File dropped | Validate → Start upload → Show progress |
-| Click Zone | Click anywhere in drop zone | Open file picker dialog |
-| Cancel Upload | Click ✕ during upload | Abort request, return to empty state |
-| Invalid File Type | Drop .exe, .zip, etc. | Show error toast: "Please upload PDF, DOCX, or TXT" |
-| File Too Large | Drop 15MB file (max 10MB) | Show error toast: "File must be under 10MB" |
-| Parse Error | Server fails to extract data | Show error state with retry button |
+| Action            | Trigger                      | Response                                                |
+| ----------------- | ---------------------------- | ------------------------------------------------------- |
+| Drag Over         | File dragged into zone       | Border highlights (primary-500), background: primary-50 |
+| Drop              | File dropped                 | Validate → Start upload → Show progress                 |
+| Click Zone        | Click anywhere in drop zone  | Open file picker dialog                                 |
+| Cancel Upload     | Click ✕ during upload        | Abort request, return to empty state                    |
+| Invalid File Type | Drop .exe, .zip, etc.        | Show error toast: "Please upload PDF, DOCX, or TXT"     |
+| File Too Large    | Drop 15MB file (max 10MB)    | Show error toast: "File must be under 10MB"             |
+| Parse Error       | Server fails to extract data | Show error state with retry button                      |
 
 ### File Validation
 
@@ -852,9 +988,9 @@ const validationRules = {
   mimeTypes: [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain'
-  ]
-}
+    'text/plain',
+  ],
+};
 ```
 
 ### Upload Flow
@@ -867,12 +1003,12 @@ const validationRules = {
 
 ### Error Handling
 
-| Error Type | User Message | Recovery Action |
-|------------|--------------|-----------------|
-| Network Error | "Upload failed. Check your connection." | [Retry] button |
-| Parse Error | "Couldn't parse resume. Try a different format." | [Upload Different File] |
-| Server Error | "Something went wrong. Please try again." | [Retry] + contact support link |
-| Timeout | "Upload timed out. Try a smaller file." | Return to empty state |
+| Error Type    | User Message                                     | Recovery Action                |
+| ------------- | ------------------------------------------------ | ------------------------------ |
+| Network Error | "Upload failed. Check your connection."          | [Retry] button                 |
+| Parse Error   | "Couldn't parse resume. Try a different format." | [Upload Different File]        |
+| Server Error  | "Something went wrong. Please try again."        | [Retry] + contact support link |
+| Timeout       | "Upload timed out. Try a smaller file."          | Return to empty state          |
 
 ### Accessibility
 
@@ -892,32 +1028,33 @@ const validationRules = {
 ## 12. ResumeExportList
 
 ### Purpose
+
 Display and manage exported resume versions tailored to specific job applications.
 
 ### Props
 
 ```tsx
 interface ResumeExportListProps {
-  exports: ResumeExport[]
-  onPreview: (exportId: string) => void
-  onDownload: (exportId: string, format: ExportFormat) => void
-  onDelete: (exportId: string) => void
-  onCreateNew: () => void
-  loading?: boolean
+  exports: ResumeExport[];
+  onPreview: (exportId: string) => void;
+  onDownload: (exportId: string, format: ExportFormat) => void;
+  onDelete: (exportId: string) => void;
+  onCreateNew: () => void;
+  loading?: boolean;
 }
 
 interface ResumeExport {
-  id: string
-  name: string
-  createdAt: Date
-  linkedApplicationId?: string
-  linkedApplicationTitle?: string
-  experienceIds: string[]
-  format: ExportFormat
-  fileSize: number
+  id: string;
+  name: string;
+  createdAt: Date;
+  linkedApplicationId?: string;
+  linkedApplicationTitle?: string;
+  experienceIds: string[];
+  format: ExportFormat;
+  fileSize: number;
 }
 
-type ExportFormat = 'markdown' | 'pdf' | 'docx'
+type ExportFormat = 'markdown' | 'pdf' | 'docx';
 ```
 
 ### Layout
@@ -948,22 +1085,22 @@ type ExportFormat = 'markdown' | 'pdf' | 'docx'
 
 ### Export Card States
 
-| State | Visual | Available Actions |
-|-------|--------|-------------------|
-| Default | Border: neutral-200, Shadow: sm | Preview, Download, Delete |
-| Hover | Border: primary-300, Shadow: md | All actions visible |
-| Loading | Skeleton with shimmer | No actions |
-| Error | Border: red-300, background: red-50 | Retry download, Delete |
+| State   | Visual                              | Available Actions         |
+| ------- | ----------------------------------- | ------------------------- |
+| Default | Border: neutral-200, Shadow: sm     | Preview, Download, Delete |
+| Hover   | Border: primary-300, Shadow: md     | All actions visible       |
+| Loading | Skeleton with shimmer               | No actions                |
+| Error   | Border: red-300, background: red-50 | Retry download, Delete    |
 
 ### Behavior
 
-| Action | Trigger | Response |
-|--------|---------|----------|
-| Preview | Click Preview button | Open modal with markdown preview |
-| Download | Click Download | Show format picker (MD/PDF/DOCX) → Download file |
-| Delete | Click Delete | Confirm dialog → DELETE `/api/resumes/exports/{id}` |
-| Create New | Click + Create New button | Navigate to resume builder/editor |
-| Link to Application | Drag export onto ApplicationCard | Link export to that application |
+| Action              | Trigger                          | Response                                            |
+| ------------------- | -------------------------------- | --------------------------------------------------- |
+| Preview             | Click Preview button             | Open modal with markdown preview                    |
+| Download            | Click Download                   | Show format picker (MD/PDF/DOCX) → Download file    |
+| Delete              | Click Delete                     | Confirm dialog → DELETE `/api/resumes/exports/{id}` |
+| Create New          | Click + Create New button        | Navigate to resume builder/editor                   |
+| Link to Application | Drag export onto ApplicationCard | Link export to that application                     |
 
 ### Download Format Picker
 
@@ -999,6 +1136,7 @@ When user clicks Download, show dropdown:
 ### Preview Modal
 
 Opens full-screen modal showing:
+
 - **Left Panel:** Markdown editor (if editable)
 - **Right Panel:** Live preview rendering
 - **Header:** Export name, format selector, close button
@@ -1014,11 +1152,11 @@ Opens full-screen modal showing:
 
 ### Sorting & Filtering
 
-| Filter | Options | Default |
-|--------|---------|---------|
-| Sort By | Recent, Oldest, Name (A-Z) | Recent |
-| Linked | All, Linked to App, Standalone | All |
-| Format | All, Markdown, PDF, DOCX | All |
+| Filter  | Options                        | Default |
+| ------- | ------------------------------ | ------- |
+| Sort By | Recent, Oldest, Name (A-Z)     | Recent  |
+| Linked  | All, Linked to App, Standalone | All     |
+| Format  | All, Markdown, PDF, DOCX       | All     |
 
 ### Responsive
 
@@ -1031,66 +1169,67 @@ Opens full-screen modal showing:
 ## 13. JobFitAnalysis
 
 ### Purpose
+
 Analyze a job description against the user's catalog of skills, experiences, and achievements to provide an honest fit assessment with specific recommendations.
 
 ### Props
 
 ```tsx
 interface JobFitAnalysisProps {
-  onAnalysisComplete?: (result: FitAnalysisResult) => void
-  linkedApplicationId?: string  // If analyzing for a specific application
-  initialJobDescription?: string
+  onAnalysisComplete?: (result: FitAnalysisResult) => void;
+  linkedApplicationId?: string; // If analyzing for a specific application
+  initialJobDescription?: string;
 }
 
 interface FitAnalysisResult {
-  id: string
-  jobDescription: string
-  parsedJD: ParsedJobDescription
-  fitAssessment: FitAssessment
-  recommendations: STARRecommendation[]
-  overallFit: FitLevel
-  analyzedAt: Date
+  id: string;
+  jobDescription: string;
+  parsedJD: ParsedJobDescription;
+  fitAssessment: FitAssessment;
+  recommendations: STARRecommendation[];
+  overallFit: FitLevel;
+  analyzedAt: Date;
 }
 
 interface ParsedJobDescription {
-  roleTitle: string
-  seniority?: string
-  requiredStack: TechTag[]
-  niceToHaveStack: TechTag[]
-  domain?: string
-  industry?: string
-  teamScope?: string
-  location?: string
-  compSignals?: string
+  roleTitle: string;
+  seniority?: string;
+  requiredStack: TechTag[];
+  niceToHaveStack: TechTag[];
+  domain?: string;
+  industry?: string;
+  teamScope?: string;
+  location?: string;
+  compSignals?: string;
 }
 
 interface FitAssessment {
-  strongMatches: CatalogMatch[]
-  partialMatches: CatalogMatch[]
-  gaps: Gap[]
+  strongMatches: CatalogMatch[];
+  partialMatches: CatalogMatch[];
+  gaps: Gap[];
 }
 
 interface CatalogMatch {
-  type: 'skill' | 'experience' | 'achievement'
-  catalogItemId: string
-  title: string
-  matchConfidence: number  // 0-100
-  reasoning: string
+  type: 'skill' | 'experience' | 'achievement';
+  catalogItemId: string;
+  title: string;
+  matchConfidence: number; // 0-100
+  reasoning: string;
 }
 
 interface Gap {
-  requirement: string
-  severity: 'critical' | 'moderate' | 'minor'
-  suggestion?: string
+  requirement: string;
+  severity: 'critical' | 'moderate' | 'minor';
+  suggestion?: string;
 }
 
 interface STARRecommendation {
-  experienceId: string
-  relevanceScore: number  // 0-100
-  reasoning: string
+  experienceId: string;
+  relevanceScore: number; // 0-100
+  reasoning: string;
 }
 
-type FitLevel = 'strong' | 'moderate' | 'stretch' | 'low'
+type FitLevel = 'strong' | 'moderate' | 'stretch' | 'low';
 ```
 
 ### Page Layout
@@ -1154,6 +1293,14 @@ The Job Fit Analysis is a full-page view with three distinct stages: Input, Anal
 ```
 
 #### Stage 3: Results Display
+
+> **The section counts below are drawn as shipped before WIC-1528 and are no longer the format.**
+> A bare `(5)` named a number without naming the population it counted — all three sections mix
+> required and nice-to-have skills, while the fit summary above them counts required only. The
+> headings now read `✅ Strong Matches (5 required, 2 nice-to-have)`, with the zero term omitted.
+> `packages/web/src/constants/skillCount.ts` is the format; DESIGN_SYSTEM.md
+> ("Match and Gap Section Counts") is the spec. The rest of this wireframe carries its own
+> divergences, marked `‹deferred›`.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -1240,14 +1387,14 @@ The Job Fit Analysis is a full-page view with three distinct stages: Input, Anal
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Input | Page loads | Input form visible, Analyze button disabled until text entered |
-| Validating | Text entered or URL pasted | Analyze button enabled, character count shown |
-| Analyzing | Submit clicked | Loading animation, progress indicators, estimated time |
-| Results | Analysis complete | Full results display with collapsible sections |
-| Error | Analysis failed | Error message with retry button |
-| Empty Catalog | Analysis attempted with empty catalog | Warning + link to resume upload |
+| State         | Trigger                               | Visual Changes                                                 |
+| ------------- | ------------------------------------- | -------------------------------------------------------------- |
+| Input         | Page loads                            | Input form visible, Analyze button disabled until text entered |
+| Validating    | Text entered or URL pasted            | Analyze button enabled, character count shown                  |
+| Analyzing     | Submit clicked                        | Loading animation, progress indicators, estimated time         |
+| Results       | Analysis complete                     | Full results display with collapsible sections                 |
+| Error         | Analysis failed                       | Error message with retry button                                |
+| Empty Catalog | Analysis attempted with empty catalog | Warning + link to resume upload                                |
 
 ### Fit Level Visual Indicators
 
@@ -1258,47 +1405,50 @@ const fitLevelConfig = {
     color: 'green-600',
     icon: '🎯',
     dots: '●●●●●',
-    percentage: '80-100%'
+    percentage: '80-100%',
   },
   moderate: {
     label: 'Moderate Fit',
     color: 'yellow-600',
     icon: '⚖️',
     dots: '●●●○○',
-    percentage: '60-79%'
+    percentage: '60-79%',
   },
   stretch: {
     label: 'Stretch Role',
     color: 'orange-600',
     icon: '📈',
     dots: '●●○○○',
-    percentage: '40-59%'
+    percentage: '40-59%',
   },
   low: {
     label: 'Low Fit',
     color: 'red-600',
     icon: '⚠️',
     dots: '●○○○○',
-    percentage: '0-39%'
-  }
-}
+    percentage: '0-39%',
+  },
+};
 ```
 
 ### Gap Severity Styling
 
 **Critical Gaps** (Required skills missing):
+
 - Background: `red-50`
 - Border: `red-500` (2px solid)
 - Icon: 🔴
 - Text: `red-900`
 
 **Moderate Gaps** (Nice-to-have missing):
+
 - Background: `orange-50`
 - Border: `orange-400` (1px solid)
 - Icon: 🟡
 - Text: `orange-900`
 
 **Minor Gaps** (Adjacent skills):
+
 - Background: `yellow-50`
 - Border: `yellow-300` (1px dashed)
 - Icon: 🟡
@@ -1311,16 +1461,17 @@ const validationRules = {
   jobDescription: {
     minLength: 100,
     maxLength: 50000,
-    message: 'Job description must be 100-50,000 characters'
+    message: 'Job description must be 100-50,000 characters',
   },
   jobUrl: {
     pattern: /^https?:\/\/.+/,
-    message: 'Must be a valid URL'
-  }
-}
+    message: 'Must be a valid URL',
+  },
+};
 ```
 
 **Validation behavior**:
+
 - Either text OR URL required (not both)
 - If both provided, URL takes precedence
 - Character counter shows below textarea
@@ -1328,15 +1479,15 @@ const validationRules = {
 
 ### Behavior
 
-| Action | Trigger | Response |
-|--------|---------|----------|
-| Paste text | User pastes into textarea | Enable Analyze button if > 100 chars |
-| Paste URL | User pastes into URL field | Validate URL format, clear textarea |
-| Toggle sections | Click section header | Expand/collapse section (accordion) |
-| View match details | Click match item | Expand to show full reasoning |
-| Save analysis | Click Save button | Save to application record, show toast |
-| Generate cover letter | Click Generate button | Navigate to cover letter generator with prefilled context |
-| Retry | Error state → click Retry | Return to input form with preserved text |
+| Action                | Trigger                    | Response                                                  |
+| --------------------- | -------------------------- | --------------------------------------------------------- |
+| Paste text            | User pastes into textarea  | Enable Analyze button if > 100 chars                      |
+| Paste URL             | User pastes into URL field | Validate URL format, clear textarea                       |
+| Toggle sections       | Click section header       | Expand/collapse section (accordion)                       |
+| View match details    | Click match item           | Expand to show full reasoning                             |
+| Save analysis         | Click Save button          | Save to application record, show toast                    |
+| Generate cover letter | Click Generate button      | Navigate to cover letter generator with prefilled context |
+| Retry                 | Error state → click Retry  | Return to input form with preserved text                  |
 
 ### Loading State Progression
 
@@ -1345,8 +1496,8 @@ const analysisSteps = [
   { label: 'Parsing job description', duration: 2000 },
   { label: 'Extracting requirements', duration: 3000 },
   { label: 'Comparing against your catalog', duration: 4000 },
-  { label: 'Identifying matches and gaps', duration: 3000 }
-]
+  { label: 'Identifying matches and gaps', duration: 3000 },
+];
 ```
 
 Total estimated time: 10-15 seconds
@@ -1354,6 +1505,7 @@ Total estimated time: 10-15 seconds
 ### Empty States
 
 **No Catalog Data**:
+
 ```
 ┌─────────────────────────────────────────┐
 │                                         │
@@ -1370,6 +1522,7 @@ Total estimated time: 10-15 seconds
 ```
 
 **No Matches**:
+
 ```
 ┌─────────────────────────────────────────┐
 │  ❌ No Strong Matches                   │
@@ -1401,11 +1554,9 @@ Total estimated time: 10-15 seconds
 - **Desktop (>1024px):**
   - Full 3-column results layout
   - Side-by-side comparison sections
-  
 - **Tablet (768-1024px):**
   - 2-column layout, stacked sections
   - Collapsible sections default to collapsed
-  
 - **Mobile (<768px):**
   - Single column, full width
   - Input textarea 6 rows (vs 8 on desktop)
@@ -1414,13 +1565,13 @@ Total estimated time: 10-15 seconds
 
 ### Error Handling
 
-| Error Type | User Message | Recovery Action |
-|------------|--------------|-----------------|
-| Network Error | "Unable to analyze. Check your connection." | [Retry] preserves input |
-| Empty Input | "Please enter a job description or URL." | Disable submit until valid |
-| URL Fetch Failed | "Couldn't load job posting from URL. Try pasting text." | Switch to textarea mode |
-| Analysis Timeout | "Analysis took too long. Try a shorter description." | [Retry] with shortened text |
-| API Error | "Analysis failed. Our team has been notified." | [Contact Support] link |
+| Error Type       | User Message                                            | Recovery Action             |
+| ---------------- | ------------------------------------------------------- | --------------------------- |
+| Network Error    | "Unable to analyze. Check your connection."             | [Retry] preserves input     |
+| Empty Input      | "Please enter a job description or URL."                | Disable submit until valid  |
+| URL Fetch Failed | "Couldn't load job posting from URL. Try pasting text." | Switch to textarea mode     |
+| Analysis Timeout | "Analysis took too long. Try a shorter description."    | [Retry] with shortened text |
+| API Error        | "Analysis failed. Our team has been notified."          | [Contact Support] link      |
 
 ### Integration Points
 
@@ -1441,31 +1592,32 @@ Total estimated time: 10-15 seconds
 ## 14. CoverLetterGenerator
 
 ### Purpose
+
 AI-powered cover letter generation wizard that guides users through creating personalized cover letters using their catalog STAR entries and job fit analysis results.
 
 ### Props
 
 ```tsx
 interface CoverLetterGeneratorProps {
-  fitAnalysisId?: string         // Pre-load from existing fit analysis
-  applicationId?: string          // Link to specific application
-  onComplete?: (result: CoverLetterResult) => void
-  onCancel?: () => void
+  fitAnalysisId?: string; // Pre-load from existing fit analysis
+  applicationId?: string; // Link to specific application
+  onComplete?: (result: CoverLetterResult) => void;
+  onCancel?: () => void;
 }
 
 interface CoverLetterResult {
-  id: string
-  content: string                 // Markdown format
-  variant: CoverLetterVariant
-  selectedSTARs: string[]         // STAR entry IDs
-  generatedAt: Date
-  applicationId?: string
+  id: string;
+  content: string; // Markdown format
+  variant: CoverLetterVariant;
+  selectedSTARs: string[]; // STAR entry IDs
+  generatedAt: Date;
+  applicationId?: string;
 }
 
 interface CoverLetterVariant {
-  tone: 'professional' | 'conversational' | 'enthusiastic'
-  length: 'concise' | 'standard' | 'detailed'
-  emphasis: 'technical' | 'leadership' | 'balanced'
+  tone: 'professional' | 'conversational' | 'enthusiastic';
+  length: 'concise' | 'standard' | 'detailed';
+  emphasis: 'technical' | 'leadership' | 'balanced';
 }
 ```
 
@@ -1506,6 +1658,7 @@ interface CoverLetterVariant {
 ```
 
 **Validation:**
+
 - Company name: required, 2-100 chars
 - Job title: required, 2-100 chars
 - Hiring contact: optional, 2-100 chars
@@ -1555,6 +1708,7 @@ interface CoverLetterVariant {
 ```
 
 **Features:**
+
 - Recommended entries at top (from fit analysis) with relevance scores
 - All catalog entries below, searchable/filterable
 - Visual indication of selected count (3-5 sweet spot)
@@ -1612,11 +1766,13 @@ interface CoverLetterVariant {
 ```
 
 **Defaults:**
+
 - Tone: `professional`
 - Length: `standard`
 - Emphasis: `balanced`
 
 **Smart Recommendations:**
+
 - Tone suggested based on company type (startup vs enterprise)
 - Emphasis suggested based on selected STARs and job requirements
 
@@ -1657,6 +1813,7 @@ interface CoverLetterVariant {
 ```
 
 **Features:**
+
 - Split-pane editor/preview
 - Live markdown rendering
 - Validation checks:
@@ -1668,36 +1825,37 @@ interface CoverLetterVariant {
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Step 1 | Wizard loads | Target form visible, Next disabled until required fields filled |
-| Step 2 | Next from Step 1 | STAR picker visible, recommended entries pre-selected if fit analysis exists |
-| Step 3 | Next from Step 2 | Tone/length selector, smart defaults based on role |
-| Generating | Generate clicked | Loading overlay, progress indicator (10-15s) |
-| Step 4 | Generation complete | Split editor/preview, validation checks run |
-| Regenerating | Regenerate clicked | Editor disabled, progress indicator, preserves edits option |
-| Saving | Save clicked | Toast notification, adds to application if linked |
-| Error | Generation fails | Error banner with retry button |
+| State        | Trigger             | Visual Changes                                                               |
+| ------------ | ------------------- | ---------------------------------------------------------------------------- |
+| Step 1       | Wizard loads        | Target form visible, Next disabled until required fields filled              |
+| Step 2       | Next from Step 1    | STAR picker visible, recommended entries pre-selected if fit analysis exists |
+| Step 3       | Next from Step 2    | Tone/length selector, smart defaults based on role                           |
+| Generating   | Generate clicked    | Loading overlay, progress indicator (10-15s)                                 |
+| Step 4       | Generation complete | Split editor/preview, validation checks run                                  |
+| Regenerating | Regenerate clicked  | Editor disabled, progress indicator, preserves edits option                  |
+| Saving       | Save clicked        | Toast notification, adds to application if linked                            |
+| Error        | Generation fails    | Error banner with retry button                                               |
 
 ### Wizard Navigation
 
 ```typescript
 interface WizardStep {
-  id: number
-  title: string
-  isValid: boolean
-  isComplete: boolean
+  id: number;
+  title: string;
+  isValid: boolean;
+  isComplete: boolean;
 }
 
 const steps = [
   { id: 1, title: 'Confirm Target', isValid: false, isComplete: false },
   { id: 2, title: 'Select Experiences', isValid: false, isComplete: false },
   { id: 3, title: 'Choose Style', isValid: false, isComplete: false },
-  { id: 4, title: 'Review & Edit', isValid: false, isComplete: false }
-]
+  { id: 4, title: 'Review & Edit', isValid: false, isComplete: false },
+];
 ```
 
 **Navigation Rules:**
+
 - Can go back to any previous step
 - Can only advance if current step is valid
 - Progress indicator shows current step and completion status
@@ -1710,40 +1868,40 @@ const validationRules = {
   step1: {
     companyName: { required: true, minLength: 2, maxLength: 100 },
     jobTitle: { required: true, minLength: 2, maxLength: 100 },
-    hiringContact: { required: false, maxLength: 100 }
+    hiringContact: { required: false, maxLength: 100 },
   },
   step2: {
-    selectedSTARs: { 
-      minCount: 1, 
+    selectedSTARs: {
+      minCount: 1,
       maxCount: 8,
-      recommended: { min: 3, max: 5 }
-    }
+      recommended: { min: 3, max: 5 },
+    },
   },
   step3: {
     tone: { required: true, enum: ['professional', 'conversational', 'enthusiastic'] },
     length: { required: true, enum: ['concise', 'standard', 'detailed'] },
-    emphasis: { required: true, enum: ['technical', 'leadership', 'balanced'] }
-  }
-}
+    emphasis: { required: true, enum: ['technical', 'leadership', 'balanced'] },
+  },
+};
 ```
 
 ### Content Validation (Step 4)
 
 AI-powered checks on generated content:
 
-| Check | Pass Criteria | Failure Action |
-|-------|---------------|----------------|
-| Word count | Within ±10% of target length | Warning only, allow save |
-| Fabricated metrics | No unsourced numbers/percentages | Error, block save |
-| AI attribution | Specific tool names (Claude, GPT-4) not generic "AI" | Warning, suggest edit |
-| Hallucinated projects | All projects exist in catalog | Error, block save |
-| Gap honesty | Acknowledged gaps from fit analysis mentioned if critical | Warning only |
+| Check                 | Pass Criteria                                             | Failure Action           |
+| --------------------- | --------------------------------------------------------- | ------------------------ |
+| Word count            | Within ±10% of target length                              | Warning only, allow save |
+| Fabricated metrics    | No unsourced numbers/percentages                          | Error, block save        |
+| AI attribution        | Specific tool names (Claude, GPT-4) not generic "AI"      | Warning, suggest edit    |
+| Hallucinated projects | All projects exist in catalog                             | Error, block save        |
+| Gap honesty           | Acknowledged gaps from fit analysis mentioned if critical | Warning only             |
 
 ### Accessibility
 
 - **ARIA Landmarks:** `role="region"` with `aria-label="Step {n} of 4: {title}"`
 - **Progress Announcement:** Screen reader announces step changes
-- **Focus Management:** 
+- **Focus Management:**
   - Focus moves to step heading on step change
   - Focus moves to error message if validation fails
 - **Keyboard Navigation:**
@@ -1760,11 +1918,9 @@ AI-powered checks on generated content:
 - **Desktop (>1024px):**
   - Full wizard layout
   - Split-pane editor/preview in Step 4
-  
 - **Tablet (768-1024px):**
   - Single column wizard
   - Tabbed editor/preview in Step 4
-  
 - **Mobile (<768px):**
   - Compact wizard steps
   - Stacked editor then preview in Step 4
@@ -1779,31 +1935,32 @@ AI-powered checks on generated content:
 
 ### Error Handling
 
-| Error Type | User Message | Recovery Action |
-|------------|--------------|-----------------|
-| Network Error | "Unable to generate. Check your connection." | [Retry] preserves all inputs |
-| Generation Timeout | "Generation took too long. Try fewer experiences." | [Edit Selection] returns to Step 2 |
-| Empty Catalog | "No experiences found. Upload a resume first." | [Upload Resume] link |
-| Validation Failed | "Content contains fabricated metrics. Please regenerate." | [Regenerate] or [Edit Manually] |
-| API Error | "Generation failed. Our team has been notified." | [Contact Support] link |
+| Error Type         | User Message                                              | Recovery Action                    |
+| ------------------ | --------------------------------------------------------- | ---------------------------------- |
+| Network Error      | "Unable to generate. Check your connection."              | [Retry] preserves all inputs       |
+| Generation Timeout | "Generation took too long. Try fewer experiences."        | [Edit Selection] returns to Step 2 |
+| Empty Catalog      | "No experiences found. Upload a resume first."            | [Upload Resume] link               |
+| Validation Failed  | "Content contains fabricated metrics. Please regenerate." | [Regenerate] or [Edit Manually]    |
+| API Error          | "Generation failed. Our team has been notified."          | [Contact Support] link             |
 
 ---
 
 ## 15. CoverLetterPreview
 
 ### Purpose
+
 Renders cover letter content with proper typography and formatting, provides export actions.
 
 ### Props
 
 ```tsx
 interface CoverLetterPreviewProps {
-  content: string                 // Markdown format
-  variant?: CoverLetterVariant
-  wordCount?: number
-  showExportActions?: boolean
-  onCopy?: () => void
-  onDownload?: (format: 'docx' | 'pdf') => void
+  content: string; // Markdown format
+  variant?: CoverLetterVariant;
+  wordCount?: number;
+  showExportActions?: boolean;
+  onCopy?: () => void;
+  onDownload?: (format: 'docx' | 'pdf') => void;
 }
 ```
 
@@ -1858,7 +2015,9 @@ interface CoverLetterPreviewProps {
   text-align: left;
 }
 
-.cover-letter-preview h1, h2, h3 {
+.cover-letter-preview h1,
+h2,
+h3 {
   font-family: inherit;
   font-weight: 600;
   margin-top: 1.5em;
@@ -1869,35 +2028,38 @@ interface CoverLetterPreviewProps {
 ### Export Formats
 
 **Copy to Clipboard:**
+
 - Plain text with preserved line breaks
 - Success toast: "Cover letter copied to clipboard"
 
 **Download .docx:**
+
 - Uses `docx` library
 - Page setup: Letter (8.5" x 11"), 1" margins
 - Font: Times New Roman, 11pt
 - Filename: `CoverLetter_{CompanyName}_{Date}.docx`
 
 **Download .pdf (optional):**
+
 - Same typography as .docx
 - Filename: `CoverLetter_{CompanyName}_{Date}.pdf`
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | Content loaded | Rendered markdown, export buttons enabled |
-| Copying | Copy clicked | Button shows "Copied!" for 2s, then reverts |
+| State       | Trigger          | Visual Changes                                        |
+| ----------- | ---------------- | ----------------------------------------------------- |
+| Default     | Content loaded   | Rendered markdown, export buttons enabled             |
+| Copying     | Copy clicked     | Button shows "Copied!" for 2s, then reverts           |
 | Downloading | Download clicked | Loading spinner on button, disabled during generation |
-| Empty | No content | Placeholder "No content to preview" |
-| Error | Render failed | Error message with retry |
+| Empty       | No content       | Placeholder "No content to preview"                   |
+| Error       | Render failed    | Error message with retry                              |
 
 ### Behavior
 
-- **Markdown Rendering:** 
+- **Markdown Rendering:**
   - Supports: paragraphs, headings, bold, italic, lists
   - Does NOT support: images, code blocks, tables (warning if detected)
-- **Print Styles:** 
+- **Print Styles:**
   - Print button triggers browser print dialog
   - CSS print media query hides export buttons
 - **Auto-Save:**
@@ -1919,11 +2081,9 @@ interface CoverLetterPreviewProps {
 - **Desktop (>1024px):**
   - Full 8.5" page width simulation
   - Side-by-side with editor if in generator
-  
 - **Tablet (768-1024px):**
   - Reduced padding, full width
   - Tabbed view if with editor
-  
 - **Mobile (<768px):**
   - Single column, minimal padding
   - Stacked below editor
@@ -1934,29 +2094,30 @@ interface CoverLetterPreviewProps {
 ## 16. OutreachComposer
 
 ### Purpose
+
 Short-form message composer for LinkedIn InMail, email subject/body, or other outreach platforms. Part of UC-4b.
 
 ### Props
 
 ```tsx
 interface OutreachComposerProps {
-  platform: 'linkedin' | 'email' | 'twitter'
-  applicationId?: string
-  fitAnalysisId?: string
+  platform: 'linkedin' | 'email' | 'twitter';
+  applicationId?: string;
+  fitAnalysisId?: string;
   prefillContext?: {
-    company: string
-    jobTitle: string
-    hiringManager?: string
-  }
-  onComplete?: (result: OutreachMessage) => void
+    company: string;
+    jobTitle: string;
+    hiringManager?: string;
+  };
+  onComplete?: (result: OutreachMessage) => void;
 }
 
 interface OutreachMessage {
-  platform: 'linkedin' | 'email' | 'twitter'
-  subject?: string               // Email only
-  body: string
-  characterCount: number
-  generatedAt: Date
+  platform: 'linkedin' | 'email' | 'twitter';
+  subject?: string; // Email only
+  body: string;
+  characterCount: number;
+  generatedAt: Date;
 }
 ```
 
@@ -2012,22 +2173,22 @@ interface OutreachMessage {
 ```typescript
 const platformLimits = {
   linkedin: {
-    maxChars: 1900,           // Hard limit
-    recommendedMax: 300,      // Best practice for InMail
-    hasSubject: false
+    maxChars: 1900, // Hard limit
+    recommendedMax: 300, // Best practice for InMail
+    hasSubject: false,
   },
   email: {
-    maxChars: null,           // No hard limit
-    recommendedMax: 500,      // Body only
+    maxChars: null, // No hard limit
+    recommendedMax: 500, // Body only
     hasSubject: true,
-    subjectMaxChars: 78       // Email subject best practice
+    subjectMaxChars: 78, // Email subject best practice
   },
   twitter: {
-    maxChars: 10000,          // DM limit
-    recommendedMax: 280,      // Short, tweet-like
-    hasSubject: false
-  }
-}
+    maxChars: 10000, // DM limit
+    recommendedMax: 280, // Short, tweet-like
+    hasSubject: false,
+  },
+};
 ```
 
 ### Character Counter
@@ -2046,6 +2207,7 @@ Twitter: 142 / 280
 ```
 
 **Color Coding:**
+
 - Green: Within recommended range
 - Yellow: Exceeds recommended but under max
 - Red: Exceeds maximum (send disabled)
@@ -2074,12 +2236,14 @@ Twitter: 142 / 280
 ### Generation Strategy
 
 **LinkedIn InMail:**
+
 - Focus: One standout achievement + clear ask
 - Tone: Professional but personable
 - Length: 150-250 words (recommended)
 - Structure: Hook → Relevance → CTA
 
 **Email:**
+
 - Subject: Specific, role-focused, under 78 chars
 - Focus: 2-3 key qualifications + clear next step
 - Tone: Professional, respectful of recipient's time
@@ -2087,6 +2251,7 @@ Twitter: 142 / 280
 - Structure: Greeting → Context → Value → CTA → Signature
 
 **Twitter DM:**
+
 - Focus: Ultra-concise, single selling point
 - Tone: Casual but professional
 - Length: 100-200 characters
@@ -2094,15 +2259,15 @@ Twitter: 142 / 280
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Platform Selected | User clicks platform | Show platform-specific UI and limits |
-| Generating | Generate clicked | Loading spinner, "Generating message..." |
-| Generated | Generation complete | Message appears, character count shown, actions enabled |
-| Editing | Edit clicked | Message becomes editable textarea |
-| Copied | Copy clicked | "Copied!" toast, button shows checkmark for 2s |
-| Over Limit | Character count exceeds max | Red counter, send disabled, "Reduce length" warning |
-| Regenerating | Regenerate clicked | Preserves platform/context, new message |
+| State             | Trigger                     | Visual Changes                                          |
+| ----------------- | --------------------------- | ------------------------------------------------------- |
+| Platform Selected | User clicks platform        | Show platform-specific UI and limits                    |
+| Generating        | Generate clicked            | Loading spinner, "Generating message..."                |
+| Generated         | Generation complete         | Message appears, character count shown, actions enabled |
+| Editing           | Edit clicked                | Message becomes editable textarea                       |
+| Copied            | Copy clicked                | "Copied!" toast, button shows checkmark for 2s          |
+| Over Limit        | Character count exceeds max | Red counter, send disabled, "Reduce length" warning     |
+| Regenerating      | Regenerate clicked          | Preserves platform/context, new message                 |
 
 ### Validation Rules
 
@@ -2111,62 +2276,65 @@ const validationRules = {
   context: {
     company: { required: true, minLength: 2 },
     jobTitle: { required: true, minLength: 2 },
-    contact: { required: false }
+    contact: { required: false },
   },
   message: {
     minLength: 50,
-    maxLength: (platform) => platformLimits[platform].maxChars
+    maxLength: (platform) => platformLimits[platform].maxChars,
   },
   email: {
     subject: { required: true, minLength: 5, maxLength: 78 },
-    body: { required: true, minLength: 50 }
-  }
-}
+    body: { required: true, minLength: 50 },
+  },
+};
 ```
 
 ### Quality Checks
 
 AI-powered validation on generated messages:
 
-| Check | Pass Criteria | Visual Indicator |
-|-------|---------------|------------------|
-| Specificity | Mentions 1+ concrete achievement | ✅ "Specific" |
-| Brevity | Within recommended length | ✅ "Concise" |
-| CTA | Clear call-to-action present | ✅ "Clear CTA" |
-| Personalization | Uses contact name (if provided) | ✅ "Personalized" |
-| No fluff | Avoids clichés ("passionate", "rockstar", etc.) | ✅ "Direct" |
+| Check           | Pass Criteria                                   | Visual Indicator  |
+| --------------- | ----------------------------------------------- | ----------------- |
+| Specificity     | Mentions 1+ concrete achievement                | ✅ "Specific"     |
+| Brevity         | Within recommended length                       | ✅ "Concise"      |
+| CTA             | Clear call-to-action present                    | ✅ "Clear CTA"    |
+| Personalization | Uses contact name (if provided)                 | ✅ "Personalized" |
+| No fluff        | Avoids clichés ("passionate", "rockstar", etc.) | ✅ "Direct"       |
 
 ### Behavior
 
-| Action | Trigger | Response |
-|--------|---------|----------|
-| Switch platform | Click platform radio | Reset message, adjust UI for new platform |
-| Generate | Click Generate button | Call AI service, show loading state, display result |
-| Edit | Click Edit button | Convert to editable textarea, preserve formatting |
-| Copy | Click Copy button | Copy to clipboard, show toast confirmation |
-| Regenerate | Click Regenerate | Keep context, generate new message with different framing |
-| Send via App | Click Send button | Open LinkedIn/email client with pre-filled message |
+| Action          | Trigger               | Response                                                  |
+| --------------- | --------------------- | --------------------------------------------------------- |
+| Switch platform | Click platform radio  | Reset message, adjust UI for new platform                 |
+| Generate        | Click Generate button | Call AI service, show loading state, display result       |
+| Edit            | Click Edit button     | Convert to editable textarea, preserve formatting         |
+| Copy            | Click Copy button     | Copy to clipboard, show toast confirmation                |
+| Regenerate      | Click Regenerate      | Keep context, generate new message with different framing |
+| Send via App    | Click Send button     | Open LinkedIn/email client with pre-filled message        |
 
 ### Send via App Integration
 
 **LinkedIn:**
+
 - Copies message to clipboard
 - Opens LinkedIn URL: `https://www.linkedin.com/messaging/compose`
 - Toast: "Message copied. Paste into LinkedIn."
 
 **Email:**
+
 - Mailto link with subject and body pre-filled
 - URL-encodes subject and body
 - Example: `mailto:jane@techcorp.com?subject=...&body=...`
 
 **Twitter:**
+
 - Copies message to clipboard
 - Opens Twitter DM URL if contact handle known
 - Toast: "Message copied. Paste into Twitter DM."
 
 ### Accessibility
 
-- **ARIA Labels:** 
+- **ARIA Labels:**
   - Platform selector: "Choose outreach platform"
   - Character counter: "147 of 300 recommended characters"
 - **Focus Management:** Focus moves to generated message after generation
@@ -2183,11 +2351,9 @@ AI-powered validation on generated messages:
 - **Desktop (>1024px):**
   - Full layout with platform selector horizontal
   - Side-by-side context and message
-  
 - **Tablet (768-1024px):**
   - Stacked layout
   - Platform selector as tabs
-  
 - **Mobile (<768px):**
   - Vertical stack
   - Platform selector as dropdown
@@ -2195,12 +2361,12 @@ AI-powered validation on generated messages:
 
 ### Error Handling
 
-| Error Type | User Message | Recovery Action |
-|------------|--------------|-----------------|
-| Network Error | "Unable to generate. Check your connection." | [Retry] |
-| Empty Context | "Please fill in company and role information." | Focus on first empty field |
-| Generation Failed | "Generation failed. Try again or write manually." | [Retry] or [Write Manually] |
-| Over Limit | "Message is {n} characters over the limit. Please shorten." | Highlight excess text |
+| Error Type        | User Message                                                | Recovery Action             |
+| ----------------- | ----------------------------------------------------------- | --------------------------- |
+| Network Error     | "Unable to generate. Check your connection."                | [Retry]                     |
+| Empty Context     | "Please fill in company and role information."              | Focus on first empty field  |
+| Generation Failed | "Generation failed. Try again or write manually."           | [Retry] or [Write Manually] |
+| Over Limit        | "Message is {n} characters over the limit. Please shorten." | Highlight excess text       |
 
 ### Integration Points
 
@@ -2213,33 +2379,34 @@ AI-powered validation on generated messages:
 ## 17. StarEntryPicker
 
 ### Purpose
+
 Multi-select component for choosing STAR entries (Situation, Task, Action, Result achievements) with relevance scoring and filtering.
 
 ### Props
 
 ```tsx
 interface StarEntryPickerProps {
-  entries: STAREntry[]
-  recommendedIds?: string[]      // From fit analysis
-  selectedIds?: string[]
-  minSelection?: number
-  maxSelection?: number
-  showRelevanceScores?: boolean
-  onSelectionChange: (selectedIds: string[]) => void
-  onEntryPreview?: (entryId: string) => void
+  entries: STAREntry[];
+  recommendedIds?: string[]; // From fit analysis
+  selectedIds?: string[];
+  minSelection?: number;
+  maxSelection?: number;
+  showRelevanceScores?: boolean;
+  onSelectionChange: (selectedIds: string[]) => void;
+  onEntryPreview?: (entryId: string) => void;
 }
 
 interface STAREntry {
-  id: string
-  title: string
-  situation: string
-  task: string
-  action: string
-  result: string
-  tags: string[]
-  timeframe: string              // e.g., "Q3 2024"
-  relevanceScore?: number        // 0-100, from fit analysis
-  relevanceReasoning?: string
+  id: string;
+  title: string;
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+  tags: string[];
+  timeframe: string; // e.g., "Q3 2024"
+  relevanceScore?: number; // 0-100, from fit analysis
+  relevanceReasoning?: string;
 }
 ```
 
@@ -2336,11 +2503,12 @@ const relevanceConfig = {
   great: { range: [80, 89], color: 'green-500', label: 'Great match' },
   good: { range: [70, 79], color: 'yellow-600', label: 'Good match' },
   fair: { range: [60, 69], color: 'yellow-500', label: 'Fair match' },
-  low: { range: [0, 59], color: 'gray-500', label: 'Low relevance' }
-}
+  low: { range: [0, 59], color: 'gray-500', label: 'Low relevance' },
+};
 ```
 
 Visual representation:
+
 - `[95%]` in green = Excellent match
 - `[82%]` in green = Great match
 - `[74%]` in yellow = Good match
@@ -2349,11 +2517,13 @@ Visual representation:
 ### Search & Filter
 
 **Search:**
+
 - Searches title, tags, situation, task, action, result
 - Debounced 300ms
 - Highlights matching text
 
 **Filter Options:**
+
 - All Entries
 - Recommended Only
 - Selected Only
@@ -2401,6 +2571,7 @@ Selected: 7 of 3-5 recommended
 ```
 
 **Color Coding:**
+
 - Red: Below minimum
 - Yellow: Below recommended minimum
 - Green: In recommended range (3-5)
@@ -2409,24 +2580,26 @@ Selected: 7 of 3-5 recommended
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | Component loads | Recommended entries at top, all entries below |
-| Empty | No entries | "No STAR entries yet. Upload a resume to populate." |
-| Searching | User types in search | Filter entries in real-time, highlight matches |
-| Filtered | Filter applied | Show only matching entries, count indicator |
-| Selected | Entry checkbox clicked | Checkmark, update counter, re-sort if needed |
-| Preview Expanded | Preview clicked | Expand to show full STAR details |
-| Max Selected | Selection count hits max | Disable unchecked entries, show warning |
+| State            | Trigger                  | Visual Changes                                      |
+| ---------------- | ------------------------ | --------------------------------------------------- |
+| Default          | Component loads          | Recommended entries at top, all entries below       |
+| Empty            | No entries               | "No STAR entries yet. Upload a resume to populate." |
+| Searching        | User types in search     | Filter entries in real-time, highlight matches      |
+| Filtered         | Filter applied           | Show only matching entries, count indicator         |
+| Selected         | Entry checkbox clicked   | Checkmark, update counter, re-sort if needed        |
+| Preview Expanded | Preview clicked          | Expand to show full STAR details                    |
+| Max Selected     | Selection count hits max | Disable unchecked entries, show warning             |
 
 ### Sorting
 
 Default sort order:
+
 1. Recommended entries first (by relevance score descending)
 2. Selected entries next (chronological, newest first)
 3. All other entries (chronological, newest first)
 
 Optional sorts (dropdown):
+
 - Relevance (high to low)
 - Newest first
 - Oldest first
@@ -2434,22 +2607,22 @@ Optional sorts (dropdown):
 
 ### Behavior
 
-| Action | Trigger | Response |
-|--------|---------|----------|
-| Select entry | Click checkbox | Add to selected list, update counter |
-| Deselect entry | Click checked checkbox | Remove from selected list, update counter |
-| Preview entry | Click Preview button | Expand to show full STAR, collapse button appears |
-| Collapse entry | Click Collapse button | Return to compact card view |
-| Search | Type in search field | Filter entries, highlight matches |
-| Apply filter | Select filter options | Show only matching entries |
-| Load more | Click Load More | Fetch and display next 10 entries |
+| Action         | Trigger                | Response                                          |
+| -------------- | ---------------------- | ------------------------------------------------- |
+| Select entry   | Click checkbox         | Add to selected list, update counter              |
+| Deselect entry | Click checked checkbox | Remove from selected list, update counter         |
+| Preview entry  | Click Preview button   | Expand to show full STAR, collapse button appears |
+| Collapse entry | Click Collapse button  | Return to compact card view                       |
+| Search         | Type in search field   | Filter entries, highlight matches                 |
+| Apply filter   | Select filter options  | Show only matching entries                        |
+| Load more      | Click Load More        | Fetch and display next 10 entries                 |
 
 ### Accessibility
 
 - **ARIA Labels:**
   - Checkbox: "Select {entry title}"
   - Counter: "2 entries selected out of recommended 3 to 5"
-- **Focus Management:** 
+- **Focus Management:**
   - Focus on first entry when list loads
   - Focus moves to preview when expanded
 - **Keyboard Navigation:**
@@ -2466,11 +2639,9 @@ Optional sorts (dropdown):
 - **Desktop (>1024px):**
   - 2-column grid for entry cards
   - Side filter panel
-  
 - **Tablet (768-1024px):**
   - Single column cards
   - Collapsible filter panel
-  
 - **Mobile (<768px):**
   - Compact cards
   - Filter as bottom sheet
@@ -2479,6 +2650,7 @@ Optional sorts (dropdown):
 ### Empty States
 
 **No Entries:**
+
 ```
 ┌─────────────────────────────────────────┐
 │                                         │
@@ -2495,6 +2667,7 @@ Optional sorts (dropdown):
 ```
 
 **No Search Results:**
+
 ```
 ┌─────────────────────────────────────────┐
 │    No entries match "kubernetes"        │
@@ -2520,57 +2693,58 @@ Optional sorts (dropdown):
 ## 18. ResumeVariantGenerator
 
 ### Purpose
+
 Multi-step wizard for generating targeted resume variants by scoring catalog STAR bullets against a target role, selecting top bullets, and generating a tailored resume with real-time preview and traceability.
 
 ### Props
 
 ```tsx
 interface ResumeVariantGeneratorProps {
-  fitAnalysisId?: string         // Pre-load from job fit analysis
-  applicationId?: string          // Link to specific application
-  existingVariantId?: string      // For rebalance mode
-  mode?: 'create' | 'rebalance' | 'compress'
-  onComplete?: (result: ResumeVariantResult) => void
-  onCancel?: () => void
+  fitAnalysisId?: string; // Pre-load from job fit analysis
+  applicationId?: string; // Link to specific application
+  existingVariantId?: string; // For rebalance mode
+  mode?: 'create' | 'rebalance' | 'compress';
+  onComplete?: (result: ResumeVariantResult) => void;
+  onCancel?: () => void;
 }
 
 interface ResumeVariantResult {
-  id: string
-  variantName: string
-  content: string                 // Markdown format
-  configuration: VariantConfig
-  selectedBullets: ScoredBullet[]
+  id: string;
+  variantName: string;
+  content: string; // Markdown format
+  configuration: VariantConfig;
+  selectedBullets: ScoredBullet[];
   metadata: {
-    wordCount: number
-    pageCount: number
-    companiesIncluded: number
-    bulletCount: number
-  }
-  generatedAt: Date
-  applicationId?: string
+    wordCount: number;
+    pageCount: number;
+    companiesIncluded: number;
+    bulletCount: number;
+  };
+  generatedAt: Date;
+  applicationId?: string;
 }
 
 interface VariantConfig {
-  targetRole: string
-  seniority: 'junior' | 'mid' | 'senior' | 'lead'
-  keySkills: string[]              // 3-5 skills to emphasize
+  targetRole: string;
+  seniority: 'junior' | 'mid' | 'senior' | 'lead';
+  keySkills: string[]; // 3-5 skills to emphasize
   constraints: {
-    maxPages: 1 | 2 | null         // null = no limit
-    targetWordCount: number
-    bulletRange: { min: number; max: number }
-    companyRange: { min: number; max: number }
-  }
+    maxPages: 1 | 2 | null; // null = no limit
+    targetWordCount: number;
+    bulletRange: { min: number; max: number };
+    companyRange: { min: number; max: number };
+  };
 }
 
 interface ScoredBullet {
-  starEntryId: string
-  title: string
-  company: string
-  timeframe: string
-  tags: string[]
-  relevanceScore: number           // 0-100
-  reasoning: string
-  selected: boolean
+  starEntryId: string;
+  title: string;
+  company: string;
+  timeframe: string;
+  tags: string[];
+  relevanceScore: number; // 0-100
+  reasoning: string;
+  selected: boolean;
 }
 ```
 
@@ -2600,6 +2774,7 @@ interface ScoredBullet {
 ```
 
 **Validation:**
+
 - Job title: required, 2-200 chars
 - Key skills: minimum 1, maximum 5 selections
 - Bullet range: min must be ≤ max
@@ -2624,6 +2799,7 @@ interface ScoredBullet {
 ```
 
 **Behavior:**
+
 - Auto-advances when scoring complete (no user interaction)
 - Progress updates every 500ms
 - Cannot cancel once started (committed operation)
@@ -2660,6 +2836,7 @@ interface ScoredBullet {
 ```
 
 **Features:**
+
 - Real-time constraint validation with color-coded indicators
 - Auto-select intelligently chooses top-scoring bullets to meet constraints
 - Preview button opens modal with full STAR entry
@@ -2696,6 +2873,7 @@ interface ScoredBullet {
 ```
 
 **Key Features:**
+
 - Split-pane layout: preview (left) + traceability (right)
 - Bidirectional highlighting: hover bullet → highlights source
 - Edit mode: inline markdown editing with live preview
@@ -2731,6 +2909,7 @@ interface ScoredBullet {
 ```
 
 **Behavior:**
+
 - Variant name auto-populated, editable
 - Multiple export formats supported, downloads all selected
 - Application linking optional
@@ -2739,16 +2918,16 @@ interface ScoredBullet {
 
 ### States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Step 1 | Generator loads | Configuration form, Next disabled until valid |
-| Scoring | Next from Step 1 | Progress animation, cannot cancel |
-| Step 3 | Scoring complete | Bullet list with scores, selection summary |
-| Constraint Violation | Invalid selection | Red warning banner, Next disabled |
-| Step 4 | Valid selection | Split preview/traceability, real-time updates |
-| Generating | Generate clicked | Loading overlay, "Generating..." |
-| Step 5 | Generation complete | Export form, summary, save options |
-| Error | Any step fails | Error modal with retry option |
+| State                | Trigger             | Visual Changes                                |
+| -------------------- | ------------------- | --------------------------------------------- |
+| Step 1               | Generator loads     | Configuration form, Next disabled until valid |
+| Scoring              | Next from Step 1    | Progress animation, cannot cancel             |
+| Step 3               | Scoring complete    | Bullet list with scores, selection summary    |
+| Constraint Violation | Invalid selection   | Red warning banner, Next disabled             |
+| Step 4               | Valid selection     | Split preview/traceability, real-time updates |
+| Generating           | Generate clicked    | Loading overlay, "Generating..."              |
+| Step 5               | Generation complete | Export form, summary, save options            |
+| Error                | Any step fails      | Error modal with retry option                 |
 
 ### Accessibility
 
@@ -2785,54 +2964,56 @@ interface ScoredBullet {
 
 ### Error Handling
 
-| Error Type | User Message | Recovery Action |
-|------------|--------------|-----------------|
-| Empty Catalog | "No catalog entries found. Upload a resume first." | [Upload Resume] link |
-| Scoring Timeout | "Scoring took too long. Please try again." | [Retry] button, preserves config |
+| Error Type           | User Message                                                   | Recovery Action                   |
+| -------------------- | -------------------------------------------------------------- | --------------------------------- |
+| Empty Catalog        | "No catalog entries found. Upload a resume first."             | [Upload Resume] link              |
+| Scoring Timeout      | "Scoring took too long. Please try again."                     | [Retry] button, preserves config  |
 | Insufficient Bullets | "Only 8 bullets scored >60%. Lower threshold or broaden role." | Adjust settings or proceed anyway |
-| Generation Failed | "Unable to generate resume. Try again." | [Retry] or [Edit Selection] |
-| Constraint Violation | "Selection exceeds max bullets (27/25)." | [Auto-Remove] or [Manual Adjust] |
-| Network Error | "Connection lost. Check network and retry." | [Retry] preserves all state |
+| Generation Failed    | "Unable to generate resume. Try again."                        | [Retry] or [Edit Selection]       |
+| Constraint Violation | "Selection exceeds max bullets (27/25)."                       | [Auto-Remove] or [Manual Adjust]  |
+| Network Error        | "Connection lost. Check network and retry."                    | [Retry] preserves all state       |
 
 ---
 
 ## 19. BulletScoreCard
 
 ### Purpose
+
 Display a single scored STAR bullet with relevance score, metadata, preview action, and selection checkbox. Used in resume variant generator bullet selection step.
 
 ### Props
 
 ```tsx
 interface BulletScoreCardProps {
-  bullet: ScoredBullet
-  selected: boolean
-  onToggleSelect: (bulletId: string) => void
-  onPreview: (bulletId: string) => void
-  showScore?: boolean
-  compact?: boolean
+  bullet: ScoredBullet;
+  selected: boolean;
+  onToggleSelect: (bulletId: string) => void;
+  onPreview: (bulletId: string) => void;
+  showScore?: boolean;
+  compact?: boolean;
 }
 
 interface ScoredBullet {
-  id: string
-  title: string
-  company: string
-  timeframe: string
-  tags: string[]
-  relevanceScore: number           // 0-100
-  reasoning: string
+  id: string;
+  title: string;
+  company: string;
+  timeframe: string;
+  tags: string[];
+  relevanceScore: number; // 0-100
+  reasoning: string;
   starEntry: {
-    situation: string
-    task: string
-    action: string
-    result: string
-  }
+    situation: string;
+    task: string;
+    action: string;
+    result: string;
+  };
 }
 ```
 
 ### Variants
 
 **Default (Full):**
+
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ ☑ [95%] Led React migration for client portal             │
@@ -2843,6 +3024,7 @@ interface ScoredBullet {
 ```
 
 **Compact:**
+
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ ☑ [95%] Led React migration... [Preview]                  │
@@ -2851,13 +3033,13 @@ interface ScoredBullet {
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | Card renders | Border: neutral-200, Background: white |
-| Hover | Mouse over | Border: primary-300, Shadow: md, Cursor: pointer |
-| Selected | Checkbox checked | Border: primary-500, Background: primary-50 |
+| State    | Trigger               | Visual Changes                                       |
+| -------- | --------------------- | ---------------------------------------------------- |
+| Default  | Card renders          | Border: neutral-200, Background: white               |
+| Hover    | Mouse over            | Border: primary-300, Shadow: md, Cursor: pointer     |
+| Selected | Checkbox checked      | Border: primary-500, Background: primary-50          |
 | Disabled | Max selection reached | Opacity: 0.5, Cursor: not-allowed, Checkbox disabled |
-| Loading | Preview clicked | Preview button shows spinner |
+| Loading  | Preview clicked       | Preview button shows spinner                         |
 
 ### Relevance Score Badge
 
@@ -2867,20 +3049,20 @@ const scoreConfig = {
   great: { range: [80, 89], color: 'green-500', label: 'Great' },
   good: { range: [70, 79], color: 'yellow-600', label: 'Good' },
   fair: { range: [60, 69], color: 'yellow-500', label: 'Fair' },
-  low: { range: [0, 59], color: 'gray-500', label: 'Low' }
-}
+  low: { range: [0, 59], color: 'gray-500', label: 'Low' },
+};
 ```
 
 Visual: `[95%]` badge in green for excellent, yellow for good/fair, gray for low.
 
 ### Behavior
 
-| Action | Trigger | Response |
-|--------|---------|----------|
-| Select | Click checkbox or card body | Toggle selected state, fire `onToggleSelect` |
-| Preview | Click Preview button | Fire `onPreview`, opens modal with full STAR entry |
-| Hover | Mouse over card | Highlight, show tooltip with full reasoning |
-| Disabled | Max selection reached, card not selected | Gray out, disable checkbox, tooltip explains why |
+| Action   | Trigger                                  | Response                                           |
+| -------- | ---------------------------------------- | -------------------------------------------------- |
+| Select   | Click checkbox or card body              | Toggle selected state, fire `onToggleSelect`       |
+| Preview  | Click Preview button                     | Fire `onPreview`, opens modal with full STAR entry |
+| Hover    | Mouse over card                          | Highlight, show tooltip with full reasoning        |
+| Disabled | Max selection reached, card not selected | Gray out, disable checkbox, tooltip explains why   |
 
 ### Accessibility
 
@@ -2894,17 +3076,18 @@ Visual: `[95%]` badge in green for excellent, yellow for good/fair, gray for low
 ## 20. ResumeTraceabilityPanel
 
 ### Purpose
+
 Shows which catalog STAR entries contributed to each bullet in the generated resume, with bidirectional highlighting and navigation.
 
 ### Props
 
 ```tsx
 interface ResumeTraceabilityPanelProps {
-  selectedBullets: ScoredBullet[]
-  activeRevBulletId?: string         // Currently highlighted bullet in preview
-  onBulletClick: (bulletId: string) => void
-  onViewSTAR: (starEntryId: string) => void
-  showSkillsCoverage?: boolean
+  selectedBullets: ScoredBullet[];
+  activeRevBulletId?: string; // Currently highlighted bullet in preview
+  onBulletClick: (bulletId: string) => void;
+  onViewSTAR: (starEntryId: string) => void;
+  showSkillsCoverage?: boolean;
 }
 ```
 
@@ -2958,26 +3141,29 @@ interface ResumeTraceabilityPanelProps {
 ### Key Features
 
 **Bidirectional Highlighting:**
+
 - When user hovers over bullet in resume preview → highlights corresponding source in traceability panel
 - When user clicks source in traceability panel → scrolls to and highlights bullet in resume preview
 
 **Content Summary:**
+
 - Real-time bullet count, word count, page estimate
 - Constraint validation status with color indicators
 - Company distribution breakdown
 
 **Skills Coverage:**
+
 - Visual progress bars showing how many bullets cover each key skill
 - Helps user see if emphasis is balanced or skewed
 
 ### States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | Panel loads | Shows summary, no active bullet |
+| State         | Trigger                 | Visual Changes                               |
+| ------------- | ----------------------- | -------------------------------------------- |
+| Default       | Panel loads             | Shows summary, no active bullet              |
 | Active Bullet | Bullet hovered/selected | Highlights active bullet, shows STAR preview |
-| Expanded STAR | View Full Entry clicked | Modal with complete STAR entry |
-| Loading | Fetching STAR details | Skeleton loader in STAR preview area |
+| Expanded STAR | View Full Entry clicked | Modal with complete STAR entry               |
+| Loading       | Fetching STAR details   | Skeleton loader in STAR preview area         |
 
 ### Behavior
 
@@ -3004,27 +3190,28 @@ interface ResumeTraceabilityPanelProps {
 ## 21. ConstraintValidator
 
 ### Purpose
+
 Real-time validation component that checks resume variant configuration and selection against user-defined constraints, providing visual feedback and suggestions.
 
 ### Props
 
 ```tsx
 interface ConstraintValidatorProps {
-  configuration: VariantConfig
-  selectedBullets: ScoredBullet[]
-  currentContent?: string           // For word/page count validation
-  onConstraintViolation?: (violations: ConstraintViolation[]) => void
-  showWarnings?: boolean
-  autoSuggest?: boolean
+  configuration: VariantConfig;
+  selectedBullets: ScoredBullet[];
+  currentContent?: string; // For word/page count validation
+  onConstraintViolation?: (violations: ConstraintViolation[]) => void;
+  showWarnings?: boolean;
+  autoSuggest?: boolean;
 }
 
 interface ConstraintViolation {
-  type: 'bullet_count' | 'company_count' | 'page_length' | 'word_count'
-  severity: 'critical' | 'warning'
-  current: number
-  expected: number | { min: number; max: number }
-  message: string
-  suggestion?: string
+  type: 'bullet_count' | 'company_count' | 'page_length' | 'word_count';
+  severity: 'critical' | 'warning';
+  current: number;
+  expected: number | { min: number; max: number };
+  message: string;
+  suggestion?: string;
 }
 ```
 
@@ -3080,37 +3267,36 @@ interface ConstraintViolation {
 const validationRules = {
   bulletCount: {
     check: (current, config) => {
-      const { min, max } = config.constraints.bulletRange
-      return current >= min && current <= max
+      const { min, max } = config.constraints.bulletRange;
+      return current >= min && current <= max;
     },
     severity: (current, config) => {
-      const { max } = config.constraints.bulletRange
-      return current > max ? 'critical' : 'warning'
-    }
+      const { max } = config.constraints.bulletRange;
+      return current > max ? 'critical' : 'warning';
+    },
   },
   companyCount: {
     check: (current, config) => {
-      const { min, max } = config.constraints.companyRange
-      return current >= min && current <= max
+      const { min, max } = config.constraints.companyRange;
+      return current >= min && current <= max;
     },
-    severity: 'warning'
+    severity: 'warning',
   },
   pageLength: {
     check: (current, config) => {
-      return config.constraints.maxPages === null || 
-             current <= config.constraints.maxPages
+      return config.constraints.maxPages === null || current <= config.constraints.maxPages;
     },
-    severity: 'critical'
+    severity: 'critical',
   },
   wordCount: {
     check: (current, config) => {
-      const target = config.constraints.targetWordCount
-      const tolerance = 0.2  // ±20%
-      return Math.abs(current - target) / target <= tolerance
+      const target = config.constraints.targetWordCount;
+      const tolerance = 0.2; // ±20%
+      return Math.abs(current - target) / target <= tolerance;
     },
-    severity: 'warning'
-  }
-}
+    severity: 'warning',
+  },
+};
 ```
 
 ### Color Coding
@@ -3123,7 +3309,7 @@ const validationRules = {
 
 - **Real-Time Updates:** Validates on every selection/deselection change
 - **Auto-Suggestions:** If enabled, suggests specific actions to resolve violations
-- **Severity Levels:** 
+- **Severity Levels:**
   - Critical: Blocks progression to next step
   - Warning: Allows progression but shows warning
 - **Quick Fix Buttons:** One-click actions like "Auto-Remove" or "Smart Trim"
@@ -3140,26 +3326,27 @@ const validationRules = {
 ## 22. MarkdownResumePreview
 
 ### Purpose
+
 Renders resume content from markdown with proper typography, formatting, and print-ready styling. Supports hover tooltips showing traceability to source STAR entries.
 
 ### Props
 
 ```tsx
 interface MarkdownResumePreviewProps {
-  content: string                    // Markdown format
-  bulletTraceability: Map<string, BulletTrace>
-  onBulletHover?: (bulletId: string | null) => void
-  onBulletClick?: (bulletId: string) => void
-  editable?: boolean
-  onContentChange?: (newContent: string) => void
-  showPageBreaks?: boolean
+  content: string; // Markdown format
+  bulletTraceability: Map<string, BulletTrace>;
+  onBulletHover?: (bulletId: string | null) => void;
+  onBulletClick?: (bulletId: string) => void;
+  editable?: boolean;
+  onContentChange?: (newContent: string) => void;
+  showPageBreaks?: boolean;
 }
 
 interface BulletTrace {
-  starEntryId: string
-  relevanceScore: number
-  company: string
-  title: string
+  starEntryId: string;
+  relevanceScore: number;
+  company: string;
+  title: string;
 }
 ```
 
@@ -3265,13 +3452,13 @@ interface BulletTrace {
 
 ### States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| View Mode | Default | Rendered markdown, tooltips on hover |
-| Edit Mode | Edit button clicked | Markdown editor, live preview split |
-| Hovering Bullet | Mouse over bullet | Highlight bullet, show tooltip, emit `onBulletHover` |
-| Clicked Bullet | Click bullet | Scroll traceability panel, emit `onBulletClick` |
-| Print Mode | Print button clicked | Hide UI chrome, optimize for print media |
+| State           | Trigger              | Visual Changes                                       |
+| --------------- | -------------------- | ---------------------------------------------------- |
+| View Mode       | Default              | Rendered markdown, tooltips on hover                 |
+| Edit Mode       | Edit button clicked  | Markdown editor, live preview split                  |
+| Hovering Bullet | Mouse over bullet    | Highlight bullet, show tooltip, emit `onBulletHover` |
+| Clicked Bullet  | Click bullet         | Scroll traceability panel, emit `onBulletClick`      |
+| Print Mode      | Print button clicked | Hide UI chrome, optimize for print media             |
 
 ### Edit Mode
 
@@ -3324,36 +3511,36 @@ Display interview preparation summary for an application with status indicators,
 
 ```tsx
 interface InterviewPrepCardProps {
-  applicationId: string
+  applicationId: string;
   application: {
-    jobTitle: string
-    company: string
-    interviewDate?: Date
-    fitLevel?: 'strong' | 'moderate' | 'weak'
-  }
+    jobTitle: string;
+    company: string;
+    interviewDate?: Date;
+    fitLevel?: 'strong' | 'moderate' | 'weak';
+  };
   prep?: {
-    id: string
-    completeness: number // 0-100
-    storyCount: number
-    questionCount: number
-    gapCount: number
-    lastUpdated: Date
-  }
-  onGeneratePrep: () => void
-  onViewPrep: (prepId: string) => void
-  onExportQuickRef: (prepId: string) => void
+    id: string;
+    completeness: number; // 0-100
+    storyCount: number;
+    questionCount: number;
+    gapCount: number;
+    lastUpdated: Date;
+  };
+  onGeneratePrep: () => void;
+  onViewPrep: (prepId: string) => void;
+  onExportQuickRef: (prepId: string) => void;
 }
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| No Prep | `prep` undefined | CTA button "Prepare for Interview", muted styling |
-| Prep Available | `prep` exists | Progress ring, metrics summary, action buttons |
-| Interview Soon | `interviewDate` < 3 days | Yellow border, countdown timer prominent |
-| Interview Today | `interviewDate` = today | Red border, "TODAY" badge, pulsing indicator |
-| Prep Complete | `completeness` = 100 | Green checkmark badge, "Ready" indicator |
+| State           | Trigger                  | Visual Changes                                    |
+| --------------- | ------------------------ | ------------------------------------------------- |
+| No Prep         | `prep` undefined         | CTA button "Prepare for Interview", muted styling |
+| Prep Available  | `prep` exists            | Progress ring, metrics summary, action buttons    |
+| Interview Soon  | `interviewDate` < 3 days | Yellow border, countdown timer prominent          |
+| Interview Today | `interviewDate` = today  | Red border, "TODAY" badge, pulsing indicator      |
+| Prep Complete   | `completeness` = 100     | Green checkmark badge, "Ready" indicator          |
 
 ### Anatomy
 
@@ -3379,22 +3566,22 @@ interface InterviewPrepCardProps {
 
 ### Countdown Timer Formatting
 
-| Time Remaining | Display Format | Visual Urgency |
-|----------------|----------------|----------------|
-| > 7 days | "In X days" | Neutral (gray) |
-| 3-7 days | "In X days" | Low (blue) |
-| 1-2 days | "Tomorrow" / "In 2 days" | Medium (yellow) |
-| < 24 hours | "In X hours" | High (orange) |
-| < 2 hours | "In X minutes" | Critical (red, pulsing) |
-| Passed | "Interview completed" | Muted |
+| Time Remaining | Display Format           | Visual Urgency          |
+| -------------- | ------------------------ | ----------------------- |
+| > 7 days       | "In X days"              | Neutral (gray)          |
+| 3-7 days       | "In X days"              | Low (blue)              |
+| 1-2 days       | "Tomorrow" / "In 2 days" | Medium (yellow)         |
+| < 24 hours     | "In X hours"             | High (orange)           |
+| < 2 hours      | "In X minutes"           | Critical (red, pulsing) |
+| Passed         | "Interview completed"    | Muted                   |
 
 ### Completeness Ring
 
 ```tsx
 interface CompletenessRingProps {
-  percentage: number // 0-100
-  size: 'sm' | 'md' | 'lg'
-  showLabel?: boolean
+  percentage: number; // 0-100
+  size: 'sm' | 'md' | 'lg';
+  showLabel?: boolean;
 }
 
 // Ring segments:
@@ -3431,58 +3618,59 @@ Organized collection of STAR stories categorized by interview theme, with filter
 
 ```tsx
 interface STARStoryBankProps {
-  stories: STARStory[]
-  themes: Theme[]
-  activeTheme?: string
-  onThemeChange: (theme: string) => void
-  onStorySelect: (storyId: string) => void
-  onStoryExpand: (storyId: string) => void
-  onMarkFavorite: (storyId: string, favorite: boolean) => void
-  selectedStoryIds?: string[]
-  showTimeVersions?: boolean
+  stories: STARStory[];
+  themes: Theme[];
+  activeTheme?: string;
+  onThemeChange: (theme: string) => void;
+  onStorySelect: (storyId: string) => void;
+  onStoryExpand: (storyId: string) => void;
+  onMarkFavorite: (storyId: string, favorite: boolean) => void;
+  selectedStoryIds?: string[];
+  showTimeVersions?: boolean;
 }
 
 interface STARStory {
-  id: string
-  title: string
-  themes: string[] // 'leadership' | 'technical' | 'teamwork' | 'problem_solving' | 'communication' | 'innovation'
-  relevanceScore: number // 0-100
-  situation: string
-  task: string
-  action: string
-  result: string
-  metrics?: string[]
-  oneMinVersion: string
-  twoMinVersion: string
-  fiveMinVersion: string
-  isFavorite: boolean
-  practiceCount: number
-  lastPracticed?: Date
+  id: string;
+  title: string;
+  themes: string[]; // 'leadership' | 'technical' | 'teamwork' | 'problem_solving' | 'communication' | 'innovation'
+  relevanceScore: number; // 0-100
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+  metrics?: string[];
+  oneMinVersion: string;
+  twoMinVersion: string;
+  fiveMinVersion: string;
+  isFavorite: boolean;
+  practiceCount: number;
+  lastPracticed?: Date;
 }
 
 type Theme = {
-  id: string
-  name: string
-  icon: string
-  count: number
-}
+  id: string;
+  name: string;
+  icon: string;
+  count: number;
+};
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | Initial load | All themes visible in tabs, first theme active |
-| Theme Filtered | Theme tab clicked | Only stories with matching theme shown |
-| Story Collapsed | Default | Compact card with title, score, themes |
-| Story Expanded | Card clicked | Full STAR breakdown visible |
-| Time Version View | "Time Versions" clicked | Three tabs: 1min, 2min, 5min |
-| Favorite | Star clicked | Filled star icon, moves to top of list |
-| Selected | Checkbox checked | Blue border, checkbox filled |
+| State             | Trigger                 | Visual Changes                                 |
+| ----------------- | ----------------------- | ---------------------------------------------- |
+| Default           | Initial load            | All themes visible in tabs, first theme active |
+| Theme Filtered    | Theme tab clicked       | Only stories with matching theme shown         |
+| Story Collapsed   | Default                 | Compact card with title, score, themes         |
+| Story Expanded    | Card clicked            | Full STAR breakdown visible                    |
+| Time Version View | "Time Versions" clicked | Three tabs: 1min, 2min, 5min                   |
+| Favorite          | Star clicked            | Filled star icon, moves to top of list         |
+| Selected          | Checkbox checked        | Blue border, checkbox filled                   |
 
 ### Anatomy
 
 **Theme Tab Bar:**
+
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ [All (15)] [Leadership (4)] [Technical (6)] [Teamwork (3)]│
@@ -3491,6 +3679,7 @@ type Theme = {
 ```
 
 **Collapsed Story Card:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ ☆  Led React Migration Project                    95%  🟢  │
@@ -3504,6 +3693,7 @@ type Theme = {
 ```
 
 **Expanded Story Card:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ ★  Led React Migration Project                    95%  🟢  │
@@ -3532,6 +3722,7 @@ type Theme = {
 ```
 
 **Time Version Tabs:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Time-Boxed Versions                                         │
@@ -3549,13 +3740,13 @@ type Theme = {
 
 ### Relevance Score Badge
 
-| Score | Color | Label |
-|-------|-------|-------|
-| 90-100% | Green | Excellent |
-| 80-89% | Light Green | Strong |
-| 70-79% | Yellow | Good |
-| 60-69% | Orange | Fair |
-| <60% | Gray | Low |
+| Score   | Color       | Label     |
+| ------- | ----------- | --------- |
+| 90-100% | Green       | Excellent |
+| 80-89%  | Light Green | Strong    |
+| 70-79%  | Yellow      | Good      |
+| 60-69%  | Orange      | Fair      |
+| <60%    | Gray        | Low       |
 
 ### Behavior
 
@@ -3592,56 +3783,57 @@ Display categorized list of anticipated interview questions with suggested STAR 
 
 ```tsx
 interface QuestionsListProps {
-  questions: InterviewQuestion[]
-  categories: QuestionCategory[]
-  activeCategory?: string
-  onCategoryChange: (category: string) => void
-  onQuestionExpand: (questionId: string) => void
-  onLinkSTAR: (questionId: string, storyId: string) => void
-  onMarkPracticed: (questionId: string, rating: PracticeRating) => void
-  onAddNotes: (questionId: string, notes: string) => void
+  questions: InterviewQuestion[];
+  categories: QuestionCategory[];
+  activeCategory?: string;
+  onCategoryChange: (category: string) => void;
+  onQuestionExpand: (questionId: string) => void;
+  onLinkSTAR: (questionId: string, storyId: string) => void;
+  onMarkPracticed: (questionId: string, rating: PracticeRating) => void;
+  onAddNotes: (questionId: string, notes: string) => void;
 }
 
 interface InterviewQuestion {
-  id: string
-  text: string
-  category: 'behavioral' | 'technical' | 'situational' | 'role_specific' | 'gap_probing'
-  difficulty: 'standard' | 'challenging' | 'tough'
-  whyTheyAsk: string
-  whatTheyWant: string
-  answerFramework: string
-  suggestedStories: STARStory[]
-  linkedStoryId?: string
-  personalNotes?: string
-  practiceStatus?: 'not_practiced' | 'needs_work' | 'comfortable' | 'confident'
-  lastPracticed?: Date
+  id: string;
+  text: string;
+  category: 'behavioral' | 'technical' | 'situational' | 'role_specific' | 'gap_probing';
+  difficulty: 'standard' | 'challenging' | 'tough';
+  whyTheyAsk: string;
+  whatTheyWant: string;
+  answerFramework: string;
+  suggestedStories: STARStory[];
+  linkedStoryId?: string;
+  personalNotes?: string;
+  practiceStatus?: 'not_practiced' | 'needs_work' | 'comfortable' | 'confident';
+  lastPracticed?: Date;
 }
 
 type QuestionCategory = {
-  id: string
-  name: string
-  icon: string
-  count: number
-}
+  id: string;
+  name: string;
+  icon: string;
+  count: number;
+};
 
-type PracticeRating = 'needs_work' | 'good' | 'great'
+type PracticeRating = 'needs_work' | 'good' | 'great';
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | Initial load | All categories in tabs, sorted by difficulty |
-| Category Filtered | Tab clicked | Only matching questions shown |
-| Collapsed | Default | Question text, category badge, difficulty dot |
-| Expanded | Question clicked | Full breakdown with suggestions |
-| Practiced | After practice rating | Checkmark badge, colored by confidence |
-| Has Notes | Notes added | Note icon indicator |
-| STAR Linked | Story associated | Linked story preview shown |
+| State             | Trigger               | Visual Changes                                |
+| ----------------- | --------------------- | --------------------------------------------- |
+| Default           | Initial load          | All categories in tabs, sorted by difficulty  |
+| Category Filtered | Tab clicked           | Only matching questions shown                 |
+| Collapsed         | Default               | Question text, category badge, difficulty dot |
+| Expanded          | Question clicked      | Full breakdown with suggestions               |
+| Practiced         | After practice rating | Checkmark badge, colored by confidence        |
+| Has Notes         | Notes added           | Note icon indicator                           |
+| STAR Linked       | Story associated      | Linked story preview shown                    |
 
 ### Anatomy
 
 **Category Tab Bar:**
+
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ [All (24)] [Behavioral (12)] [Technical (5)] [Situational (4)]│
@@ -3650,6 +3842,7 @@ type PracticeRating = 'needs_work' | 'good' | 'great'
 ```
 
 **Collapsed Question Card:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 🟡 "Tell me about a time you handled a difficult            │
@@ -3663,6 +3856,7 @@ type PracticeRating = 'needs_work' | 'good' | 'great'
 ```
 
 **Expanded Question Card:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ "Tell me about a time you handled a difficult               │
@@ -3702,20 +3896,20 @@ type PracticeRating = 'needs_work' | 'good' | 'great'
 
 ### Difficulty Indicators
 
-| Difficulty | Dot Color | Extra Info |
-|------------|-----------|------------|
-| Standard | Green | "Common question, straightforward" |
-| Challenging | Yellow | "Requires specific example" |
-| Tough | Red | "Probing, requires preparation" |
+| Difficulty  | Dot Color | Extra Info                         |
+| ----------- | --------- | ---------------------------------- |
+| Standard    | Green     | "Common question, straightforward" |
+| Challenging | Yellow    | "Requires specific example"        |
+| Tough       | Red       | "Probing, requires preparation"    |
 
 ### Practice Status Badges
 
-| Status | Visual | Description |
-|--------|--------|-------------|
-| Not Practiced | No badge | Default state |
-| Needs Work | Orange dot | Self-rated after practice |
-| Comfortable | Yellow checkmark | Self-rated after practice |
-| Confident | Green checkmark | Self-rated after practice |
+| Status        | Visual           | Description               |
+| ------------- | ---------------- | ------------------------- |
+| Not Practiced | No badge         | Default state             |
+| Needs Work    | Orange dot       | Self-rated after practice |
+| Comfortable   | Yellow checkmark | Self-rated after practice |
+| Confident     | Green checkmark  | Self-rated after practice |
 
 ### Behavior
 
@@ -3746,53 +3940,54 @@ Display identified skill gaps from job fit analysis with prepared talking points
 
 ```tsx
 interface GapMitigationPanelProps {
-  gaps: SkillGap[]
-  onExpandGap: (gapId: string) => void
-  onSelectStrategy: (gapId: string, strategy: MitigationStrategy) => void
-  onPractice: (gapId: string) => void
-  onMarkAddressed: (gapId: string) => void
+  gaps: SkillGap[];
+  onExpandGap: (gapId: string) => void;
+  onSelectStrategy: (gapId: string, strategy: MitigationStrategy) => void;
+  onPractice: (gapId: string) => void;
+  onMarkAddressed: (gapId: string) => void;
 }
 
 interface SkillGap {
-  id: string
-  skill: string
-  severity: 'critical' | 'moderate' | 'minor'
-  description: string
-  whyItMatters: string
+  id: string;
+  skill: string;
+  severity: 'critical' | 'moderate' | 'minor';
+  description: string;
+  whyItMatters: string;
   strategies: {
-    acknowledgePivot: TalkingPoint
-    growthMindset: TalkingPoint
-    adjacentExperience: TalkingPoint
-  }
-  relatedStories: STARStory[]
-  isAddressed: boolean
-  selectedStrategy?: MitigationStrategy
+    acknowledgePivot: TalkingPoint;
+    growthMindset: TalkingPoint;
+    adjacentExperience: TalkingPoint;
+  };
+  relatedStories: STARStory[];
+  isAddressed: boolean;
+  selectedStrategy?: MitigationStrategy;
 }
 
 interface TalkingPoint {
-  title: string
-  script: string
-  keyPhrases: string[]
-  redirectToStrength: string
+  title: string;
+  script: string;
+  keyPhrases: string[];
+  redirectToStrength: string;
 }
 
-type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_experience'
+type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_experience';
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| No Gaps | `gaps.length === 0` | Success state with strengths summary |
-| Has Gaps | `gaps.length > 0` | Gap cards sorted by severity |
-| Gap Collapsed | Default | Summary with severity badge |
-| Gap Expanded | Click | Full strategies and talking points |
-| Strategy Selected | Strategy chosen | Highlighted strategy, script visible |
-| Gap Addressed | Checkbox checked | Muted styling, checkmark badge |
+| State             | Trigger             | Visual Changes                       |
+| ----------------- | ------------------- | ------------------------------------ |
+| No Gaps           | `gaps.length === 0` | Success state with strengths summary |
+| Has Gaps          | `gaps.length > 0`   | Gap cards sorted by severity         |
+| Gap Collapsed     | Default             | Summary with severity badge          |
+| Gap Expanded      | Click               | Full strategies and talking points   |
+| Strategy Selected | Strategy chosen     | Highlighted strategy, script visible |
+| Gap Addressed     | Checkbox checked    | Muted styling, checkmark badge       |
 
 ### Anatomy
 
 **No Gaps State:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ ✅ No Significant Gaps Identified!                          │
@@ -3810,6 +4005,7 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 ```
 
 **Collapsed Gap Card:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 🔴 CRITICAL: Kubernetes Experience                          │   ‹overline›
@@ -3822,6 +4018,7 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 ```
 
 **Expanded Gap Card:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 🔴 CRITICAL: Kubernetes Experience                          │   ‹overline›
@@ -3866,11 +4063,11 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 
 ### Severity Visual Hierarchy
 
-| Severity | Border Color | Icon | Position |
-|----------|--------------|------|----------|
-| Critical | Red (#DC2626) | 🔴 | Top of list |
-| Moderate | Orange (#F59E0B) | 🟠 | Middle |
-| Minor | Yellow (#FBBF24) | 🟡 | Bottom |
+| Severity | Border Color     | Icon | Position    |
+| -------- | ---------------- | ---- | ----------- |
+| Critical | Red (#DC2626)    | 🔴   | Top of list |
+| Moderate | Orange (#F59E0B) | 🟠   | Middle      |
+| Minor    | Yellow (#FBBF24) | 🟡   | Bottom      |
 
 ### Strategy Selection
 
@@ -3911,53 +4108,54 @@ Generate and export a concise interview quick reference card in multiple formats
 
 ```tsx
 interface QuickReferenceExportProps {
-  prepId: string
+  prepId: string;
   application: {
-    jobTitle: string
-    company: string
-    interviewDate?: Date
-  }
+    jobTitle: string;
+    company: string;
+    interviewDate?: Date;
+  };
   content: {
-    topStories: STARStory[] // Max 5
-    keyQuestions: InterviewQuestion[] // Max 5
-    gapPoints: TalkingPoint[] // Max 3
-    companyFacts: CompanyFact[] // Max 5
-  }
-  onContentCustomize: (sections: SectionConfig[]) => void
-  onExport: (format: ExportFormat) => void
-  onPreviewMobile: () => void
+    topStories: STARStory[]; // Max 5
+    keyQuestions: InterviewQuestion[]; // Max 5
+    gapPoints: TalkingPoint[]; // Max 3
+    companyFacts: CompanyFact[]; // Max 5
+  };
+  onContentCustomize: (sections: SectionConfig[]) => void;
+  onExport: (format: ExportFormat) => void;
+  onPreviewMobile: () => void;
 }
 
 interface SectionConfig {
-  id: 'stories' | 'questions' | 'gaps' | 'company'
-  enabled: boolean
-  order: number
-  selectedItems: string[] // Item IDs to include
+  id: 'stories' | 'questions' | 'gaps' | 'company';
+  enabled: boolean;
+  order: number;
+  selectedItems: string[]; // Item IDs to include
 }
 
-type ExportFormat = 'pdf' | 'markdown' | 'print'
+type ExportFormat = 'pdf' | 'markdown' | 'print';
 
 interface CompanyFact {
-  id: string
-  fact: string
-  source: string
-  useFor: 'mention' | 'ask_about'
+  id: string;
+  fact: string;
+  source: string;
+  useFor: 'mention' | 'ask_about';
 }
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Initial | Component mounts | Default sections enabled, preview shown |
-| Customizing | Edit button clicked | Drag handles, toggles, checkboxes visible |
-| Generating | Export clicked | Loading spinner on button |
-| Mobile Preview | Preview button clicked | Simulated phone frame |
-| Export Complete | Download ready | Success toast, download triggered |
+| State           | Trigger                | Visual Changes                            |
+| --------------- | ---------------------- | ----------------------------------------- |
+| Initial         | Component mounts       | Default sections enabled, preview shown   |
+| Customizing     | Edit button clicked    | Drag handles, toggles, checkboxes visible |
+| Generating      | Export clicked         | Loading spinner on button                 |
+| Mobile Preview  | Preview button clicked | Simulated phone frame                     |
+| Export Complete | Download ready         | Success toast, download triggered         |
 
 ### Anatomy
 
 **Main View:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Quick Reference Card                     [Mobile Preview]   │
@@ -4009,6 +4207,7 @@ interface CompanyFact {
 ```
 
 **Customize Mode:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Customize Quick Reference                    [Done]         │
@@ -4036,6 +4235,7 @@ interface CompanyFact {
 ```
 
 **Mobile Preview:**
+
 ```
 ┌────────────────────────┐
 │  ┌──────────────────┐  │
@@ -4059,11 +4259,11 @@ interface CompanyFact {
 
 ### Export Format Specifications
 
-| Format | Output | Features |
-|--------|--------|----------|
-| PDF | 1-2 page document | Professional layout, print-ready |
-| Markdown | `.md` file | Structured headers, copy-paste friendly |
-| Print | Browser print dialog | High contrast, minimal ink |
+| Format   | Output               | Features                                |
+| -------- | -------------------- | --------------------------------------- |
+| PDF      | 1-2 page document    | Professional layout, print-ready        |
+| Markdown | `.md` file           | Structured headers, copy-paste friendly |
+| Print    | Browser print dialog | High contrast, minimal ink              |
 
 ### PDF Layout
 
@@ -4118,51 +4318,57 @@ Multi-step configuration form for generating interview prep materials, with smar
 
 ```tsx
 interface InterviewPrepGeneratorProps {
-  applicationId?: string
+  applicationId?: string;
   application?: {
-    jobTitle: string
-    company: string
-    interviewDate?: Date
-  }
+    jobTitle: string;
+    company: string;
+    interviewDate?: Date;
+  };
   fitAnalysis?: {
-    id: string
-    fitLevel: 'strong' | 'moderate' | 'weak'
-    recommendedFocusAreas: string[]
-  }
+    id: string;
+    fitLevel: 'strong' | 'moderate' | 'weak';
+    recommendedFocusAreas: string[];
+  };
   catalogStats: {
-    starEntryCount: number
-    hasMinimumEntries: boolean
-  }
-  onGenerate: (config: PrepConfig) => void
-  onCancel: () => void
-  onRunFitAnalysis: () => void
+    starEntryCount: number;
+    hasMinimumEntries: boolean;
+  };
+  onGenerate: (config: PrepConfig) => void;
+  onCancel: () => void;
+  onRunFitAnalysis: () => void;
 }
 
 interface PrepConfig {
-  interviewType: 'behavioral' | 'technical' | 'mixed' | 'case_study'
-  timeAvailable: '30min' | '1hr' | '2hr' | 'full_day'
-  focusAreas: FocusArea[]
-  deliveryFormats: ('1min' | '2min' | '5min')[]
+  interviewType: 'behavioral' | 'technical' | 'mixed' | 'case_study';
+  timeAvailable: '30min' | '1hr' | '2hr' | 'full_day';
+  focusAreas: FocusArea[];
+  deliveryFormats: ('1min' | '2min' | '5min')[];
 }
 
-type FocusArea = 'leadership' | 'technical' | 'problem_solving' | 
-                 'teamwork' | 'communication' | 'innovation'
+type FocusArea =
+  | 'leadership'
+  | 'technical'
+  | 'problem_solving'
+  | 'teamwork'
+  | 'communication'
+  | 'innovation';
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Initial | Modal opens | Step 1 active, form pristine |
-| With Fit Analysis | `fitAnalysis` provided | Smart defaults applied, recommendation badge |
-| Without Fit Analysis | No `fitAnalysis` | Manual mode, suggestion to run analysis |
-| Insufficient Catalog | `!hasMinimumEntries` | Blocking error, upload resume CTA |
-| Validating | Field blur | Field-level validation errors |
-| Generating | Generate clicked | Loading state, disabled form |
+| State                | Trigger                | Visual Changes                               |
+| -------------------- | ---------------------- | -------------------------------------------- |
+| Initial              | Modal opens            | Step 1 active, form pristine                 |
+| With Fit Analysis    | `fitAnalysis` provided | Smart defaults applied, recommendation badge |
+| Without Fit Analysis | No `fitAnalysis`       | Manual mode, suggestion to run analysis      |
+| Insufficient Catalog | `!hasMinimumEntries`   | Blocking error, upload resume CTA            |
+| Validating           | Field blur             | Field-level validation errors                |
+| Generating           | Generate clicked       | Loading state, disabled form                 |
 
 ### Anatomy
 
 **Step 1: Interview Context**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Generate Interview Prep                          [Step 1/2] │
@@ -4196,6 +4402,7 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 ```
 
 **Step 2: Focus Areas**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Generate Interview Prep                          [Step 2/2] │
@@ -4231,6 +4438,7 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 ```
 
 **Insufficient Catalog State**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Generate Interview Prep                                     │
@@ -4256,6 +4464,7 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 ```
 
 **No Fit Analysis Prompt**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 💡 Run Job Fit Analysis First?                              │
@@ -4284,18 +4493,18 @@ type FocusArea = 'leadership' | 'technical' | 'problem_solving' |
 const validationRules = {
   minimumSTAREntries: {
     threshold: 3,
-    message: 'Need at least 3 STAR entries in catalog'
+    message: 'Need at least 3 STAR entries in catalog',
   },
   focusAreas: {
     min: 1,
     max: 4,
-    message: 'Select 1-4 focus areas for best results'
+    message: 'Select 1-4 focus areas for best results',
   },
   deliveryFormats: {
     min: 1,
-    message: 'Select at least one delivery format'
-  }
-}
+    message: 'Select at least one delivery format',
+  },
+};
 ```
 
 ### Behavior
@@ -4328,42 +4537,43 @@ Show step-by-step progress during interview prep generation with clear feedback 
 
 ```tsx
 interface InterviewPrepProgressModalProps {
-  isOpen: boolean
-  currentStep: GenerationStep
-  progress: number // 0-100
-  error?: GenerationError
-  onCancel: () => void
-  onRetry: () => void
+  isOpen: boolean;
+  currentStep: GenerationStep;
+  progress: number; // 0-100
+  error?: GenerationError;
+  onCancel: () => void;
+  onRetry: () => void;
 }
 
-type GenerationStep = 
+type GenerationStep =
   | 'analyzing_requirements'
   | 'matching_stories'
   | 'categorizing_themes'
   | 'generating_questions'
   | 'creating_gap_points'
   | 'building_time_versions'
-  | 'complete'
+  | 'complete';
 
 interface GenerationError {
-  type: 'insufficient_data' | 'network' | 'timeout' | 'server'
-  message: string
-  retryable: boolean
+  type: 'insufficient_data' | 'network' | 'timeout' | 'server';
+  message: string;
+  retryable: boolean;
 }
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Processing | Step in progress | Progress bar animates, current step highlighted |
-| Step Complete | Step finished | Checkmark appears, move to next step |
-| Error | Generation fails | Red error state, retry button if retryable |
-| Success | All steps done | Success animation, auto-close after 1s |
+| State         | Trigger          | Visual Changes                                  |
+| ------------- | ---------------- | ----------------------------------------------- |
+| Processing    | Step in progress | Progress bar animates, current step highlighted |
+| Step Complete | Step finished    | Checkmark appears, move to next step            |
+| Error         | Generation fails | Red error state, retry button if retryable      |
+| Success       | All steps done   | Success animation, auto-close after 1s          |
 
 ### Anatomy
 
 **Processing State**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Generating Your Interview Prep...                           │
@@ -4385,6 +4595,7 @@ interface GenerationError {
 ```
 
 **Success State**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Interview Prep Complete! ✓                                  │
@@ -4409,6 +4620,7 @@ interface GenerationError {
 ```
 
 **Error State**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Generation Failed                                           │
@@ -4433,14 +4645,14 @@ interface GenerationError {
 
 ### Step Definitions
 
-| Step | Duration | User Message |
-|------|----------|--------------|
-| Analyzing Requirements | 2-3s | "Understanding what they're looking for..." |
-| Matching STAR Entries | 3-5s | "Finding your best stories..." |
-| Categorizing Themes | 2-3s | "Organizing by interview themes..." |
-| Generating Questions | 4-6s | "Predicting likely questions..." |
-| Creating Gap Points | 2-3s | "Preparing for tough questions..." |
-| Building Time Versions | 3-5s | "Creating your response toolkit..." |
+| Step                   | Duration | User Message                                |
+| ---------------------- | -------- | ------------------------------------------- |
+| Analyzing Requirements | 2-3s     | "Understanding what they're looking for..." |
+| Matching STAR Entries  | 3-5s     | "Finding your best stories..."              |
+| Categorizing Themes    | 2-3s     | "Organizing by interview themes..."         |
+| Generating Questions   | 4-6s     | "Predicting likely questions..."            |
+| Creating Gap Points    | 2-3s     | "Preparing for tough questions..."          |
+| Building Time Versions | 3-5s     | "Creating your response toolkit..."         |
 
 ### Progress Calculation
 
@@ -4452,21 +4664,21 @@ const STEP_WEIGHTS = {
   generating_questions: 20,
   creating_gap_points: 10,
   building_time_versions: 15,
-}
+};
 
 function calculateProgress(completedSteps: GenerationStep[]): number {
-  return completedSteps.reduce((sum, step) => sum + STEP_WEIGHTS[step], 0)
+  return completedSteps.reduce((sum, step) => sum + STEP_WEIGHTS[step], 0);
 }
 ```
 
 ### Error Handling
 
-| Error Type | Retryable | User Action |
-|------------|-----------|-------------|
-| Insufficient Data | No | Close modal, show guidance to add catalog entries |
-| Network | Yes | Retry from failed step |
-| Timeout | Yes | Retry or suggest reducing focus areas |
-| Server | Yes | Retry once, then show support contact |
+| Error Type        | Retryable | User Action                                       |
+| ----------------- | --------- | ------------------------------------------------- |
+| Insufficient Data | No        | Close modal, show guidance to add catalog entries |
+| Network           | Yes       | Retry from failed step                            |
+| Timeout           | Yes       | Retry or suggest reducing focus areas             |
+| Server            | Yes       | Retry once, then show support contact             |
 
 ### Behavior
 
@@ -4497,42 +4709,42 @@ Main container and navigation hub for interview prep materials, organizing all p
 
 ```tsx
 interface InterviewPrepDashboardProps {
-  prepId: string
+  prepId: string;
   application: {
-    id: string
-    jobTitle: string
-    company: string
-    interviewDate?: Date
-    fitLevel?: 'strong' | 'moderate' | 'weak'
-  }
+    id: string;
+    jobTitle: string;
+    company: string;
+    interviewDate?: Date;
+    fitLevel?: 'strong' | 'moderate' | 'weak';
+  };
   prep: {
-    completeness: number // 0-100
-    storyCount: number
-    questionCount: number
-    gapCount: number
-    lastUpdated: Date
-    createdAt: Date
-  }
-  stories: STARStory[]
-  questions: InterviewQuestion[]
-  gaps: SkillGap[]
-  onExportQuickRef: () => void
-  onPractice: () => void
-  onRegenerate: () => void
-  onBack: () => void
+    completeness: number; // 0-100
+    storyCount: number;
+    questionCount: number;
+    gapCount: number;
+    lastUpdated: Date;
+    createdAt: Date;
+  };
+  stories: STARStory[];
+  questions: InterviewQuestion[];
+  gaps: SkillGap[];
+  onExportQuickRef: () => void;
+  onPractice: () => void;
+  onRegenerate: () => void;
+  onBack: () => void;
 }
 ```
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Default | Dashboard loads | Overview visible, first tab active |
-| Tab Active | Tab clicked | Active tab highlighted, content shown |
-| Loading | Content fetching | Skeleton loaders in tab panel |
-| Prep Stale | `lastUpdated` > 30 days | Warning banner, regenerate suggestion |
-| Interview Imminent | `interviewDate` < 24 hours | Countdown prominent, quick ref CTA |
-| Interview Passed | `interviewDate` < now | Muted styling, "Interview completed" badge |
+| State              | Trigger                    | Visual Changes                             |
+| ------------------ | -------------------------- | ------------------------------------------ |
+| Default            | Dashboard loads            | Overview visible, first tab active         |
+| Tab Active         | Tab clicked                | Active tab highlighted, content shown      |
+| Loading            | Content fetching           | Skeleton loaders in tab panel              |
+| Prep Stale         | `lastUpdated` > 30 days    | Warning banner, regenerate suggestion      |
+| Interview Imminent | `interviewDate` < 24 hours | Countdown prominent, quick ref CTA         |
+| Interview Passed   | `interviewDate` < now      | Muted styling, "Interview completed" badge |
 
 ### Anatomy
 
@@ -4573,6 +4785,7 @@ interface InterviewPrepDashboardProps {
 ```
 
 **Stale Prep Warning**
+
 ```
 ┌───────────────────────────────────────────────────────────────────┐
 │ ⚠️  This prep is 32 days old                                      │
@@ -4584,6 +4797,7 @@ interface InterviewPrepDashboardProps {
 ```
 
 **Interview Today Banner**
+
 ```
 ┌───────────────────────────────────────────────────────────────────┐
 │ 🚨 INTERVIEW TODAY in 4 hours                                     │   ‹sample›
@@ -4594,29 +4808,30 @@ interface InterviewPrepDashboardProps {
 
 ### Tab Navigation
 
-| Tab | Content | Badge |
-|-----|---------|-------|
-| Story Bank | STARStoryBank component | Story count (e.g., "18") |
-| Questions | QuestionsList component | Question count (e.g., "24") |
-| Gap Prep | GapMitigationPanel component | Gap count if > 0 (e.g., "2") or none if 0 |
-| Quick Ref | QuickReferenceExport component | None |
+| Tab        | Content                        | Badge                                     |
+| ---------- | ------------------------------ | ----------------------------------------- |
+| Story Bank | STARStoryBank component        | Story count (e.g., "18")                  |
+| Questions  | QuestionsList component        | Question count (e.g., "24")               |
+| Gap Prep   | GapMitigationPanel component   | Gap count if > 0 (e.g., "2") or none if 0 |
+| Quick Ref  | QuickReferenceExport component | None                                      |
 
 ### Completeness Calculation
 
 ```typescript
 const completenessSegments = {
   hasStories: stories.length >= 5 ? 25 : (stories.length / 5) * 25,
-  hasLinkedQuestions: questions.filter(q => q.linkedStoryId).length >= 5 
-    ? 25 
-    : (questions.filter(q => q.linkedStoryId).length / 5) * 25,
-  hasGapTalkingPoints: gaps.filter(g => g.selectedStrategy).length === gaps.length 
-    ? 25 
-    : (gaps.filter(g => g.selectedStrategy).length / gaps.length) * 25,
+  hasLinkedQuestions:
+    questions.filter((q) => q.linkedStoryId).length >= 5
+      ? 25
+      : (questions.filter((q) => q.linkedStoryId).length / 5) * 25,
+  hasGapTalkingPoints:
+    gaps.filter((g) => g.selectedStrategy).length === gaps.length
+      ? 25
+      : (gaps.filter((g) => g.selectedStrategy).length / gaps.length) * 25,
   hasQuickRef: hasGeneratedQuickRef ? 25 : 0,
-}
+};
 
-const totalCompleteness = Object.values(completenessSegments)
-  .reduce((sum, val) => sum + val, 0)
+const totalCompleteness = Object.values(completenessSegments).reduce((sum, val) => sum + val, 0);
 ```
 
 ### Behavior
@@ -4650,50 +4865,51 @@ Interactive practice interface for rehearsing interview responses with self-rati
 
 ```tsx
 interface PracticeModeProps {
-  prepId: string
-  practiceType: 'single_question' | 'full_interview' | 'timed_response'
+  prepId: string;
+  practiceType: 'single_question' | 'full_interview' | 'timed_response';
   content: {
-    questions?: InterviewQuestion[]
-    stories?: STARStory[]
-  }
-  onRateResponse: (itemId: string, rating: PracticeRating) => void
-  onComplete: (summary: PracticeSummary) => void
-  onExit: () => void
+    questions?: InterviewQuestion[];
+    stories?: STARStory[];
+  };
+  onRateResponse: (itemId: string, rating: PracticeRating) => void;
+  onComplete: (summary: PracticeSummary) => void;
+  onExit: () => void;
 }
 
-type PracticeRating = 'needs_work' | 'good' | 'great'
+type PracticeRating = 'needs_work' | 'good' | 'great';
 
 interface PracticeSummary {
-  questionsPracticed: number
-  storiesPracticed: number
-  averageRating: PracticeRating
-  areasToFocus: string[]
-  duration: number // milliseconds
+  questionsPracticed: number;
+  storiesPracticed: number;
+  averageRating: PracticeRating;
+  areasToFocus: string[];
+  duration: number; // milliseconds
 }
 ```
 
 ### Practice Types
 
-| Type | Description | Duration | Content |
-|------|-------------|----------|---------|
-| Single Question | Random question draw | 2-5 min | 1 question, suggested answer |
-| Full Interview | Simulated interview set | 20-30 min | 5-10 questions in sequence |
-| Timed Response | Time-boxed story practice | 1-5 min | 1 story with timer |
+| Type            | Description               | Duration  | Content                      |
+| --------------- | ------------------------- | --------- | ---------------------------- |
+| Single Question | Random question draw      | 2-5 min   | 1 question, suggested answer |
+| Full Interview  | Simulated interview set   | 20-30 min | 5-10 questions in sequence   |
+| Timed Response  | Time-boxed story practice | 1-5 min   | 1 story with timer           |
 
 ### Visual States
 
-| State | Trigger | Visual Changes |
-|-------|---------|----------------|
-| Question Display | Practice starts | Question shown, timer ready |
-| Thinking/Responding | User preparing | Timer running, suggested answer hidden |
-| Answer Revealed | Show answer clicked | Suggested answer visible, rating prompt |
-| Rating | User rates self | Rating buttons active, feedback shown |
-| Next Item | Next clicked | Load next question/story, reset timer |
-| Session Complete | All items done | Summary shown, confidence distribution |
+| State               | Trigger             | Visual Changes                          |
+| ------------------- | ------------------- | --------------------------------------- |
+| Question Display    | Practice starts     | Question shown, timer ready             |
+| Thinking/Responding | User preparing      | Timer running, suggested answer hidden  |
+| Answer Revealed     | Show answer clicked | Suggested answer visible, rating prompt |
+| Rating              | User rates self     | Rating buttons active, feedback shown   |
+| Next Item           | Next clicked        | Load next question/story, reset timer   |
+| Session Complete    | All items done      | Summary shown, confidence distribution  |
 
 ### Anatomy
 
 **Single Question Mode**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Practice Mode: Single Question                   [Exit] │
@@ -4720,6 +4936,7 @@ interface PracticeSummary {
 ```
 
 **Answer Revealed + Rating**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Practice Mode: Single Question                   [Exit] │
@@ -4755,6 +4972,7 @@ interface PracticeSummary {
 ```
 
 **Timed Response Mode**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Practice Mode: Timed Response (2 min)            [Exit] │
@@ -4782,6 +5000,7 @@ interface PracticeSummary {
 ```
 
 **Practice Summary**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Practice Session Complete! 🎉                                │
@@ -4813,22 +5032,22 @@ interface PracticeSummary {
 
 ### Timer Behavior
 
-| Mode | Timer Type | Alerts |
-|------|------------|--------|
-| Single Question | Elapsed time, no limit | None |
-| Full Interview | Elapsed time, no limit | None |
-| Timed Response | Countdown, strict | Yellow at 80%, red at 100%, beep at expiry |
+| Mode            | Timer Type             | Alerts                                     |
+| --------------- | ---------------------- | ------------------------------------------ |
+| Single Question | Elapsed time, no limit | None                                       |
+| Full Interview  | Elapsed time, no limit | None                                       |
+| Timed Response  | Countdown, strict      | Yellow at 80%, red at 100%, beep at expiry |
 
 ### Rating Storage
 
 ```typescript
 interface PracticeLog {
-  prepId: string
-  itemId: string
-  itemType: 'question' | 'story'
-  rating: PracticeRating
-  duration: number
-  practicedAt: Date
+  prepId: string;
+  itemId: string;
+  itemType: 'question' | 'story';
+  rating: PracticeRating;
+  duration: number;
+  practicedAt: Date;
 }
 
 // Stored in localStorage, synced to server on session end
@@ -4857,6 +5076,7 @@ interface PracticeLog {
 ## Testing Checklist
 
 For each component:
+
 - [ ] All states render correctly
 - [ ] Props validation works
 - [ ] Accessibility attributes present
