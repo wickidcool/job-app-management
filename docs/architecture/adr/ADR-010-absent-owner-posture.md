@@ -165,6 +165,18 @@ is keyed on file + check + normalised detail, never on line number, so unrelated
 do not spuriously trip it. Occurrences are counted, so removing one site cannot mask adding
 another. The baseline is burned down by WIC-1549 / WIC-1554 / WIC-1596 and never appended to by hand.
 
+**What the 157 is, precisely.** It counts owner-absent *branches*, and a branch is not automatically
+fail-open — the correct fail-closed shape (`isNull`, which selects the empty set) is also a branch
+and is also counted. So the honest question is what fraction of the 157 actually degrades to a
+broader read. Measured across the whole scan scope on `293ba46`: **4 `isNull` owner branches exist
+in total**, in three files (`personal-info.service.ts` ×2, one of them the single allowlisted site;
+`interviewPrep.service.ts` ×1; `resume-variant.service.ts` ×1). Every other counted branch drops the
+ownership term and falls back to an id- or slug-only predicate. `catalog.service.ts`, which carries
+14 of the 19 new sites, contains **no `isNull` at all** — all 17 of its owner ternaries degrade.
+The count is therefore not a mixed bag that needs triage before it means anything; it is
+near-uniformly the shape D1 prohibits, and the two deliberate exceptions are already documented
+in-place as such.
+
 ## Verification
 
 AC-2 requires that the mechanism be shown to actually fire, not asserted to. All figures below were
@@ -234,9 +246,34 @@ The baseline was frozen against `origin/main` `1c54133`. One day later, this bra
 Thirty shape-keys before, thirty after: **no key went down.** Not one site was fixed in that window;
 nineteen were added.
 
-The commits that added them are, without exception, tenancy fixes — WIC-1365, WIC-1373, WIC-1377,
-WIC-1395, WIC-1360, WIC-1449, WIC-1465. The new sites are new exported functions written in the
-exact shape this ADR exists to prohibit:
+The commits that added them are, without exception, tenancy fixes. Re-measured per merge on
+2026-08-29 by running the guard against each `origin/main` tree in the window, the +19 is not spread
+across the burndown — **three merges carry all of it, and three carry none**:
+
+| `origin/main` merge                             | card     | count | delta |
+| ----------------------------------------------- | -------- | ----- | ----- |
+| `6704836` (#124)                                | WIC-1354 | 138   | —     |
+| `5f89362` (#128) catalog merge tenancy          | WIC-1365 | 149   | **+11** |
+| `d7c5854` (#132) catalog tag patch tenancy      | WIC-1373 | 152   | **+3**  |
+| `f457cc3` (#134) catalog merge `inArray`        | WIC-1377 | 152   | +0    |
+| `e6eec1c` (#137) merge target not source        | WIC-1395 | 152   | +0    |
+| `20be03f` (#145) merge first-seen               | WIC-1360 | 152   | +0    |
+| `5e2956b` (#153) UC6/UC7 tenancy                | WIC-1449 | 157   | **+5**  |
+
+The three that added sites are exactly the three that introduced new exported service functions; the
+three that added none were edits to call sites and predicates already counted. So the mechanism is
+specific and predictable — **the defect enters with each new owner-optional export**, not diffusely
+with tenancy work in general. That is what makes a signature-level guard the right instrument.
+
+Two further measurements from the same sweep:
+
+- **Gross, not net.** Comparing the full keyed finding sets at `d84da39` (138) and `293ba46` (157):
+  19 added, **0 removed**. The count has never once gone down.
+- **It only moves on service-layer merges.** 157 has held flat from `5e2956b` (08-27) through
+  `293ba46` (08-29) across three intervening merges — all docs-only. The baseline is not drifting
+  noise; it is a step function keyed to exports.
+
+The new sites are new exported functions written in the exact shape this ADR exists to prohibit:
 
 ```ts
 export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
