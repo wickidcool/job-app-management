@@ -215,7 +215,7 @@ describe('/job-fit-analysis heading outline, per branch (WIC-1099 §3)', () => {
     errored.unmount();
 
     mockMutation.mutate = vi.fn((_r, { onSuccess }) => onSuccess(RESULTS));
-    const done = renderJobFit();
+    renderJobFit();
     await submitAnalysis();
     seen.push(screen.getByRole('heading', { level: 2 }).textContent ?? '');
 

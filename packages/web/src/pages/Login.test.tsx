@@ -65,7 +65,9 @@ describe('/login heading outline (WIC-1099 §2)', () => {
 
     expect(screen.getByText('Job Application Manager')).toBeInTheDocument();
     expect(
-      screen.getAllByRole('heading').filter((h) => h.textContent?.trim() === 'Job Application Manager')
+      screen
+        .getAllByRole('heading')
+        .filter((h) => h.textContent?.trim() === 'Job Application Manager')
     ).toHaveLength(0);
   });
 
