@@ -25,10 +25,16 @@ vi.mock('../hooks/useInterviewPrep');
  * `WorkflowChecklist` was never broken. It has always mapped
  * `hasCoverLetter`/`hasResumeVariant`/`hasInterviewPrep` onto ticks, a count
  * and a percentage correctly. The defect was that `ApplicationDetail` — its
- * **only** render site in the package — passed three of six props, so three
- * flags kept their `= false` defaults for every user on every application
- * forever: the header read "0 of 4 steps completed" and **0%** for someone who
- * had finished three of them.
+ * **only** render site in the package — did not supply the props it needs to
+ * count anything. On this branch's base, WIC-1533 had already wired the Cover
+ * Letter step; `hasResumeVariant` and `hasFitAnalysis` kept their `= false`
+ * defaults, and Interview Prep was hardcoded `completed: false` inside the
+ * component with no prop to override it. A user who had written a tailored
+ * resume and generated an interview prep therefore read "1 of 4 steps
+ * completed" and **25%** with neither step ticked — the figure
+ * `ApplicationDetail.pageCap.test.tsx` pins as a literal on that tree. On
+ * `main`, where the Cover Letter step is unwired too, the same user reads
+ * "0 of 4" and **0%**.
  *
  * A test over `WorkflowChecklist` in isolation cannot see that. Give it the
  * props and it passes — it passed on the defective tree. So every assertion
