@@ -571,8 +571,33 @@ Track applications through every stage of your job search.
 You can create your first application now, or explore the app and add one later.
 
 **Options:**
-- [Create Application Now] → Opens ApplicationForm modal
-- [I'll Do This Later] → Proceeds to Step 5
+- [Create Application Now] → Finishes onboarding, then navigates to `/applications/new`
+- Footer [Next Step] → Proceeds to Step 5 without creating anything
+
+> **Corrected 2026-08-29 (WIC-1689).** This block previously read
+> "[Create Application Now] → Opens ApplicationForm modal" and listed a second body
+> button, "[I'll Do This Later] → Proceeds to Step 5". Neither described the build:
+> the primary CTA's handler was `handleCompleteStep(5)` behind a "this would open the
+> application form modal" comment, so it created nothing and merely advanced the
+> wizard — the same outcome as the button beside it and as the footer, i.e. three
+> controls and one behaviour.
+>
+> The CTA now sends the user to the real create route at `/applications/new`
+> (`App.tsx`) rather than opening a form inside this dialog. It routes through
+> `handleFinishAndGo`, so
+> onboarding is completed before the navigation — otherwise the provider re-fetches an
+> untouched status and reopens the modal on top of the form. The redundant
+> "I'll Do This Later" button was removed; the footer's [Next Step] was always the
+> same action and remains the way to decline.
+>
+> **Amended by WIC-1141 (PR #97), 2026-08-29.** As written on `main`, this paragraph
+> justified routing out partly by this dialog "hav[ing] no focus trap
+> (`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2)". Merging #97 makes that clause false — the
+> component is a Radix `Dialog` and does trap focus — so the clause is struck rather
+> than left to certify a reason that no longer exists. The routing-out **behaviour**
+> is unchanged and still correct on the `handleFinishAndGo` grounds above. Whether
+> step 5 should instead create an application inline, now that the trap exists, is
+> WIC-1383's decision (PR #146), not this merge's.
 
 **Duration:** ~1 minute (if user creates application)
 

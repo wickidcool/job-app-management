@@ -374,23 +374,24 @@ export function OnboardingModal() {
                 onBack={previousStep}
               >
                 <div className="mx-auto max-w-md space-y-4">
+                  {/* Sends the user to the real create form at "/applications/new"
+                      (App.tsx) rather than opening one inside this dialog.
+                      handleFinishAndGo, not navigate: leaving mid-wizard without
+                      completing first means the provider re-fetches an untouched status
+                      and reopens the modal on top of the form. Same reason step 6's
+                      shortcuts use it.
+                      WIC-1689 additionally justified routing out by this dialog having
+                      no focus trap. That half of the reasoning no longer holds — this
+                      component is now a Radix Dialog (WIC-1141) and does trap focus, per
+                      MODAL_FOCUS_MANAGEMENT_SPEC.md §2. Routing out is kept as the
+                      shipped behaviour regardless; whether step 5 should instead create
+                      inline is WIC-1383's call, not this merge's. */}
                   <button
                     type="button"
                     className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                    onClick={() => {
-                      // This would open the application form modal
-                      // For now, just proceed to next step
-                      handleCompleteStep(5);
-                    }}
+                    onClick={() => void handleFinishAndGo('/applications/new')}
                   >
                     Create Application Now
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full rounded-md border border-neutral-300 bg-white px-6 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                    onClick={() => handleCompleteStep(5)}
-                  >
-                    I'll Do This Later
                   </button>
                 </div>
               </OnboardingStep>
