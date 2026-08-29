@@ -356,11 +356,11 @@ describe('ApplicationDetail — workflow checklist wiring', () => {
       vi.mocked(useCoverLetters).mockReturnValue({
         data: [],
         isLoading: false,
-      } as ReturnType<typeof useCoverLetters>);
+      } as unknown as ReturnType<typeof useCoverLetters>);
       vi.mocked(useResumeVariants).mockReturnValue({
         data: { variants: [] },
         isLoading: false,
-      } as ReturnType<typeof useResumeVariants>);
+      } as unknown as ReturnType<typeof useResumeVariants>);
       vi.mocked(useInterviewPrepByApplication).mockReturnValue({
         data: {},
         isLoading: false,

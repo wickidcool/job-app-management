@@ -76,7 +76,7 @@ function renderDetail(coverLetters: CoverLetterSummary[]) {
   vi.mocked(useResumeVariants).mockReturnValue({
     data: { variants: [] },
     isLoading: false,
-  } as ReturnType<typeof useResumeVariants>);
+  } as unknown as ReturnType<typeof useResumeVariants>);
 
   vi.mocked(useInterviewPrepByApplication).mockReturnValue({
     data: null,
