@@ -160,6 +160,7 @@ Every tenancy fix so far scoped itself to one function, and the count still grew
 - **Local dev gets an owner rather than an absence.** The no-Supabase bypass will set a real `LOCAL_DEV_USER_ID` (defaulting to the sentinel `0017` already backfills to) instead of `null`, so single-user local dev becomes one tenant rather than no tenant — and local dev and E2E start exercising the isolation logic instead of bypassing it.
 - **Two corrections to the audit.** The nullable-`user_id` tables where `isNull` would match real rows number **14 of 21**, not the 7 listed; and `catalog_diffs` is backfilled by `0017` STEP 1 but is the one table STEP 2 forgot to constrain, so new NULLs can still be written there. The latter needs its own card.
 - **Decision only, plus the guard.** No service or middleware behaviour changes in this entry; the per-site burndown stays with WIC-1549, WIC-1554, WIC-1596 and WIC-1435.
+
 ### Fixed — The organic-traffic watcher's two PostHog fetches share one fault tuple, so exit `10` survives a network fault (2026-08-29)
 
 The entry below fixed the except tuple in `organic_watch.py`'s `prod_db_health()`. The watcher's two `run()` call sites had the same gap and were left out of that PR's scope: the candidate-detail fetch caught only `(URLError, HTTPError, RuntimeError, KeyError)`, through which **12 of 16 measured fault classes escaped** (WIC-1680).
