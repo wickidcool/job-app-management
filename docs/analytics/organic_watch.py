@@ -330,8 +330,9 @@ def prod_db_health():
         #
         # NOT the mechanism, though an earlier revision of this comment said so: the Worker's
         # Hyperdrive retry loop (`worker.ts:13-21`) is unreachable for this endpoint. `/health`
-        # catches its own DB error and returns 503 (`app.ts:97-102`), so nothing propagates out
-        # of `app.fetch` to retry on; the loop also needs a Hyperdrive-specific message and prod
+        # catches its own DB error (`app.ts:97-102`) and returns 503 itself (`app.ts:105`), so
+        # nothing propagates out of `app.fetch` to retry on; the loop also needs a
+        # Hyperdrive-specific message and prod
         # has no Hyperdrive binding, and its whole budget is 150ms regardless. Nor is
         # subrequest exhaustion the slow path -- once the invocation's budget is spent the
         # runtime refuses the connection immediately, which is the ~4s reading above.
