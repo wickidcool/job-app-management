@@ -2097,12 +2097,16 @@ Short-form message composer for LinkedIn InMail, email subject/body, or other ou
 
 ### Props
 
+> **The composer owns `platform`. A host must not hold a copy of it.** Ruled 2026-08-29 (WIC-1583, commit `9c71079`), after `/outreach/new` shipped two platform pickers — the page's and the composer's — that silently disagreed. `platform` decides the character budget, the warning thresholds and whether a Subject field exists at all, so the control belongs with the fields it governs and there must be exactly one of it on the route. **This spec previously declared `platform` as a prop; that line is struck, not merely edited.** A `platform` prop is what let a host paint a second picker.
+>
+> The remaining props are read on mount only. `initialContext` (renamed from `prefillContext` in the same commit) seeds editable fields the user then owns; the name states the contract. **A host that needs a later change to take effect must remount with a `key` — do not add a resync effect**, which `react-hooks/set-state-in-effect` rejects in this repo (WIC-1612). `OutreachNew` keys on every prop it seeds from.
+
 ```tsx
 interface OutreachComposerProps {
-  platform: 'linkedin' | 'email' | 'twitter';
-  applicationId?: string;
+  // `platform: 'linkedin' | 'email' | 'twitter'` — REMOVED, see the note above.
+  // `applicationId?: string` — never implemented; the route reads it from the query string.
   fitAnalysisId?: string;
-  prefillContext?: {
+  initialContext?: {
     company: string;
     jobTitle: string;
     hiringManager?: string;
@@ -2121,13 +2125,15 @@ interface OutreachMessage {
 
 ### Layout
 
+Two lines below are corrections, not aspiration — the diagram asserted both of them after the code had stopped doing them, which is the failure mode a prose-only amendment leaves behind. The panel carries **no heading of its own**: it is the sole body of `/outreach/new`, whose page `<h1>` already says "Compose Outreach Message", and repeating it here was WIC-1581. And there is **no Twitter DM option** — `OutreachPlatform` is `'linkedin' | 'email'`; the `twitter` entry under "Platform Constraints" below is unimplemented and should be read as a proposal.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Compose Outreach Message                               │
+│  (no panel heading — the page <h1> names the route)      │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
-│  │ Platform                                          │ │
-│  │ ● LinkedIn InMail    ○ Email    ○ Twitter DM      │ │
+│  │ Platform          ← the route's only platform picker│
+│  │ ● LinkedIn InMail    ○ Email                       │ │
 │  └───────────────────────────────────────────────────┘ │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
