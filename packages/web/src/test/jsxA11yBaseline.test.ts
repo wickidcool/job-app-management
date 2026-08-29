@@ -48,8 +48,8 @@ import packageJsonRaw from '../../package.json?raw';
  * import.meta.url)` is the obvious spelling and it does NOT work here: vite rewrites that
  * exact pattern at transform time and hands back `/@fs/…/packages/web`, a served-asset
  * path with no counterpart on disk. That value still ends in `/packages/web`, so it slips
- * past the shape check below — it is caught by the file-count guard in `runEslint`, which
- * is the assertion that actually pins this.
+ * past the shape check below; what makes it loud is ESLint erroring on a glob that matches
+ * no files. Keep the string form.
  */
 const webRoot = decodeURIComponent(import.meta.url.replace(/^file:\/\//, '')).replace(
   /\/src\/test\/[^/]*$/,
@@ -200,11 +200,16 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
   it('matches the recorded baseline exactly — no new violations, and no stale entries', async () => {
     const { byFile, filesLinted } = await measure();
 
-    // The anti-no-op guard. Every assertion in this file is a statement about a set of
-    // findings, and all of them are trivially satisfiable by measuring nothing — a root
-    // that points at a directory with no sources yields an empty map that reads as "the
-    // tree is clean". 148 `.ts`/`.tsx` files under `src` today; a floor of 100 tolerates
-    // ordinary churn while still catching a root that resolved somewhere else entirely.
+    // The anti-no-op guard, and it is NOT redundant with the equality below.
+    //
+    // `toEqual` pins *what* was found; nothing in it pins *how much was looked at*. Narrow
+    // the glob and regenerate A11Y_BASELINE from the narrowed run — which is exactly the
+    // shape of "regenerate the baseline until it goes green" — and the two agree with each
+    // other perfectly while most of the tree goes unchecked. Measured: glob narrowed to
+    // `src/pages/**` with the baseline and `--max-warnings` lowered to match is fully green
+    // on 8 of 148 files without this line, and fails here with it.
+    //
+    // 148 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);
 
     // Equality, deliberately. `toBeLessThanOrEqual` on a total would let a regression
