@@ -409,6 +409,40 @@ So on build day: **A1, A4-A9, B5, C2, C3 render real (synthetic) numbers; A2, A3
 and do not re-file the missing `$pageview` — there is no autocapture by design (hand-rolled
 `/capture` wrapper, and `dashboard-spec.md` has zero pageview/UTM/referrer dependencies).
 
+### One of those empties will not fill in, and it is not a traffic problem — B1
+
+The paragraph above attributes every empty tile to absent traffic. That is true of A2, A3, B2, B3,
+B4 and C1. **It is not true of B1.** `export_viewed` is unreachable in the shipped bundle, so B1
+would read `0%` against its `>=50%` target even with a million real users.
+
+`ResumeExports.tsx:21` hardcodes the list it renders:
+
+```ts
+// TODO: Replace with actual data from API
+const exports: ResumeExport[] = [];
+```
+
+That empty array is passed straight to `<ResumeExportList exports={exports} onPreview={handlePreview} />`,
+and `ResumeExportList.tsx:127` only ever calls `onPreview` from inside `exports.map(...)`. With zero
+rows there is no preview control to click, so `handlePreview` — the **only** `export_viewed` call
+site in the codebase — cannot execute. The event is not rare; it is structurally impossible.
+
+**On build day, still build B1**, but do not report its `0%` as an engagement finding. Label the
+tile as blocked on the exports page being wired to the API, and read B5 (Export Generation Rate,
+server-side) as the live export signal instead. Tracked as its own card against the Frontend
+Developer; B1 becomes meaningful the moment that lands, with no dashboard rework — the query is
+already correct.
+
+This is the distinction worth carrying generally: **"never fired" splits into "nobody did it" and
+"nobody could."** Of the 6 client events, `resume_upload_started` and
+`resume_upload_validation_failed` fire on pure local file selection with no network call
+(`ResumeUpload.tsx:184/207/234`, before `uploadFile`), so their zeros are honest demand readings
+even while prod's DB is down. `resume_upload_cta_clicked` (needs `parsedData` from a successful
+upload), `resume_manager_viewed` (guarded on `!isLoading && !error && resumes`) and
+`resume_exports_link_clicked` (rendered per resume row) all sit behind a successful DB-backed
+response, so their zeros say nothing about demand while WIC-1386 is open. `export_viewed` is the
+third category: unreachable regardless.
+
 Re-check **C1-C3** once real multi-session traffic exists — they key on `person_id` and the
 identity graph (WIC-822 server attribution + WIC-825 client `identify()` alias) is correct in
 principle but unproven against organic users.
