@@ -80,6 +80,33 @@ jobs:
       - name: Audit wireframe casing
         run: python3 docs/design/wireframe-casing-audit.py
 
+      # WIC-1582: ROUTE_TITLE_CONVENTION.md §5 is a copy of strings that live in
+      # source, and it spent eight days outside the repo drifting — a heading moved
+      # file, the 404's copy changed, and a route was added with no row. All three
+      # were found by a careful reader. This fails the build on the next one, and in
+      # particular on a new <Route> added without a title row.
+      - name: Audit route title table
+        run: python3 docs/design/route-title-table-audit.py
+
+      # WIC-1626: the other half of WIC-1582. Three design docs cited sibling
+      # specifications by filename that existed only in an agent's private
+      # workspace, so an implementer told to obey "NOTFOUND_PAGE_DESIGN_SPEC.md
+      # §1, D2" could not open it — the constraint did not really exist. A fourth
+      # dangling reference turned up in docs/analytics on this script's first run.
+      # This fails the build on the next citation of a document nobody can read.
+      - name: Audit design-doc references
+        run: python3 docs/design/doc-reference-audit.py
+
+      # WIC-1670: `ConfirmationModal`'s `restoreFocusTo` prop is optional — correctly,
+      # since a cancel-only dialog whose trigger survives must not be forced to name a
+      # fallback. But that means a call site whose confirm action destroys its own
+      # trigger reintroduces WIC-1181 with no type error, no lint error and no failing
+      # test, and the author cannot catch it by inspection because the failure is an
+      # ordering race. This makes every call site declare: pass the prop, or say in a
+      # `focus-restore-exempt` comment why the trigger survives.
+      - name: Audit ConfirmationModal focus restore
+        run: python3 docs/design/confirmation-modal-focus-audit.py
+
       - name: Run tests
         run: npm run test
 
