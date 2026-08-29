@@ -9,10 +9,17 @@ import packageJsonRaw from '../../package.json?raw';
  * nothing in the repo enforcing it. Layer 1 is the plugin; this file is the part that
  * makes adopting it *enforcement* rather than a gesture.
  *
- * 26 of the 34 `recommended` rules are clean on `main` and are left at `error`, so
- * `npm run lint` already fails CI on a new violation of any of them. The other 8 are
- * `warn` (see `BASELINED_RULES` in `eslint.config.js`) purely so that adopting the
- * plugin did not require fixing 47 pre-existing defects in the same change.
+ * 24 of the 34 `recommended` rules are `error` on this tree, so `npm run lint` already
+ * fails CI on a new violation of any of them. 8 are `warn` (see `BASELINED_RULES` in
+ * `eslint.config.js`) purely so that adopting the plugin did not require fixing 47
+ * pre-existing defects in the same change, and 2 are deliberately `off` (see
+ * `PROMOTED_RULES` for the measured cost of each).
+ *
+ * That 24 is asserted below against the RESOLVED config rather than restated in prose.
+ * The first revision of this suite hand-computed it as `34 - 8 = 26`, which is wrong:
+ * `recommended` ships 3 of its 34 entries `off`, so the surface was 23, and the wrong
+ * figure sat in four files at once with nothing able to contradict it. A count that only
+ * exists in a comment is precisely the unenforced claim this card was filed about.
  *
  * A downgrade-to-warn with no counter-pressure is how an allowlist becomes a permanent
  * tree-wide hole, so the baseline is pinned in BOTH directions and per file:
@@ -231,9 +238,70 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     expect(Number(ceiling![1])).toBe(BASELINE_TOTAL);
     expect(total).toBe(BASELINE_TOTAL);
 
+    // `lint:fix` carries the same ceiling and, until now, nothing checked it. Lower `lint`
+    // to 40 and leave `lint:fix` at 47 and the two silently disagree — a hole in a guard
+    // whose stated job is that they cannot. Both are pinned to the same measurement.
+    const fixCeiling = /--max-warnings\s+(\d+)/.exec(pkg.scripts['lint:fix']);
+    expect(
+      fixCeiling,
+      `no --max-warnings in lint:fix script: ${pkg.scripts['lint:fix']}`
+    ).not.toBeNull();
+    expect(Number(fixCeiling![1])).toBe(BASELINE_TOTAL);
+
     // The baselined 8 are `warn`, so `--max-warnings` is what pins them. Any jsx-a11y
     // finding at `error` severity would fail `npm run lint` outright — which is correct
-    // for the other 26 rules, but means the tree is currently red, so say so here.
+    // for the other 24 rules, but means the tree is currently red, so say so here.
     expect(errors).toBe(0);
+  }, 60_000);
+
+  it('states its enforcement surface exactly — 24 error, 8 warn, 2 deliberately off', async () => {
+    // The reason this test exists.
+    //
+    // Every other number in this PR is measured; the enforcement surface was not. It was
+    // hand-derived as `34 - 8 = 26`, copied into four files, and wrong in all four —
+    // `jsx-a11y`'s `recommended` ships 3 of its 34 entries `off`, so nothing was enforcing
+    // them and the real figure was 23. No assertion here could fail on that, which is the
+    // same shape as the defect this whole card is about: a stated requirement with no
+    // mechanism able to contradict it.
+    //
+    // Read from the RESOLVED config for a real source file, so it accounts for the
+    // plugin's own severities AND this repo's overrides together — the arithmetic that
+    // produced 26 is exactly what must not be trusted a second time.
+    const eslint = new ESLint({ cwd: webRoot });
+    const config = await eslint.calculateConfigForFile(`${webRoot}/src/App.tsx`);
+
+    const a11yRules = Object.entries(config.rules ?? {}).filter(([rule]) =>
+      rule.startsWith('jsx-a11y/')
+    );
+    const severityOf = (entry: unknown) => (Array.isArray(entry) ? entry[0] : entry);
+    const named = (severity: number) =>
+      a11yRules
+        .filter(([, entry]) => severityOf(entry) === severity)
+        .map(([rule]) => rule)
+        .sort();
+
+    // Fails closed: if the config failed to resolve, `rules` is empty and every count is 0.
+    expect(a11yRules).toHaveLength(34);
+
+    expect(named(2)).toHaveLength(24);
+    expect(named(1)).toHaveLength(8);
+
+    // Pinned BY NAME, not just counted. `label-has-for` is deprecated upstream and
+    // superseded by `label-has-associated-control` (already baselined at 19); leaving it on
+    // would re-litigate the same 82 findings in a withdrawn spelling.
+    // `control-has-associated-label` is opt-in upstream and costs 3 — real work, owned by
+    // WIC-1589, deliberately not smuggled into this change. If a plugin upgrade turns a
+    // THIRD rule off, that is a silent loss of enforcement and this must fail.
+    expect(named(0)).toEqual(['jsx-a11y/control-has-associated-label', 'jsx-a11y/label-has-for']);
+
+    // The 8 at `warn` must be exactly the rules the baseline records findings for. This
+    // ties the config to the evidence: baselining a rule that has no recorded violations,
+    // or recording violations for a rule that is not baselined, both fail here.
+    const baselinedRules = [
+      ...new Set(Object.values(A11Y_BASELINE).flatMap((counts) => Object.keys(counts))),
+    ]
+      .map((rule) => `jsx-a11y/${rule}`)
+      .sort();
+    expect(named(1)).toEqual(baselinedRules);
   }, 60_000);
 });
