@@ -129,8 +129,11 @@ jobs:
             // Paths with no runtime surface, so there is nothing for CI to have
             // proven. `.github/workflows/**` is here because a workflow-only
             // change is exactly the no-deploy merge route this repo relies on.
+            // NOTE: match on `.md` extension, NOT a `docs/` prefix. `docs/` is
+            // not documentation-only — deploy.yml's own lint-and-test gate runs
+            // executable `docs/design/*.py` audit scripts (WIC-1686), so a
+            // `docs/` prefix would allowlist the very scripts CI must prove.
             const ALLOWED = [
-              (p) => p.startsWith('docs/'),
               (p) => p.endsWith('.md'),
               (p) => p.startsWith('.github/workflows/'),
             ];
