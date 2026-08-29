@@ -1,4 +1,3 @@
-import { computeAccessibleName } from 'dom-accessibility-api';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -22,9 +21,14 @@ import { dropProhibitedNames, elementsWithProhibitedName } from '../../test/proh
  * | `aria-label` honoured | `"Situation: … Field valid"` |
  * | `aria-label` dropped  | `"Situation: … ✓"`          |
  *
- * The assertion that matters is that those two readings are now **identical** — not that
- * some particular attribute is present. Asserting on the markup would pass again the
- * moment someone reintroduces the attribute in a different shape.
+ * The property under test is that **both readings agree**, not that some particular
+ * attribute is present. Asserting on the markup (`not.toHaveAttribute('aria-label')`)
+ * would go green again the moment the attribute returned in a different shape.
+ *
+ * Accessible names come from jest-dom's `toHaveAccessibleName`, which runs a real
+ * accessible-name computation. Deliberately not `dom-accessibility-api` directly: that
+ * package is only a transitive dependency here, and its `package.json` `exports` block
+ * hides its own type declarations from `tsc`, so importing it breaks the build.
  */
 
 const MIN_LENGTH = 10;
@@ -42,45 +46,39 @@ function filled(overrides: Partial<STARData> = {}): STARData {
 
 /** The `situation` textarea, whose label is the one carrying the tick. */
 function situationField(): HTMLTextAreaElement {
-  return screen.getByLabelText(/Situation:/i) as HTMLTextAreaElement;
+  return screen.getByRole('textbox', { name: /Situation:/i }) as HTMLTextAreaElement;
+}
+
+function renderValid() {
+  return render(
+    <STARInput value={filled({ situation: 'x'.repeat(MIN_LENGTH) })} onChange={() => {}} />
+  );
 }
 
 describe('STARInput validity tick — ARIA prohibited name (WIC-1191)', () => {
-  it('gives the textarea the same accessible name whether or not a prohibited name is honoured', () => {
-    const { container } = render(
-      <STARInput value={filled({ situation: 'x'.repeat(MIN_LENGTH) })} onChange={() => {}} />
-    );
+  it('keeps the same accessible name whether or not a prohibited name is honoured', () => {
+    const { container } = renderValid();
 
-    const honoured = computeAccessibleName(situationField());
+    expect(situationField()).toHaveAccessibleName(/Field valid/);
+    expect(situationField()).not.toHaveAccessibleName(/✓/);
 
     // Now model the conformant AT that ignores a prohibited author name.
     dropProhibitedNames(container);
-    const dropped = computeAccessibleName(situationField());
 
-    expect(dropped).toBe(honoured);
+    expect(situationField()).toHaveAccessibleName(/Field valid/);
+    expect(situationField()).not.toHaveAccessibleName(/✓/);
   });
 
-  it('never lets the decorative ✓ glyph into the field accessible name', () => {
-    const { container } = render(
-      <STARInput value={filled({ situation: 'x'.repeat(MIN_LENGTH) })} onChange={() => {}} />
+  it('keeps the field label itself intact', () => {
+    renderValid();
+
+    expect(situationField()).toHaveAccessibleName(
+      /Situation: What was the context or challenge you faced\?/
     );
-
-    expect(computeAccessibleName(situationField())).not.toContain('✓');
-
-    dropProhibitedNames(container);
-    expect(computeAccessibleName(situationField())).not.toContain('✓');
-  });
-
-  it('announces validity as real text, so the state is not carried by the glyph alone', () => {
-    render(<STARInput value={filled({ situation: 'x'.repeat(MIN_LENGTH) })} onChange={() => {}} />);
-
-    expect(computeAccessibleName(situationField())).toContain('Field valid');
   });
 
   it('carries no author name on any role-less element', () => {
-    const { container } = render(
-      <STARInput value={filled({ situation: 'x'.repeat(MIN_LENGTH) })} onChange={() => {}} />
-    );
+    const { container } = renderValid();
 
     expect(elementsWithProhibitedName(container)).toEqual([]);
   });
@@ -90,8 +88,7 @@ describe('STARInput validity tick — ARIA prohibited name (WIC-1191)', () => {
       <STARInput value={filled({ situation: 'x'.repeat(MIN_LENGTH - 1) })} onChange={() => {}} />
     );
 
-    const name = computeAccessibleName(situationField());
-    expect(name).not.toContain('Field valid');
-    expect(name).not.toContain('✓');
+    expect(situationField()).not.toHaveAccessibleName(/Field valid/);
+    expect(situationField()).not.toHaveAccessibleName(/✓/);
   });
 });

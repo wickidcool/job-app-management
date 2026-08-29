@@ -14,6 +14,11 @@
  * `eslint-plugin-jsx-a11y` does **not** catch this class: `role-supports-aria-props` only
  * fires once an element *has* a role, so a role-less element slips past it (verified in the
  * WIC-1185 review against the strict ruleset, 40 rules, zero findings). Hence these tests.
+ *
+ * Consumers should assert accessible names with jest-dom's `toHaveAccessibleName` rather
+ * than calling `dom-accessibility-api` directly: that package is only a transitive
+ * dependency here, and its `package.json` `exports` block hides its own `.d.ts` from
+ * `tsc`, so a direct import type-checks as `any` under `noImplicitAny` and fails the build.
  */
 
 /** Elements whose implicit ARIA role is `generic`, i.e. name-from-author is prohibited. */
