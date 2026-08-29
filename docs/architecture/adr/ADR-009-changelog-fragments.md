@@ -166,6 +166,32 @@ repaired in the next commit. A proposal to abolish the union driver was itself c
 union driver, in the documented class, inside a three-day-old mitigation window. Nothing further
 needs to be said about whether the hazard is theoretical.
 
+**A weld does not stay where it lands — it propagates down a stack and multiplies at each stack
+merge.** Measured 2026-08-29 23:2xZ across the three stacked PRs #209 → #220 → #227. Merge
+`bfd1dc0` (`origin/main` into `docs/wic1600-absent-owner-adr`) produced one weld, and **both of its
+parents were provably clean** — `3d23b91` and `bf0b18e` each score zero welds, the merge result
+scores one. That is the WIC-1567 class again, a second independent reproduction, on a different
+branch, five days after #185 "fixed" it.
+
+What happened next is the part not previously documented:
+
+- It **survived six first-parent commits** on #209's branch (`7ae83ff`, `29434e7`, `fc2da5f`,
+  `aa5c9f6`, `87ec608`, `2f18c34`) without one conflict marker or failing check. Four of those are
+  themselves merges of `main`; every one carried the weld forward untouched.
+- Because #220 and #227 are **stacked** on that branch, it propagated into both — through `26e68ff`,
+  `c4b2d1a`, `341d897`, `681e891` and `d9106b6`. One driver resolution contaminated three open PRs.
+- At `ee7c08f` (#227 merging #220's branch in) the two contaminated parents carried the *same*
+  original weld at **drifted line offsets** — 130 on one side, 174 on the other. Union does not
+  recognise them as the same seam, so it kept both: the merge result has **two** welds, at 75 and
+  184. One defect became two, and the count grows with every stack merge.
+
+This is a fourth failure mode, distinct from the three `CLAUDE.md` lists. Those describe what the
+driver does to a *file*; this describes what a stack does to a *defect*. It means the blast radius
+of a single bad resolution is not one PR but the whole dependent subtree, and that the per-PR
+detector run — which is what the repo asks for — is the only thing standing between a weld and an
+arbitrary number of descendants. Repaired here in `1305b2b` (#209) and `cc5386c` (#227); all six
+open PRs on this stack now verify clean under the union simulation.
+
 This is the argument, not a footnote. The mitigation stack for a driver adopted to remove toil has
 now itself produced three repairs (#181, #185, #231), and the third was a **silent** failure of the
 very check the repo tells authors to trust: an author who ran it and read `duplicate bullets: none`
