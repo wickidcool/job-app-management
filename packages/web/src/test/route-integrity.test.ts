@@ -71,10 +71,18 @@ type StrippedSource = string & { readonly __commentsStripped: true };
  * the more dangerous failure of the two: a noisy false positive gets fixed, whereas a
  * route table with live routes missing makes the audit quietly vacuous.
  *
- * The scanner only ever deletes comment content, so mis-reading a quote can under-strip
- * (leaving today's behaviour) but can never eat a route. The one residual over-strip risk
- * is a bare `/*` outside any string — regex literals are not tracked, and `App.tsx`
- * contains none. The route-table floor assertions below are what fail if that changes.
+ * The scanner only ever deletes comment content, so mis-reading a quote can under-strip but
+ * can never eat a route. The one residual over-strip risk is a bare `/*` outside any string
+ * — regex literals are not tracked, and `App.tsx` contains none. The route-table floor
+ * assertions below are what fail if that changes.
+ *
+ * Under-stripping is the safe direction for route *loss*, but it is not harmless here,
+ * because "leaving today's behaviour" is the bug this function exists to fix. The scanner
+ * is not JSX-aware: a lone `'` in JSX text ("Don't") is not a string delimiter, but it is
+ * read as one, which suspends comment detection for the rest of the file. That silently
+ * turns this function back into a no-op. `strips every JSX comment opener out of the real
+ * App.tsx` below is the canary for that desync; it is what makes the failure loud instead
+ * of green.
  */
 function stripComments(source: string): StrippedSource {
   let out = '';
@@ -306,6 +314,40 @@ describe('in-app navigation targets', () => {
     expect(routePaths).toContain('/');
     expect(routePaths).toContain('/settings');
     expect(routePaths).toContain('/applications/:id/prep');
+  });
+
+  // The under-strip direction, against real source. Every assertion above this one only
+  // detects over-stripping; nothing detected the stripper quietly doing *nothing*, because
+  // `App.tsx` has no commented-out route today and so a no-op stripper is green.
+  //
+  // The concrete way that happens: a lone `'` in JSX copy is not a string delimiter, but
+  // the scanner treats it as one, suspends comment detection at that point and passes the
+  // rest of the file through verbatim. Measured — `<p>Don't forget to review</p>` above a
+  // commented-out `<Route path="/legacy">`, plus a live link to `/legacy`, is 10 passed/10;
+  // changing only `Don't` to `Do not` reports the dead link. One apostrophe reopens the
+  // exact defect this file exists to close, so it is pinned here rather than left in prose.
+  //
+  // The anchor is `{/*` and not `/*` on purpose: `path="/*"` legitimately survives stripping
+  // inside its string literal, which the cell above pins, so the broader pattern would fail
+  // on the clean tree. Known limit: this catches a desync that swallows a JSX comment
+  // opener — the shape that can carry a `<Route>` into the table — not one that swallows a
+  // bare `//` line comment.
+  it('strips every JSX comment opener out of the real App.tsx', () => {
+    // Staleness control on the assertion below. `toBeNull()` is also satisfied by an
+    // App.tsx with no JSX comments left to strip, at which point the canary would be
+    // green forever while proving nothing. If this fails, the canary has gone vacuous
+    // and needs re-pointing at whatever source still exercises the stripper.
+    expect(
+      rawAppSource.match(/\{\/\*/g),
+      'App.tsx no longer contains a JSX comment, so the assertion below can no longer fail'
+    ).not.toBeNull();
+
+    expect(
+      appSource.match(/\{\/\*/g),
+      'stripComments left a JSX comment opener in App.tsx: comment detection desynced ' +
+        'partway through the file (an apostrophe in JSX copy will do it), so any route ' +
+        'commented out after that point is being read as live.'
+    ).toBeNull();
   });
 
   // The failure mode this audit is most exposed to is becoming vacuous: a catch-all
