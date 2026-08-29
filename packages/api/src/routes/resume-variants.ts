@@ -11,6 +11,7 @@ import {
   suggestBullets,
   exportResumeVariant,
 } from '../services/resume-variant.service.js';
+import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
 
 const formatValues = ['chronological', 'functional', 'hybrid'] as const;
@@ -118,7 +119,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateResumeVariant(parsed.data, c.get('userId') ?? undefined);
+    const result = await generateResumeVariant(parsed.data, requireOwner(c));
     return c.json(result, 201);
   })
   .post('/resume-variants/suggest-bullets', async (c) => {
@@ -126,7 +127,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await suggestBullets(parsed.data, c.get('userId') ?? undefined);
+    const result = await suggestBullets(parsed.data, requireOwner(c));
     return c.json(result);
   })
   .get('/resume-variants', async (c) => {
@@ -138,7 +139,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .get('/resume-variants/:id', async (c) => {
-    const result = await getResumeVariant(c.req.param('id'), c.get('userId') ?? undefined);
+    const result = await getResumeVariant(c.req.param('id'), requireOwner(c));
     return c.json(result);
   })
   .patch('/resume-variants/:id', async (c) => {
@@ -162,11 +163,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await reviseResumeVariant(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await reviseResumeVariant(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json(result);
   })
   .post('/resume-variants/:id/export', async (c) => {

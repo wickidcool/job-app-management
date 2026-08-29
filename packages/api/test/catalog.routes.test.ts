@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
+import {
+  buildAuthedApp,
+  resetAuthEnv,
+  TEST_USER_ID,
+  type AuthedApp,
+} from './helpers/authed-app.js';
 import { _resetConfig } from '../src/config.js';
 import { _resetJwksCache } from '../src/middleware/auth.js';
 
@@ -82,11 +88,17 @@ const mockTag = {
 };
 
 describe('Catalog Routes', () => {
-  let app: ReturnType<typeof buildApp>;
+  // Authenticated: these routes call `requireOwner`, so an owner-less request
+  // is a 401 and never reaches the service (WIC-1638). See helpers/authed-app.
+  let app: AuthedApp;
 
-  beforeEach(() => {
-    app = buildApp();
+  beforeEach(async () => {
+    app = await buildAuthedApp();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetAuthEnv();
   });
 
   // ── GET /api/catalog/diffs ──────────────────────────────────────────────────
@@ -108,7 +120,7 @@ describe('Catalog Routes', () => {
           limit: undefined,
           cursor: undefined,
         },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -120,7 +132,7 @@ describe('Catalog Routes', () => {
       expect(response.status).toBe(200);
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'approved' }),
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -174,7 +186,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.generateDiff).toHaveBeenCalledWith(
         'resume',
         '01HZ_RESUME_001',
-        undefined
+        TEST_USER_ID
       );
     });
   });
@@ -201,7 +213,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.applyDiff).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { action: 'approve_all' },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -269,7 +281,7 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001', { method: 'DELETE' });
 
       expect(response.status).toBe(204);
-      expect(catalogService.discardDiff).toHaveBeenCalledWith('01HZ_DIFF_001', undefined);
+      expect(catalogService.discardDiff).toHaveBeenCalledWith('01HZ_DIFF_001', TEST_USER_ID);
     });
 
     it('returns 404 when diff not found', async () => {
@@ -505,7 +517,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeCompanies).toHaveBeenCalledWith(
         ['01HZ_CO_002', '01HZ_CO_003'],
         '01HZ_CO_001',
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -573,7 +585,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeJobFitTags).toHaveBeenCalledWith(
         ['01HZ_TAG_002'],
         '01HZ_TAG_001',
-        undefined
+        TEST_USER_ID
       );
       expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
     });
@@ -595,7 +607,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeTechStackTags).toHaveBeenCalledWith(
         ['01HZ_TAG_AI_ML'],
         '01HZ_TAG_001',
-        undefined
+        TEST_USER_ID
       );
       expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
     });
@@ -657,7 +669,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { itemType: 'change', itemIndex: 0, decision: 'approve' },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -682,7 +694,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { itemType: 'review', itemIndex: 2, decision: 'reject', selectedOption: 'ai-ml' },
-        undefined
+        TEST_USER_ID
       );
     });
 

@@ -10,6 +10,7 @@ import {
   logPracticeSession,
   deleteInterviewPrep,
 } from '../services/interviewPrep.service.js';
+import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
 
 const interviewTypeValues = ['behavioral', 'technical', 'mixed', 'case_study'] as const;
@@ -132,7 +133,7 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateInterviewPrep(parsed.data, c.get('userId') ?? undefined);
+    const result = await generateInterviewPrep(parsed.data, requireOwner(c));
     return c.json(result, 201);
   })
   .get('/interview-preps/:id', async (c) => {

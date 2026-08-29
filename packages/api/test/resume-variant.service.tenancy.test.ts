@@ -129,20 +129,22 @@ describe('suggestBullets tenancy (UC-6)', () => {
     expect(result.suggestions.map((s) => s.bulletId)).toEqual(['01HZ_BUL_MINE']);
   });
 
-  it('fails an anonymous caller closed — IS NULL reaches no row, so nothing is suggested', async () => {
-    // The unauthenticated local-dev path: `authMiddleware` leaves `userId`
-    // undefined when no Supabase config is present. Absent identity must never
-    // mean "all rows" — the fail-open reading is how this class of defect
-    // starts, and is the idiom the card flags on `listResumeVariants` /
-    // `listCoverLetters`.
+  it('fails an owner-less caller closed — the scope term survives, so nothing is suggested', async () => {
+    // Absent identity must never mean "all rows". The history of this one test
+    // is the history of the fix:
     //
-    // WIC-1465 review, REQUIRED 2: this case used to seed `userId: null` and
-    // require that row back. It cannot exist — `quantifiedBullets.userId` is
-    // `.notNull()` since `0017_enforce_userid_not_null.sql`, which also rewrote
-    // the pre-existing NULLs to the `00000000-…-0` placeholder. `IS NULL`
-    // therefore matches nothing and the real outcome is an empty suggestion
-    // list. Failing closed is the ruling; asserting a row shape the database
-    // rejects with `23502` was not.
+    //  - it first seeded `userId: null` and required that row back. That row
+    //    cannot exist — `quantifiedBullets.userId` is `.notNull()` since
+    //    `0017_enforce_userid_not_null.sql` (WIC-1465 review, REQUIRED 2).
+    //  - it then asserted `IS NULL`, which matched nothing post-0017 and so was
+    //    fail-closed, but kept an owner-absent branch inside `bulletOwnerScope`
+    //    — a helper whose entire purpose is to centralise scoping. Every new
+    //    call site inherited the fallback, which is what WIC-1638 measured.
+    //
+    // `bulletOwnerScope` now takes `userId: string` and emits an unconditional
+    // equality; absence is rejected once at the route edge by `requireOwner`.
+    // This asserts the predicate itself still fails closed on the path that
+    // should be unreachable, rather than trusting the compiler to prove it is.
     const stub = stubCatalog([
       bulletRow({ id: '01HZ_BUL_ORPHAN', userId: ORPHAN_OWNER }),
       bulletRow({ id: '01HZ_BUL_THEIRS', userId: OTHER }),
@@ -150,14 +152,18 @@ describe('suggestBullets tenancy (UC-6)', () => {
 
     const result = await suggestBullets(
       { jobDescriptionText: 'Senior backend engineer' } as never,
-      undefined
+      undefined as unknown as string
     );
 
-    // Fails closed by predicate, not by an empty fixture: the read asked for
-    // `IS NULL` against a table holding two owned rows.
-    expect(render(stub.catalogClauses()[1]).sql).toContain(
-      '"quantified_bullets"."user_id" is null'
-    );
+    // Fails closed by predicate, not by an empty fixture: the read carried an
+    // owner equality against a table holding two owned rows, bound to the absent
+    // owner rather than degraded to a bare match. Dropping the term — the mutant
+    // this test exists to kill — would return both rows.
+    const { sql, params } = render(stub.catalogClauses()[1]);
+    expect(sql).toContain('"quantified_bullets"."user_id" = $');
+    expect(params).toContain(undefined);
+    expect(params).not.toContain(ORPHAN_OWNER);
+    expect(params).not.toContain(OTHER);
     expect(result.suggestions).toEqual([]);
     expect(result.totalCatalogBullets).toBe(0);
   });

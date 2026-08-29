@@ -1,5 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildApp } from '../src/app.js';
+import {
+  buildAuthedApp,
+  resetAuthEnv,
+  TEST_USER_ID,
+  type AuthedApp,
+} from './helpers/authed-app.js';
 
 vi.mock('../src/services/interviewPrep.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/services/interviewPrep.service.js')>();
@@ -160,11 +166,17 @@ const mockFitAnalysis = {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('Interview Prep Routes', () => {
-  let app: ReturnType<typeof buildApp>;
+  // Authenticated: these routes call `requireOwner`, so an owner-less request
+  // is a 401 and never reaches the service (WIC-1638). See helpers/authed-app.
+  let app: AuthedApp;
 
-  beforeEach(() => {
-    app = buildApp();
+  beforeEach(async () => {
+    app = await buildAuthedApp();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetAuthEnv();
   });
 
   // ── POST /api/interview-preps ────────────────────────────────────────────
@@ -855,7 +867,7 @@ describe('Interview Prep Routes', () => {
         '01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
         'pdf',
         ['stories', 'questions'],
-        undefined
+        TEST_USER_ID
       );
     });
   });

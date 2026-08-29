@@ -1,4 +1,4 @@
-import { eq, and, sql, isNull } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -29,14 +29,17 @@ import { AppError, NotFoundError } from '../types/index.js';
  * `interview_prep_stories`. RLS does not backstop it: the Worker is not the
  * `authenticated` role and never sets a JWT claim, so `auth.uid()` is NULL.
  *
- * Never `undefined` — an absent caller id scopes to `IS NULL` rather than
- * failing open to the whole table. Since migration `0017_enforce_userid_not_null.sql`
- * (NULLs rewritten to the `00000000-…-0` placeholder, then `SET NOT NULL`) that
- * predicate matches **no rows**, so an anonymous caller reaches an empty catalog
- * and this service raises `CATALOG_EMPTY`. Failing closed is the intent.
+ * The owner is **required**, so there is no owner-absent branch (ADR-010 D2).
+ * This previously took `userId?: string` and fell back to
+ * `isNull(quantifiedBullets.userId)`; that was fail-closed after migration
+ * `0017_enforce_userid_not_null.sql` (NULLs rewritten to the `00000000-…-0`
+ * placeholder, then `SET NOT NULL`), but it kept an absent owner representable
+ * in a helper whose whole purpose is to centralise scoping — so every new call
+ * site inherited the fallback (WIC-1638). Absence is rejected once, at the
+ * route edge, by `requireOwner`.
  */
-function bulletOwnerScope(userId?: string) {
-  return userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId);
+function bulletOwnerScope(userId: string) {
+  return eq(quantifiedBullets.userId, userId);
 }
 
 // ── Error classes ─────────────────────────────────────────────────────────────
@@ -401,7 +404,7 @@ Rules:
 
 export async function generateInterviewPrep(
   input: GenerateInterviewPrepInput,
-  userId?: string
+  userId: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
   storiesGenerated: number;

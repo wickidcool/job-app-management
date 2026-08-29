@@ -1,4 +1,4 @@
-import { eq, ilike, or, desc, and, sql, inArray, notInArray, isNull } from 'drizzle-orm';
+import { eq, ilike, or, desc, and, sql, inArray, notInArray } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -43,22 +43,22 @@ import {
  * `postgres://` string and never sets a JWT claim, so `auth.uid()` is NULL and
  * the policies never apply. The predicate has to be in the query.
  *
- * Returned unconditionally, never `undefined`: an absent caller id must not
- * fail open to the whole table. It scopes to `IS NULL`, which since migration
- * `0017_enforce_userid_not_null.sql` matches **no rows at all** — Step 1 rewrote
- * every pre-existing NULL to the placeholder `00000000-0000-0000-0000-000000000000`
- * and Step 2 ran `ALTER COLUMN user_id SET NOT NULL`, so `quantifiedBullets.userId`
- * is `.notNull()` and a NULL owner is unrepresentable. That is deliberate: an
- * anonymous caller gets nothing rather than everything.
+ * The owner is **required**, so there is no owner-absent branch to get wrong
+ * (ADR-010 D2). This helper previously took `userId?: string` and fell back to
+ * `isNull(quantifiedBullets.userId)`. That fallback was fail-closed — migration
+ * `0017_enforce_userid_not_null.sql` Step 1 rewrote every pre-existing NULL to
+ * the placeholder `00000000-0000-0000-0000-000000000000` and Step 2 ran
+ * `ALTER COLUMN user_id SET NOT NULL`, so `IS NULL` matched no rows — but it
+ * made an absent owner *representable*, and a helper introduced to centralise
+ * owner scoping multiplies that shape by every future call site (WIC-1638).
+ * Absence is now rejected once, at the route edge, by `requireOwner` (D1/D3).
  *
- * The `userId ?? null` insert path this predicate used to be justified by is
- * dead for the same reason — post-0017 it is rejected with `23502`. Do not cite
- * `personal-info.service.ts:34` as precedent either: `personalInfo.userId` is
- * nullable, so `IS NULL` genuinely selects that table's anonymous rows. Here it
- * selects the empty set, and the read's caller must be prepared for it.
+ * Do not reintroduce the `IS NULL` fallback here by citing
+ * `personal-info.service.ts:34`: `personalInfo.userId` is nullable, so `IS NULL`
+ * genuinely selects that table's anonymous rows. This column is `.notNull()`.
  */
-function bulletOwnerScope(userId?: string) {
-  return userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId);
+function bulletOwnerScope(userId: string) {
+  return eq(quantifiedBullets.userId, userId);
 }
 
 // ── DTO mappers ───────────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ function extractKeywords(jdText: string): string[] {
 
 export async function generateResumeVariant(
   input: GenerateResumeVariantInput,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
@@ -539,7 +539,7 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
 
 export async function getResumeVariant(
   id: string,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
@@ -709,7 +709,7 @@ export async function deleteResumeVariant(id: string, userId?: string): Promise<
 export async function reviseResumeVariant(
   id: string,
   input: ReviseResumeVariantInput,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   changesApplied: string[];
@@ -850,7 +850,7 @@ Rules:
 
 export async function suggestBullets(
   input: SuggestBulletsInput,
-  userId?: string
+  userId: string
 ): Promise<{
   suggestions: BulletSuggestionDTO[];
   totalCatalogBullets: number;

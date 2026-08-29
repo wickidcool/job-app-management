@@ -122,10 +122,36 @@ function expectScopedTo(clause: unknown, userId: string, table: string, ids: str
   expectIds(sql, params, table, ids);
 }
 
-/** The clause carries no tenancy term at all (single-user / local mode). */
-function expectUnscoped(clause: unknown, table: string, ids: string[]) {
+/**
+ * The clause STILL carries a tenancy term when the owner is absent (WIC-1638).
+ *
+ * This replaces the old `expectUnscoped`, which asserted the opposite — that an
+ * absent owner dropped the `user_id` term and left a bare id match. That was the
+ * documented "single-user mode" posture, and it is exactly the fail-open shape
+ * ADR-010 D2 retires: a caller who reached these services with no resolved owner
+ * (a `sub`-less JWT, per WIC-1554) got an unscoped read and an unscoped delete.
+ *
+ * The owner is now `userId: string`, so absence is a type error at every real
+ * call site and is rejected once at the route edge by `requireOwner`. These
+ * tests smuggle `undefined` past the type deliberately, to pin the runtime
+ * behaviour of the predicate itself rather than trusting the compiler.
+ *
+ * Drizzle renders `eq(col, undefined)` as a real `"t"."user_id" = $n` term and
+ * binds the absent value through as a parameter. Every `user_id` in these tables
+ * is a non-null uuid (migration `0017` rewrote the NULLs to the sentinel and set
+ * NOT NULL), so an equality against an absent value cannot match any stored row
+ * — the operation fails closed rather than reading or deleting across tenants.
+ *
+ * Asserting the term is *present, and bound to something no row can equal* is
+ * what kills the mutant that restores `userId ? and(id, owner) : eq(id)`: under
+ * that mutation the term disappears entirely and the id match runs unscoped.
+ */
+function expectFailsClosedOnAbsentOwner(clause: unknown, table: string, ids: string[]) {
   const { sql, params } = queryFor(clause);
-  expect(sql).not.toContain('user_id');
+  expect(sql).toContain(`"${table}"."user_id" = $`);
+  // The bound owner is the absent one, not some real tenant's id.
+  expect(params).toContain(undefined);
+  expect(params).not.toContain(CALLER);
   expectIds(sql, params, table, ids);
 }
 
@@ -406,13 +432,32 @@ describe('mergeJobFitTags', () => {
 // authenticated user who knew a ULID could fold another user's companies into a
 // target (soft-deleting the sources) or hard-delete another user's tags.
 //
-// The fix mirrors `resolveDiffItem`: scope on userId when there is one, and
-// leave the predicate alone when there is not, so single-user/local mode
-// (SUPABASE_JWT_SECRET unset -> userId null) keeps working unchanged. These
-// tests assert on the rendered SQL rather than on call counts, so removing the
-// tenancy term fails them.
+// The first fix mirrored `resolveDiffItem`: scope on userId when there is one,
+// and leave the predicate alone when there is not, so single-user/local mode
+// (SUPABASE_JWT_SECRET unset -> userId null) kept working unchanged.
+//
+// WIC-1638 retires that second half. The owner-absent branch was not serving
+// local dev so much as preserving a cross-tenant fallback for any caller who
+// arrived without a resolved owner — including a JWT that verifies but carries
+// no `sub` claim (WIC-1554). Per ADR-010 D2 the owner is now required
+// (`userId: string`), absence is rejected once at the route edge by
+// `requireOwner`, and local dev gets a real owner rather than an absence (D3).
+//
+// These tests assert on the rendered SQL rather than on call counts, so removing
+// the tenancy term fails them.
 
 const CALLER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+
+/**
+ * An owner that is absent at run time despite the `userId: string` signature.
+ *
+ * The cast is the point of the test, not a shortcut around it: `requireOwner`
+ * makes this unreachable through the routes, but the services are exported and
+ * `middleware/auth.ts` can still resolve `userId` to `null` (WIC-1554). These
+ * tests pin what the predicate does if one ever arrives, rather than relying on
+ * the compiler to prove it cannot.
+ */
+const ABSENT_OWNER = undefined as unknown as string;
 
 describe('merge tenancy scoping', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -448,19 +493,30 @@ describe('merge tenancy scoping', () => {
       );
     });
 
-    it('leaves the predicates unscoped in single-user mode', async () => {
+    it('keeps every predicate scoped when the owner is absent, so nothing matches', async () => {
       const { selectWhere, txUpdateWhere } = stubDb([
         [companyRow()],
         [companyRow({ id: '01HZ_CO_002' })],
         [companyRow()],
       ]);
 
-      await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', undefined);
+      await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', ABSENT_OWNER);
 
-      expectUnscoped(selectWhere.mock.calls[0][0], 'company_catalog', ['01HZ_CO_001']);
-      expectUnscoped(selectWhere.mock.calls[1][0], 'company_catalog', ['01HZ_CO_002']);
-      expectUnscoped(txUpdateWhere.mock.calls[0][0], 'company_catalog', ['01HZ_CO_001']);
-      expectUnscoped(txUpdateWhere.mock.calls[1][0], 'company_catalog', ['01HZ_CO_002']);
+      // Reads and writes alike keep the tenancy term. Before WIC-1638 all four
+      // of these lost it, so an owner-less merge folded and soft-deleted rows
+      // across every tenant.
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[0][0], 'company_catalog', [
+        '01HZ_CO_001',
+      ]);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[1][0], 'company_catalog', [
+        '01HZ_CO_002',
+      ]);
+      expectFailsClosedOnAbsentOwner(txUpdateWhere.mock.calls[0][0], 'company_catalog', [
+        '01HZ_CO_001',
+      ]);
+      expectFailsClosedOnAbsentOwner(txUpdateWhere.mock.calls[1][0], 'company_catalog', [
+        '01HZ_CO_002',
+      ]);
     });
   });
 
@@ -505,19 +561,21 @@ describe('merge tenancy scoping', () => {
       await expect(merge(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER)).rejects.toThrow(NotFoundError);
     });
 
-    it('leaves the predicates unscoped in single-user mode', async () => {
+    it('keeps every predicate scoped when the owner is absent, so nothing matches', async () => {
       const { selectWhere, txUpdateWhere, txDeleteWhere } = stubDb([
         [tagRow()],
         [tagRow({ id: '01HZ_TAG_002' })],
         [tagRow()],
       ]);
 
-      await merge(['01HZ_TAG_002'], '01HZ_TAG_001', undefined);
+      await merge(['01HZ_TAG_002'], '01HZ_TAG_001', ABSENT_OWNER);
 
-      expectUnscoped(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
-      expectUnscoped(selectWhere.mock.calls[1][0], table, ['01HZ_TAG_002']);
-      expectUnscoped(txUpdateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
-      expectUnscoped(txDeleteWhere.mock.calls[0][0], table, ['01HZ_TAG_002']);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[1][0], table, ['01HZ_TAG_002']);
+      expectFailsClosedOnAbsentOwner(txUpdateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      // The delete is the unrecoverable one — tags have no soft-delete. Before
+      // WIC-1638 an owner-less merge hard-deleted by bare id.
+      expectFailsClosedOnAbsentOwner(txDeleteWhere.mock.calls[0][0], table, ['01HZ_TAG_002']);
     });
   });
 });
@@ -544,7 +602,7 @@ describe.each([
   beforeEach(() => vi.clearAllMocks());
 
   /** Render the source read — the second select — for a given call. */
-  async function sourceRead(sourceIds: string[], userId?: string) {
+  async function sourceRead(sourceIds: string[], userId: string) {
     const { selectWhere } = stubDb([[row()], sourceIds.map((id) => row({ id })), [row()]]);
     await merge(sourceIds, 'TARGET', userId);
     return queryFor(selectWhere.mock.calls[1][0]);
@@ -567,16 +625,20 @@ describe.each([
     expect(params).toEqual(['A', CALLER]);
   });
 
-  it('renders an IN list in single-user mode too', async () => {
-    const { sql, params } = await sourceRead(['A', 'B'], undefined);
+  it('renders an IN list, still scoped, when the owner is absent', async () => {
+    // WIC-1638: this used to render a bare `"t"."id" in ($1, $2)` — the tenancy
+    // term was dropped entirely, so an owner-less merge selected sources across
+    // every tenant. The term is now unconditional and binds null, which matches
+    // nothing.
+    const { sql, params } = await sourceRead(['A', 'B'], ABSENT_OWNER);
 
-    expect(sql).toBe(`"${table}"."id" in ($1, $2)`);
-    expect(params).toEqual(['A', 'B']);
+    expect(sql).toBe(`("${table}"."id" in ($1, $2) and "${table}"."user_id" = $3)`);
+    expect(params).toEqual(['A', 'B', undefined]);
   });
 
-  it('never emits ANY(( in any mode', async () => {
+  it('never emits ANY(( with or without an owner', async () => {
     for (const ids of [['A', 'B'], ['A']]) {
-      for (const caller of [CALLER, undefined]) {
+      for (const caller of [CALLER, ABSENT_OWNER]) {
         expect((await sourceRead(ids, caller)).sql).not.toContain('ANY(');
       }
     }
@@ -820,13 +882,13 @@ describe('tag update tenancy scoping', () => {
       expectScopedTo(selectWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_001']);
     });
 
-    it('leaves both predicates unscoped in single-user mode', async () => {
+    it('keeps both predicates scoped when the owner is absent, so nothing matches', async () => {
       const { selectWhere, updateWhere } = stubDb([[tagRow()]], [[tagRow()]]);
 
-      await update('01HZ_TAG_001', patch, undefined);
+      await update('01HZ_TAG_001', patch, ABSENT_OWNER);
 
-      expectUnscoped(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
-      expectUnscoped(updateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectFailsClosedOnAbsentOwner(updateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
     });
   });
 });
@@ -860,22 +922,24 @@ function diffRow(overrides: Record<string, unknown> = {}) {
 
 /**
  * generateDiff's lookup keys on trigger_source + trigger_id, never on a diff id,
- * so expectScopedTo/expectUnscoped do not apply here — expectIds would demand a
- * `"catalog_diffs"."id" = ` term this predicate is not supposed to carry.
- * Assert the same two halves explicitly rather than reintroducing an optional
- * `ids`, which is exactly the one-sided escape hatch those helpers refuse.
+ * so expectScopedTo / expectFailsClosedOnAbsentOwner do not apply here —
+ * expectIds would demand a `"catalog_diffs"."id" = ` term this predicate is not
+ * supposed to carry. Assert the same two halves explicitly rather than
+ * reintroducing an optional `ids`, which is exactly the one-sided escape hatch
+ * those helpers refuse.
+ *
+ * `userId` is required: the tenancy term is now unconditional (WIC-1638), so
+ * there is no caller that legitimately expects it to be absent. Pass `undefined`
+ * to assert the owner-absent case, where the term is present but binds a value
+ * no stored row can equal.
  */
-function expectDiffLookup(clause: unknown, opts: { userId?: string; triggerId: string }) {
+function expectDiffLookup(clause: unknown, opts: { userId: string | undefined; triggerId: string }) {
   const { sql, params } = queryFor(clause);
   expect(sql).toContain('"catalog_diffs"."trigger_source" = $');
   expect(sql).toContain('"catalog_diffs"."trigger_id" = $');
   expect(params).toContain(opts.triggerId);
-  if (opts.userId === undefined) {
-    expect(sql).not.toContain('user_id');
-  } else {
-    expect(sql).toContain('"catalog_diffs"."user_id" = $');
-    expect(params).toContain(opts.userId);
-  }
+  expect(sql).toContain('"catalog_diffs"."user_id" = $');
+  expect(params).toContain(opts.userId);
 }
 
 describe('generateDiff tenancy', () => {
@@ -912,14 +976,20 @@ describe('generateDiff tenancy', () => {
     });
   });
 
-  it('leaves the lookup unscoped in single-user mode', async () => {
+  it('keeps the lookup scoped when the owner is absent, so nothing matches', async () => {
     const { selectWhere } = stubDiffDb([diffRow()]);
 
-    await generateDiff('resume', '01HZ_RESUME_001', undefined);
+    await generateDiff('resume', '01HZ_RESUME_001', ABSENT_OWNER);
 
-    expectDiffLookup(selectWhere.mock.calls[0][0], { triggerId: '01HZ_RESUME_001' });
+    // WIC-1638: the `if (userId)` guard around this term is gone, so the lookup
+    // can no longer fall through to whichever diff is newest for the trigger id
+    // regardless of owner.
+    expectDiffLookup(selectWhere.mock.calls[0][0], {
+      userId: undefined,
+      triggerId: '01HZ_RESUME_001',
+    });
     expect(vi.mocked(processCatalogChange).mock.calls[0][0]).toMatchObject({
-      metadata: { userId: null },
+      metadata: { userId: undefined },
     });
   });
 

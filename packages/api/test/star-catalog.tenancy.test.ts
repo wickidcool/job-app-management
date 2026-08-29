@@ -373,7 +373,7 @@ describe('generateInterviewPrep tenancy (UC-7, D3)', () => {
     expect(ai.prompts).toHaveLength(0);
   });
 
-  it('fails an anonymous caller closed — IS NULL reaches no row, so no foreign STAR text is generated', async () => {
+  it('fails an owner-less caller closed — the scope term survives, so no foreign STAR text is generated', async () => {
     // Counterpart of the UC-6 case: absent identity must never fail open to the
     // whole table.
     //
@@ -382,11 +382,15 @@ describe('generateInterviewPrep tenancy (UC-7, D3)', () => {
     // `0017_enforce_userid_not_null.sql` rewrites pre-existing NULLs to the
     // `00000000-…-0` placeholder (Step 1) and then runs
     // `ALTER COLUMN user_id SET NOT NULL` (Step 2); `quantifiedBullets.userId`
-    // is `.notNull()`, and the insert path is rejected with `23502`. So
-    // `IS NULL` selects the empty set, always — and the honest assertion is that
-    // the anonymous caller reaches `CATALOG_EMPTY`, not that it is served
-    // null-owned rows. The old version passed only because the stub's
-    // `CatalogRow.userId` was more permissive than the schema; it is `string` now.
+    // is `.notNull()`, and the insert path is rejected with `23502`.
+    //
+    // WIC-1638 goes one step further. Asserting `IS NULL` was fail-closed, but
+    // it kept an owner-absent branch inside `bulletOwnerScope` — the helper
+    // added to *centralise* owner scoping, so every new call site inherited the
+    // fallback. `bulletOwnerScope` now takes `userId: string` and emits an
+    // unconditional equality; absence is rejected once at the route edge by
+    // `requireOwner`. This still exercises the predicate directly, so the mutant
+    // that restores the ternary is caught here and not only by the compiler.
     const stub = stubDb({
       catalog: [
         bullet({ id: '01HZ_BUL_ORPHAN', rawText: MINE, userId: ORPHAN_OWNER }),
@@ -397,15 +401,18 @@ describe('generateInterviewPrep tenancy (UC-7, D3)', () => {
     const ai = aiEchoingStories();
     install(stub, ai);
 
-    await expect(generateInterviewPrep({ applicationId: APP_ID }, undefined)).rejects.toMatchObject(
-      { code: 'CATALOG_EMPTY' }
-    );
+    await expect(
+      generateInterviewPrep({ applicationId: APP_ID }, undefined as unknown as string)
+    ).rejects.toMatchObject({ code: 'CATALOG_EMPTY' });
 
-    // Fails closed by predicate, not by an empty fixture: the read really did
-    // ask for `IS NULL`, and the table it asked has two owned rows in it.
-    expect(render(stub.catalogClauses()[0]).sql).toContain(
-      '"quantified_bullets"."user_id" is null'
-    );
+    // Fails closed by predicate, not by an empty fixture: the read carried an
+    // owner equality bound to the absent owner, against a table holding two
+    // owned rows. Dropping the term would serve both of them.
+    const { sql, params } = render(stub.catalogClauses()[0]);
+    expect(sql).toContain('"quantified_bullets"."user_id" = $');
+    expect(params).toContain(undefined);
+    expect(params).not.toContain(ORPHAN_OWNER);
+    expect(params).not.toContain(OTHER);
     // Never reached the model, so no foreign `rawText` can be persisted.
     expect(ai.prompts).toHaveLength(0);
   });
