@@ -30,11 +30,27 @@ The onboarding flow guides new users through their first experience with the Job
 
 ### Trigger Conditions
 
-The onboarding flow activates when:
-- User visits the application for the first time
-- User has zero resumes uploaded
-- User has zero applications created
-- Onboarding has not been explicitly dismissed
+The flow activates when `GET /api/users/me/onboarding/should-show` returns `true`, and on
+no other signal. Do not re-derive the condition on the client — see
+[API_CONTRACTS.md § Should Show Onboarding](../architecture/API_CONTRACTS.md#should-show-onboarding)
+for the shipped rule. In summary:
+
+- A user who has completed onboarding is never shown it again.
+- The returning-user bypass is keyed on **when** the user's resumes and applications were
+  created, not on whether they have any. The discriminator is `onboarding_status.started_at`:
+  work that predates the status row cannot have come from the flow.
+- For a user who has **engaged** with the flow — moved off `welcome`, or completed or
+  skipped any step — only work created *before* `started_at` counts against them. This
+  matters because the resume-upload step *creates* a resume; an unbounded check would eject
+  a new user from the flow the moment their first upload succeeded.
+- For a user we have never seen in the flow — no row, or a pristine `welcome` one — the
+  probe is unbounded: zero resumes **and** zero applications means show it, otherwise do not.
+  Bounding it here would re-show onboarding to a new user who dismissed at `welcome` and
+  then created an application by hand.
+
+There is no "explicitly dismissed" state. The product ships no dismiss endpoint and no
+`dismissed` status; a user who leaves the flow keeps an incomplete row and is shown it
+again on their next visit.
 
 ### Entry Points
 
@@ -555,8 +571,24 @@ Track applications through every stage of your job search.
 You can create your first application now, or explore the app and add one later.
 
 **Options:**
-- [Create Application Now] → Opens ApplicationForm modal
-- [I'll Do This Later] → Proceeds to Step 5
+- [Create Application Now] → Finishes onboarding, then navigates to `/applications/new`
+- Footer [Next Step] → Proceeds to Step 5 without creating anything
+
+> **Corrected 2026-08-29 (WIC-1689).** This block previously read
+> "[Create Application Now] → Opens ApplicationForm modal" and listed a second body
+> button, "[I'll Do This Later] → Proceeds to Step 5". Neither described the build:
+> the primary CTA's handler was `handleCompleteStep(5)` behind a "this would open the
+> application form modal" comment, so it created nothing and merely advanced the
+> wizard — the same outcome as the button beside it and as the footer, i.e. three
+> controls and one behaviour.
+>
+> The CTA now sends the user to the real create route at `/applications/new`
+> (`App.tsx`) rather than opening a form inside this dialog, which has no focus trap
+> (`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2). It routes through `handleFinishAndGo`, so
+> onboarding is completed before the navigation — otherwise the provider re-fetches an
+> untouched status and reopens the modal on top of the form. The redundant
+> "I'll Do This Later" button was removed; the footer's [Next Step] was always the
+> same action and remains the way to decline.
 
 **Duration:** ~1 minute (if user creates application)
 
@@ -1077,29 +1109,36 @@ interface OnboardingState {
 
 **API Endpoints:**
 
+> The request shapes previously sketched here were never built, and one of the endpoints
+> (`POST /api/users/me/onboarding/dismiss`) does not exist. See
+> [API_CONTRACTS.md § Onboarding](../architecture/API_CONTRACTS.md#onboarding) for the
+> authoritative contract; what follows is a summary of what actually ships.
+
 ```typescript
-// Save progress
+// Whether to show onboarding at all — the ONLY authority on visibility.
+// Never derive this from the status row: GET /status auto-creates a `welcome`
+// row for any user without one, so the row's mere existence means nothing.
+GET  /api/users/me/onboarding/should-show   // -> { "shouldShow": boolean }
+
+// The progress row. Note this endpoint WRITES: it initializes a `welcome` row
+// for a user who has none.
+GET  /api/users/me/onboarding/status
+
+// Save progress. All fields optional; send only what changed.
 POST /api/users/me/onboarding/progress
 {
-  "step": 2,
-  "progress": { ... },
-  "timestamp": "2026-05-08T14:00:00Z"
+  "currentStep": "resume_upload",   // welcome | personal_info | resume_upload
+                                    // | first_application | completed
+  "resumeStepCompleted": true       // ...and the other five *Completed/*Skipped flags
 }
 
-// Mark completed
+// Mark completed. No request body.
 POST /api/users/me/onboarding/complete
-{
-  "completedAt": "2026-05-08T14:15:00Z",
-  "metadata": { ... }
-}
-
-// Dismiss onboarding
-POST /api/users/me/onboarding/dismiss
-{
-  "reason": "user_skip",
-  "timestamp": "2026-05-08T14:00:00Z"
-}
 ```
+
+There is no dismiss endpoint. A user who declines a step is recorded with that step's
+`*StepSkipped` flag via `/progress`; a user who leaves the flow entirely simply keeps an
+incomplete row, and `should-show` continues to return `true` for them.
 
 ---
 
@@ -1301,14 +1340,58 @@ const onboardingMachine = createMachine({
 
 ### Must-Have (MVP)
 
-- [x] 5-step wizard with clear progress indicator
-- [x] Resume upload with drag-and-drop and file picker
-- [x] Feature tour highlighting 4 key UI elements
-- [x] Ability to skip and resume later
-- [x] Persistent banner for dismissed onboarding
-- [x] Mobile-responsive design
-- [x] Keyboard accessible
-- [x] Screen reader compatible
+> **All eight boxes below were re-measured against `main` @ `4681803` on 2026-08-29** — every one,
+> not just the two that prompted the check (WIC-1656 was filed about the last two; the third box
+> turned out to be wrong as well, which is the same "one bad box is evidence about its neighbours"
+> result that WIC-1655 found in `ACCESSIBILITY.md`). **Five hold and stay checked; three did not and
+> are unchecked below, with what is actually true restated underneath each.**
+>
+> **No box here may be re-checked without a fresh measurement and the commit it was taken at.** Not
+> a PR number — a PR number is a claim about the future and rots the day it is typed (WIC-1628).
+>
+> The behaviour fixes for the two accessibility boxes are **not** this document's to make: they are
+> `MODAL_FOCUS_MANAGEMENT_SPEC.md` §4 (migrate the hand-rolled dialogs to Radix `Dialog`). Unchecking
+> here records the gap; it does not schedule it.
+
+- [x] 5-step wizard with clear progress indicator — verified. `OnboardingProgressIndicator.tsx:43`
+      exposes `role="progressbar"` with `aria-valuenow/min/max`, marks the active step
+      `aria-current="step"` (`:94`), and carries an `sr-only` `role="status"` live region (`:128`).
+- [x] Resume upload with drag-and-drop and file picker — verified. `ResumeUploadZone.tsx` wires
+      `onDragEnter`/`onDragOver`/`onDrop` (`:277-280`) alongside a real `<input type="file">` (`:290`).
+- [ ] Feature tour highlighting 4 key UI elements — **wrong on both counts, and not a tour.** Step 4
+      (`OnboardingModal.tsx:349-384`) renders **three** static description cards, not four: *Dashboard
+      Stats* (`:361`), *Kanban Board* (`:369`), *Manage Resumes* (`:377`). And it highlights nothing —
+      there are **zero** occurrences of `getBoundingClientRect`, `anchorEl`, `spotlight`, `popover` or
+      `data-tour` anywhere under `packages/web/src/components/onboarding/`. It is a read-only
+      informational panel describing features in prose, with no anchor to any live UI element. Either
+      restate this box as "static feature overview (3 cards)" or build the tour; do not re-check it as
+      written.
+- [x] Ability to skip and resume later — verified. Per-step skip handlers (`OnboardingModal.tsx:87`,
+      `:126`) plus a "Save progress and exit?" confirmation (`:144`); progress persists via
+      `onboarding_status`.
+- [x] Persistent banner for dismissed onboarding — verified. `OnboardingBanner.tsx` distinguishes
+      session dismissal from `onDismissPermanently` (`:5`, `:24-26`).
+- [x] Mobile-responsive design — verified. `md:` breakpoints across all three components, including a
+      genuine mobile/desktop swap in the progress indicator (`md:hidden` / `md:block`).
+- [ ] Keyboard accessible — **partial: the steps are, the dialog is not.** Step navigation *is*
+      keyboard operable — 17 native `<button>` controls across the onboarding components, plus the one
+      pseudo-widget (the `ResumeUploadZone` drop zone, `:282-286`), which is correctly built: it pairs
+      `role="button"` and `tabIndex={0}` with an `onKeyDown` that activates on `Enter` and `Space`
+      (`:152-157`) and carries an `aria-label`. So Tab and Enter reach every action. The **dialog
+      container** is the failure, not the steps: `OnboardingModal.tsx` handles **zero**
+      `Escape` keypresses, installs no focus trap, contains **zero** `.focus()` calls (so focus is
+      never moved in on open), and does not restore focus on close. A keyboard user can Tab straight
+      out of the wizard into the page behind it, and has no documented way to dismiss it. Audited as
+      one of the six hand-rolled dialogs in `MODAL_FOCUS_MANAGEMENT_SPEC.md` §2; that row still holds.
+- [ ] Screen reader compatible — **no recorded result, and one active contradiction.** No screen-reader
+      outcome for this flow is recorded anywhere in the repo; the only artifact is
+      `docs/qa/WIC-186-QA-GUIDE.md`, which is a *procedure* for a tester to run, not a result. Worse,
+      **both** dialogs in `OnboardingModal.tsx` — the wizard (`:174-175`) and the dismiss confirmation
+      (`:139-140`) — set `aria-modal="true"` with no focus trap. That pairing tells assistive tech to
+      hide everything outside the dialog while keyboard focus can still walk out into it, so focus
+      lands on controls the AT has been told do not exist and nothing is announced. A dialog with
+      neither attribute nor trap is merely bad; `aria-modal` without a trap is a contradiction the
+      user experiences as silence. Re-check only against a recorded test result, not an inspection.
 
 ### Should-Have
 
