@@ -635,12 +635,43 @@ Common patterns used in this project:
 ## Implementation Priority
 
 **Phase 1 (MVP):**
-- [x] Keyboard navigation for all features
-- [x] Proper form labels and validation
-- [x] Focus management in modals
-- [x] ARIA labels for interactive elements
-- [x] Color contrast validation
-- [x] Screen reader testing (basic)
+
+> **All six boxes below were checked, and all six were wrong.** Re-measured against `main` @
+> `0e5d97a` on 2026-08-29 — every one of the six, not just the one that prompted the check. The
+> claims are restated underneath each box so the next reader can re-run the measurement instead of
+> trusting the tick. **No box here may be re-checked without a fresh measurement and the commit it
+> was taken at**; a PR number is a claim about the future and rots the day it is typed, which is how
+> this list came to assert six things that were not true.
+>
+> The counts below are counts in prose and will go stale, exactly as the enforcement note at the top
+> of this document warns. They are pinned to `0e5d97a` for that reason, and they are **not** the
+> mechanism — the mechanism is **WIC-1483** (`eslint-plugin-jsx-a11y` in the existing
+> `lint-and-test` job). When it lands, boxes 2 and 4 become machine-checkable and these hand counts
+> should be deleted rather than updated.
+
+- [ ] Keyboard navigation for all features — **partial.** Kanban drag-and-drop *is* keyboard
+      operable (`KanbanBoard.tsx` wires `KeyboardSensor` with `sortableKeyboardCoordinates`). But
+      all six hand-rolled dialogs handle **zero** `Escape` keypresses and have no focus trap, so a
+      keyboard user who opens one cannot leave it. See `MODAL_FOCUS_MANAGEMENT_SPEC.md` §2.
+- [ ] Proper form labels and validation — **validation yes, labels no.** Validation is real
+      (`react-hook-form` + `zod`). **28 of 98** form controls in `packages/web/src` expose no
+      programmatic accessible name: 11 sit beside a visible `<label>` that carries no `htmlFor`
+      (assistive tech reads these as unlabelled), and 17 have no label at all.
+- [ ] Focus management in modals — **not shipped.** `packages/web/src/hooks/useDialogFocusRestore.ts`
+      does not exist and no `useDialogFocusRestore` / `fallbackRef` / `RESTORE_WATCH_MS` symbol
+      appears anywhere under `packages/web/src`. Authority for this item is
+      **`MODAL_FOCUS_MANAGEMENT_SPEC.md` §5** (hook contract, *specified, not implemented*); §2 of
+      that document audits all six dialogs and every row still holds at `0e5d97a`.
+- [ ] ARIA labels for interactive elements — **partial.** Two controls have no accessible name at
+      all: the `role="switch"` toggle in `FilterPanel.tsx` and the icon-only back button in
+      `InterviewPrepPage.tsx`. The 17 unlabelled form controls above are additional to those.
+- [ ] Color contrast validation — **never performed.** `DESIGN_SYSTEM.md` carries this same item
+      *unchecked* under its Implementation Checklist (`- [ ] Test color contrast ratios (WCAG AA
+      minimum)`), and the repo has no `axe`, `pa11y`, Lighthouse budget or contrast assertion in any
+      `package.json` or in `.github/workflows/`. Nothing has measured this, by hand or in CI.
+- [ ] Screen reader testing (basic) — **no evidence it happened.** The only screen-reader artifact in
+      the repo is `docs/qa/WIC-186-QA-GUIDE.md`, which *instructs* a tester to enable NVDA, JAWS or
+      VoiceOver. That is a procedure, not a result; no outcome is recorded anywhere.
 
 **Phase 2 (Post-MVP):**
 - [ ] Advanced ARIA patterns for custom widgets
