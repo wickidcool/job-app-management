@@ -30,17 +30,15 @@ export function OutreachNew() {
         </div>
 
         {/*
-          The page deliberately renders no platform picker. `OutreachComposer` owns the
-          platform, because the platform is what decides the composer's character budget,
-          its warning thresholds, and whether it shows a Subject field at all — the control
-          belongs with the fields it governs. A second picker here previously wrote to a
-          value the composer read once and then ignored, so the two silently disagreed and
-          the visible one lost (WIC-1583).
-        */}
-        {/*
+          The page deliberately renders no platform picker (WIC-1583). `OutreachComposer`
+          owns the platform, because the platform decides its character budget, its warning
+          thresholds and whether it shows a Subject field at all — the control belongs with
+          the fields it governs. A second picker here wrote to a value the composer read
+          once and then ignored, so the two silently disagreed and the visible one lost.
+
           The key covers every prop the composer seeds state from, so a change to any of
-          them remounts it instead of being dropped by a mount-only initialiser. All three
-          come from the query string, so today they only change on navigation — this makes
+          them remounts it rather than being dropped by a mount-only initialiser. All three
+          come from the query string and so only change on navigation today; the key makes
           the drop structurally impossible rather than merely unreachable.
         */}
         <OutreachComposer
