@@ -46,30 +46,51 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
 
-  const fetchStatus = useCallback(async () => {
-    setLoading(true);
+  /**
+   * Visibility is the server's answer, not one we derive here (WIC-1359).
+   *
+   * Reading `completedAt`/`currentStep` off the status row looks equivalent but is
+   * not: `GET /status` auto-creates a `welcome` row for any user without one, and a
+   * `welcome` row read locally is indistinguishable from a genuine new signup. That
+   * put the modal over every established user's populated dashboard. `should-show`
+   * is the only view that also knows their resume and application history, which is
+   * what WIC-238 AC-10 turns on.
+   *
+   * The two requests race deliberately: if `should-show` lands before `/status` has
+   * auto-created the row, it reads "no row" instead of "pristine row", and the
+   * service answers the same either way.
+   */
+  const loadOnboarding = useCallback(async (isCancelled: () => boolean) => {
     try {
-      const result = await onboardingService.getStatus();
+      const [result, { shouldShow }] = await Promise.all([
+        onboardingService.getStatus(),
+        onboardingService.shouldShow(),
+      ]);
+      if (isCancelled()) return;
+
       setStatus(result);
 
       // Convert DB step to UI step number
       const stepNumber = STEP_TO_NUMBER[result.currentStep] || 1;
       setCurrentStep(stepNumber);
 
-      // Determine if onboarding should be shown
-      if (result.completedAt !== null || result.currentStep === 'completed') {
-        setShowOnboarding(false);
-      } else {
-        setShowOnboarding(true);
-      }
+      setShowOnboarding(shouldShow);
     } catch (error) {
+      if (isCancelled()) return;
       console.error('Failed to fetch onboarding status:', error);
       // On error, default to not showing onboarding
       setShowOnboarding(false);
     } finally {
-      setLoading(false);
+      if (!isCancelled()) {
+        setLoading(false);
+      }
     }
   }, []);
+
+  const fetchStatus = useCallback(async () => {
+    setLoading(true);
+    await loadOnboarding(() => false);
+  }, [loadOnboarding]);
 
   useEffect(() => {
     // Skip fetch if user is not authenticated
@@ -78,39 +99,20 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // `loadOnboarding` rather than `fetchStatus`: the initial loading flag is already
+    // set from the auth token, and setting it again here would be a synchronous
+    // setState in an effect body. The mount and refetch paths otherwise share one
+    // implementation — they used to be duplicated, and the copy that decided
+    // visibility locally is what WIC-1359 was.
     let cancelled = false;
-
-    const initFetch = async () => {
-      try {
-        const result = await onboardingService.getStatus();
-        if (cancelled) return;
-
-        setStatus(result);
-        const stepNumber = STEP_TO_NUMBER[result.currentStep] || 1;
-        setCurrentStep(stepNumber);
-
-        if (result.completedAt !== null || result.currentStep === 'completed') {
-          setShowOnboarding(false);
-        } else {
-          setShowOnboarding(true);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.error('Failed to fetch onboarding status:', error);
-        setShowOnboarding(false);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void initFetch();
+    void (async () => {
+      await loadOnboarding(() => cancelled);
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadOnboarding]);
 
   const updateProgress = useCallback(async (progress: OnboardingProgress) => {
     try {

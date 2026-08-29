@@ -71,10 +71,20 @@ describe('NotFound', () => {
     expect(heading).toHaveTextContent(/couldn't be found/i);
 
     // No nested landmark competing with the page's <main> to be announced first.
+    // NOTE: since WIC-1155 these two no longer discriminate against the rejected
+    // EmptyState option — that component dropped its region landmark and its
+    // "Empty state" label, so it now satisfies them too (see the control below).
+    // They are kept as a plain regression guard on NotFound's own markup; D2 is
+    // what still carries the §1 argument.
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Empty state')).not.toBeInTheDocument();
-    // A heading at h3 with no h1 above it is the outline defect §1 (D2) describes.
-    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
+    // A sub-level heading with no h1 above it is the outline defect §1 (D2) describes.
+    // Asserted across all sub-levels rather than pinned to one, so it keeps
+    // discriminating now that EmptyState's level is a prop (WIC-1417) — the defect is
+    // "the top heading is not an h1", not "the heading is an h3".
+    for (const level of [2, 3, 4, 5, 6] as const) {
+      expect(screen.queryByRole('heading', { level })).not.toBeInTheDocument();
+    }
 
     // Focus is moved to the heading on mount, so it is what AT announces on arrival.
     expect(heading).toHaveFocus();
@@ -88,26 +98,40 @@ describe('NotFound', () => {
    * spec rejected (§1, Option 1: a `'not-found'` variant on `EmptyState`) shows the
    * defects are real and that the assertions above can actually fail.
    *
-   * D2 (an h3 with no h1 above it) is still live in `EmptyState`, so it is still
-   * controlled for by rendering the real component.
-   *
-   * D1 (a region landmark named "Empty state") is not: WIC-1155 removed
-   * `role="region"`/`aria-live`/`aria-label` from `EmptyState` outright — for the
-   * same reason §1 gave for keeping them off this page, plus the modal-hiding leak.
-   * That is the defect being fixed at the source rather than the control going
-   * stale, but it does leave the two D1 assertions above with nothing that can
-   * falsify them — this control renders the real `EmptyState`, which now satisfies
-   * them too. So only the D2 assertions below still discriminate, and the D1 half of
-   * the sibling test is kept as a plain regression guard on NotFound's own markup
-   * rather than as a comparison against the rejected option.
+   * D1 has expired, and deliberately so. This control originally asserted that
+   * EmptyState exposes a region landmark named "Empty state" — the first of the
+   * three defects that made it unfit as a page-level 404. WIC-1155 (#99) then
+   * removed that landmark from EmptyState outright, for an unrelated and stronger
+   * reason: the wrapper's ARIA kept its action button reachable behind every open
+   * modal. So the defect is genuinely gone rather than merely unasserted, and the
+   * honest control is now the opposite assertion. Its consequence is recorded on
+   * the test above: the region/label half of that test can no longer be failed by
+   * this component, and D2 is the only half still discriminating.
    */
   it('negative control: the rejected EmptyState reuse would fail those assertions', () => {
     render(<EmptyState variant="no-results" />);
 
-    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument(); // D2
-    expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument(); // D2
+    // D1, inverted by WIC-1155: no landmark at all, so it cannot compete with
+    // <main> — but equally it no longer names itself, so this is not the reason
+    // the option was rejected any more.
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Empty state')).not.toBeInTheDocument();
+    // D2 — still the live discriminator: a sub-level heading with no h1 above it is
+    // exactly the broken document outline a 404 page must not ship. WIC-1417 moved
+    // this from a hardcoded h3 to a `headingLevel` prop defaulting to 2; the level
+    // changed, the defect did not. A page-level 404 needs an h1, and no value of
+    // this prop produces one.
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument();
   });
 
+  /**
+   * And a control on that control, kept from this branch: the assertion above says
+   * `EmptyState` no longer carries the D1 landmark, which is only worth anything if
+   * markup that *does* carry it fails. Synthetic on purpose — the point is that the
+   * two D1 assertions in the sibling test are falsifiable, which no longer follows
+   * from rendering the real component.
+   */
   it('negative control: the landmark WIC-1155 removed would fail the D1 assertions', () => {
     render(
       <div role="region" aria-live="polite" aria-label="Empty state">

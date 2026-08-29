@@ -50,9 +50,13 @@ export function ResumeExportList({
 
   return (
     <div className="w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-neutral-900">Resume Exports</h2>
+      {/*
+        Header. No heading here: this panel is the sole body of /resumes/exports, whose page
+        <h1> already says "Resume Exports" — see docs/design/ROUTE_HEADING_OUTLINE.md. With the
+        heading gone the row holds only the button, so it justifies to the end rather than
+        leaving the button stranded on the left by `justify-between`.
+      */}
+      <div className="flex items-center justify-end mb-6">
         <button
           onClick={onCreateNew}
           className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
@@ -93,7 +97,7 @@ export function ResumeExportList({
                   <div className="flex items-center gap-3 mb-2">
                     <span className="text-2xl">{getFormatIcon(exportItem.format)}</span>
                     <div>
-                      <h3 className="text-lg font-semibold text-neutral-900">{exportItem.name}</h3>
+                      <h2 className="text-lg font-semibold text-neutral-900">{exportItem.name}</h2>
                       {exportItem.linkedApplicationTitle && (
                         <div className="text-sm text-neutral-600 flex items-center gap-1">
                           <span>🔗</span>
