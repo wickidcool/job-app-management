@@ -91,10 +91,14 @@ local set is one workspace reset away from being lost, which is the failure this
 rewritten to remove.
 """
 
+import contextlib
 import http.client
+import io
 import json
 import os
 import re
+import socket
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -295,6 +299,47 @@ def run(query):
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
         return json.load(resp)
+
+
+# Every fault class a `run()` round-trip can raise, as ONE named tuple used by BOTH call
+# sites. It was two hand-written tuples that had drifted apart, and the drift is the bug
+# (WIC-1680): the candidate-detail tuple named only (URLError, HTTPError, RuntimeError,
+# KeyError), through which 12 of 16 measured fault classes escaped.
+#
+# The membership is not obvious, so state it rather than re-deriving it next time:
+#   urllib.error.URLError   -- what urllib wraps most socket errors in. Subclasses OSError,
+#                              so it is redundant with the OSError below; named anyway
+#                              because it is the class a reader expects to see here.
+#                              `urllib.error.HTTPError` is NOT named: it subclasses
+#                              URLError, so listing it only implied the tuple was
+#                              exhaustive when it was not.
+#   http.client.HTTPException -- subclasses Exception, NOT OSError. This is the gap that
+#                              bit prod_db_health() first (PR #207): IncompleteRead,
+#                              BadStatusLine, LineTooLong, ResponseNotReady, InvalidURL.
+#   OSError                 -- load-bearing, and the class the WIC-1680 write-up initially
+#                              missed. ssl.SSLError, socket.gaierror, ConnectionResetError
+#                              and TimeoutError are OSError subclasses and are NOT reached
+#                              by HTTPException or ValueError; without OSError, 4 of the 12
+#                              escapes stay open. Only relevant when urlopen raises them
+#                              unwrapped, which is exactly what the selftest stub does.
+#   ValueError              -- `json.load` raises JSONDecodeError, and a bad byte in the
+#                              response raises UnicodeDecodeError. Both subclass ValueError.
+#   RuntimeError            -- run() itself, on a missing POSTHOG_PERSONAL_API_KEY.
+#   KeyError                -- a 200 whose JSON lacks "columns"/"results".
+#
+# Deliberately absent: MemoryError, and no `except Exception`. Resource exhaustion must
+# stay uncaught -- see `test_query_fault_coverage` for the negative control that pins it.
+# Caveat worth knowing: RecursionError IS caught, because it subclasses the RuntimeError we
+# genuinely need for the missing-key path. That is incidental, pre-existing, and not
+# removable without a re-raise; it is not a claim that recursion faults are handled.
+QUERY_FAULTS = (
+    urllib.error.URLError,
+    http.client.HTTPException,
+    OSError,
+    ValueError,
+    RuntimeError,
+    KeyError,
+)
 
 
 def prod_db_health():
@@ -554,6 +599,125 @@ def selftest_probe_faults():
     return failures
 
 
+# The `run()` leg (WIC-1680). PROBE_FAULTS above stops at prod_db_health; this table
+# carries the same idea to the two `run()` call sites in main(). Every entry is a fault a
+# real PostHog round-trip can produce, and every one of them must be absorbed by
+# QUERY_FAULTS rather than escaping into a traceback.
+#
+# The last entry is a NEGATIVE control and the reason this is a table of (fault, expected)
+# rather than a flat list: MemoryError must keep escaping. A tuple that swallowed it would
+# pass a naive "nothing escapes" assertion while quietly becoming an `except Exception`.
+QUERY_FAULT_CASES = [
+    # http.client.HTTPException -- subclasses Exception, not OSError.
+    ("truncated response body", http.client.IncompleteRead(b"", 5), True),
+    ("garbage status line", http.client.BadStatusLine("\x00\x00"), True),
+    ("oversized header line", http.client.LineTooLong("header line"), True),
+    ("read before request sent", http.client.ResponseNotReady("Request-sent"), True),
+    ("control chars in URL", http.client.InvalidURL("URL can't contain control characters"), True),
+    # OSError subclasses -- NOT reachable via HTTPException or ValueError. These are the
+    # four the WIC-1680 write-up's suggested two-class fix would have left escaping.
+    ("TLS record failure", ssl.SSLError("record layer failure"), True),
+    ("bad server certificate", ssl.SSLCertVerificationError("certificate verify failed"), True),
+    ("DNS resolution failure", socket.gaierror(-2, "Name or service not known"), True),
+    ("peer reset the connection", ConnectionResetError("Connection reset by peer"), True),
+    ("socket read timeout", TimeoutError("timed out"), True),
+    # ValueError subclasses -- json.load and the utf-8 decode under it.
+    ("unparseable 200 body", json.JSONDecodeError("Expecting value", "", 0), True),
+    ("undecodable response bytes",
+     UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad start byte"), True),
+    # Already caught before the fix; kept so a future tuple edit cannot silently drop them.
+    ("wrapped socket error", urllib.error.URLError("The read operation timed out"), True),
+    ("HTTP 500 from PostHog",
+     urllib.error.HTTPError(HOST, 500, "Internal Server Error", {}, None), True),
+    ("missing API key", RuntimeError("POSTHOG_PERSONAL_API_KEY is not set"), True),
+    ("200 with no 'columns'", KeyError("columns"), True),
+    # Negative control. See the note above: this MUST escape.
+    ("memory exhaustion (must escape)", MemoryError(), False),
+]
+
+# The aggregate row main() needs before it reaches the candidate branch. organic_events > 0
+# is what selects that branch; the rest only has to be printable.
+_FAKE_AGGREGATE = {
+    "columns": [
+        "organic_events", "organic_people", "organic_newest",
+        "synthetic_events", "lifetime_events", "lifetime_newest",
+    ],
+    "results": [[1, 1, "2026-08-29T00:00:00Z", 6, 7, "2026-08-29T00:00:00Z"]],
+}
+
+
+# Reachable only from the aggregate call: `body["results"][0]` on an empty result set.
+# Nothing in the candidate-detail branch indexes a row, which is why QUERY_FAULTS does not
+# name IndexError and the aggregate site adds it locally.
+AGGREGATE_ONLY_FAULTS = [("empty results row", IndexError("list index out of range"), True)]
+
+
+def _drive_query_fault(exc, fail_on_call):
+    """Run main() with run() stubbed to raise `exc` on its `fail_on_call`-th invocation.
+
+    Returns (exit_code, None) or (None, escaped_exception). prod_db_health is stubbed too,
+    so the whole thing runs without opening a socket.
+    """
+    real_run, real_health, real_argv = run, prod_db_health, sys.argv
+    calls = []
+
+    def stub_run(_query):
+        calls.append(1)
+        if len(calls) == fail_on_call:
+            raise exc
+        return _FAKE_AGGREGATE
+
+    globals()["run"] = stub_run
+    globals()["prod_db_health"] = lambda: ("degraded", {"db": "down"})
+    # main() re-reads sys.argv; leaving "--selftest" in it would recurse forever.
+    sys.argv = ["organic_watch.py"]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return (main(), None)
+    # `Exception`, not `BaseException`: MemoryError subclasses Exception, so this catches
+    # the negative control too, while a stray KeyboardInterrupt still aborts the suite.
+    except Exception as escaped:  # noqa: BLE001 -- escaping is the behaviour under test
+        return (None, escaped)
+    finally:
+        globals()["run"], globals()["prod_db_health"] = real_run, real_health
+        sys.argv = real_argv
+
+
+def selftest_query_faults():
+    """Drive every fault into BOTH run() call sites and assert the exit code survives.
+
+    This asserts the CONSEQUENCE, not the tuple. The bug WIC-1680 describes is an exit-code
+    inversion -- 10 ("candidate organic traffic, adjudicate") degrading into a traceback
+    exit 1 ("the check itself failed") -- so the test drives real main() control flow and
+    checks the exit code, the thing a heartbeat actually branches on. Asserting
+    `isinstance(exc, QUERY_FAULTS)` instead would be circular: it would pass against
+    whatever tuple the handler happened to name, including the broken one.
+
+    Both legs, because they now share QUERY_FAULTS and a single-site test would not notice
+    the shared constant regressing the other:
+      - candidate detail (main()'s 2nd run() call) must still return 10;
+      - aggregate (main()'s 1st run() call) must return 1 having printed "CHECK FAILED"
+        rather than dying in a traceback -- both exit 1, so only driving main() tells the
+        handled path from the unhandled one.
+    """
+    failures = 0
+    legs = [
+        ("candidate detail", 2, 10, QUERY_FAULT_CASES),
+        ("aggregate", 1, 1, QUERY_FAULT_CASES + AGGREGATE_ONLY_FAULTS),
+    ]
+    for leg, fail_on_call, want_code, cases in legs:
+        for label, exc, want_caught in cases:
+            code, escaped = _drive_query_fault(exc, fail_on_call)
+            if escaped is not None:
+                got, ok = f"ESCAPED {type(escaped).__name__}", not want_caught
+            else:
+                got, ok = f"exit {code}", want_caught and code == want_code
+            failures += 0 if ok else 1
+            want = f"exit {want_code}" if want_caught else "ESCAPED MemoryError"
+            print(f"  [{'PASS' if ok else 'FAIL'}] {leg} fault, {label}: got {got}, want {want}")
+    return failures
+
+
 def selftest():
     """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
     failures = 0
@@ -572,8 +736,15 @@ def selftest():
         if not ok:
             print(f"         wanted substring: {want!r}")
     failures += selftest_probe_faults()
-    total = len(HEALTH_CASES) + len(EDGE_CASES) + len(probe_fault_cases())
-    print(f"\n{total - failures}/{total} health-classification cases pass.")
+    failures += selftest_query_faults()
+    total = (
+        len(HEALTH_CASES)
+        + len(EDGE_CASES)
+        + len(probe_fault_cases())
+        + 2 * len(QUERY_FAULT_CASES)
+        + len(AGGREGATE_ONLY_FAULTS)
+    )
+    print(f"\n{total - failures}/{total} cases pass.")
     return 1 if failures else 0
 
 
@@ -616,7 +787,10 @@ def main():
     try:
         body = run(aggregate_query(synthetic, organic))
         row = dict(zip(body["columns"], body["results"][0]))
-    except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, IndexError) as exc:
+    # IndexError is the one class this site needs and the candidate site does not: an empty
+    # `results` makes `results[0]` raise. Both sites otherwise share QUERY_FAULTS so they
+    # cannot drift apart again, which is how WIC-1680 happened.
+    except QUERY_FAULTS + (IndexError,) as exc:
         print(f"CHECK FAILED (not evidence of anything): {exc}", file=sys.stderr)
         return 1
 
@@ -664,7 +838,13 @@ def main():
             print("\t".join(detail["columns"]))
             for r in detail["results"]:
                 print("\t".join("" if c is None else str(c) for c in r))
-        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError) as exc:
+        # This handler sits AFTER the CANDIDATE headline prints and BEFORE `return 10`, so
+        # an escape here does not hide the candidate from a human reading stdout -- but it
+        # does lose the detail rows (the adjudication evidence) and the registration
+        # guidance below, and it turns the exit code 10 that a heartbeat branches on into a
+        # traceback exit 1. Same exit-code inversion as WIC-1636, one branch later.
+        # No IndexError: nothing here indexes a row, unlike the aggregate call above.
+        except QUERY_FAULTS as exc:
             print(f"(candidate detail fetch failed: {exc})", file=sys.stderr)
         print(
             "\nIf synthetic: register the actor in docs/analytics/probe-registry.json "
