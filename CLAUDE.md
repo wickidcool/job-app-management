@@ -192,12 +192,13 @@ is the tail, not the prefix.**
 **Do not read `duplicate headings: none` as a clean bill of health.** That check is high-precision
 and low-recall: a duplicate `### ` heading has no benign case, so a hit is always a bug — but its
 *silence proves nothing*, because a correction normally rewords the heading along with the body, and
-the fixed 55-character prefix then sees two different strings. Measured 2026-08-29 on PRs #146, #150
-and #160: each carries the WIC-1309 fit-tier entry twice, once in the retracted wording and once in
-the WIC-1319 correction, and the exact check reports `none` on all three. The two headings diverge at
-character **54** of the normalised string, one position inside the 55-char window. A whole-entry
-double-ship was invisible to the signal advertised as the reliable one, by a single character.
-Widening the window cannot fix that — it makes the check stricter, not more sensitive.
+the fixed 55-character prefix then sees two different strings. Measured 2026-08-29 on PRs #146
+(`1a4b992`) and #160 (`c0d9089`): each carries the WIC-1309 fit-tier entry twice, once in the
+retracted wording and once in the WIC-1319 correction, and the exact check reports `none` on both.
+The two headings diverge at character **54** of the normalised string, one position inside the
+55-char window. A whole-entry double-ship was invisible to the signal advertised as the reliable one,
+by a single character. Widening the window cannot fix that — it makes the check stricter, not more
+sensitive.
 
 **So the bullet check is the sensitive one, and every hit is now reported with the `### ` entry it
 sits under.** The enclosing headings are what tell you which of three different bugs you have:
@@ -208,7 +209,7 @@ sits under.** The enclosing headings are what tell you which of three different 
   bullets where the entry should have two.)
 - **`REVISION-PAIR`** — the copies sit under two near-identical headings. Union kept a whole entry
   *and* its rewrite. Delete the superseded entry entire, heading included, then re-check the seam.
-  (PRs #146/#150/#160 today.)
+  (PRs #146 and #160 today.)
 - **`distinct entries`** — different, dissimilar headings. Almost always two real entries that merely
   open the same way. Both known-benign pairs on `main` land here (the boilerplate "Documentation
   only. No code, no tests…" opener at similarity 0.40, and the paired RLS "App runtime is
