@@ -160,18 +160,26 @@ So after any merge that touches `CHANGELOG.md`, run the checks the driver cannot
 
 ```bash
 python3 - CHANGELOG.md <<'PY'
-import re, sys, collections
+import re, sys, collections, difflib
 L = open(sys.argv[1]).read().split('\n')
 norm = lambda s: re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
-bul, head = collections.defaultdict(list), collections.defaultdict(list)
+bul, head, cur = collections.defaultdict(list), collections.defaultdict(list), None
 for n, l in enumerate(L, 1):
     s = l.strip()
-    if s.startswith('- ') and len(s) > 60: bul[norm(s)[:70]].append(n)
-    if s.startswith('### '):               head[norm(s)[:55]].append(n)
+    if s.startswith('### '):
+        cur = (n, s); head[norm(s)[:55]].append(n)
+    if s.startswith('- ') and len(s) > 60: bul[norm(s)[:70]].append((n, cur))
 sep = [n + 1 for n, l in enumerate(L) if l.startswith('### ') and n and L[n - 1].strip()]
 print('duplicate headings:', {k: v for k, v in head.items() if len(v) > 1} or 'none')
-print('duplicate bullets:', {k: v for k, v in bul.items() if len(v) > 1} or 'none')
 print('headings missing a preceding blank line (line nos):', sep or 'none')
+for k, v in bul.items():
+    if len(v) < 2: continue
+    hs = [h for _, h in v]
+    r = difflib.SequenceMatcher(None, norm(hs[0][1]), norm(hs[-1][1])).ratio() if all(hs) else 0
+    print('SAME-ENTRY' if len({h[0] for h in hs}) == 1 else
+          'REVISION-PAIR' if r >= .75 else 'distinct entries',
+          f'sim={r:.2f}', k[:60])
+    for n, h in v: print(f'    L{n} under L{h[0]}: {h[1][:88]}')
 PY
 ```
 
@@ -179,10 +187,39 @@ It compares a **normalised prefix**, not the whole line, because the duplicates 
 usually *reworded* — an earlier `Counter` over byte-identical lines could not see the WIC-1561 class
 it was written for (WIC-1687). The tradeoff is deliberate: a prefix match will also flag genuine
 pairs that merely open the same way, so **read both lines in full before acting — the discriminator
-is the tail, not the prefix.** Two known-benign pairs live on `main` today (the boilerplate
-"Documentation only. No code, no tests…" opener, and the paired RLS "App runtime is unaffected…"
-bullets); anything else is a real double-ship until you have shown otherwise. **A duplicate `### `
-heading has no benign case** — that one is always a bug.
+is the tail, not the prefix.**
+
+**Do not read `duplicate headings: none` as a clean bill of health.** That check is high-precision
+and low-recall: a duplicate `### ` heading has no benign case, so a hit is always a bug — but its
+*silence proves nothing*, because a correction normally rewords the heading along with the body, and
+the fixed 55-character prefix then sees two different strings. Measured 2026-08-29 on PRs #146
+(`1a4b992`) and #160 (`c0d9089`): each carries the WIC-1309 fit-tier entry twice, once in the
+retracted wording and once in the WIC-1319 correction, and the exact check reports `none` on both.
+The two headings diverge at character **54** of the normalised string, one position inside the
+55-char window. A whole-entry double-ship was invisible to the signal advertised as the reliable one,
+by a single character. Widening the window cannot fix that — it makes the check stricter, not more
+sensitive.
+
+**So the bullet check is the sensitive one, and every hit is now reported with the `### ` entry it
+sits under.** The enclosing headings are what tell you which of three different bugs you have:
+
+- **`SAME-ENTRY`** — both copies under one heading. The union interleaved two revisions *inside* a
+  single entry, so the entry now states a claim and its own retraction a few lines apart. Keep the
+  corrected bullets, delete the superseded ones, leave the heading alone. (PR #117 today: four
+  bullets where the entry should have two.)
+- **`REVISION-PAIR`** — the copies sit under two near-identical headings. Union kept a whole entry
+  *and* its rewrite. Delete the superseded entry entire, heading included, then re-check the seam.
+  (PRs #146 and #160 today.)
+- **`distinct entries`** — different, dissimilar headings. Almost always two real entries that merely
+  open the same way. Both known-benign pairs on `main` land here (the boilerplate "Documentation
+  only. No code, no tests…" opener at similarity 0.40, and the paired RLS "App runtime is
+  unaffected…" bullets at 0.50), while the fit-tier double-ship scores 0.83.
+
+The similarity is a *classifier on bullet hits*, not a standalone heading sweep. Run over every
+`### ` pair instead it is too noisy to act on: on `main` at `eb40da8` a bare 0.75 threshold flags two
+pairs that are genuinely distinct — the WIC-1373 and WIC-1365 catalog-scoping entries (0.81, different
+services, different endpoints) and `UC-6: Resume Variant Generation` against `UC-4: Cover Letter
+Generation` (0.75). Anchored to a shared bullet it produced zero false positives over the same file.
 
 Resolution is **per bullet**. Never take-ours or take-theirs wholesale: each side usually holds an
 entry the other genuinely lacks, which is the whole reason the driver is there. The exception is a
