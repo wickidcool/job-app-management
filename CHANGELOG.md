@@ -61,6 +61,16 @@ Documentation and tooling only. No code, no tests, no behaviour change.
 - **`ChangeActionBadge` gets its regression cover retroactively.** PR #101 shipped with none available: `packages/web` had no unit-test harness on `main` at the time and the evidence was an out-of-tree axe-core run. The harness has since landed, so the assertions are backfilled here alongside the sibling fix rather than left as prose in a merged PR body.
 - **This class is invisible to `eslint-plugin-jsx-a11y`.** `role-supports-aria-props` only fires once an element _has_ a role, so a role-less element passes clean — confirmed in the WIC-1185 review against the strict ruleset, all 40 rules, zero findings. The lint rule tracked by WIC-1192 would not have caught either instance; these tests are the enforcement.
 
+### Fixed — onboarding's terminal "Create Application Now" button created nothing (2026-08-29)
+
+The last thing a new user is asked to do on the first-run flow was a no-op. Step 5's primary-styled CTA ran `handleCompleteStep(5)` behind a `// This would open the application form modal` comment: it advanced the wizard and created no application, with no error, toast, or explanation. At the UI level the failure was indistinguishable from success, and it silently falsified the step's own promise that "you can create your first application now".
+
+- **The CTA now navigates to the real create form at `/applications/new`** rather than opening a form inside the onboarding dialog. That route already exists in `App.tsx` and is what the Dashboard's own "Add Application" link uses, so this needs no new UI — which also keeps the fix clear of the in-dialog focus-trap problem (`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2) that made the "render a form in the modal" option expensive.
+- **It routes through the existing `handleFinishAndGo`, not a bare `navigate`.** Reaching step 5 only advances local state, so leaving without completing first means the provider re-fetches an untouched status and reopens the modal on top of the form the user was just sent to. This is the same hazard, and the same helper, as the step 6 shortcuts (WIC-1032).
+- **The redundant "I'll Do This Later" button is removed.** Its handler was identical to the footer's "Next Step", so the step rendered three controls with two behaviours. The footer remains the way to decline. This matches the rule step 6 already follows: every visible control does something different.
+- **Reversal-checked.** Three of the four new step-5 tests fail against the unfixed component. The two `it.todo`s parked on PR #82 are also written out, since that PR has landed and the helper they were waiting for is now what step 5 depends on.
+- **`ONBOARDING_FLOW.md` is corrected in the same change.** It documented the CTA as "Opens ApplicationForm modal" — a behaviour the build never had — so the doc would have certified the defect as intended design.
+
 ### Fixed — merging an older duplicate walked a company's first-seen date forward (2026-08-26)
 
 `mergeCompanies` reconciled `applicationCount` and `aliases` when folding duplicates together but never wrote `firstSeenAt`, so the survivor kept its own date unconditionally. Found by QA while writing the first tests for the UC-2 dedup endpoints (WIC-1360, from WIC-1354).
