@@ -11,10 +11,14 @@ SUPABASE_JWT_SECRET=your-jwt-secret
 # Anthropic API
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Note: DATABASE_URL is NOT used in the Worker — the HYPERDRIVE binding handles PostgreSQL.
-# wrangler dev uses the localConnectionString from wrangler.jsonc for local Hyperdrive emulation.
-# If you need to override it locally, set DATABASE_URL here:
-# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
+# Database — REQUIRED for `npm run dev:worker`.
+# That script is a bare `wrangler dev` with no --env, so it loads the top-level
+# wrangler.jsonc, which declares NO hyperdrive binding (the binding and its
+# localConnectionString exist only under env.preview). db/client.ts resolves
+# HYPERDRIVE -> DATABASE_URL -> Node singleton, so local Worker dev takes the
+# DATABASE_URL path -- the same one production takes. Leave this unset and the
+# Worker runs with no database: /health reports "db":"not_applicable".
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 
 # Note: R2_BUCKET is a native binding defined in wrangler.jsonc — no env var needed.
 # wrangler dev automatically provides a local R2 bucket emulation.
