@@ -97,6 +97,16 @@ jobs:
       - name: Audit design-doc references
         run: python3 docs/design/doc-reference-audit.py
 
+      # WIC-1670: `ConfirmationModal`'s `restoreFocusTo` prop is optional — correctly,
+      # since a cancel-only dialog whose trigger survives must not be forced to name a
+      # fallback. But that means a call site whose confirm action destroys its own
+      # trigger reintroduces WIC-1181 with no type error, no lint error and no failing
+      # test, and the author cannot catch it by inspection because the failure is an
+      # ordering race. This makes every call site declare: pass the prop, or say in a
+      # `focus-restore-exempt` comment why the trigger survives.
+      - name: Audit ConfirmationModal focus restore
+        run: python3 docs/design/confirmation-modal-focus-audit.py
+
       - name: Run tests
         run: npm run test
 
