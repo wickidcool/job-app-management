@@ -133,10 +133,24 @@ single-user local-development case. Both are set in production, so production al
 requires a valid JWT. If Supabase is not configured, the `/api/auth/*` endpoints
 themselves return `503 NOT_CONFIGURED`.
 
-> Some `curl` examples further down this document use the local dev base URL and omit the
-> `Authorization` header, which only works under that local bypass. To run any of them
-> against production, swap the host for `https://app.careerpin.app` **and** add
-> `-H "Authorization: Bearer <jwt>"`.
+### Running the `curl` examples
+
+Every `curl` example below is written against two shell variables, so the host is chosen
+in one place rather than baked into each example:
+
+```bash
+export API_BASE="https://app.careerpin.app/api"   # or a Base URL row above
+export TOKEN="<jwt>"                               # from POST /api/auth/login
+```
+
+`$TOKEN` is required against any environment where Supabase is configured — which is every
+environment except the local bypass described above. It is sent on every example rather
+than only the ones that would fail without it: an example that omits the header documents
+an endpoint as unauthenticated, and none of these are.
+
+> The four `https://api.example.com/v1/...` examples in [Applications](#applications) are
+> a separate, older surface and are left as-is; they already carry an `Authorization`
+> header.
 
 ## Common Response Codes
 
@@ -993,7 +1007,8 @@ interface ApplyDiffResponse {
 **Example**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/diffs/01HXK5R3J7/apply" \
+curl -X POST "$API_BASE/catalog/diffs/01HXK5R3J7/apply" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "action": "partial",
@@ -1117,6 +1132,20 @@ interface MergeCompaniesResponse {
 }
 ```
 
+`targetCompanyId` must not appear in `sourceCompanyIds` — the merge soft-deletes
+everything the source list names, so a target listed as its own source would be
+deleted by its own merge. That request is rejected with `400 BAD_REQUEST`
+(`A merge target cannot also be a source`) before anything is written.
+
+The surviving company reports the **earliest** first-seen date across the target
+and every source, not the target's own. Duplicates usually arise because a
+company was re-entered under a new spelling, so the source is commonly the older
+record; keeping the target's date would walk the reported start of the
+relationship forward in time. Sources are soft-deleted, so their dates are not
+readable through any endpoint afterwards. `applicationCount` is likewise summed
+across all of them, and each source's `name` is folded into the survivor's
+`aliases`.
+
 ---
 
 #### Tags
@@ -1213,6 +1242,12 @@ interface MergeTagsResponse {
   mergedCount: number;
 }
 ```
+
+`targetTagId` must not appear in `sourceTagIds`, and the constraint is stricter
+here than for companies: the tag merge **hard**-deletes its sources, so a target
+listed as its own source is removed permanently. That request is rejected with
+`400 BAD_REQUEST` (`A merge target cannot also be a source`) before anything is
+written.
 
 ---
 
@@ -1409,12 +1444,26 @@ interface RecommendedStarEntry {
 
 **Scoring Algorithm**:
 
-The `recommendation` field is computed as follows:
-- `strong_fit`: ≥80% of required skills matched, ≤1 critical gap
-- `moderate_fit`: 50-79% of required skills matched, ≤3 critical gaps  
-- `stretch`: 30-49% of required skills matched, or seniority mismatch
-- `low_fit`: <30% of required skills matched
-- `null`: Catalog is empty (see `catalogEmpty: true`)
+The `recommendation` field is an **ordered cascade over three variables** — match percentage, the
+count of `critical`-severity required gaps, and the seniority flag — not four percentage bands. The
+first rule that matches wins, so a tier's percentage range is *not* bounded above by the tier before
+it: a job can match 100% of required skills and still return `moderate_fit`, because 2–3 critical
+gaps disqualify it from `strong_fit` and `moderate_fit` is simply the next rule that accepts it.
+Reading these as exclusive bands is how the by-fit-tier report came to print blurbs that contradicted
+the counts beside them (WIC-1309).
+
+Evaluated in this order:
+- `strong_fit`: ≥80% of required skills matched **and** ≤1 critical gap
+- `moderate_fit`: otherwise, ≥50% matched **and** ≤3 critical gaps **and** no seniority mismatch —
+  so this fires anywhere from 50% to 100% matched
+- `stretch`: otherwise, ≥30% matched **or** a seniority mismatch — this is where a strong skill match
+  with >3 critical gaps lands, and where any seniority mismatch lands regardless of percentage
+- `low_fit`: <30% matched **and** no seniority mismatch
+- `null`: the analysis ran but could not score. Two distinct causes: the catalog is empty (returned
+  with `catalogEmpty: true`), **or** no required skills were found in the job description
+  (`catalogEmpty: false`, and `parsedJd.requiredStack` is empty). Clients must not read `null` as
+  "no analysis" — it is a result. The by-fit-tier report names this state `unscored` and keeps it
+  separate from `not_analyzed`; see `GET /api/reports/by-fit-tier`.
 
 Partial matches (alias/related) count at 0.5x weight toward match percentage.
 
@@ -1429,7 +1478,8 @@ Partial matches (alias/related) count at 0.5x weight toward match percentage.
 **Example Request (text)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionText": "Senior Software Engineer at Acme Corp...\n\nRequirements:\n- 5+ years TypeScript/JavaScript\n- React or Vue experience\n- PostgreSQL or MySQL\n- AWS or GCP cloud experience\n\nNice to have:\n- GraphQL\n- Kubernetes"
@@ -1439,7 +1489,8 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 **Example Request (URL)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
+curl -X POST "$API_BASE/catalog/job-fit/analyze" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobDescriptionUrl": "https://boards.greenhouse.io/acme/jobs/12345"
@@ -1451,7 +1502,7 @@ curl -X POST "http://localhost:3000/api/catalog/job-fit/analyze" \
 ```json
 {
   "recommendation": "moderate_fit",
-  "summary": "You match 4 of 6 required skills. Gaps in AWS/GCP cloud experience and PostgreSQL are addressable with your Azure and MongoDB experience.",
+  "summary": "You match 4 of 6 required skills. This role is within reach. Gaps in AWS/GCP cloud experience, PostgreSQL.",
   "confidence": "high",
   "parsedJd": {
     "roleTitle": "Senior Software Engineer",
@@ -1720,7 +1771,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/generate" \
+curl -X POST "$API_BASE/cover-letters/generate" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jobFitAnalysisId": "01HXK5R3J7Q8N2M4P6W9Y1Z3D8",
@@ -1827,7 +1879,8 @@ interface ReviseCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/revise" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "instructions": "Make the opening more enthusiastic and add a sentence about my passion for developer tooling",
@@ -1939,7 +1992,8 @@ interface OutreachMessage {
 **Example Request (LinkedIn)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "linkedin",
@@ -1971,7 +2025,8 @@ curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
 **Example Request (Email)**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/outreach" \
+curl -X POST "$API_BASE/cover-letters/outreach" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "email",
@@ -2066,7 +2121,8 @@ interface ExportCoverLetterResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+curl -X POST "$API_BASE/cover-letters/01HXK5R3J7Q8N2M4P6W9Y1Z3E1/export" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "format": "docx",
@@ -2236,6 +2292,433 @@ The cover letter generation system enforces these constraints:
    - Email: max 1000 characters
 
 ---
+
+---
+
+### Reports (UC-5)
+
+Read-only reports over the user's applications. All five are mounted in
+`packages/api/src/routes/reports.ts`, implemented in
+`packages/api/src/services/reports.service.ts`, and typed in `packages/api/src/types/index.ts`.
+Four of them read `applications` and `status_history` only; `by-fit-tier` is the one that consumes a
+UC-3 value, and so is the only one with a cross-use-case contract to state (WIC-1298).
+
+No report endpoint mutates anything, and none accepts a request body.
+
+#### Common to all five report endpoints
+
+**User scoping.** Every report is scoped to the caller's `userId` (the `sub` claim). When **both**
+`SUPABASE_URL` and `SUPABASE_JWT_SECRET` are absent — the single-user local-development case — the
+middleware sets the user id to `null` and the scoping filter is dropped, so the reports cover all
+rows. A token that verifies but carries no `sub` claim also yields a `null` user id, and therefore
+an unscoped report, even with Supabase fully configured (WIC-1554). See
+[Authentication](#authentication) and `docs/AUTHENTICATION.md`.
+
+**`generatedAt`.** Every response carries `generatedAt`, an ISO 8601 timestamp taken when the
+report was assembled. Reports are computed per request; nothing is cached.
+
+**Validation errors.** Query parameters are validated by Zod schemas at the top of
+`routes/reports.ts`, which are the authority on accepted values — with one exception. `cursor` is
+declared there as a plain optional string, so the schema accepts any string; whether a particular
+cursor is valid is decided later, when it is decoded in `reports.service.ts`. For every other
+parameter the schema is the whole story, and any violation — an unknown enum member, a non-numeric
+`days`, `limit` above 100 — fails the whole request:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid query parameters",
+    "details": { "formErrors": [], "fieldErrors": { "limit": ["..."] } }
+  }
+}
+```
+
+`400 Bad Request`. `details` is Zod's `flatten()` output. Omitting a parameter is always valid;
+every parameter is optional and has the default given in its table below. This is not the only
+`VALIDATION_ERROR` shape on these endpoints — a malformed `cursor` is rejected past the Zod layer
+and carries no `details`; see **Pagination** below.
+
+A parameter a schema does not declare at all is **stripped, not rejected** — the schemas are plain
+`z.object()`, not `.strict()`. So the `limit` above 100 example is a `400` only on the three
+endpoints that declare `limit`: on the unpaginated `pipeline` and `by-fit-tier`, `?limit=500` is a
+silent `200 OK` with the parameter discarded.
+
+**Pagination.** `needs-action`, `stale` and `closed-loop` are cursor-paginated. `pipeline` and
+`by-fit-tier` are **not** — they return the complete set in one response and accept neither `limit`
+nor `cursor`.
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `limit` | integer, 1–100 | `50` | Page size. Above 100 is a `400`, not a clamp. |
+| `cursor` | string | *(start)* | Opaque page token, issued by the server as `nextCursor` |
+
+`nextCursor` is present **only when a further page exists**; it is absent from the JSON on the
+final page, which is how a client detects the end. Treat the cursor as opaque and pass it back
+verbatim — its encoding is an implementation detail and is not part of the contract.
+
+**A cursor the server did not issue is a `400`.** Hand-crafted, truncated or otherwise malformed
+cursors are rejected rather than being treated as page one (WIC-1308):
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid `cursor`. Pass back the `nextCursor` from a previous response verbatim, or omit it for the first page."
+  }
+}
+```
+
+`400 Bad Request`. Note the two differences from the query-parameter errors above: the `message` is
+specific to the cursor, and **`details` is deliberately absent** — the cursor is client-supplied, so
+reflecting it back buys the caller nothing.
+
+An **absent or empty** `cursor` is not an error. `?cursor=` and no `cursor` at all are
+indistinguishable at the query-parameter layer, and both mean the first page.
+
+Because the cursor is opaque and server-issued, a client that echoes `nextCursor` back verbatim can
+never reach this error. One that does has a bug, and silently serving page one would both hide that
+bug and invite an endless pagination loop — hence reject rather than fall back.
+
+> **Paginated summaries describe the page, not the result set.** In `needs-action`, `stale` and
+> `closed-loop`, every field under `summary` — including `total` — is computed from the
+> applications in the current page, after `limit` has been applied. `summary.total` is therefore
+> the length of `applications`, never a grand total across pages, and the averages and breakdowns
+> are page-local. A client that wants whole-result-set figures must accumulate them across pages
+> itself.
+
+#### `GET /api/reports/pipeline`
+
+Groups the user's **active** applications by status. Terminal applications (`offer`, `rejected`,
+`withdrawn`) are excluded and this is not configurable.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `sortBy` | `'updatedAt' \| 'createdAt' \| 'company'` | `updatedAt` | Sort field within each group |
+| `sortOrder` | `'asc' \| 'desc'` | `desc` | Sort direction |
+
+**Response**: `200 OK`
+
+```typescript
+interface PipelineReportResponse {
+  groups: {
+    status: ActiveStatus;
+    count: number;
+    applications: {
+      id: string;
+      jobTitle: string;
+      company: string;
+      location?: string | null;
+      nextAction?: string | null;
+      nextActionDue?: string | null;   // YYYY-MM-DD (date, not a timestamp)
+      updatedAt: string;               // ISO 8601
+      createdAt: string;               // ISO 8601
+    }[];
+  }[];
+  totals: {
+    active: number;
+    byStatus: Partial<Record<ActiveStatus, number>>;
+  };
+  generatedAt: string;                 // ISO 8601
+}
+
+type ActiveStatus = 'saved' | 'applied' | 'phone_screen' | 'interview';
+```
+
+`groups` always contains all four active statuses, in board order — `saved`, `applied`,
+`phone_screen`, `interview` — including groups with `count: 0`. Clients can render the columns
+without checking for absence.
+
+The application objects carry **no `status` field**: the status is the group they are in. This is
+the one report whose row shape differs from the others in that respect.
+
+`totals.active` is the sum of the four group counts. Because this endpoint is unpaginated, it is a
+true total.
+
+#### `GET /api/reports/needs-action`
+
+Applications with an outstanding next action falling due inside a window. An application qualifies
+only if **both** `nextAction` and `nextActionDue` are set and its status is non-terminal.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `days` | integer, 1–365 | `7` | Look-ahead window: include actions due on or before today + `days` |
+| `includeOverdue` | `'true' \| 'false'` | `true` | Include actions already past due |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
+
+`includeOverdue` accepts only the literal strings `true` and `false`. Any other value — `1`, `0`,
+`no`, or an empty `includeOverdue=` — is a `VALIDATION_ERROR`, not a coercion. Only
+`includeOverdue=false` turns overdue items off; `true` and omitting the parameter both leave them
+in. With it off, the window is bounded below by today as well as above.
+
+**Response**: `200 OK`
+
+```typescript
+interface NeedsActionReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: ApplicationStatus;
+    nextAction: string;
+    nextActionDue: string;             // YYYY-MM-DD
+    daysUntilDue: number;              // negative when overdue
+    urgency: 'overdue' | 'due_soon' | 'upcoming';
+    contact?: string | null;
+    updatedAt: string;                 // ISO 8601
+  }[];
+  summary: {
+    overdue: number;
+    dueSoon: number;
+    upcoming: number;
+    total: number;
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+`urgency` is derived from `daysUntilDue`, measured in whole days from today's local midnight:
+
+| `daysUntilDue` | `urgency` |
+|--------|--------|
+| `< 0` | `overdue` |
+| `0`–`3` | `due_soon` |
+| `> 3` | `upcoming` |
+
+Rows are ordered by due date ascending, so the most overdue action is first and the furthest-out
+action is last.
+
+#### `GET /api/reports/stale`
+
+Applications that have not been touched in a while — `updatedAt` older than **now** minus `days`.
+The threshold keeps the current time of day rather than snapping to midnight, so unlike
+`needs-action` (which anchors on today's local midnight) this boundary moves through the day.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `days` | integer, 1–365 | `14` | An application is stale once `updatedAt` is this many days old |
+| `status` | comma-separated statuses | `applied,phone_screen` | Which statuses to consider |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
+
+`status` accepts any comma-separated subset of the seven `ApplicationStatus` values, whitespace
+around commas tolerated (`applied, interview`). A single unrecognised member fails the whole
+request with `VALIDATION_ERROR` — invalid entries are not silently dropped. Note the default is
+**not** "all active": only `applied` and `phone_screen` are considered stale-able unless you say
+otherwise, because those are the two states where the ball is in the employer's court.
+
+**Response**: `200 OK`
+
+```typescript
+interface StaleReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: ApplicationStatus;
+    daysSinceUpdate: number;
+    lastStatusChange: string;          // ISO 8601
+    contact?: string | null;
+    url?: string | null;
+    updatedAt: string;                 // ISO 8601
+  }[];
+  summary: {
+    total: number;
+    byStatus: Partial<Record<ApplicationStatus, number>>;
+    averageDaysStale: number;          // rounded to the nearest whole day
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+Rows are ordered by `updatedAt` ascending — stalest first.
+
+`daysSinceUpdate` counts whole days since `updatedAt`.
+
+`lastStatusChange` is the most recent `status_history.changedAt` for the application. Applications
+with no history rows — created but never transitioned — report their `createdAt` instead, so the
+field is never null. It answers a different question from `updatedAt`: an application edited
+yesterday but last *moved* two months ago has a recent `updatedAt` and an old `lastStatusChange`.
+
+#### `GET /api/reports/closed-loop`
+
+Outcome analysis over **terminal** applications: what closed, how it closed, and how long it took.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `period` | `'30d' \| '60d' \| '90d' \| 'all'` | `all` | Restrict to applications updated within the period |
+| `status` | comma-separated terminal statuses | `offer,rejected,withdrawn` | Which outcomes to include |
+| `limit` | integer, 1–100 | `50` | Page size |
+| `cursor` | string | *(start)* | Pagination cursor from the previous response's `nextCursor` (opaque — see [Pagination](#pagination)) |
+
+`status` here accepts only the three terminal statuses; passing an active status such as
+`interview` is a `VALIDATION_ERROR`, not an empty result.
+
+`period` filters on `applications.updatedAt`, not on the computed `closedAt` below. For an
+application that has not been edited since it closed the two coincide, but a later edit to a closed
+application will keep it inside a narrow `period` window.
+
+**Response**: `200 OK`
+
+```typescript
+interface ClosedLoopReportResponse {
+  applications: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: 'offer' | 'rejected' | 'withdrawn';
+    closedAt: string;                  // ISO 8601
+    previousStatus?: ApplicationStatus | null;
+    daysInPipeline: number;
+    salaryRange?: string | null;
+    compTarget?: string | null;
+  }[];
+  summary: {
+    total: number;
+    offers: number;
+    rejections: number;
+    withdrawn: number;
+    rejectionsByStage: {
+      stage: ApplicationStatus;
+      count: number;
+      percentage: number;              // of rejections in this page, rounded
+    }[];
+    averageTimeToClose: number;        // days, rounded
+  };
+  nextCursor?: string;
+  generatedAt: string;                 // ISO 8601
+}
+```
+
+Rows are ordered by `updatedAt` descending — most recently closed first.
+
+`closedAt` is the `changedAt` of the application's most recent `status_history` entry, which for a
+terminal application is the transition that closed it. Applications with no history rows fall back
+to `updatedAt`.
+
+`previousStatus` is the status the application held immediately before that closing transition,
+read from the second-to-last history entry. It is `null` when the history is too short to have
+one — an application closed in a single recorded step, or one with no `status_history` rows at all
+(the same fallback case `closedAt` names above).
+
+`daysInPipeline` is whole days from `createdAt` to `closedAt`.
+
+`rejectionsByStage` counts rejected applications by `previousStatus`, answering "where in the
+funnel do I lose them". Two consequences of that derivation are worth knowing: rejected
+applications whose `previousStatus` is `null` **contribute to `rejections` but appear in no stage
+bucket**, so the stage counts can sum to less than `rejections`; and `percentage` is a share of
+`rejections`, not of `total`, so the percentages sum to 100 only when every rejection has a known
+previous stage. Stages with no rejections are omitted from the array entirely rather than reported
+as zero — unlike `pipeline.groups`.
+
+#### `GET /api/reports/by-fit-tier`
+
+Groups the user's applications by the fit verdict UC-3 reached for each.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|--------|--------|--------|--------|
+| `includeTerminal` | `'true' \| 'false'` | `false` | Include `offer` / `rejected` / `withdrawn` applications |
+| `sortBy` | `'updatedAt' \| 'createdAt'` | `updatedAt` | Sort field within each group |
+| `sortOrder` | `'asc' \| 'desc'` | `desc` | Sort direction |
+
+**Response**: `200 OK`
+
+```typescript
+interface ByFitTierReportResponse {
+  groups: {
+    tier: FitTier;
+    count: number;
+    applications: {
+      id: string;
+      jobTitle: string;
+      company: string;
+      status: ApplicationStatus;
+      fitTier: FitTier;
+      updatedAt: string;          // ISO 8601
+    }[];
+  }[];
+  summary: {
+    total: number;
+    analyzed: number;             // applications an analysis has run for — includes `unscored`
+    notAnalyzed: number;          // the `not_analyzed` count, i.e. no analysis exists
+    byTier: Partial<Record<FitTier, number>>;
+  };
+  generatedAt: string;            // ISO 8601
+}
+```
+
+`groups` is always present for every tier, in the order below, including tiers with `count: 0`.
+
+**`FitTier` and its relationship to `recommendation`**
+
+`FitTier` is **`recommendation` plus the two states an analysis result can be in when it carries no
+verdict**. The two are one judgement, reported at one granularity — a report does not coarsen the
+analysis:
+
+```typescript
+type FitTier =
+  | 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'   // = AnalyzeJobFitResponse['recommendation']
+  | 'unscored'                                              // an analysis ran; it produced no verdict
+  | 'not_analyzed';                                         // no analysis has ever been run
+```
+
+The mapping is total and lossless. `recommendationToFitTier()` in
+`packages/api/src/services/reports.service.ts` is the only place it is applied:
+
+| Stored analysis | `recommendation` | `fitTier` |
+|--------|--------|--------|
+| present | `'strong_fit'` | `strong_fit` |
+| present | `'moderate_fit'` | `moderate_fit` |
+| present | `'stretch'` | `stretch` |
+| present | `'low_fit'` | `low_fit` |
+| present | `null` | `unscored` |
+| **absent** | — | `not_analyzed` |
+
+Two distinctions the table is load-bearing for:
+
+- **`stretch` is not a magnitude, so it is not merged into `low_fit`.** Per the scoring algorithm
+  under `POST /api/catalog/job-fit/analyze`, `stretch` fires on a *seniority* mismatch even at a good
+  skill match. A client that treats `stretch` as "weak" tells the user their skills are short when
+  the finding was that the level is wrong, and those call for opposite actions.
+- **`unscored` is not `not_analyzed`.** `recommendation: null` means the analysis ran and could not
+  score — an empty catalog (`catalogEmpty: true`), or a JD in which no required skills were found.
+  `not_analyzed` means no analysis exists for that application. The first is answered by fixing the
+  catalog or the JD; the second by running the analysis.
+
+> **History (WIC-1298).** `FitTier` was previously an independent union
+> `'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed'`, agreeing with `recommendation` at
+> the top and diverging at the bottom, with the relationship written down nowhere. `weak_fit` merged
+> `stretch` and `low_fit`; `not_analyzed` also absorbed `recommendation: null`. Both members changed
+> in the same revision. Because UC-3 analyses are not persisted yet, this endpoint had never emitted
+> a non-zero `weak_fit` count — every application returns `not_analyzed` — so no client can have
+> depended on the removed member. Once UC-3 persistence lands, the same change would be a genuine
+> breaking revision.
+
+**Both `FitTier` and `recommendation` are wire values.** Adding or removing a member of either
+versions this endpoint and `POST /api/catalog/job-fit/analyze`. Because `FitTier` is *defined* as
+`FitRecommendation | 'unscored' | 'not_analyzed'` in `packages/api/src/types/index.ts`, a change to
+`recommendation` propagates here by construction and fails the build at `FIT_TIER_ORDER` until the
+new member is ranked — the two cannot silently drift apart again. Display labels are a separate
+concern and do not version anything (`packages/web/src/constants/fitLevel.ts`; see the note under
+the UC-3 scoring algorithm).
+
+**Current limitation**: UC-3 analyses are not persisted — there is no `job_fit_analyses` table and
+`applications` carries no analysis reference — so every application currently reports
+`not_analyzed`, `analyzed: 0`. The contract above is what the endpoint returns once that lands; only
+the data source changes.
 
 ---
 
@@ -2425,7 +2908,8 @@ interface GenerationWarning {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps" \
+curl -X POST "$API_BASE/interview-preps" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "applicationId": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
@@ -2686,7 +3170,8 @@ interface UpdateInterviewPrepResponse {
 **Example Request**:
 
 ```bash
-curl -X PATCH "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+curl -X PATCH "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "storyUpdates": [
@@ -2784,7 +3269,8 @@ interface ExportQuickReferenceResponse {
 **Example Request**:
 
 ```bash
-curl -X GET "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+curl -X GET "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/export?format=pdf" \
+  -H "Authorization: Bearer $TOKEN" \
   -o interview-prep.pdf
 ```
 
@@ -2865,7 +3351,8 @@ interface LogPracticeSessionResponse {
 **Example Request**:
 
 ```bash
-curl -X POST "http://localhost:3000/api/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+curl -X POST "$API_BASE/interview-preps/01HXK5R3J7Q8N2M4P6W9Y1Z3P1/practice" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "full_interview",
@@ -3041,9 +3528,271 @@ function calculateCompleteness(prep: InterviewPrep): number {
 
 ---
 
+### Onboarding
+
+Four routes back the first-run experience, all defined in
+`packages/api/src/routes/onboarding.ts` and mounted at the `/api` root. Every one of them
+operates on the caller identified by the JWT's `sub` claim; there is no user id in any
+path or body.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /users/me/onboarding/should-show` | **The only** authority on whether to display onboarding |
+| `GET /users/me/onboarding/status` | The user's progress row — and it creates one if absent |
+| `POST /users/me/onboarding/progress` | Record step movement, completions and skips |
+| `POST /users/me/onboarding/complete` | Finish the flow |
+
+> **Clients must not derive onboarding visibility from the status row.** Call
+> `should-show` and render on its boolean. The status row cannot answer the question:
+> `GET /status` auto-creates a `welcome` row for anyone who lacks one, so a client that
+> tests `completedAt === null` or `currentStep === 'welcome'` will show onboarding to
+> every established user in the product. That was the WIC-1359 defect — the service
+> already exposed the correct predicate and the SPA was not calling it.
+
+#### Onboarding Status Object
+
+Returned in full by `/status`, `/progress` and `/complete`. It mirrors the
+`onboarding_status` table one-for-one (`packages/api/src/db/schema.ts`).
+
+```typescript
+interface OnboardingStatus {
+  id: string;                            // ULID
+  userId: string;                        // UUID, unique — one row per user
+  currentStep: OnboardingStep;
+  personalInfoStepCompleted: boolean;
+  personalInfoStepSkipped: boolean;
+  resumeStepCompleted: boolean;
+  resumeStepSkipped: boolean;
+  applicationStepCompleted: boolean;
+  applicationStepSkipped: boolean;
+  startedAt: string;                     // ISO 8601
+  completedAt: string | null;            // ISO 8601, null until /complete
+  createdAt: string;                     // ISO 8601
+  updatedAt: string;                     // ISO 8601
+  version: number;                       // Optimistic-lock counter
+}
+
+type OnboardingStep =
+  | 'welcome'
+  | 'personal_info'
+  | 'resume_upload'
+  | 'first_application'
+  | 'completed';
+```
+
+A step's `Completed` and `Skipped` flags are independent and both default to `false`.
+Skipping a step sets only `*StepSkipped`; it never sets `*StepCompleted`. The pair is
+what distinguishes "the user did this" from "the user declined this", and callers should
+preserve that distinction rather than collapsing it to a single boolean.
+
+---
+
+#### Should Show Onboarding
+
+```
+GET /users/me/onboarding/should-show
+```
+
+Answers the visibility question and nothing else. This is a pure read — unlike `/status`
+it never writes a row.
+
+**Response**: `200 OK`
+
+```json
+{ "shouldShow": true }
+```
+
+The envelope is deliberately a bare boolean. The status row is not included, precisely so
+that callers cannot fall back to re-deriving visibility themselves.
+
+**Decision rule** (`shouldShowOnboarding` in
+`packages/api/src/services/onboarding.service.ts`) — evaluated top to bottom, first match
+wins:
+
+| Status row | `shouldShow` | Reasoning |
+|------------|--------------|-----------|
+| `currentStep === 'completed'`, or `completedAt` is stamped | `false` | The user finished. |
+| **Engaged**: `currentStep` is anything other than `welcome`, **or** any one of the six `*Completed`/`*Skipped` flags is `true` | `false` if the user has a resume uploaded **before** `startedAt`, or an application created **before** `startedAt`; otherwise `true` | The user has driven the flow at least one step, so work created *after* the row may be the flow's own output and cannot count against them. Work that predates the row can. |
+| No row at all, or a pristine `welcome` row with nothing completed or skipped | `false` if the user has **any** resume or **any** application, at any time; otherwise `true` | We have never seen this user in the flow, so there is no flow output to exclude and the probe is deliberately unbounded. |
+
+**The AC-10 returning-user bypass is scoped in time, not blanket — and not by engagement
+either.** AC-10 reads "a user with at least one resume or application is never shown
+onboarding", and the tempting implementation is to check that first and short-circuit.
+That is wrong here: onboarding's resume-upload step *produces* a resume, so a blanket rule
+would eject a genuine new user from the flow the instant their first upload succeeded.
+
+Treating any engagement as an unconditional `true` is the equal and opposite error, and it
+fails in the same direction as the original defect. The flow ships as a modal, so an
+established user who was wrongly shown it and pressed "Get Started" or "Skip for now" once
+has POSTed progress — an engagement short-circuit would then show them onboarding over a
+populated dashboard forever. `startedAt` is what separates the two cases, because work
+created before the status row existed cannot have come from the flow.
+
+"Pristine" is load-bearing. Because `GET /status` auto-initializes, an established user who
+merely opened the app has a `welcome` row that carries no intent whatsoever, and it must
+not be read as "mid-onboarding".
+
+The `startedAt` bound is applied on the engaged branch only. On the pristine branch the
+probe stays unbounded on purpose: bounding it there would drag a genuine new user back into
+onboarding after they dismissed at `welcome` and then created an application by hand.
+
+The history probe is existence-only (`LIMIT 1` against `resumes`, then `applications`, the
+resume probe short-circuiting the second round trip). Query cost: 1 for a completed user, 2
+when a resume probe hits, 3 otherwise. Only the completed row is settled without touching
+history.
+
+---
+
+#### Get Onboarding Status
+
+```
+GET /users/me/onboarding/status
+```
+
+Returns the caller's onboarding row.
+
+> **This endpoint writes.** If the user has no row, one is created at `currentStep:
+> 'welcome'` with every flag `false`, and *that* row is returned. The read is therefore
+> not idempotent on first call, and the row's existence proves only that the user once
+> loaded a page that called this endpoint — never that they engaged with onboarding. This
+> auto-initialization is the mechanism behind the WIC-1359 blast radius; see the warning
+> at the top of this section.
+
+Initialization is safe under concurrent first-page-loads: the insert uses
+`ON CONFLICT (user_id) DO NOTHING` and re-reads the winner's row.
+
+**Response**: `200 OK` — an [Onboarding Status Object](#onboarding-status-object).
+
+```json
+{
+  "id": "01HXONBOARD00000000000001",
+  "userId": "8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60",
+  "currentStep": "welcome",
+  "personalInfoStepCompleted": false,
+  "personalInfoStepSkipped": false,
+  "resumeStepCompleted": false,
+  "resumeStepSkipped": false,
+  "applicationStepCompleted": false,
+  "applicationStepSkipped": false,
+  "startedAt": "2026-08-26T00:00:00.000Z",
+  "completedAt": null,
+  "createdAt": "2026-08-26T00:00:00.000Z",
+  "updatedAt": "2026-08-26T00:00:00.000Z",
+  "version": 1
+}
+```
+
+---
+
+#### Update Onboarding Progress
+
+```
+POST /users/me/onboarding/progress
+```
+
+Records step movement, completions and skips. Creates the row first if it does not exist,
+so a client may call this before ever calling `/status`.
+
+**Request Body** — every field is optional; send only what changed.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `currentStep` | `OnboardingStep` | Must be one of the five enum values |
+| `personalInfoStepCompleted` | boolean | |
+| `personalInfoStepSkipped` | boolean | |
+| `resumeStepCompleted` | boolean | |
+| `resumeStepSkipped` | boolean | |
+| `applicationStepCompleted` | boolean | |
+| `applicationStepSkipped` | boolean | |
+
+```json
+{ "currentStep": "resume_upload", "personalInfoStepCompleted": true }
+```
+
+Unrecognized keys are silently stripped rather than rejected. An empty body `{}` is
+valid and is accepted as a no-op update — it still bumps `version` and `updatedAt`.
+
+There is no step *ordering* validation: any enum value is accepted from any current step,
+including moving backwards. Sequencing is the client's responsibility. Note that setting
+`currentStep: 'completed'` here does **not** stamp `completedAt` — only `/complete` does
+that — but it is enough on its own to make `should-show` return `false`.
+
+**Response**: `200 OK` — the updated [Onboarding Status Object](#onboarding-status-object).
+
+**Errors**:
+
+| Code | HTTP | Cause |
+|------|------|-------|
+| `VALIDATION_ERROR` | 400 | `currentStep` outside the enum, or a step flag that is not a boolean. `details` carries the flattened Zod issues |
+| `VERSION_CONFLICT` | 409 | A concurrent write bumped `version` between this request's read and its update |
+
+The `409` is worth planning for even though the client sends no version. The write is
+guarded by the `version` the server itself just read, so two progress calls racing from,
+say, a double-clicked "Skip" will leave one of them conflicted. Re-read `/status` and
+retry.
+
+---
+
+#### Complete Onboarding
+
+```
+POST /users/me/onboarding/complete
+```
+
+Marks the flow finished: sets `currentStep` to `completed` and stamps `completedAt`.
+Takes no request body. Creates the row first if it does not exist.
+
+**Response**: `200 OK` — the completed [Onboarding Status Object](#onboarding-status-object).
+
+Calling it twice is idempotent rather than an error; the second call simply re-stamps
+`completedAt` and bumps `version`. Afterwards `should-show` returns `false` permanently —
+there is no endpoint that reopens onboarding.
+
+**Errors**:
+
+| Code | HTTP | Cause |
+|------|------|-------|
+| `NOT_FOUND` | 404 | The row vanished between the existence check and the write |
+| `VERSION_CONFLICT` | 409 | A concurrent write bumped `version` |
+
+---
+
+#### Onboarding Notes & Caveats
+
+**All four routes return `401 UNAUTHORIZED` when there is no authenticated user id —
+including under the local auth bypass.** When `SUPABASE_URL` and `SUPABASE_JWT_SECRET`
+are both absent the middleware waves requests through with `userId = null` (see
+[Authentication](#authentication)), but onboarding state is strictly per-user, so these
+routes refuse rather than operate on an anonymous null user. Unlike most of the API,
+they are not usable in the single-user local mode without a token.
+
+**A malformed JSON body on `/progress` returns `500 INTERNAL_ERROR`, not `400`.** The
+route parses the body before Zod sees it, and the resulting `SyntaxError` is not an
+`AppError`, so it falls through to the generic handler. Verified against the shipped
+app; treat the `500` as a known rough edge rather than a contract guarantee.
+
+**Known drift from the WIC-238 plan document.** Two differences between the accepted
+spec and what shipped, recorded here so they are not re-derived as defects:
+
+- **The step enum has five values, not four.** `personal_info` was added by migration
+  `0015_onboarding_personal_info_step.sql` *after* WIC-238 was accepted, and so is absent
+  from that spec. The enum in this document is the shipped one.
+- **There is no `/onboarding` page route**, despite AC-1 naming one. The flow ships as a
+  global `<OnboardingModal />` mounted in `packages/web/src/App.tsx`, shown or hidden on
+  the `should-show` boolean. Navigating to `/onboarding` will not reach it.
+
+Additionally, `docs/design/ONBOARDING_FLOW.md` sketched a
+`POST /api/users/me/onboarding/dismiss` endpoint and localStorage-shaped request bodies.
+**No `dismiss` route exists** and those body shapes were never built. This section is the
+authoritative contract; that document is a design sketch and now defers to it.
+
+---
+
 ## References
 
 - [Architecture Overview](./ARCHITECTURE.md)
 - [Data Model](./DATA_MODEL.md)
 - [User Flows](../design/USER_FLOWS.md)
+- [Onboarding Flow — component spec](../design/ONBOARDING_FLOW.md) (design sketch; the
+  API contract above supersedes its endpoint list)
 - [UC-6 Resume Variant Generation API](./UC-6_RESUME_VARIANT_API.md)

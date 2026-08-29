@@ -74,7 +74,7 @@ Responsibilities:
 
 const MOCK_ANALYSIS_RESPONSE = {
   recommendation: 'moderate_fit',
-  summary: 'You match 4 of 6 required skills.',
+  summary: 'You match 4 of 6 required skills. This role is within reach.',
   confidence: 'high',
   parsedJd: {
     roleTitle: 'Senior Full Stack Engineer',
@@ -109,6 +109,18 @@ const MOCK_ANALYSIS_RESPONSE = {
       matchType: 'exact',
       isRequired: true,
     },
+    // WIC-1528: the fixture's nice-to-have match. Every mock pinning this screen used
+    // to be all-`isRequired`, the one shape where "count of matches" and "count of
+    // required matches" coincide — which is how `Strong Matches (7)` above "5 of 6
+    // required skills" stayed invisible through WIC-1288 and WIC-1301. Drawn from
+    // `parsedJd.niceToHaveStack` above, so the fixture stays internally consistent.
+    {
+      type: 'tech_stack',
+      catalogEntry: 'graphql',
+      jdRequirement: 'graphql',
+      matchType: 'exact',
+      isRequired: false,
+    },
   ],
   partialMatches: [
     {
@@ -131,6 +143,15 @@ const MOCK_ANALYSIS_RESPONSE = {
       jdRequirement: 'redis',
       isRequired: true,
       severity: 'moderate',
+    },
+    // The other half of WIC-1528's mixed shape, and the only `minor` on any fixture.
+    // `gapSeverity()` in job-fit.service.ts returns `minor` for every non-required gap,
+    // so this pairing is the one the API can actually produce.
+    {
+      type: 'tech_stack',
+      jdRequirement: 'terraform',
+      isRequired: false,
+      severity: 'minor',
     },
   ],
   recommendedStarEntries: [
@@ -174,7 +195,7 @@ const MOCK_EMPTY_CATALOG_RESPONSE = {
 // LLM understands prose context (e.g. "team of five" → teamScope, implied required skills).
 const MOCK_LLM_ANALYSIS_RESPONSE = {
   recommendation: 'strong_fit',
-  summary: 'Strong match — you meet 5 of 6 required skills.',
+  summary: 'You match 5 of 6 required skills.',
   confidence: 'high',
   parsedJd: {
     roleTitle: 'Staff Infrastructure Engineer',
@@ -342,7 +363,9 @@ test.describe('Job Fit Analysis page', () => {
     // vocabulary — it deliberately shares no word with gap severity or confidence
     // (WIC-1288), so this page-scoped locator cannot collide with a gap card.
     await expect(page.getByText('Possible fit')).toBeVisible();
-    await expect(page.getByText('You match 4 of 6 required skills.')).toBeVisible();
+    await expect(
+      page.getByText('You match 4 of 6 required skills. This role is within reach.')
+    ).toBeVisible();
 
     // Parsed requirements section
     await expect(page.getByText('Senior Full Stack Engineer')).toBeVisible();
@@ -360,10 +383,30 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    await expect(page.getByText('✅ Strong Matches (3)')).toBeVisible();
+    // WIC-1528: the heading names the populations it counts. It deliberately does NOT
+    // agree with the summary's "You match 4 of 6 required skills" — `computeSummary`
+    // counts required strong *plus* required partial (3 + 1), while this counts strong
+    // only. Two labelled subtotals, not a restatement. Do not "fix" them into equality.
+    await expect(page.getByText('✅ Strong Matches (3 required, 1 nice-to-have)')).toBeVisible();
     // Strong match entries have green left border
     const strongMatchCards = page.locator('.border-green-500');
     await expect(strongMatchCards.first()).toBeVisible();
+
+    // WIC-1534: every row states its required-ness, in both branches. This used to be a
+    // `Required` badge *or nothing*, so "nice-to-have" was carried by the absence of
+    // chrome — indistinguishable from the flag simply not being rendered.
+    await expect(page.getByText('Matches: typescript (exact) — Required skill')).toBeVisible();
+    await expect(page.getByText('Matches: graphql (exact) — Nice-to-have skill')).toBeVisible();
+
+    // No row is left unlabelled: one qualifier per strong-match card, 4 cards.
+    await expect(strongMatchCards).toHaveCount(4);
+    await expect(strongMatchCards.getByText(/(Required|Nice-to-have) skill/)).toHaveCount(4);
+
+    // The red `Required` badge is gone. It was `bg-red-100 text-red-800` on a
+    // green-bordered card, spending gap severity's colour (WIC-1146) on the requirement
+    // axis to mean "important" rather than "bad". Scoped to the strong-match cards
+    // because `bg-red-100` is legitimately used by the error `<pre>` elsewhere on this page.
+    await expect(page.locator('.border-green-500 .bg-red-100')).toHaveCount(0);
   });
 
   // TC-5: Partial matches display correctly
@@ -377,10 +420,19 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    await expect(page.getByText('⚠️ Partial Matches (1)')).toBeVisible();
+    // Single-population case: the zero term is omitted, not rendered as "0 nice-to-have".
+    await expect(page.getByText('⚠️ Partial Matches (1 required)')).toBeVisible();
     const partialCards = page.locator('.border-yellow-500');
     await expect(partialCards.first()).toBeVisible();
     await expect(page.getByText(/Partially matches:/)).toBeVisible();
+
+    // WIC-1534: partial-match rows used to carry no required-ness signal at all. The
+    // heading states the split, but with more than one row of each kind, *which* row is
+    // which was unrecoverable from the counts alone.
+    await expect(
+      page.getByText('Partially matches: postgresql (alias) — Required skill')
+    ).toBeVisible();
+    await expect(partialCards.getByText(/(Required|Nice-to-have) skill/)).toHaveCount(1);
   });
 
   // TC-6: Gaps are visually prominent
@@ -397,7 +449,7 @@ test.describe('Job Fit Analysis page', () => {
       timeout: 15000,
     });
 
-    await expect(page.getByText('❌ Gaps (2)')).toBeVisible();
+    await expect(page.getByText('❌ Gaps (2 required, 1 nice-to-have)')).toBeVisible();
 
     // The tokenised scale: critical is the red step, moderate the orange one.
     // `mark` on the left border, `surface` on the card. See DESIGN_SYSTEM.md "Gap Severity Scale".
@@ -416,6 +468,16 @@ test.describe('Job Fit Analysis page', () => {
     // `exact: true` is case-sensitive, so these assertions pin the casing decision too.
     await expect(criticalCard.getByText('Critical', { exact: true })).toBeVisible();
     await expect(moderateCard.getByText('Moderate', { exact: true })).toBeVisible();
+
+    // WIC-1534: gap rows always named both branches — they are the pattern the match rows
+    // were brought onto, not the thing being fixed. What changed is the separator: a
+    // spaced em dash from `REQUIREMENT_SEPARATOR`, shared with the two match sections so
+    // one qualifier shape serves all three. Card-scoped for the same "Moderate fit"
+    // substring collision noted above.
+    const minorCard = page.locator('.border-amber-600.bg-amber-50');
+    await expect(criticalCard.getByText('Critical — Required skill')).toBeVisible();
+    await expect(moderateCard.getByText('Moderate — Required skill')).toBeVisible();
+    await expect(minorCard.getByText('Minor — Nice-to-have skill')).toBeVisible();
 
     // No severity emoji survive. They were the second, contradicting signal on the same card:
     // this page called `minor` green while GapMitigationPanel called it yellow.
@@ -588,12 +650,14 @@ test.describe('Job Fit Analysis page', () => {
     });
 
     await expect(page.getByText('Strong fit')).toBeVisible();
-    await expect(page.getByText('Strong match — you meet 5 of 6 required skills.')).toBeVisible();
+    await expect(page.getByText('You match 5 of 6 required skills.')).toBeVisible();
     await expect(page.getByText('Staff Infrastructure Engineer')).toBeVisible();
     await expect(page.getByText('Remote (US/EU)')).toBeVisible();
     await expect(page.getByText('$200,000 - $240,000')).toBeVisible();
-    await expect(page.getByText('✅ Strong Matches (5)')).toBeVisible();
-    await expect(page.getByText('❌ Gaps (1)')).toBeVisible();
+    // Left all-required on purpose: this fixture pins LLM extraction, and the mixed
+    // required/nice-to-have shape is covered by MOCK_ANALYSIS_RESPONSE (WIC-1528).
+    await expect(page.getByText('✅ Strong Matches (5 required)')).toBeVisible();
+    await expect(page.getByText('❌ Gaps (1 required)')).toBeVisible();
   });
 
   // TC-LLM-2: LLM unavailable — regex fallback produces degraded results, UI stays stable
