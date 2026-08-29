@@ -1,4 +1,4 @@
-import { eq, and, inArray, notInArray, lte, lt, gte, asc, desc, isNotNull } from 'drizzle-orm';
+import { eq, and, inArray, notInArray, lte, gte, asc, desc, isNotNull } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
@@ -22,6 +22,7 @@ import type {
   ClosedLoopParams,
   FitTierParams,
 } from '../types/index.js';
+import { STALE_STATUSES, resolveStaleThresholdDays, staleWhere } from './stale.js';
 
 const ACTIVE_STATUSES: ActiveStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
 const TERMINAL_STATUSES: ApplicationStatus[] = ['offer', 'rejected', 'withdrawn'];
@@ -229,7 +230,7 @@ export async function getStaleReport(
   userId?: string
 ): Promise<StaleReportResponse> {
   const db = getDb();
-  const staleDays = Math.min(Math.max(params.days ?? 14, 1), 365);
+  const staleDays = resolveStaleThresholdDays(params.days);
   const limit = Math.min(params.limit ?? 50, 100);
   const offset = parseCursor(params.cursor);
 
@@ -243,26 +244,22 @@ export async function getStaleReport(
     'withdrawn',
   ];
 
-  let staleStatuses: ApplicationStatus[];
-  if (params.status) {
-    staleStatuses = params.status
-      .split(',')
-      .map((s) => s.trim() as ApplicationStatus)
-      .filter((s) => VALID_STATUSES.includes(s));
-  } else {
-    staleStatuses = ['applied', 'phone_screen'];
-  }
-
-  const threshold = new Date();
-  threshold.setDate(threshold.getDate() - staleDays);
+  // `?status=` narrows the definition; it never widens it. Anything outside
+  // STALE_STATUSES is dropped rather than honoured, so this endpoint cannot be
+  // used to resurrect the old "everything non-terminal is stale" behaviour.
+  const staleStatuses: readonly ApplicationStatus[] = params.status
+    ? params.status
+        .split(',')
+        .map((s) => s.trim() as ApplicationStatus)
+        .filter((s) => VALID_STATUSES.includes(s))
+    : STALE_STATUSES;
 
   const rows = await db
     .select()
     .from(applications)
     .where(
       and(
-        inArray(applications.status, staleStatuses),
-        lt(applications.updatedAt, threshold),
+        staleWhere({ days: staleDays, statuses: staleStatuses }),
         ...(userId ? [eq(applications.userId, userId)] : [])
       )
     )

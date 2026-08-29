@@ -9,12 +9,23 @@ import {
   DashboardAttention,
 } from '../types/index.js';
 import { ALL_STATUSES } from './status.service.js';
+import { DEFAULT_STALE_THRESHOLD_DAYS, staleWhere } from './stale.js';
 
-/** Days without an update after which a non-terminal application is stale. */
-export const STALE_THRESHOLD_DAYS = 7;
+// "Stale" is defined once, in `stale.ts`, and this module does not get to hold
+// an opinion about it (WIC-1479). The attention card links to `/reports/stale`,
+// so the count it shows has to be the number of rows that report renders. This
+// module deliberately re-exports nothing under a local alias: an alias is how
+// a second name for one threshold becomes a second threshold.
 
-/** Days after which a `saved` application counts as not-yet-submitted. */
-export const SAVED_THRESHOLD_DAYS = 3;
+/**
+ * Days after which a `saved` application counts as not-yet-submitted.
+ *
+ * This is emphatically *not* staleness — a saved application was never sent to
+ * anyone, so there is nothing to follow up on. It is keyed off `createdAt`, not
+ * `updatedAt`. It used to be surfaced as `staleSaved`, which put a second
+ * meaning on the word "stale" and is exactly what WIC-1479 AC-N2a forbids.
+ */
+export const UNSUBMITTED_THRESHOLD_DAYS = 3;
 
 /** Statuses an application can still be acted on from. */
 const NON_TERMINAL_STATUSES: ApplicationStatus[] = [
@@ -23,9 +34,6 @@ const NON_TERMINAL_STATUSES: ApplicationStatus[] = [
   'phone_screen',
   'interview',
 ];
-
-/** Non-terminal statuses that represent a submitted application. */
-const ACTIVE_STATUSES: ApplicationStatus[] = ['applied', 'phone_screen', 'interview'];
 
 const INTERVIEWING_STATUSES: ApplicationStatus[] = ['phone_screen', 'interview'];
 
@@ -159,27 +167,21 @@ export async function getDashboardStats(userId?: string): Promise<{
   // by most-recently-updated), so a client-side "which of these are stale?" scan
   // is blind to exactly the rows it exists to surface. Every count below is over
   // the full table, the same way `byStatus` above is.
-  const staleThreshold = new Date();
-  staleThreshold.setDate(staleThreshold.getDate() - STALE_THRESHOLD_DAYS);
+  const unsubmittedThreshold = new Date();
+  unsubmittedThreshold.setDate(unsubmittedThreshold.getDate() - UNSUBMITTED_THRESHOLD_DAYS);
 
-  const savedThreshold = new Date();
-  savedThreshold.setDate(savedThreshold.getDate() - SAVED_THRESHOLD_DAYS);
-
-  const staleCondition = and(
-    inArray(applications.status, NON_TERMINAL_STATUSES),
-    lt(applications.updatedAt, staleThreshold)
-  );
-  const staleActiveCondition = and(
-    inArray(applications.status, ACTIVE_STATUSES),
-    lt(applications.updatedAt, staleThreshold)
-  );
+  // The same predicate `/reports/stale` runs, built by the same function. The
+  // attention card's count and the report's row count therefore agree by
+  // construction — there is no second expression here that could drift out of
+  // step with it (WIC-1479 AC-N2b).
+  const staleCondition = staleWhere();
   const missingDescriptionCondition = and(
     inArray(applications.status, NON_TERMINAL_STATUSES),
     or(isNull(applications.jobDescription), eq(applications.jobDescription, ''))
   );
-  const staleSavedCondition = and(
+  const unsubmittedSavedCondition = and(
     eq(applications.status, 'saved'),
-    lt(applications.createdAt, savedThreshold)
+    lt(applications.createdAt, unsubmittedThreshold)
   );
   const interviewingCondition = inArray(applications.status, INTERVIEWING_STATUSES);
 
@@ -207,47 +209,46 @@ export async function getDashboardStats(userId?: string): Promise<{
 
   const [
     staleCount,
-    staleActiveCount,
     missingDescriptionCount,
-    staleSavedCount,
+    unsubmittedSavedCount,
     interviewingSamples,
-    staleActiveSamples,
+    staleSamples,
     missingDescriptionSamples,
-    staleSavedSamples,
+    unsubmittedSavedSamples,
   ] = await Promise.all([
     countMatching(staleCondition),
-    countMatching(staleActiveCondition),
     countMatching(missingDescriptionCondition),
-    countMatching(staleSavedCondition),
+    countMatching(unsubmittedSavedCondition),
     // Most recently touched interviews first — they are the ones being prepped for.
     sampleMatching(interviewingCondition, desc(applications.updatedAt), INTERVIEWING_SAMPLE_LIMIT),
     // Most stale first: the oldest row is the one most in need of a follow-up.
-    sampleMatching(staleActiveCondition, asc(applications.updatedAt), ATTENTION_SAMPLE_LIMIT),
+    // Same condition as the count above, so the rows quick-wins lists are always
+    // drawn from the population the attention card counted.
+    sampleMatching(staleCondition, asc(applications.updatedAt), ATTENTION_SAMPLE_LIMIT),
     sampleMatching(
       missingDescriptionCondition,
       desc(applications.updatedAt),
       ATTENTION_SAMPLE_LIMIT
     ),
     // Longest-saved first.
-    sampleMatching(staleSavedCondition, asc(applications.createdAt), ATTENTION_SAMPLE_LIMIT),
+    sampleMatching(unsubmittedSavedCondition, asc(applications.createdAt), ATTENTION_SAMPLE_LIMIT),
   ]);
 
   const attention: DashboardAttention = {
-    staleThresholdDays: STALE_THRESHOLD_DAYS,
-    savedThresholdDays: SAVED_THRESHOLD_DAYS,
+    staleThresholdDays: DEFAULT_STALE_THRESHOLD_DAYS,
+    unsubmittedThresholdDays: UNSUBMITTED_THRESHOLD_DAYS,
     counts: {
       // Derived from `byStatus` rather than re-queried, so the two can never disagree.
       interviewing: byStatus.phone_screen + byStatus.interview,
       stale: staleCount,
-      staleActive: staleActiveCount,
       missingJobDescription: missingDescriptionCount,
-      staleSaved: staleSavedCount,
+      unsubmittedSaved: unsubmittedSavedCount,
     },
     samples: {
       interviewing: interviewingSamples,
-      staleActive: staleActiveSamples,
+      stale: staleSamples,
       missingJobDescription: missingDescriptionSamples,
-      staleSaved: staleSavedSamples,
+      unsubmittedSaved: unsubmittedSavedSamples,
     },
   };
 

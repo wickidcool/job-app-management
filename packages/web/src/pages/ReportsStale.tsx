@@ -3,10 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useReportsStale } from '../hooks/useReports';
 import { StatusBadge } from '../components/StatusBadge';
 import type { ApplicationStatus } from '../types/application';
+import { DEFAULT_STALE_THRESHOLD_DAYS, STALE_THRESHOLD_OPTIONS } from '../constants/stale';
 
 export function ReportsStale() {
   const navigate = useNavigate();
-  const [staleThreshold, setStaleThreshold] = useState(14);
+  // Not a literal: the dashboard links here promising a count computed at the
+  // server's default window, so the report has to open on that same window or
+  // the two disagree on arrival (WIC-1479 AC-N2b).
+  const [staleThreshold, setStaleThreshold] = useState<number>(DEFAULT_STALE_THRESHOLD_DAYS);
 
   const { data, isLoading, isError, error } = useReportsStale({ days: staleThreshold });
 
@@ -51,10 +55,11 @@ export function ReportsStale() {
             onChange={(e) => setStaleThreshold(Number(e.target.value))}
             className="rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value={7}>7 days</option>
-            <option value={14}>14 days</option>
-            <option value={21}>21 days</option>
-            <option value={30}>30 days</option>
+            {STALE_THRESHOLD_OPTIONS.map((days) => (
+              <option key={days} value={days}>
+                {days} days
+              </option>
+            ))}
           </select>
         </div>
       </div>
