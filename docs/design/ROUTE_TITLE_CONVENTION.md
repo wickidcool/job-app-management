@@ -164,7 +164,7 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 |---|---|---|
 | `/` | `Dashboard` | `Dashboard.tsx:38` |
 | `/applications` | `Applications` | `ApplicationsList.tsx:113` |
-| `/applications/new` | `New Application` | **new copy** — page has no `<h1>` (§6.1) |
+| `/applications/new` | `New application` | `ApplicationForm.tsx:254`, the dialog title at `titleLevel={1}` (§6.1, WIC-1099) — ~~**new copy** — page has no `<h1>`~~ |
 | `/applications/:id` | `{jobTitle}` | `ApplicationDetail.tsx:113`, dynamic; fallback `Application` |
 | `/applications/:id/prep` | `Interview Preparation` | `InterviewPrepPage.tsx:263` — *not* the modal `<h1>` (§3.1) |
 | `/reports` | `Reports` | `Reports.tsx:49` |
@@ -177,7 +177,7 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 | `/resumes/exports` | `Resume Exports` | `ResumeExports.tsx:52` |
 | `/resumes/:resumeId/exports` | `Resume Exports` | **added 2026-08-27** — same component, `resumeId` optional (`ResumeExports.tsx:12`); route absent from the 2026-08-19 table |
 | `/catalog` | `Master Catalog Index` | `CatalogBrowse/CatalogBrowseView.tsx:116` |
-| `/job-fit-analysis` | `Job Fit Analysis` → `Job Fit Analysis Results` | `JobFitAnalysis.tsx:460` / `:148`, stage-dependent (§3) — ~~`:462` / `:144`~~ |
+| `/job-fit-analysis` | `Job Fit Analysis` | `JobFitAnalysis.tsx:47`, constant across all five stages (§6.2, WIC-1099) — ~~`Job Fit Analysis` → `Job Fit Analysis Results`, `:460` / `:148`, stage-dependent~~ |
 | `/cover-letters/new` | `Generate Cover Letter` | `CoverLetterNew.tsx:47` — ~~`CoverLetterGenerator.tsx:181`~~, moved to a page `<h1>` by **WIC-1571** |
 | `/cover-letters/:id` | `Cover Letter` | `CoverLetterDetail.tsx:104` |
 | `/outreach/new` | `Compose Outreach Message` | `OutreachNew.tsx:29` |
@@ -189,7 +189,7 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 | `/projects/:projectId` | `{projectName}` | `ProjectDetail.tsx:40`, dynamic; fallback `Project` |
 | `/projects/:projectId/files/:fileName` | `{fileName}` | `ProjectFileEditor.tsx:66`, dynamic; fallback `Project File` |
 | `/settings` | `Settings` | `Settings.tsx:29` |
-| `/login` | `Sign In` | **new copy** — page has only an `<h2>`, and it is the product name (§6.1) |
+| `/login` | `Sign in` / `Create an account` | `Login.tsx:81`, varies by `mode` (§3, §6.1, WIC-1099) — ~~`Sign In`, **new copy** — page has only an `<h2>`, and it is the product name~~ |
 | `*` (NotFound) | `That page couldn't be found` | `NotFound.tsx:94` ← `COPY.heading` — ~~`Page not found`~~, corrected 2026-08-27 |
 
 > **The 404 row is the one to read twice.** The 2026-08-19 table said `Page not found`, and §7 AC5
@@ -207,26 +207,68 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 
 **Root/document title** — `index.html:13` becomes `Careerpin`, the bare product name, since it is only visible for the moment before React mounts.
 
-Counting the table: **27 table-driven routes, 6 hook-driven** (four param-dynamic, `/job-fit-analysis` stage-dependent, `/projects/new/dialogue` variant-dependent), plus 2 redirects that need nothing.
+Counting the table: **27 table-driven routes, 6 hook-driven** (four param-dynamic, `/login`
+mode-dependent, `/projects/new/dialogue` variant-dependent), plus 2 redirects that need nothing.
+
+> **The totals are unchanged by WIC-1099 and the composition is not**, which is the sort of thing
+> a count hides. `/job-fit-analysis` left the hook-driven set — its title is now one constant
+> string rather than a stage-dependent pair — and `/login` joined it, because promoting its
+> heading to an `<h1>` that names the *screen* made that heading `mode`-dependent where the
+> product-name `<h2>` it replaced was constant. Two routes moved in opposite directions and
+> `6` stayed `6`.
 
 ## 6. Found during the audit — out of scope, filed separately
 
 These are pre-existing and none of them should grow this PR. **All four re-verified at `f457cc3`.**
 
-### 6.1 Two routes render no `<h1>` at all — *still true*
+> **Status 2026-08-29 (WIC-1099).** §6.1 and §6.2 are **fixed** and struck through below; §6.3 and
+> §6.4 remain open and are still nobody's work in this document. The findings are struck rather
+> than deleted because §6.1's stated remedy is wrong for one of its two routes, and a reader who
+> only saw "fixed" would reintroduce it — see the note under §6.1.
 
-- **`/applications/new`** — `pages/ApplicationNew.tsx` has no heading, and `components/ApplicationForm.tsx`'s highest is an `<h3>` (`:382`). The route paints a form with no heading of any level.
-- **`/login`** — `pages/Login.tsx:60` is an `<h2>` with no `<h1>` above it, and its text is the product name rather than a description of the screen.
+### 6.1 Two routes render no `<h1>` at all — ~~*still true*~~ **fixed 2026-08-29, WIC-1099**
 
-Both are WCAG-adjacent (1.3.1 heading structure) and both are why §5 needs new copy for those two rows. A route that cannot name itself is a route the user cannot orient on.
+- ~~**`/applications/new`** — `pages/ApplicationNew.tsx` has no heading, and `components/ApplicationForm.tsx`'s highest is an `<h3>` (`:382`). The route paints a form with no heading of any level.~~
+- ~~**`/login`** — `pages/Login.tsx:60` is an `<h2>` with no `<h1>` above it, and its text is the product name rather than a description of the screen.~~
+
+Both were WCAG-adjacent (1.3.1 heading structure) and both are why §5 needed new copy for those two rows. A route that cannot name itself is a route the user cannot orient on.
+
+**How they were fixed, because one of them is not the obvious way.** `/login` took the expected
+route: the product-name `<h2>` became a `<p>` that keeps its size and position, and an `<h1>`
+naming the screen went in beneath it. `/applications/new` did not. That route mounts
+`ApplicationForm` as a Radix modal opened unconditionally and never closed, and a Radix modal marks
+everything outside its portal `aria-hidden` — so the `<h1>` this section implies, sitting on the
+page behind the dialog, would be **in the DOM and absent from the accessibility tree**. It reads as
+fixed and is not. The dialog's own title carries the `<h1>` instead, via a `titleLevel` prop
+(`COMPONENT_SPECS.md` §10 treatment, two live mount depths). `ApplicationNew.test.tsx` pins the
+distinction with a negative control that renders this section's literal suggestion and asserts the
+heading is unreachable — because a `querySelector('h1')` check passes on the broken arrangement,
+which is how a heading no screen reader can reach ships green.
+
+**The `<h1>` count on those rows is now checked, not just documented.** Both rows said
+**new copy**, and `route-title-table-audit.py`'s `literal_titles()` returns `[]` for any cell
+containing that phrase — so for as long as the copy was aspirational, the audit verified *nothing*
+about these two routes. Dropping the marker is what puts them under the check.
 
 **Correction (carried forward from the original).** WIC-1046 §1 argued against the `EmptyState` option partly on the grounds that it "leaves NotFound as the only route with no `<h1>` in `<main>`". That was wrong — `/applications/new` already had none. The rest of that argument stands, and the built page has a proper `<h1>`, so the conclusion is unaffected.
 
-### 6.2 `/job-fit-analysis` loses its `<h1>` in two states — *still true*
+### 6.2 `/job-fit-analysis` loses its `<h1>` in two states — ~~*still true*~~ **fixed 2026-08-29, WIC-1099**
 
-`JobFitAnalysis.tsx:104` (`Analyzing Job Fit...`) and `:414` (`Analysis Failed`) are `<h2>`s rendered *instead of* the `<h1>`, not below it. So the page has no `<h1>` while analysing and no `<h1>` when analysis fails — the error state in particular is one a user needs to orient in. Should be an `<h1>`, or the `<h1>` should be persistent with the stage message below it.
+~~`JobFitAnalysis.tsx:104` (`Analyzing Job Fit...`) and `:414` (`Analysis Failed`) are `<h2>`s rendered *instead of* the `<h1>`, not below it. So the page has no `<h1>` while analysing and no `<h1>` when analysis fails — the error state in particular is one a user needs to orient in.~~ Fixed by the second option this section offered: **one persistent `<h1>` with the stage message below it.**
 
-**Interaction with this document:** those two states are exactly when §3 behaviour 2 applies. Whatever the heading fix is, the title must not sit at `Job Fit Analysis Results` while the screen says `Analysis Failed`.
+**It was five branches, not the two this section counted.** `JobFitAnalysis` returns from five
+places — analyzing, results, error, application-loading, input — and each is a separate document
+outline. Two of the five had no `<h1>`; the audit that produced this finding saw the two that
+render a *wrong* heading and could not see the application-loading branch, which renders no
+heading at all. The `<h1>` therefore lives in a `JobFitAnalysisFrame` wrapper that every branch
+returns through, rather than being copied into each: five copies are correct right up until
+someone adds a sixth return, and nothing about that sixth return would look wrong in review.
+
+**Interaction with this document:** those states are exactly when §3 behaviour 2 applies, and the
+fix removes the occasion for it. The title is now the constant `Job Fit Analysis`, so it can no
+longer sit at `Job Fit Analysis Results` while the screen says `Analysis Failed` — and the route
+has left the hook-driven set in §5's count. The route's accessible name also stops changing under
+the user mid-interaction, which was the second, quieter half of the defect.
 
 ### 6.3 `pages/ReportsPipeline.tsx` is orphaned — *still true*
 
