@@ -98,19 +98,43 @@ def resolve_all(payloads):
     return [(p, desc, query) for p, (desc, query) in resolved]
 
 
+def synthetic_count(reg):
+    """How many events the registry itemises -- i.e. the synthetic total.
+
+    This, not `lifetime_event_count_at_verification`, is the number every "synthetic"
+    slot in the prose means. The two are equal only while `organic` is 0.
+    """
+    return sum(len(p["event_uuids"]) for p in reg["probes"])
+
+
 def load_registry():
     """Load probe-registry.json and check it still accounts for every lifetime event.
 
-    The runbook's day-one section tells a human that excluding the registry makes every
-    tile read 0. That claim is only true while the registry covers the whole project, so
-    it is asserted here rather than assumed: if a probe is added without its `event_uuids`,
-    or organic traffic arrives and `lifetime_event_count_at_verification` is bumped without
-    a matching probe entry, the generator refuses instead of shipping a false promise.
+    The runbook's day-one section tells a human that excluding the registry leaves only
+    organic traffic. That claim is only true while the registry covers every event that
+    is not organic, so it is asserted here rather than assumed: if a probe is added
+    without its `event_uuids`, or `lifetime_event_count_at_verification` is bumped
+    without either a matching probe entry or a matching `organic_...` bump, the generator
+    refuses instead of shipping a false promise.
+
+    Note what is deliberately *not* fatal: organic traffic arriving. That is the day this
+    project exists to see, and it must not turn the build red -- it changes what the prose
+    should say, not whether it can be generated. See `day_one_paragraph()`.
     """
-    reg = json.load(open(os.path.join(HERE, REGISTRY)))
+    path = os.path.join(HERE, REGISTRY)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"refusing to generate: {REGISTRY} not found at {path}.\n"
+            "The runbook's mandatory synthetic-exclusion section is derived from it; "
+            "generating without it would silently ship a pack that tells a human to "
+            "exclude a list that does not exist."
+        )
     lifetime = reg["lifetime_event_count_at_verification"]
     organic = reg["organic_event_count_at_verification"]
-    accounted = sum(len(p["event_uuids"]) for p in reg["probes"])
+    accounted = synthetic_count(reg)
     if accounted + organic != lifetime:
         raise SystemExit(
             f"refusing to generate: {REGISTRY} does not account for the project.\n"
@@ -132,14 +156,91 @@ def probe_breakdown(reg):
     return ", ".join(parts)
 
 
+TERMINAL_EVENTS = ("resume_upload_completed", "resume_upload_failed")
+
+
+def synthetic_event_counts(reg):
+    """{event_name: n} across every probe, or None when names cannot be attributed.
+
+    `events` and `event_uuids` are separate lists with no declared correspondence, so a
+    probe that fired one event name twice would carry one name and two uuids and counting
+    names would undercount it. Only claim a per-name count when every probe's two lists
+    line up 1:1; otherwise say nothing numeric.
+    """
+    counts = {}
+    for p in reg["probes"]:
+        if len(p["events"]) != len(p["event_uuids"]):
+            return None
+        for name in p["events"]:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def funnel_clause(reg, synthetic, organic):
+    """Closing sentence of funnel correction 2.
+
+    Both the count *and* the nouns here are data: the sentence used to hardcode "both
+    terminal events and both `submitted`" next to an interpolated lifetime total, which
+    made it wrong on two axes at once as soon as organic traffic landed. Derive both, and
+    scope the claim to the synthetic set rather than to the project.
+    """
+    counts = synthetic_event_counts(reg)
+    if counts is None:
+        legs = "all the terminal events and `submitted` legs the registry itemises"
+    else:
+        n_sub = counts.get("resume_upload_submitted", 0)
+        n_term = sum(counts.get(e, 0) for e in TERMINAL_EVENTS)
+        legs = f"{n_term} terminal events and {n_sub} `resume_upload_submitted` events"
+    if organic:
+        return (f"So {legs} are probes rather than users, mixed in with {organic} organic "
+                "events. Any funnel conversion you compute without excluding them is "
+                "contaminated. Exclude first, then read.")
+    return (f"So of the {synthetic} lifetime events, {legs} are probes. Any funnel "
+            "conversion you compute today is an artefact. Exclude first, then read.")
+
+
+def day_one_paragraph(reg, lifetime, synthetic, organic):
+    """The "what will these show" lead, which asserts a *state of the world*, not a count.
+
+    The bug this branch exists to prevent: substituting `lifetime` into slots that mean
+    "synthetic" reads correctly only while `organic == 0`. With 40 lifetime / 6 synthetic
+    it emitted "40 lifetime events, all synthetic", "Zero organic traffic has ever reached
+    it", "All 40 are itemised" and "every tile reads 0" -- six false statements next to a
+    breakdown that visibly sums to 6, on the one day anybody reads this page.
+    """
+    if organic:
+        return (f"**Real numbers now — but only once you exclude the probes.** PostHog "
+                f"project `{PROJECT}` holds **{lifetime} lifetime events, {synthetic} of "
+                f"them synthetic** ({probe_breakdown(reg)}) and **{organic} organic** — "
+                f"last verified {reg['last_verified']} by {reg['last_verified_by']}. Only "
+                f"the {synthetic} synthetic ones are itemised in "
+                f"`docs/analytics/{REGISTRY}`; apply the exclusion above and every tile "
+                "reads organic traffic only. Skip it and every tile reads those "
+                f"{synthetic} probes as product usage.")
+    return (f"**Mostly zeros, and that is correct.** PostHog project `{PROJECT}` holds "
+            f"**{synthetic} lifetime events, all synthetic** ({probe_breakdown(reg)}). "
+            f"Zero organic traffic has ever reached it — last verified "
+            f"{reg['last_verified']} by {reg['last_verified_by']}. All {synthetic} are "
+            f"itemised in `docs/analytics/{REGISTRY}`; apply the exclusion above and "
+            "every tile reads **0**, which is the honest day-one picture. The counts "
+            "described in the next paragraph are what you see _without_ the exclusion, "
+            "i.e. probe residue.")
+
+
 def main():
-    all_payloads = json.load(open(os.path.join(HERE, "insight-payloads.json")))
+    with open(os.path.join(HERE, "insight-payloads.json"), encoding="utf-8") as fh:
+        all_payloads = json.load(fh)
     # Mirrors build_dashboards.py: `_enabled: false` entries are authored and validated
     # but deliberately not built yet, so all three routes agree on which tiles exist.
     payloads = [p for p in all_payloads if p.get("_enabled", True)]
     resolved = resolve_all(payloads)
     reg = load_registry()
     lifetime = reg["lifetime_event_count_at_verification"]
+    organic = reg["organic_event_count_at_verification"]
+    # Never interpolate `lifetime` into a slot that means "synthetic": load_registry()
+    # guarantees synthetic + organic == lifetime, so the two are the same number only
+    # until the first real user arrives.
+    synthetic = synthetic_count(reg)
 
     templates = []
     for name, description in DASHBOARDS:
@@ -288,16 +389,24 @@ def main():
     w("   rate derived from it). `track()` delivers over `fetch()`, and a `fetch` is a subrequest — so")
     w("   during a subrequest-exhaustion outage (WIC-1386) the failure capture is itself dropped")
     w("   (WIC-1387). A failure panel therefore reads **0 during a total outage**, which is")
-    w("   indistinguishable from perfect health, and it is *most* wrong exactly when you need it most.")
+    w("   indistinguishable from perfect health, and it is _most_ wrong exactly when you need it most.")
     w("   Derive failures from `resume_upload_submitted` with **no matching terminal event** in the")
     w("   session, and treat A9 as a breakdown of the failures you already know about, not a count.")
     w("")
-    w("2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**")
-    w("   WIC-996 emitted all three upload legs 0.3 s apart including `completed` *and* `failed` for one")
+    if organic:
+        w("2. **The synthetic funnel legs are still in there, and they are not a well-formed funnel.**")
+    else:
+        w("2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**")
+    w("   WIC-996 emitted all three upload legs 0.3 s apart including `completed` _and_ `failed` for one")
     w("   session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling")
-    w("   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of")
-    w(f"   the {lifetime} lifetime events, both terminal events and both `submitted` are probes. Any funnel")
-    w("   conversion you compute today is an artefact. Exclude first, then read.")
+    w("   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above).")
+    # Registry-derived, so its length moves with the data: wrapped rather than hand-broken.
+    for line in textwrap.wrap(
+        funnel_clause(reg, synthetic, organic),
+        width=98, initial_indent="   ", subsequent_indent="   ",
+        break_long_words=False, break_on_hyphens=False,
+    ):
+        w(line)
     w("")
     w("---")
     w("")
@@ -320,26 +429,32 @@ def main():
     # Wrapped here rather than as fixed `w()` lines: the breakdown is registry-derived, so its
     # length changes with the data and hand-placed line breaks would drift past printWidth.
     for line in textwrap.wrap(
-        f"**Mostly zeros, and that is correct.** PostHog project `{PROJECT}` holds "
-        f"**{lifetime} lifetime events, all synthetic** ({probe_breakdown(reg)}). Zero organic "
-        f"traffic has ever reached it — last verified {reg['last_verified']} by "
-        f"{reg['last_verified_by']}. All {lifetime} are itemised in "
-        f"`docs/analytics/{REGISTRY}`; apply the exclusion above and every tile reads **0**, "
-        "which is the honest day-one picture. The counts described in the next paragraph are "
-        "what you see _without_ the exclusion, i.e. probe residue.",
+        day_one_paragraph(reg, lifetime, synthetic, organic),
         width=98, break_long_words=False, break_on_hyphens=False,
     ):
         w(line)
     w("")
-    w("Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the")
-    w("app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the")
-    w("client transport is broken — WIC-1012 proved the client capture leg round-trips.")
-    w("")
-    w("So on build day: **A1, A4-A9, B5, C2, C3 render real (synthetic) numbers; A2, A3, B1-B4, C1**")
-    w("**render empty.** Empty is the honest state, not a build defect. Do not treat it as a regression,")
-    w("and do not re-file the missing `$pageview` — there is no autocapture by design (hand-rolled")
-    w("`/capture` wrapper, and `dashboard-spec.md` has zero pageview/UTM/referrer dependencies).")
-    w("")
+    # The tile-by-tile prediction below is a measurement of a zero-organic project, not a
+    # property of the dashboards. It stops being true the moment a real session lands, so it
+    # is withdrawn rather than restated once the registry records organic traffic.
+    if organic:
+        w("**The per-tile prediction that used to sit here has been withdrawn.** It enumerated which")
+        w("panels render empty, and it was only ever a measurement of a project holding nothing but")
+        w("probes. Organic traffic has since arrived, so re-measure rather than trusting a forecast")
+        w("written before there were any users. What still holds: there is no autocapture by design")
+        w("(hand-rolled `/capture` wrapper), so a missing `$pageview` is not a defect and should not be")
+        w("re-filed — `dashboard-spec.md` has zero pageview/UTM/referrer dependencies.")
+        w("")
+    else:
+        w("Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the")
+        w("app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the")
+        w("client transport is broken — WIC-1012 proved the client capture leg round-trips.")
+        w("")
+        w("So on build day: **A1, A4-A9, B5, C2, C3 render real (synthetic) numbers; A2, A3, B1-B4, C1**")
+        w("**render empty.** Empty is the honest state, not a build defect. Do not treat it as a regression,")
+        w("and do not re-file the missing `$pageview` — there is no autocapture by design (hand-rolled")
+        w("`/capture` wrapper, and `dashboard-spec.md` has zero pageview/UTM/referrer dependencies).")
+        w("")
     w("Re-check **C1-C3** once real multi-session traffic exists — they key on `person_id` and the")
     w("identity graph (WIC-822 server attribution + WIC-825 client `identify()` alias) is correct in")
     w("principle but unproven against organic users.")
@@ -348,12 +463,12 @@ def main():
     # Both artifacts are fully built before either is written, so a failure above can
     # never leave a half-regenerated pack on disk.
     out_json = os.path.join(HERE, "dashboard-templates.json")
-    with open(out_json, "w") as fh:
+    with open(out_json, "w", encoding="utf-8") as fh:
         json.dump(templates, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
 
     out_md = os.path.join(HERE, "console-build-runbook.md")
-    with open(out_md, "w") as fh:
+    with open(out_md, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
 
     for name, _ in DASHBOARDS:

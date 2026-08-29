@@ -140,9 +140,9 @@ Both will produce wrong panels if ignored, and neither is visible from the query
 2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**
    WIC-996 emitted all three upload legs 0.3 s apart including `completed` _and_ `failed` for one
    session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling
-   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of
-   the 6 lifetime events, both terminal events and both `submitted` are probes. Any funnel
-   conversion you compute today is an artefact. Exclude first, then read.
+   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above).
+   So of the 6 lifetime events, 2 terminal events and 2 `resume_upload_submitted` events are
+   probes. Any funnel conversion you compute today is an artefact. Exclude first, then read.
 
 ---
 
