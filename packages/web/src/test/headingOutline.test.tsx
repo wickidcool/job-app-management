@@ -66,6 +66,7 @@ describe('getOutline / findOutlineSkips', () => {
   });
 
   it('treats role="heading" with no aria-level as level 2, per ARIA', () => {
+    // eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- unlevelled on purpose: the absent aria-level IS the fixture (WIC-1483)
     const { container } = render(<div role="heading">Section</div>);
 
     expect(getOutline(container)).toEqual([{ level: 2, text: 'Section' }]);
@@ -79,6 +80,7 @@ describe('getOutline / findOutlineSkips', () => {
     const { container } = render(
       <>
         <h1>Page</h1>
+        {/* eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- unlevelled on purpose: the absent aria-level IS the fixture (WIC-1483) */}
         <div role="heading">Section</div>
         <h4>Deep</h4>
       </>
@@ -132,6 +134,7 @@ describe('getOutline / findOutlineSkips', () => {
         <div role="heading" aria-level={1}>
           Page
         </div>
+        {/* eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- unlevelled on purpose: the absent aria-level IS the fixture (WIC-1483) */}
         <div role="heading">Section</div>
         <div role="heading" aria-level={4}>
           Deep

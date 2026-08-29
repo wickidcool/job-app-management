@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
+import packageJsonRaw from '../../package.json?raw';
 
 /**
  * The `eslint-plugin-jsx-a11y` ratchet (WIC-1483, layer 1).
@@ -35,7 +33,28 @@ import { describe, expect, it } from 'vitest';
  * SC 1.3.1; the rendered-outline assertion is layer 2.
  */
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+/**
+ * `packages/web`, as an absolute path, derived without any `node:` builtin.
+ *
+ * This package typechecks with `"types": ["vite/client"]` and no `@types/node`, so
+ * `node:path`/`node:url`/`node:fs` are a TS2307 in CI's `typecheck` step while running
+ * perfectly well under vitest — green locally, red in CI. String methods need no types,
+ * and `?raw` is declared by vite/client, so both spellings used here are typed.
+ *
+ * Derived from this file's own location rather than `process.cwd()` so the suite lints
+ * the same tree no matter which directory vitest was started from.
+ *
+ * Sliced off `import.meta.url` as a plain string on purpose. `new URL('../..',
+ * import.meta.url)` is the obvious spelling and it does NOT work here: vite rewrites that
+ * exact pattern at transform time and hands back `/@fs/…/packages/web`, a served-asset
+ * path with no counterpart on disk. That value still ends in `/packages/web`, so it slips
+ * past the shape check below — it is caught by the file-count guard in `runEslint`, which
+ * is the assertion that actually pins this.
+ */
+const webRoot = decodeURIComponent(import.meta.url.replace(/^file:\/\//, '')).replace(
+  /\/src\/test\/[^/]*$/,
+  ''
+);
 
 type RuleCounts = Record<string, number>;
 
@@ -110,6 +129,8 @@ type Measurement = {
   byFile: Record<string, RuleCounts>;
   total: number;
   errors: number;
+  /** How many files ESLint actually read. Zero findings over zero files is not a clean tree. */
+  filesLinted: number;
 };
 
 /** Linting the whole tree takes ~10s, and two tests need it. Do it once. */
@@ -128,7 +149,16 @@ async function runEslint(): Promise<Measurement> {
   let errors = 0;
 
   for (const result of results) {
-    const rel = relative(webRoot, result.filePath).split('\\').join('/');
+    // ESLint reports absolute paths. Strip the root by prefix rather than with
+    // `path.relative`, and fail loudly if a result lands outside it instead of emitting a
+    // `../..`-shaped key that could never match the baseline and would read as a regression.
+    if (!result.filePath.startsWith(`${webRoot}/`)) {
+      throw new Error(`lint result outside ${webRoot}: ${result.filePath}`);
+    }
+    const rel = result.filePath
+      .slice(webRoot.length + 1)
+      .split('\\')
+      .join('/');
     for (const message of result.messages) {
       if (!message.ruleId?.startsWith('jsx-a11y/')) continue;
       const rule = message.ruleId.slice('jsx-a11y/'.length);
@@ -139,7 +169,7 @@ async function runEslint(): Promise<Measurement> {
     }
   }
 
-  return { byFile, total, errors };
+  return { byFile, total, errors, filesLinted: results.length };
 }
 
 describe('jsx-a11y baseline (WIC-1483)', () => {
@@ -147,9 +177,16 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // A positive control. Without it, every assertion below passes just as happily when
     // the plugin fails to load or the `extends` entry is dropped — a null result would
     // read as "the tree is clean" when it means "nothing was checked".
+    //
+    // The shape check on the root is necessary and NOT sufficient, which is worth stating
+    // because the insufficiency was demonstrated rather than imagined: the vite-rewritten
+    // `/@fs/…/packages/web` path satisfies this assertion and resolves to nothing on disk.
+    // The count in the next test is what closes that; this only catches a gross mismatch.
+    expect(webRoot.endsWith('/packages/web'), `webRoot resolved to ${webRoot}`).toBe(true);
+
     const eslint = new ESLint({ cwd: webRoot });
     const [result] = await eslint.lintText('export const Bad = () => <img src="x.png" />;\n', {
-      filePath: resolve(webRoot, 'src/__a11y_positive_control__.tsx'),
+      filePath: `${webRoot}/src/__a11y_positive_control__.tsx`,
     });
 
     const fired = result.messages.filter((m) => m.ruleId?.startsWith('jsx-a11y/'));
@@ -161,7 +198,14 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
   }, 60_000);
 
   it('matches the recorded baseline exactly — no new violations, and no stale entries', async () => {
-    const { byFile } = await measure();
+    const { byFile, filesLinted } = await measure();
+
+    // The anti-no-op guard. Every assertion in this file is a statement about a set of
+    // findings, and all of them are trivially satisfiable by measuring nothing — a root
+    // that points at a directory with no sources yields an empty map that reads as "the
+    // tree is clean". 148 `.ts`/`.tsx` files under `src` today; a floor of 100 tolerates
+    // ordinary churn while still catching a root that resolved somewhere else entirely.
+    expect(filesLinted).toBeGreaterThan(100);
 
     // Equality, deliberately. `toBeLessThanOrEqual` on a total would let a regression
     // hide behind an unrelated fix, and would let the baseline outlive the defects it
@@ -173,9 +217,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
 
   it('keeps the --max-warnings ceiling in step with the baseline', async () => {
     const { total, errors } = await measure();
-    const pkg = JSON.parse(readFileSync(resolve(webRoot, 'package.json'), 'utf8')) as {
-      scripts: Record<string, string>;
-    };
+    const pkg = JSON.parse(packageJsonRaw) as { scripts: Record<string, string> };
 
     // Guard the guard: if the flag is ever dropped or renamed, this must fail rather
     // than quietly stop pinning anything.
