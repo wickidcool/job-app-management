@@ -62,46 +62,25 @@ import {
  *   `userId ?? null`, so anonymous rows genuinely exist and are exactly what
  *   comes back. Local dev is unchanged.
  * - `resumes.user_id` is nullable for the same reason.
- * - `tech_stack_tags.user_id` is `.notNull()` since migration
- *   `0017_enforce_userid_not_null.sql` (pre-existing NULLs rewritten to the
- *   `00000000-…-0` placeholder, then `SET NOT NULL`), so `IS NULL` selects the
- *   empty set. That is deliberate and is the same call `bulletOwnerScope` makes
- *   for `quantified_bullets` on the WIC-1449 branch: an anonymous caller gets
- *   nothing rather than everything.
+ * - `tech_stack_tags.user_id` and `quantified_bullets.user_id` are `.notNull()`
+ *   since migration `0017_enforce_userid_not_null.sql` (pre-existing NULLs
+ *   rewritten to the `00000000-…-0` placeholder, then `SET NOT NULL`), so
+ *   `IS NULL` selects the empty set. That is deliberate: an anonymous caller
+ *   gets nothing rather than everything, and the read's caller must be prepared
+ *   for it. The `userId ?? null` insert path that once justified a nullable
+ *   reading is dead for the same reason — post-0017 it is rejected with `23502`.
+ *   Do not cite `personal-info.service.ts:34` as precedent either:
+ *   `personalInfo.userId` is nullable, so `IS NULL` genuinely selects that
+ *   table's anonymous rows; here it selects none.
+ *
+ * `quantified_bullets` is the case WIC-1449 landed a dedicated `bulletOwnerScope`
+ * for. That helper is gone: it was this function with the table pre-applied, and
+ * one predicate with one name is the point. `rawText` is the user-authored
+ * accomplishment sentence and is returned verbatim to the caller and persisted
+ * into `resume_variants.content`, so every read of that table must carry this.
  */
 function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
-}
-
-/**
- * Owner predicate for the STAR catalog (WIC-1449) — the `quantified_bullets`
- * specialisation of `ownerScope` above, kept as a named function because every
- * read of that table must carry it and the name is what the WIC-1449/WIC-1537
- * mutation matrices grep for.
- *
- * `rawText` is the user-authored accomplishment sentence and is returned
- * verbatim to the caller and persisted into `resume_variants.content`. RLS is
- * not a backstop: the policies in `0002_rls_current_schema.sql` are granted
- * `TO authenticated USING (auth.uid() = user_id)`, but the Worker connects over
- * a raw `postgres://` string and never sets a JWT claim, so `auth.uid()` is
- * NULL and the policies never apply. The predicate has to be in the query.
- *
- * Returned unconditionally, never `undefined`: an absent caller id must not
- * fail open to the whole table. It scopes to `IS NULL`, which since migration
- * `0017_enforce_userid_not_null.sql` matches **no rows at all** — Step 1 rewrote
- * every pre-existing NULL to the placeholder `00000000-0000-0000-0000-000000000000`
- * and Step 2 ran `ALTER COLUMN user_id SET NOT NULL`, so `quantifiedBullets.userId`
- * is `.notNull()` and a NULL owner is unrepresentable. That is deliberate: an
- * anonymous caller gets nothing rather than everything.
- *
- * The `userId ?? null` insert path this predicate used to be justified by is
- * dead for the same reason — post-0017 it is rejected with `23502`. Do not cite
- * `personal-info.service.ts:34` as precedent either: `personalInfo.userId` is
- * nullable, so `IS NULL` genuinely selects that table's anonymous rows. Here it
- * selects the empty set, and the read's caller must be prepared for it.
- */
-function bulletOwnerScope(userId?: string) {
-  return ownerScope(quantifiedBullets, userId);
 }
 
 // ── DTO mappers ───────────────────────────────────────────────────────────────
@@ -280,7 +259,9 @@ export async function generateResumeVariant(
       const foundBullets = await db
         .select({ id: quantifiedBullets.id })
         .from(quantifiedBullets)
-        .where(and(bulletOwnerScope(userId), inArray(quantifiedBullets.id, allBulletIds)));
+        .where(
+          and(ownerScope(quantifiedBullets, userId), inArray(quantifiedBullets.id, allBulletIds))
+        );
       const foundIds = new Set(foundBullets.map((b) => b.id));
       const invalidIds = allBulletIds.filter((id) => !foundIds.has(id));
       if (invalidIds.length > 0) {
@@ -347,7 +328,7 @@ export async function generateResumeVariant(
       impactCategory: quantifiedBullets.impactCategory,
     })
     .from(quantifiedBullets)
-    .where(bulletOwnerScope(userId))
+    .where(ownerScope(quantifiedBullets, userId))
     .limit(200);
 
   // Evaluated over the caller's catalog, so UC-6's empty-state is reachable for a
@@ -610,7 +591,7 @@ export async function getResumeVariant(
         impactCategory: quantifiedBullets.impactCategory,
       })
       .from(quantifiedBullets)
-      .where(and(bulletOwnerScope(userId), inArray(quantifiedBullets.id, usedIds)));
+      .where(and(ownerScope(quantifiedBullets, userId), inArray(quantifiedBullets.id, usedIds)));
     usedBullets = rows.map((b) => ({
       id: b.id,
       rawText: b.rawText,
@@ -867,7 +848,7 @@ Rules:
         impactCategory: quantifiedBullets.impactCategory,
       })
       .from(quantifiedBullets)
-      .where(and(bulletOwnerScope(userId), inArray(quantifiedBullets.id, usedIds)));
+      .where(and(ownerScope(quantifiedBullets, userId), inArray(quantifiedBullets.id, usedIds)));
     usedBullets = bulletRows.map((b) => ({
       id: b.id,
       rawText: b.rawText,
@@ -912,7 +893,7 @@ export async function suggestBullets(
   // the whole function body. Both reads below must carry this, including the
   // `excludeBulletIds` branch — an owner term in only one arm of that ternary is
   // the WIC-1601 defect.
-  const bulletScope = bulletOwnerScope(userId);
+  const bulletScope = ownerScope(quantifiedBullets, userId);
 
   const [{ count: totalCatalogBullets }] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
