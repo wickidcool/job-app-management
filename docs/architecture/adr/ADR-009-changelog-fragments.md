@@ -131,15 +131,48 @@ re-collide faster than its author can push a fix through a ~5-minute CI cycle.
 
 ### The union driver's own failures
 
-`merge=union` resolves by concatenation and reports success. Two of its resolutions reached `main`:
+`merge=union` resolves by concatenation and reports success. Two of its resolutions are **known** to
+have reached `main`:
 
 - It duplicated three bullets into the WIC-1288 entry, shipping two contradictory descriptions of
   one change (WIC-1561, repaired by #181).
 - It ate the blank line at an insertion seam, welding a `### ` heading onto the previous entry's
   last bullet — **even though both parents had that blank line** (WIC-1567, repaired by #185).
 
-Neither showed a conflict marker; neither failed a build. `CLAUDE.md` now carries a `python3`
-detector for exactly these, which is a good mitigation for a hazard that should not exist.
+Neither showed a conflict marker; neither failed a build.
+
+**Two is a floor, not a count** — and the reason is the third failure in this ledger. `CLAUDE.md`
+carries a `python3` detector prescribed as the remedy for exactly these two classes. As originally
+shipped (#186, 2026-08-26 19:09) it matched **byte-identical** stripped lines:
+
+```python
+dup = {k: v for k, v in collections.Counter(
+    l.strip() for l in L if l.strip().startswith('- ') and len(l.strip()) > 40).items() if v > 1}
+```
+
+Two *revisions* of one bullet are by construction not byte-identical, so the detector could never
+see the WIC-1561 class it was half written for. It caught the weld (its blank-line half works); it
+was blind to the double-ship. That blindness lasted **2d 19h 52m — 56 commits touching
+`CHANGELOG.md`, 18 of them merges** — until #231 replaced the exact match with a normalised-prefix
+one (WIC-1687, 2026-08-29 15:01). Any union double-ship that landed in that window is still on
+`main` and was never looked for.
+
+**This PR reproduced the WIC-1567 weld while being written.** Merging `origin/main` into this branch
+(`7293261`, to repair an unrelated `CONFLICTING` flag) welded main's incoming
+`### Fixed — organic-traffic watcher…` heading onto the last bullet of this ADR's own changelog
+entry — no conflict marker, no failing check. `main` was clean at that commit and this branch was
+not, so the driver did it here. It was found only by running the *repaired* detector, and it is
+repaired in the next commit. A proposal to abolish the union driver was itself corrupted by the
+union driver, in the documented class, inside a three-day-old mitigation window. Nothing further
+needs to be said about whether the hazard is theoretical.
+
+This is the argument, not a footnote. The mitigation stack for a driver adopted to remove toil has
+now itself produced three repairs (#181, #185, #231), and the third was a **silent** failure of the
+very check the repo tells authors to trust: an author who ran it and read `duplicate bullets: none`
+had done what `CLAUDE.md` asked and came away with positive evidence of correctness that the tool
+could not actually supply. That converts *"I didn't look"* into *"I looked and it was fine"*, which
+is strictly worse than having no check. A hazard whose detector needs its own defect history is not
+a mitigated hazard; it is a hazard with more machinery attached.
 
 ## Decision
 
@@ -224,7 +257,8 @@ leaving every one of them still editing the shared file. Sequencing therefore ma
 
 - Changelog insertion conflicts become structurally impossible, not merely less likely.
 - The entire "local git says clean, GitHub says `CONFLICTING`" confusion class disappears, along
-  with the two union misbehaviours that reached `main` (WIC-1561, WIC-1567).
+  with the union misbehaviour class itself (WIC-1561, WIC-1567 known; see the floor-not-a-count
+  argument above) and the obligation to maintain a detector for it (WIC-1687).
 - Entries gain per-card attribution before assembly, and the assembly PR gives the changelog a
   single reviewable checkpoint it has never had.
 
@@ -273,8 +307,10 @@ sound and would remove the author toil without changing the convention.
 Rejected because it makes CI a writer to every contributor branch — a permission grant that
 collides with the pending force-push governance question (`b6d0f6dd`) — and because it would run
 the union driver unattended at ~11 merges/day, automating the exact resolution that has already
-shipped two defects to `main` (WIC-1561, WIC-1567). It treats the symptom at the highest possible
-blast radius.
+shipped at least two defects to `main` (WIC-1561, WIC-1567) — a resolution whose only detector was
+blind to one of those classes for its first 2d 20h (WIC-1687). Unattended automation of a silent
+resolution is precisely the combination that produced the floor-not-a-count problem above. It
+treats the symptom at the highest possible blast radius.
 
 ## How we will know whether it worked
 
@@ -309,7 +345,8 @@ PRs by the next N changelog-touching merges.
 ## References
 
 - WIC-1577 (this ADR) · WIC-1543 (anchor, and the `.gitattributes`-is-ignored finding) ·
-  WIC-1157 (union driver) · WIC-1561, WIC-1567 (union driver defects)
+  WIC-1157 (union driver) · WIC-1561, WIC-1567 (union driver defects) · WIC-1687 (the detector for
+  those defects was itself blind to one of them)
 - Re-merge cards: WIC-1303, WIC-1363, WIC-1368, WIC-1375, WIC-1376, WIC-1486, WIC-1513, WIC-1552
 - Stale-`[Unreleased]` cards: WIC-1394, WIC-1457, WIC-1512, WIC-1552
 - `CLAUDE.md` → "Changelog conventions" (rewritten by the implementing PR)

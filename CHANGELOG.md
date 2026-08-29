@@ -180,6 +180,7 @@ Eleven board cards have been opened, worked and closed by performing the same ma
 - **Assembly opens a PR rather than pushing to `main`.** That keeps the change reviewable, needs no branch-protection bypass, and avoids the pending force-push governance question entirely. It is scheduled rather than deferred to release because this repo has zero tags and its `[Unreleased]` has never been cut — "assemble at release" would mean "never assemble".
 - **A falsifiable success metric.** Zero changelog conflicts across the next 50 merges for PRs authored under the convention, plus a liveness check that no fragment sits in `changelog.d/` for more than 7 days — the failure mode the proposal itself introduces.
 - Documentation only. No source, schema, wire, or test change. Adopting the ADR is a follow-up.
+
 ### Fixed — The organic-traffic watcher's two PostHog fetches share one fault tuple, so exit `10` survives a network fault (2026-08-29)
 
 The entry below fixed the except tuple in `organic_watch.py`'s `prod_db_health()`. The watcher's two `run()` call sites had the same gap and were left out of that PR's scope: the candidate-detail fetch caught only `(URLError, HTTPError, RuntimeError, KeyError)`, through which **12 of 16 measured fault classes escaped** (WIC-1680).
