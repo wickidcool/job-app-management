@@ -147,13 +147,55 @@ so it sees every syntactic shape, not the one shape a regex was written for. It 
 existing `Lint & Test` job, following the precedent already set there by
 `python3 docs/design/wireframe-casing-audit.py` and `npm run scan:secrets`.
 
-It reports two checks:
+It reports three checks:
 
 - **`[SIG]`** — an exported function whose owner parameter is optional or nullable. This is the
   _precondition_ for a fail-open predicate: you cannot branch on an absent owner if absence is
   unrepresentable. This is the check that enforces D2.
-- **`[COND]`** — the owner identifier in a conditional position (ternary test, `if`, `&&`/`||`).
-  This catches a predicate reintroduced against a still-optional signature.
+- **`[COND]`** — the owner identifier in a conditional position (ternary test, `if`, `&&`/`||`,
+  `!owner`, `owner == null`). This catches a predicate reintroduced against a still-optional
+  signature.
+- **`[NOWNER]`** — an UPDATE or DELETE against an owner-bearing table whose `where` predicate
+  contains no owner column. Added by D5 below.
+
+### D5 — The guard also checks owner-**absent** writes, not only fail-open predicates
+
+`[SIG]` and `[COND]` measure sites where the owner is _representable-as-absent and branched on_.
+They say nothing about a site that never mentions the owner at all — and such a site is **strictly
+worse** than a fail-open ternary. A ternary degrades only when the owner is absent; a write with no
+owner term fires unconditionally, **even when the owner is present**, matching every tenant's row.
+
+That class also inverted the burndown metric. A site that ignores the owner entirely satisfies the
+letter of both checks, so it yielded no finding and appeared in **neither the numerator nor the
+denominator** of the 157 → 131 count. Its absence read as health.
+
+`[NOWNER]` closes that hole. It keys on the **schema column** rather than on a parameter name:
+owner-bearing tables are read out of `packages/api/src/db/schema.ts` at run time, so a new table
+declared with a `user_id` column is in scope the day it lands, and the check cannot be evaded by
+the two one-line re-spellings that defeat the name-based checks (renaming `userId` to `callerId`,
+or hiding optionality behind a type alias).
+
+**It distinguishes cardinality, because the severities genuinely differ.** A write scoped by a
+primary key or a `.unique()` column matches at most one row and cannot fan out across tenants;
+whether that id was itself owner-checked upstream is an IDOR question this guard does not answer.
+Those are **counted and printed on every run**, but not gated on. Only a write scoped by a
+**non-unique** key with no owner term is a finding — which is exactly the shape the schema settles,
+since uniqueness on these tables is declared as `(userId, key)`, making the key alone non-unique
+across tenants by declaration.
+
+**What a green run does NOT assert** is now printed on every run and listed by `--stats`: the
+unique/pk-scoped writes above, any predicate the script cannot resolve, and read-side (`SELECT`)
+cross-tenant leaks, which are real but a far larger population and should be measured before being
+gated. A guard that prints only its own findings makes its blind spots invisible — which is how a
+green run came to be read as tree-wide owner-scoping health.
+
+**The guard now has positive controls of its own** (`packages/api/test/audit-owner-predicates.test.ts`,
+21 cases). The guard is what is advertised to hold the line as _new_ sites appear, and a new site
+has no tests yet, so the guard's own detection has to be the thing under test. Each case is a
+one-line re-spelling of a real pattern, run against a synthetic fixture tree via `--root` so the
+cases stay stable as the burndown proceeds. Notably the suite pins the fail-**closed** exemption:
+`if (!userId) throw` is the posture this ADR asks for, and counting it as a violation would make
+the fix read as the defect.
 
 **It ships in baseline mode.** `origin/main` carries 157 findings at the commit this guard lands on
 (`5e2956b`); it carried 138 when the set was first frozen at `1c54133` a day earlier — see
@@ -255,6 +297,34 @@ it*. Re-freezing at the landing commit (`5e2956b`, 157) is not an exception to t
 precondition: a guard pinned to a baseline older than the commit it merges into fails on debt it did
 not create and can never land. The +19 is recorded above rather than absorbed silently — that is the
 difference between re-freezing and appending. Every site added **after** `5e2956b` fails CI.
+
+### D5 — what `[NOWNER]` found on first run
+
+Measured on the WIC-1638 burndown head (`341d897`, the tree where `[SIG]`+`[COND]` report a clean
+131 and CI is green). Of **46** UPDATE/DELETE sites against the **21** owner-bearing tables:
+
+| class                              | count | gated |
+| ---------------------------------- | ----: | ----- |
+| owner-scoped                       |    21 | —     |
+| unique/pk-scoped (at most one row) |    18 | no    |
+| predicate unresolvable             |     0 | no    |
+| **non-unique key, no owner term**  | **7** | yes   |
+
+The 7 are the finding. Four are the `extraction.service.ts` catalog updates (`companyCatalog`,
+`techStackTags`, `jobFitTags`, `recurringThemes`), each scoped by a business key whose uniqueness is
+declared as `(userId, key)` — **already fixed on PR #141 (WIC-1404)**, which is sitting in the
+review queue.
+
+**Three were previously unreported:** `project.service.ts:464`, `:512`, `:548`, all
+`db.update(projects).set({ updatedAt }).where(eq(projects.slug, slug))`. `projects` declares
+`uniqueIndex('idx_projects_user_slug').on(t.userId, t.slug)`, so `slug` alone is non-unique across
+tenants by the same argument, and each of these touches every tenant's project with that slug. No
+fix is in flight for them; tracked separately.
+
+All 7 are frozen into the baseline (131 → 138) under the same rule as the rest: the guard fails on
+**new** sites, and burning these down is the burndown's job. `[SIG]`+`[COND]` remained at exactly
+131 across the `[COND]`/`[SIG]` hardening in this change — the added coverage found no new real
+sites in this tree, so the hardening is not a metric-inflating change.
 
 ## Consequences
 
