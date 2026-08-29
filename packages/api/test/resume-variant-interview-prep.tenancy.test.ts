@@ -71,8 +71,33 @@
 //
 // ## The matrix this file is accepted against
 //
-// Re-run by flipping `and(` → `or(` on exactly one line and running this file.
-// Line numbers are as of the commit that adds them; re-derive them with
+// There are two matrices, measured on two different trees, and both are kept:
+// A on the pre-fix tree (WIC-1537 + WIC-1610, PR #203), B on this tree with
+// WIC-1601's fix applied (PR #206). Neither renumbers the other — a matrix is
+// only meaningful against the tree it was run on.
+//
+// ### Matrix B — this tree, WIC-1601's fix applied
+//
+// **Superseded once, and the reason is the point.** The first revision of this
+// matrix used `[or]` — flip `and(` → `or(` — at all twenty-two sites. Ten of
+// them are in `interviewPrep.service.ts`, which imports `{ eq, and, sql, isNull }`
+// and **no `or`**, so those ten cells went red on `ReferenceError: or is not
+// defined`: a kill that fires just as readily against a perfectly scoped
+// predicate, and therefore measures nothing. That is WIC-1610's finding against
+// PR #203's matrix, reproduced verbatim in this one — it was written on
+// 2026-08-27, two days before WIC-1610 named the trap. Re-measured below with a
+// uniform `[drop]` operator, which needs no import.
+//
+// `[drop]` = delete the owner term and nothing else:
+//   - single-line `and(idTerm, ownerScope(t, userId))` → `and(idTerm)`
+//   - multi-line: delete the `ownerScope(...)` line, drop the trailing comma
+//     above it (so the expected numstat is `1 2`, not `1 1`)
+//   - `listResumeVariants` — `[ownerScope(…) as any]` → `[]`
+//   - the two `ownerScope` bodies — `isNull(table.userId)` → `undefined`, i.e.
+//     restoring the WIC-1482 fail-open
+//
+// Re-run by mutating exactly one line and running this file. Line numbers are as
+// of the merge commit that composes #203 and #206; re-derive them with
 // `grep -n 'ownerScope('` before trusting them, because five of the
 // `resume_variants` lines are byte-identical and the original card's numbers had
 // already drifted.
@@ -82,7 +107,7 @@
 //   resume-variant.service.ts:555   getResumeVariant                      RED ×2
 //   resume-variant.service.ts:589   getResumeVariant baseResume           RED ×1
 //   resume-variant.service.ts:619   listResumeVariants owner condition †  RED ×2
-//   resume-variant.service.ts:679   updateResumeVariant UPDATE            RED ×3
+//   resume-variant.service.ts:682   updateResumeVariant UPDATE §          RED ×2
 //   resume-variant.service.ts:688   updateResumeVariant re-check          RED ×2
 //   resume-variant.service.ts:701   deleteResumeVariant                   RED ×2
 //   resume-variant.service.ts:720   reviseResumeVariant                   RED ×1
@@ -92,7 +117,7 @@
 //   interviewPrep.service.ts:443    generateInterviewPrep prep uniqueness RED ×1
 //   interviewPrep.service.ts:608    getInterviewPrep                      RED ×2
 //   interviewPrep.service.ts:629    getInterviewPrep application          RED ×1
-//   interviewPrep.service.ts:653    getInterviewPrepByApplication         RED ×2
+//   interviewPrep.service.ts:655    getInterviewPrepByApplication         RED ×2
 //   interviewPrep.service.ts:676    updateInterviewPrep                   RED ×1
 //   interviewPrep.service.ts:822    logPracticeSession                    RED ×1
 //   interviewPrep.service.ts:984    exportInterviewPrep                   RED ×1
@@ -100,26 +125,90 @@
 //   interviewPrep.service.ts:1168   deleteInterviewPrep                   RED ×1
 //   interviewPrep.service.ts:48     ownerScope anonymous fallback ‡       RED ×3
 //
-//   † not an `and(`→`or(` flip — the owner term is an array element, so the
-//     mutation is dropping it: `[ownerScope(…) as any]` → `[]`.
+// Plus the two second-hop predicates WIC-1610 reclassified out of the control
+// list. They carry no owner term — they key on the prep and inherit tenancy
+// from the scoped read above them — but dropping that key is observable, so
+// they are covered sites, not controls:
+//
+//   interviewPrep.service.ts:710    story update  interviewPrepId         RED ×1
+//   interviewPrep.service.ts:926    story result  interviewPrepId         RED ×1
+//
+// Twenty-four cells. All twenty-four passed all four gates: the edit landed
+// (`git diff --numstat` matched), the mutant compiled (`passed + failed == 36`
+// every time, so no cell was a silent parse failure read as green), the suite
+// noticed, and the failure mode was the tenancy semantics rather than a crash —
+// **zero `ReferenceError`s and zero `TypeError`s across the whole matrix**,
+// against ten in the superseded `[or]` revision. The representative failure is
+// `deleteInterviewPrep does not delete another user's prep` →
+// `AssertionError: promise resolved "undefined" instead of rejecting`, i.e. the
+// entry point acting on a record the caller does not own.
+//
+// Twenty-three of the twenty-four kill counts match what the `[or]` revision
+// predicted, which is the cross-check that the operator swap did not quietly
+// change what is covered. The one that moved is §.
+//
+// ### Matrix A — the pre-fix tree (PR #203, WIC-1537 as corrected by WIC-1610)
+//
+// Kept verbatim because it is the acceptance record of the change this one is
+// stacked on, and its line numbers belong to that tree, not this one.
+//
+// Re-run one line at a time against the **whole** `packages/api` suite. Line
+// numbers are as of the commit that adds this file; re-derive them with
+// `grep -n` before trusting them, because five of the `resume_variants` lines
+// are byte-identical and the card's own numbers had already drifted.
+//
+// Two different operators, because one of them is not executable everywhere —
+// see "four gates" below:
+//   [or]   flip `and(` → `or(`      (only where `or` is imported)
+//   [drop] delete the owner term, collapsing the `userId` branch onto the
+//          anonymous branch — needs no import, and is the shape of the real
+//          defect rather than a boolean-logic typo
+//
+//   resume-variant.service.ts:511  getResumeVariant              [or]   RED ×1
+//   resume-variant.service.ts:599  listResumeVariants and(...)   [or]   RED ×1
+//   resume-variant.service.ts:633  updateResumeVariant UPDATE    [or]   RED ×2
+//   resume-variant.service.ts:644  updateResumeVariant re-check  [or]   RED ×1
+//   resume-variant.service.ts:659  deleteResumeVariant           [or]   RED ×1
+//   resume-variant.service.ts:680  reviseResumeVariant           [or]   RED ×1
+//   resume-variant.service.ts:895  exportResumeVariant           [or]   RED ×1
+//   interviewPrep.service.ts:579   getInterviewPrep              [drop] RED ×1
+//   interviewPrep.service.ts:626   getInterviewPrepByApplication [drop] RED ×1
+//   interviewPrep.service.ts:648   updateInterviewPrep           [drop] RED ×1
+//   interviewPrep.service.ts:796   logPracticeSession            [drop] RED ×1
+//   interviewPrep.service.ts:960   exportInterviewPrep           [drop] RED ×1
+//   interviewPrep.service.ts:1146  deleteInterviewPrep           [drop] RED ×1
+//
+// Second-hop predicates on `interview_prep_stories`, keyed on the prep rather
+// than on an owner (see the describe block at the bottom of this file):
+//
+//   interviewPrep.service.ts:683   story update  interviewPrepId  [drop] RED ×1
+//   interviewPrep.service.ts:901   story result  interviewPrepId  [drop] RED ×1
+//
+//   † the owner term is an array element, so the mutation is dropping it:
+//     `[ownerScope(…) as any]` → `[]`.
 //   ‡ `isNull(table.userId)` → `undefined`, i.e. restoring the fail-open. This
 //     is the only aggregate cell in the matrix, because the fallback genuinely
 //     is one shared decision rather than a per-site one.
+//   § the one kill count that moved between operators, and it moved for a
+//     reason that holds up: `[or]` on `and(id, version, userId)` yields
+//     `or(id, version, userId)`, which breaks the 404 path, the 409 path and
+//     the anonymous path at once (RED ×3). `[drop]` removes only the owner
+//     term, so the version/409 path survives (RED ×2). The narrower operator
+//     is the more honest one — three kills for a one-term defect was the
+//     boolean-typo blast radius, not the tenancy signal.
 //
-// All 22 went red at exactly the count predicted before the run. The `×n` is the
-// point: a site count only proves a mutation was *applied*, the kill count
-// proves it changed *behaviour* this file can see (WIC-1574). `:679` kills three
-// because `or(id, version, userId)` breaks the 404 path, the 409 path and the
-// anonymous path at once.
+// The `×n` is the point: a site count only proves a mutation was *applied*, the
+// kill count proves it changed *behaviour* this file can see (WIC-1574).
 //
 // Two traps this matrix hit and had to be re-run past, both worth keeping:
 //
 // - `interviewPrep.service.ts` does not import `or`. The first pass flipped
 //   `and(`→`or(` there and every cell went red on `ReferenceError: or is not
 //   defined` — a kill that fires against a perfectly scoped predicate too, so
-//   those cells measured nothing. The operator has to be imported as part of the
-//   mutant, and an **import-only** cell (kills 0) is what proves the import is
-//   not itself what the tests are seeing.
+//   those cells measured nothing. Either the operator is imported as part of the
+//   mutant (and an **import-only** cell, kills 0, proves the import is not
+//   itself what the tests are seeing), or — as here — you pick an operator that
+//   needs no import at all.
 // - Three ip cells over-shot their prediction before that fix, which is what
 //   exposed it. A cell that kills *more* than predicted deserves the same
 //   scrutiny as one that kills less.
@@ -131,26 +220,90 @@
 // 'Umbrella']` out of `getInterviewPrep`, and the filename
 // `interview-prep-umbrella-2026-08-27.md` out of `exportInterviewPrep`.
 //
-// ## Negative controls — these must stay GREEN
+// ## A mutation matrix needs four gates, not two (WIC-1610)
+//
+// The first revision of this matrix passed two gates and was still wrong twice.
+//
+//   1. the edit landed     — `git diff --numstat` == `1 1`
+//   2. the suite noticed   — kill count matches the prediction
+//   3. the mutant COMPILED — a mutant that does not parse produces no `Tests`
+//      summary line at all, and a harness that greps for failures reads that
+//      as a clean green. Anchoring one line off a multi-line `and(` is enough
+//      to trigger it.
+//   4. the failure MODE is the semantics you named — read the assertion text.
+//      `interviewPrep.service.ts` imports `{ eq, and, sql }` and **no `or`**, so
+//      all six `[or]` rows here originally went red on
+//      `ReferenceError: or is not defined`. Diff gate green, kill counts green,
+//      measuring a typo. Two further rows (`:680`, `:895`) went red on a
+//      downstream `TypeError` after the guard let the row through — a real leak,
+//      but reported as a crash, so those two cases now capture the outcome and
+//      assert the tenancy violation *before* the error type.
+//
+// Under `[drop]`, five of the six `interview_preps` rows now fail with
+// `promise resolved … instead of rejecting` — the entry point handing back a
+// record the caller does not own, which is the actual finding.
+//
+// ## Negative control — exactly one, and it is reachable
+//
+// WIC-1610's account of the controls is the one that survives this merge, and
+// it **overrides** the three-control list WIC-1601 carried before it. That list
+// asserted "all three stayed green, which is what distinguishes this file from
+// one that is merely mutation-sensitive" — but two of the three were never
+// controls at all, so that sentence was claiming reachability it had not
+// probed. Superseded, not renumbered (WIC-1545).
 //
 //   resume-variant.service.ts:813  revise optimistic-lock write and(id, version)
-//   interviewPrep.service.ts:708   story update  and(storyId, interviewPrepId)
-//   interviewPrep.service.ts:926   story result  and(storyId, interviewPrepId)
+//                                  REACHED and GREEN — the one real control
 //
-// None carries an owner term; each is guarded upstream by one of the scoped
-// reads above. All three stayed green, which is what distinguishes this file
-// from one that is merely mutation-sensitive in general.
+// A control only means something if the suite executes the line. Probe it by
+// replacing `and(` with an undefined identifier: a ReferenceError means the line
+// runs, green means it never did. WIC-1537's first revision listed four controls
+// and **all four were dead** — they would have stayed green with their predicate
+// deleted outright, so their green was evidence of nothing.
 //
-// WIC-1537's fourth control — `resume-variant.service.ts:638`, the anonymous
-// `and(id, version)` fallback of `updateResumeVariant` — is **gone rather than
-// passing**: WIC-1601 deleted the branch it lived on. Recording that here
-// because a control silently disappearing from a list is indistinguishable from
-// one that was quietly dropped for failing.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+// All three candidates were probed that way on this tree, and all three came
+// back REACHED. What separates them is what happens when their second term is
+// dropped:
+//
+//   - `:813` (`:774` pre-fix) is reached by the happy-path case at the bottom of
+//     this file, and dropping its `version` term leaves 36/36 green. That is a
+//     real control: the line runs, and the suite is *not* keyed on it.
+//   - `interviewPrep.service.ts:710`/`:926` (`:683`/`:901` pre-fix) are reached
+//     too, but dropping their `interviewPrepId` term kills a case each — so
+//     they are load-bearing, not controls, and they moved into the matrix above
+//     as covered sites. Re-measuring a candidate control by deleting its
+//     predicate is the only way to tell those two states apart; a bare green
+//     cannot.
+//   - `resume-variant.service.ts:638`, the anonymous-caller fallback, was
+//     **withdrawn** rather than made reachable, because executing it would pin
+//     the WIC-1482 fail-open as intended behaviour. On this tree it is moot:
+//     WIC-1601 deleted the branch it lived on. Recorded because a control
+//     silently vanishing from a list is indistinguishable from one quietly
+//     dropped for failing.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
+// `reviseResumeVariant` is the only entry point here that reaches Anthropic, and
+// it does so *after* the guard at :720. Reaching the optimistic-lock write below
+// it — the one genuine negative control in this file — means completing the
+// happy path, so the client has to be stubbed. Same factory shape as
+// `llm.service.test.ts`.
+vi.mock('@anthropic-ai/sdk', () => {
+  const mockCreate = vi.fn();
+  return {
+    default: vi.fn().mockImplementation(() => ({ messages: { create: mockCreate } })),
+    __mockCreate: mockCreate,
+  };
+});
+
+async function getMockCreate(): Promise<ReturnType<typeof vi.fn>> {
+  const mod = await import('@anthropic-ai/sdk');
+  return (mod as unknown as { __mockCreate: ReturnType<typeof vi.fn> }).__mockCreate;
+}
+
 import { getDb } from '../src/db/client.js';
+import { _resetConfig } from '../src/config.js';
 import {
   generateResumeVariant,
   getResumeVariant,
@@ -184,6 +337,8 @@ const MY_RESUME = '01HZRESUMEMINE0000000001';
 const THEIR_RESUME = '01HZRESUMETHEIRS00000001';
 const MY_TAG = '01HZTAGMINE00000000000001';
 const THEIR_TAG = '01HZTAGTHEIRS0000000001';
+const MY_STORY = '01HZSTORYMINE000000000001';
+const THEIR_STORY = '01HZSTORYTHEIRS0000000001';
 
 const VARIANTS = 'resume_variants';
 const PREPS = 'interview_preps';
@@ -252,6 +407,33 @@ function appRow(over: ProbeRow = {}): ProbeRow {
   };
 }
 
+/** An `interview_prep_stories` row. Note the table has its own nullable
+ * `user_id`, which neither second-hop predicate uses — they key on
+ * `interview_prep_id` and inherit tenancy from the prep read above them. That
+ * inheritance is the thing the two cases at the bottom of this file execute. */
+function storyRow(over: ProbeRow = {}): ProbeRow {
+  return {
+    id: MY_STORY,
+    userId: CALLER,
+    interviewPrepId: MINE,
+    starEntryId: '01HZSTAR00000000000000001',
+    themes: ['ownership'],
+    relevanceScore: 80,
+    oneMinVersion: 'one minute',
+    twoMinVersion: 'two minutes',
+    fiveMinVersion: 'five minutes',
+    isFavorite: false,
+    personalNotes: null,
+    practiceCount: 0,
+    lastPracticedAt: null,
+    confidenceLevel: 'not_practiced',
+    displayOrder: 0,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...over,
+  };
+}
+
 /** A `resumes` row, as `generateResumeVariant`/`getResumeVariant` read it. */
 function resumeRow(over: ProbeRow = {}): ProbeRow {
   return { id: MY_RESUME, userId: CALLER, fileName: 'mine.pdf', version: 1, ...over };
@@ -277,6 +459,11 @@ function stubTables(fixtures: Record<string, ProbeRow[]>): ScopedReadStub {
   vi.mocked(getDb).mockReturnValue(s.db as ReturnType<typeof getDb>);
   return s;
 }
+
+const storyFixture = () => [
+  storyRow(),
+  storyRow({ id: THEIR_STORY, interviewPrepId: THEIRS, userId: OTHER }),
+];
 
 const variantFixture = () => [variantRow(), variantRow({ id: THEIRS, userId: OTHER })];
 const prepFixture = () => [
@@ -309,6 +496,13 @@ function expectNothingForeignReached(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env['ANTHROPIC_API_KEY'] = 'test-key';
+  _resetConfig();
+});
+
+afterEach(() => {
+  delete process.env['ANTHROPIC_API_KEY'];
+  _resetConfig();
 });
 
 describe('resume_variants — caller-supplied id reads are scoped to the caller', () => {
@@ -387,9 +581,24 @@ describe('resume_variants — caller-supplied id reads are scoped to the caller'
 
     // The guard fires before any Anthropic call, which is also why an unscoped
     // read here would put another user's resume content into a prompt.
-    await expect(
-      reviseResumeVariant(THEIRS, { instructions: 'Tighten it', version: 1 } as never, CALLER)
-    ).rejects.toBeInstanceOf(NotFoundError);
+    //
+    // WIC-1610: the outcome is captured rather than awaited through
+    // `rejects.toBeInstanceOf` so that the *tenancy* assertion is the one that
+    // fires. Past the guard this entry point runs on into the AI client and
+    // dies on a downstream `TypeError`, and a red spelled
+    // `expected TypeError … to be an instance of NotFoundError` is the same
+    // uninformative failure mode as the `or is not defined` rows this card
+    // corrected — it would score identically for an unrelated crash. The
+    // recorded ops are what prove the foreign row was reached, and they are
+    // recorded either way. The error type is still asserted, below.
+    const outcome = await reviseResumeVariant(
+      THEIRS,
+      { instructions: 'Tighten it', version: 1 } as never,
+      CALLER
+    ).then(
+      () => 'resolved',
+      (e: unknown) => e
+    );
 
     expectNothingForeignReached(s, VARIANTS, {
       table: VARIANTS,
@@ -397,6 +606,10 @@ describe('resume_variants — caller-supplied id reads are scoped to the caller'
       ids: [THEIRS],
       extra: { version: 1 },
     });
+
+    expect(outcome, 'and the caller is told the variant does not exist').toBeInstanceOf(
+      NotFoundError
+    );
   });
 
   it('listResumeVariants keeps the owner term when a filter is combined with it', async () => {
@@ -427,13 +640,18 @@ describe('resume_variants — caller-supplied id reads are scoped to the caller'
   it('exportResumeVariant does not render another user’s variant to a document', async () => {
     const s = stub(VARIANTS, variantFixture());
 
-    await expect(
-      exportResumeVariant(
-        THEIRS,
-        { format: 'docx', headerInfo: { name: 'A', email: 'a@example.com' } } as never,
-        CALLER
-      )
-    ).rejects.toBeInstanceOf(NotFoundError);
+    // Outcome captured for the same reason as `reviseResumeVariant` above: past
+    // the guard this one runs on into the document renderer and dies there, so
+    // awaiting `rejects.toBeInstanceOf` would report a `TypeError` instead of
+    // the tenancy violation that caused it (WIC-1610).
+    const outcome = await exportResumeVariant(
+      THEIRS,
+      { format: 'docx', headerInfo: { name: 'A', email: 'a@example.com' } } as never,
+      CALLER
+    ).then(
+      () => 'resolved',
+      (e: unknown) => e
+    );
 
     expectNothingForeignReached(s, VARIANTS, {
       table: VARIANTS,
@@ -441,6 +659,10 @@ describe('resume_variants — caller-supplied id reads are scoped to the caller'
       ids: [THEIRS],
       extra: { version: 1 },
     });
+
+    expect(outcome, 'and the caller is told the variant does not exist').toBeInstanceOf(
+      NotFoundError
+    );
   });
 });
 
@@ -879,5 +1101,113 @@ describe('the stub itself would report the leak', () => {
       .where(and(eq(resumeVariants.id, MINE), eq(resumeVariants.userId, CALLER)));
 
     expect((rows as ProbeRow[]).map((r) => r.id)).toEqual([MINE]);
+  });
+});
+
+describe('interview_prep_stories — second-hop writes inherit tenancy from the prep read', () => {
+  // WIC-1610. These two lines were listed as *negative controls* in the first
+  // revision of this file. A reachability probe — replace `and(` with an
+  // undefined identifier and look for a ReferenceError — showed that no test in
+  // the suite executed either of them, so their green meant "never ran", not
+  // "ran and was unmoved". They would have stayed green with the predicate
+  // deleted outright.
+  //
+  // Reached, they are not controls at all: they are load-bearing. Neither
+  // carries an owner term, and `interview_prep_stories` has its own nullable
+  // `user_id` they do not use, so the *only* thing standing between a
+  // caller-supplied `storyId` and another prep's story is the
+  // `interview_prep_id` term plus the scoped prep read one statement earlier.
+  // Drop that term and the caller edits a story hanging off a prep they were
+  // just told does not exist.
+
+  it('updateInterviewPrep will not edit a story hanging off another prep', async () => {
+    const s = stubTables({ [PREPS]: prepFixture(), [STORIES]: storyFixture() });
+
+    await updateInterviewPrep(
+      MINE,
+      { version: 1, storyUpdates: [{ storyId: THEIR_STORY, isFavorite: true }] } as never,
+      CALLER
+    );
+
+    const writes = s.opsOn(STORIES).filter((o) => o.op === 'update');
+    expect(writes, 'the story UPDATE must actually have been issued').toHaveLength(1);
+    expect(
+      writes[0].rows.map((r) => r.id),
+      'a story belonging to another prep must not be reachable by story id alone'
+    ).toEqual([]);
+  });
+
+  it('updateInterviewPrep does edit the caller’s own story — the guard is not "match nothing"', async () => {
+    // Positive control (WIC-1434): without it, deleting the whole predicate and
+    // resolving the empty set for every clause would satisfy the case above.
+    const s = stubTables({ [PREPS]: prepFixture(), [STORIES]: storyFixture() });
+
+    await updateInterviewPrep(
+      MINE,
+      { version: 1, storyUpdates: [{ storyId: MY_STORY, isFavorite: true }] } as never,
+      CALLER
+    );
+
+    const writes = s.opsOn(STORIES).filter((o) => o.op === 'update');
+    expect(
+      writes[0].rows.map((r) => r.id),
+      'the caller’s own story is still reachable'
+    ).toEqual([MY_STORY]);
+  });
+
+  it('logPracticeSession will not record a result against another prep’s story', async () => {
+    const s = stubTables({ [PREPS]: prepFixture(), [STORIES]: storyFixture() });
+
+    await logPracticeSession(
+      MINE,
+      {
+        version: 1,
+        startedAt: '2026-02-01T10:00:00.000Z',
+        endedAt: '2026-02-01T10:30:00.000Z',
+        type: 'story_drill',
+        focusAreas: [],
+        questionResults: [],
+        gapResults: [],
+        storyResults: [{ storyId: THEIR_STORY, confidenceRating: 'confident' }],
+      } as never,
+      CALLER
+    );
+
+    const writes = s.opsOn(STORIES).filter((o) => o.op === 'update');
+    expect(writes, 'the story result UPDATE must actually have been issued').toHaveLength(1);
+    expect(
+      writes[0].rows.map((r) => r.id),
+      'practice results must not land on another prep’s story'
+    ).toEqual([]);
+  });
+});
+
+describe('negative control — a non-tenancy predicate the suite really does execute', () => {
+  // The point of a negative control is to show this file goes red for *tenancy*
+  // regressions specifically, rather than for any mutation anywhere. That only
+  // means something if the mutated line runs. `reviseResumeVariant`'s
+  // optimistic-lock write `and(id, version)` sits after the scoped read at :680,
+  // so every foreign-id case above throws before reaching it — which is exactly
+  // why it was dead. Completing the happy path is what makes it live.
+  it('reviseResumeVariant completes for the owner, executing the optimistic-lock write', async () => {
+    const s = stub(VARIANTS, variantFixture());
+    const create = await getMockCreate();
+    create.mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ experience: [], skills: [], education: [] }) },
+      ],
+    });
+
+    const result = await reviseResumeVariant(
+      MINE,
+      { instructions: 'Tighten the summary', version: 1 } as never,
+      CALLER
+    );
+
+    expect(result.variant.id, 'the owner gets their own variant back').toBe(MINE);
+
+    const writes = s.opsOn(VARIANTS).filter((o) => o.op === 'update');
+    expect(writes, 'the optimistic-lock UPDATE is the line under control').toHaveLength(1);
+    expect(writes[0].rows.map((r) => r.id)).toEqual([MINE]);
   });
 });
