@@ -1,17 +1,37 @@
-import { and, inArray, lt, type SQL } from 'drizzle-orm';
+import { and, inArray, lt, sql, type SQL } from 'drizzle-orm';
 import { applications } from '../db/schema.js';
 import type { ApplicationStatus } from '../types/index.js';
 
 /**
  * The single definition of "stale" (WIC-1479).
  *
- * The product previously shipped three of these: the dashboard attention card
- * counted every non-terminal status over a hardcoded 7 days, the dashboard
- * quick-wins list counted `applied`/`phone_screen`/`interview` over the same 7
- * days, and `/reports/stale` counted `applied`/`phone_screen` over 14. The card
- * links straight to the report, so a user was shown a count and then a report
- * that contradicted it — see WIC-1479's failure scenario, which reproduces on an
- * account holding three applications.
+ * The product shipped **seven** of these. The card found three; the review of
+ * PR #222 found two more; the tree-wide scan written to answer that review
+ * found the last two:
+ *
+ *   1. the dashboard attention card: every non-terminal status, over a
+ *      hardcoded 7 days;
+ *   2. the dashboard quick-wins list: `applied`/`phone_screen`/`interview`,
+ *      over the same 7 days;
+ *   3. the applications list's pipeline tile ("Stale (14+ days)"): every
+ *      *active* status — so `saved` and `interview` too — at 14 days;
+ *   4. `ApplicationCard`'s "Stale" badge: every non-terminal status at 14 days;
+ *   5. `ReportsPipeline`'s local `isStale` helper, behind its "⏱️ Stale" badge:
+ *      14 days and **no status check at all**;
+ *   6. a second copy of that rule inlined in the same page's stats memo, behind
+ *      its own "Stale (14+ days)" tile;
+ *   7. `/reports/stale`: `applied`/`phone_screen` over 14 days.
+ *
+ * Only no. 7 was ever specified (UC-5 US-5.7, WIC-143), and it is the one this
+ * module encodes. Nos. 3–6 agreed with it on the threshold and differed on the
+ * status set, which is why they outlived the first pass: every guard aimed at
+ * the number 7, or at this file's own text, walked straight past them. At 20
+ * days an `interview` row was badged "Stale" in four places and absent from the
+ * report.
+ *
+ * The attention card links straight to the report, so a user was shown a count
+ * and then a report that contradicted it — see WIC-1479's failure scenario,
+ * which reproduces on an account holding three applications.
  *
  * The report was the conformant surface: UC-5 US-5.7 (WIC-143) specifies
  * "applications in `applied` or `phone_screen` status with no status change in
@@ -69,7 +89,8 @@ interface StaleOptions {
   days?: number;
   /**
    * Narrows `STALE_STATUSES`. Only `/reports/stale`'s `?status=` filter passes
-   * this; it can subset the definition but never widen it.
+   * this; it can subset the definition but never widen it. An empty set is
+   * legal and means "no row is stale" — see `staleWhere`.
    */
   statuses?: readonly ApplicationStatus[];
   now?: Date;
@@ -83,6 +104,13 @@ interface StaleOptions {
  */
 export function staleWhere(options: StaleOptions = {}): SQL | undefined {
   const { days = DEFAULT_STALE_THRESHOLD_DAYS, statuses = STALE_STATUSES, now } = options;
+  // An empty status set is a legitimate request, not a caller error:
+  // `/reports/stale?status=saved` narrows the definition down to nothing, and
+  // the honest answer is an empty report. drizzle's `inArray` throws on an
+  // empty list ("inArray requires at least one value"), which would surface as
+  // a 500. So express "matches no row" directly, at the definition, where every
+  // caller inherits it rather than each remembering to pre-check.
+  if (statuses.length === 0) return sql`1 = 0`;
   return and(
     inArray(applications.status, [...statuses]),
     lt(applications.updatedAt, staleCutoff(days, now))

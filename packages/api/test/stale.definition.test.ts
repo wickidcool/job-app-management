@@ -1,25 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { QueryBuilder } from 'drizzle-orm/pg-core';
-import type { SQL } from 'drizzle-orm';
+import { inArray, type SQL } from 'drizzle-orm';
 
 /**
- * WIC-1479. The product used to ship three definitions of "stale" on surfaces
- * that link to each other:
+ * WIC-1479. The product used to ship seven definitions of "stale" across
+ * surfaces that link to each other — the card named three, and the review of
+ * PR #222 plus the tree-wide scan at the bottom of this file found four more.
+ * `packages/api/src/services/stale.ts` enumerates all seven.
  *
- *   - the dashboard attention card: every non-terminal status, >7 days;
- *   - the dashboard quick-wins list: applied/phone_screen/interview, >7 days;
- *   - `/reports/stale`: applied/phone_screen, >=14 days.
+ * The attention card renders a count and links straight to the report, so a
+ * user could be told "1 application needs follow-up (>7 days)", click through,
+ * and be shown "No stale applications found". Only the report was specified
+ * (UC-5 US-5.7, WIC-143); every other surface drifted because nothing ever
+ * specified it.
  *
- * The card renders a count and links straight to the report, so a user could be
- * told "1 application needs follow-up (>7 days)", click through, and be shown
- * "No stale applications found". Only the report was specified (UC-5 US-5.7,
- * WIC-143); the dashboard drifted because nothing ever specified it.
- *
- * These tests pin the single definition, and — more importantly — pin that both
+ * These tests pin the single definition, and — more importantly — pin that the
  * surfaces *derive* it from one place rather than each holding a copy that
- * happens to agree today.
+ * happens to agree today. Four of the seven agreed on the threshold and
+ * differed only on the status set, so a guard that pinned the number would have
+ * passed on all of them.
  */
 
 const dbSpy = vi.hoisted(() => ({ getDb: vi.fn() }));
@@ -36,6 +37,21 @@ import {
 import { applications } from '../src/db/schema.js';
 import { getDashboardStats } from '../src/services/dashboard.service.js';
 import { getStaleReport } from '../src/services/reports.service.js';
+
+/**
+ * The literal stale status pair, in either order, however it is spaced or
+ * quoted — the signature of a second definition inlined back into a call site.
+ *
+ * One binding, returned fresh per call, because every copy of a source-scanning
+ * regex is a copy that can rot on its own. The first revision of this file kept
+ * four and they had already diverged from the code: none tolerated the trailing
+ * comma prettier adds once the array reflows across lines, which is exactly how
+ * `stale.ts` itself is formatted — so the guard would not have matched the very
+ * declaration it exists to detect duplicates of. A `/g` regex is stateful under
+ * `.test`, hence the factory rather than a shared constant.
+ */
+const inlineStalePair = () =>
+  /\[\s*['"](applied|phone_screen)['"]\s*,\s*['"](applied|phone_screen)['"]\s*,?\s*\]/g;
 
 /** Serializes a drizzle condition to SQL text + bound params, with no connection. */
 function serialize(condition: SQL | undefined) {
@@ -232,6 +248,109 @@ describe('AC-N2b: dashboard and report issue the same query', () => {
 });
 
 /**
+ * `/reports/stale?status=` — the one caller allowed to pass `statuses`.
+ *
+ * Found in review of PR #222: the filter was applied against the *full status
+ * enum*, not `STALE_STATUSES`, so `?status=saved,applied,phone_screen,interview`
+ * was honoured verbatim and served the exact drifted definition this card was
+ * filed about — from the surface the card calls conformant. The parameter is
+ * documented as narrowing-only, so assert on the query the service actually
+ * issues rather than on the rows a fixture happens to hold.
+ */
+describe('?status= can narrow the definition but never widen it', () => {
+  let captured: SQL[];
+
+  function recordingDb() {
+    const chain: Record<string, unknown> = {};
+    const passthrough = () => chain;
+    Object.assign(chain, {
+      select: passthrough,
+      from: passthrough,
+      where: (condition: SQL) => {
+        captured.push(condition);
+        return chain;
+      },
+      groupBy: passthrough,
+      orderBy: passthrough,
+      innerJoin: passthrough,
+      limit: passthrough,
+      offset: passthrough,
+      then: (resolve: (rows: unknown[]) => unknown) => resolve([]),
+    });
+    return chain;
+  }
+
+  beforeEach(() => {
+    captured = [];
+    dbSpy.getDb.mockImplementation(() => recordingDb());
+  });
+
+  /** The status names bound into the report's WHERE clause. */
+  async function statusesQueried(status?: string): Promise<string[]> {
+    captured = [];
+    await getStaleReport(status === undefined ? {} : { status });
+    return captured
+      .flatMap((c) => serialize(c).params)
+      .filter((p): p is string => typeof p === 'string' && !/^\d{4}-\d{2}-\d{2}T/.test(p));
+  }
+
+  it('queries the full definition when no filter is given', async () => {
+    expect(await statusesQueried()).toEqual(['applied', 'phone_screen']);
+  });
+
+  it('narrows to a single member', async () => {
+    expect(await statusesQueried('applied')).toEqual(['applied']);
+  });
+
+  it.each(['saved', 'interview', 'offer', 'rejected', 'withdrawn'])(
+    'drops %s rather than widening the definition to include it',
+    async (status) => {
+      expect(await statusesQueried(status)).not.toContain(status);
+    }
+  );
+
+  it('drops the widening members of a mixed filter and keeps the rest', async () => {
+    // The exact string that reproduced the defect. Before the fix this bound all
+    // four names and the endpoint served the pre-WIC-1479 definition.
+    expect(await statusesQueried('saved,applied,phone_screen,interview')).toEqual([
+      'applied',
+      'phone_screen',
+    ]);
+  });
+
+  it('is unaffected by whitespace and still narrows through it', async () => {
+    expect(await statusesQueried(' interview , applied ')).toEqual(['applied']);
+  });
+
+  it('returns an empty report, not a 500, when the filter leaves nothing', async () => {
+    // The trap flagged in review: narrowing the filter means a caller can hand
+    // `staleWhere` an empty set, and drizzle's `inArray` throws on one
+    // ("inArray requires at least one value"). An empty report is the correct
+    // answer to "which saved applications are stale"; a 500 is not.
+    await expect(getStaleReport({ status: 'saved' })).resolves.toMatchObject({
+      applications: [],
+      summary: { total: 0, averageDaysStale: 0 },
+    });
+  });
+
+  it('the empty set compiles to a predicate matching no row', () => {
+    const { sql } = serialize(staleWhere({ statuses: [] }));
+    expect(sql).toContain('1 = 0');
+    // And it is genuinely restrictive rather than an absent WHERE, which would
+    // return every row in the table — the failure mode returning `undefined`
+    // would have given.
+    expect(sql).toContain(' where ');
+  });
+
+  it('inArray still throws on an empty list, so the early return is load-bearing', () => {
+    // Negative control on the guard itself. A guard whose hazard has quietly
+    // gone away is indistinguishable from one that is doing work; if drizzle
+    // ever tolerates an empty `inArray`, this fails and says so.
+    expect(() => inArray(applications.status, [])).toThrow();
+  });
+});
+
+/**
  * The drift guard. Both services now call `staleWhere()`, but nothing stops a
  * future edit from inlining `['applied','phone_screen']` or a day literal back
  * into either file — which is exactly how this defect was introduced the first
@@ -259,10 +378,7 @@ describe('neither service re-inlines the definition', () => {
 
   it.each(SERVICES)('%s contains no inline stale status list', (_name, path) => {
     const code = stripComments(read(path));
-    // The literal pair, in either order, however it is spaced or quoted.
-    const inlinePair =
-      /\[\s*['"](applied|phone_screen)['"]\s*,\s*['"](applied|phone_screen)['"]\s*\]/g;
-    expect([...code.matchAll(inlinePair)]).toHaveLength(0);
+    expect([...code.matchAll(inlineStalePair())]).toHaveLength(0);
   });
 
   /**
@@ -310,11 +426,21 @@ describe('neither service re-inlines the definition', () => {
       const staleDays = params.days ?? 14;
       const cond = lt(applications.updatedAt, staleThreshold);
     `);
-    const inlinePair =
-      /\[\s*['"](applied|phone_screen)['"]\s*,\s*['"](applied|phone_screen)['"]\s*\]/g;
-
-    expect([...offending.matchAll(inlinePair)]).toHaveLength(1);
+    expect([...offending.matchAll(inlineStalePair())]).toHaveLength(1);
     expect([...offending.matchAll(UPPER_BOUND_ON_UPDATED_AT)]).toHaveLength(1);
+
+    // The form that was silently invisible until the tree-wide scan's positive
+    // control tripped on it: once prettier reflows the array past the print
+    // width it gains a trailing comma, and `stale.ts` is formatted that way
+    // today. A guard blind to how the codebase is actually formatted is a guard
+    // that only ever catches the tidy half of the defect.
+    const reflowed = stripComments(`
+      const staleStatuses = [
+        'applied',
+        'phone_screen',
+      ];
+    `);
+    expect([...reflowed.matchAll(inlineStalePair())]).toHaveLength(1);
     expect([...'staleWhere({ days: 7 })'.matchAll(LITERAL_DAYS_ARGUMENT)]).toHaveLength(1);
     // ...and passes the shape the services actually use.
     expect([...'staleWhere({ days: staleDays })'.matchAll(LITERAL_DAYS_ARGUMENT)]).toHaveLength(0);
@@ -328,7 +454,7 @@ describe('neither service re-inlines the definition', () => {
     expect([...legitimate.matchAll(UPPER_BOUND_ON_UPDATED_AT)]).toHaveLength(0);
   });
 
-  it('stale.ts is the only file that names the definition', () => {
+  it('stale.ts declares the definition exactly once', () => {
     const definition = read('../src/services/stale.ts');
 
     // Matched structurally, not as literal text: prettier reflows the array
@@ -341,5 +467,93 @@ describe('neither service re-inlines the definition', () => {
       'phone_screen',
     ]);
     expect(definition).toContain('DEFAULT_STALE_THRESHOLD_DAYS = 14');
+  });
+});
+
+/**
+ * The scan above, widened from two named services to the whole package.
+ *
+ * The previous revision of this file called its last test "stale.ts is the only
+ * file that names the definition" while reading only `stale.ts` — it asserted
+ * nothing about any other file, and the review of PR #222 caught the title
+ * claiming a reach the body did not have. Two more definitions were live at the
+ * time, in `packages/web`; the web half of this scan is in
+ * `packages/web/src/constants/stale.drift.test.ts`.
+ *
+ * A per-file allowlist would rot the moment someone adds a service, so this
+ * enumerates the tree instead and pins the enumeration itself: an empty or
+ * truncated walk is a vacuous pass, and a green run would look identical.
+ */
+describe('no file in packages/api holds a second definition (AC-N2a, tree-wide)', () => {
+  const SRC = new URL('../src/', import.meta.url);
+
+  /** Every `.ts` under `packages/api/src`, relative to it, sorted. */
+  function walk(dir = ''): string[] {
+    return readdirSync(new URL(dir, SRC), { withFileTypes: true })
+      .flatMap((entry) =>
+        entry.isDirectory()
+          ? walk(`${dir}${entry.name}/`)
+          : entry.name.endsWith('.ts')
+            ? [`${dir}${entry.name}`]
+            : []
+      )
+      .sort();
+  }
+
+  const FILES = walk();
+  const DEFINITION = 'services/stale.ts';
+
+  function stripComments(source: string): string {
+    return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  }
+
+  const sourceOf = (relative: string) =>
+    stripComments(readFileSync(new URL(relative, SRC), 'utf-8'));
+
+  it('walks a tree that actually contains the code under guard', () => {
+    // Without this the walk could return `[]` — from a renamed directory, a
+    // changed extension, a `readdirSync` that silently yields nothing — and
+    // every scan below would pass by scanning nothing. Pin the scope, not just
+    // the verdict.
+    expect(FILES).toContain(DEFINITION);
+    expect(FILES).toContain('services/dashboard.service.ts');
+    expect(FILES).toContain('services/reports.service.ts');
+    expect(FILES.length).toBeGreaterThan(20);
+  });
+
+  it('finds the definition only in stale.ts', () => {
+    const offenders = FILES.filter((f) => f !== DEFINITION && inlineStalePair().test(sourceOf(f)));
+    expect(offenders, `inline stale status pair outside ${DEFINITION}`).toEqual([]);
+    // Positive control: the definition itself must still match, or the regex
+    // has stopped matching anything and the scan above is vacuous. This is the
+    // assertion that caught the missing trailing comma.
+    expect(inlineStalePair().test(sourceOf(DEFINITION))).toBe(true);
+  });
+
+  it('finds an upper-bound predicate on updatedAt only in stale.ts', () => {
+    const rebuilt = /\b(lt|lte)\s*\(\s*applications\.updatedAt\b/;
+    const offenders = FILES.filter((f) => f !== DEFINITION && rebuilt.test(sourceOf(f)));
+    expect(offenders, `rebuilt stale predicate outside ${DEFINITION}`).toEqual([]);
+    expect(rebuilt.test(sourceOf(DEFINITION))).toBe(true);
+  });
+
+  it('the tree-wide scan fails on a planted second definition', () => {
+    // Negative control. `offenders` is asserted empty, and an empty result is
+    // exactly what a broken scan produces — so plant the defect and require the
+    // predicate that drives the filter to catch it.
+    const planted = stripComments(`
+      // a plausible-looking helper someone adds to a new service
+      const statuses = ['applied', 'phone_screen'];
+      const cutoff = lt(applications.updatedAt, new Date());
+    `);
+    expect(inlineStalePair().test(planted)).toBe(true);
+    expect(/\b(lt|lte)\s*\(\s*applications\.updatedAt\b/.test(planted)).toBe(true);
+
+    // ...and does not fire on the shapes that legitimately exist in the tree:
+    // the closed-loop report's lower bound, and the full status enum.
+    expect(
+      /\b(lt|lte)\s*\(\s*applications\.updatedAt\b/.test('gte(applications.updatedAt, since)')
+    ).toBe(false);
+    expect(inlineStalePair().test("['saved', 'applied', 'phone_screen', 'interview']")).toBe(false);
   });
 });

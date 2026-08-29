@@ -234,24 +234,24 @@ export async function getStaleReport(
   const limit = Math.min(params.limit ?? 50, 100);
   const offset = parseCursor(params.cursor);
 
-  const VALID_STATUSES: ApplicationStatus[] = [
-    'saved',
-    'applied',
-    'phone_screen',
-    'interview',
-    'offer',
-    'rejected',
-    'withdrawn',
-  ];
-
   // `?status=` narrows the definition; it never widens it. Anything outside
   // STALE_STATUSES is dropped rather than honoured, so this endpoint cannot be
   // used to resurrect the old "everything non-terminal is stale" behaviour.
+  //
+  // This filtered against the full status enum until the review of PR #222:
+  // `?status=saved,applied,phone_screen,interview` was passed through intact and
+  // served the exact drifted definition WIC-1479 was filed about — from the one
+  // surface the card calls conformant. Filtering against STALE_STATUSES is what
+  // makes the sentence above true.
+  //
+  // A request naming only non-stale statuses filters down to nothing;
+  // `staleWhere` renders an empty set as a predicate matching no row, so that is
+  // an empty report rather than a 500.
   const staleStatuses: readonly ApplicationStatus[] = params.status
     ? params.status
         .split(',')
         .map((s) => s.trim() as ApplicationStatus)
-        .filter((s) => VALID_STATUSES.includes(s))
+        .filter((s) => (STALE_STATUSES as readonly ApplicationStatus[]).includes(s))
     : STALE_STATUSES;
 
   const rows = await db
