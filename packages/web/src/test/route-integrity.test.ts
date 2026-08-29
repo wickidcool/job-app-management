@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { matchRoutes } from 'react-router-dom';
 
-import appSource from '../App.tsx?raw';
+import rawAppSource from '../App.tsx?raw';
 
 /**
  * A static audit of in-app navigation: every internal path the UI can send a user to
@@ -46,13 +46,93 @@ const KNOWN_DEAD_LINKS: Record<string, string> = {
 };
 
 /**
+ * Source that has been through `stripComments`. Route scrapers below take this and
+ * not `string`, so handing one the raw import is a compile error rather than a
+ * silently over-broad route table. See WIC-1551.
+ */
+type StrippedSource = string & { readonly __commentsStripped: true };
+
+/**
+ * Remove JS/JSX comments from source, preserving newlines so line numbers survive.
+ *
+ * WIC-1551: the route scrapers below split on the literal `<Route`, and a commented-out
+ * route still contains that literal — so a route declaration wrapped in a JSX comment
+ * entered the route table as if it were live. That is green in both directions at once: a
+ * genuinely dead link pointing at `/legacy` is absorbed by the phantom route, and the
+ * phantom route is in turn credited by that link. Commenting out a route while leaving a
+ * button pointing at it — an ordinary way to disable a feature — was invisible here.
+ *
+ * This is a character scanner rather than a regex, and that is load-bearing. `App.tsx`
+ * declares `path="/*"` for its catch-all layout route: a *string literal* containing a
+ * block-comment opener. The obvious regex that lazily matches an opener through to the
+ * next closer opens a comment there and swallows everything up to the closer on the
+ * `/dashboard` note below it — which today deletes the `/` (Dashboard) route from the
+ * audit's own route table. An over-tightened stripper is
+ * the more dangerous failure of the two: a noisy false positive gets fixed, whereas a
+ * route table with live routes missing makes the audit quietly vacuous.
+ *
+ * The scanner only ever deletes comment content, so mis-reading a quote can under-strip
+ * (leaving today's behaviour) but can never eat a route. The one residual over-strip risk
+ * is a bare `/*` outside any string — regex literals are not tracked, and `App.tsx`
+ * contains none. The route-table floor assertions below are what fail if that changes.
+ */
+function stripComments(source: string): StrippedSource {
+  let out = '';
+  let i = 0;
+
+  while (i < source.length) {
+    const pair = source.slice(i, i + 2);
+
+    if (pair === '//') {
+      while (i < source.length && source[i] !== '\n') i += 1;
+      continue;
+    }
+
+    if (pair === '/*') {
+      i += 2;
+      while (i < source.length && source.slice(i, i + 2) !== '*/') {
+        if (source[i] === '\n') out += '\n';
+        i += 1;
+      }
+      i += 2;
+      continue;
+    }
+
+    const char = source[i];
+
+    // A quote suspends comment detection until it closes. This is what keeps
+    // `path="/*"` from opening a comment that eats the routes after it.
+    if (char === '"' || char === "'" || char === '`') {
+      out += char;
+      i += 1;
+      while (i < source.length) {
+        if (source[i] === '\\') {
+          out += source.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        out += source[i];
+        i += 1;
+        if (source[i - 1] === char) break;
+      }
+      continue;
+    }
+
+    out += char;
+    i += 1;
+  }
+
+  return out as StrippedSource;
+}
+
+/**
  * Every `path` declared on a `<Route>` in App.tsx.
  *
  * Catch-all patterns (`*`, `/*`) are dropped on purpose. They match every path by
  * definition, so leaving them in would make this audit vacuously pass — which is
  * exactly what would happen once the WIC-1036 catch-all 404 route lands.
  */
-function declaredRoutePaths(source: string): string[] {
+function declaredRoutePaths(source: StrippedSource): string[] {
   const paths = source
     .split('<Route')
     .slice(1)
@@ -136,6 +216,13 @@ const appSources = Object.fromEntries(
   )
 );
 
+// Sanitised once, here, rather than inside each scraper. Every route scraper in this
+// file consumes `appSource`, so a scraper added later (WIC-1531 adds a second one that
+// mirrors this split to read each route's element) inherits the fix without having to
+// remember it — and cannot take the raw source instead, because `StrippedSource` is the
+// only type the scrapers accept.
+const appSource = stripComments(rawAppSource);
+
 const routePaths = declaredRoutePaths(appSource);
 const routes = routePaths.map((path) => ({ path }));
 const linkSites = collectLinkSites(appSources);
@@ -152,6 +239,73 @@ describe('in-app navigation targets', () => {
   it('extracts link targets from across the app', () => {
     expect(linkSites.length).toBeGreaterThan(20);
     expect(Object.keys(appSources).length).toBeGreaterThan(20);
+  });
+
+  // WIC-1551. Both directions, because either one alone is satisfied by a broken
+  // stripper: returning the source untouched passes the second cell, and returning an
+  // empty string passes the first.
+  describe('comment stripping (WIC-1551)', () => {
+    it('does not admit a commented-out route into the route table', () => {
+      const jsx = '{/* <Route path="/legacy" element={<LegacyPage />} /> */}';
+      const block = '/* <Route path="/legacy" element={<LegacyPage />} /> */';
+      const line = '// <Route path="/legacy" element={<LegacyPage />} />';
+
+      expect(declaredRoutePaths(stripComments(jsx))).toEqual([]);
+      expect(declaredRoutePaths(stripComments(block))).toEqual([]);
+      expect(declaredRoutePaths(stripComments(line))).toEqual([]);
+    });
+
+    it('still finds a live route', () => {
+      const live = '<Route path="/x" element={<X />} />';
+
+      expect(declaredRoutePaths(stripComments(live))).toEqual(['/x']);
+    });
+
+    // The over-tightening direction, and the one that actually bites. `App.tsx` declares
+    // `path="/*"` for its catch-all layout route, so the source contains a block-comment
+    // opener *inside a string literal*. A regex stripper opens a comment there and eats
+    // every route between it and the next closer — which is a real JSX comment further
+    // down. The audit then still passes, with live routes silently missing from the
+    // table, which is strictly worse than the bug being fixed here.
+    it('does not treat a block-comment opener inside a string as a comment', () => {
+      const fixture = [
+        '<Route',
+        '  path="/*"',
+        '  element={',
+        '    <Routes>',
+        '      <Route path="/" element={<Dashboard />} />',
+        '      {/* a note that closes the comment a regex stripper wrongly opened above */}',
+        '      <Route path="/settings" element={<Settings />} />',
+        '      {/* <Route path="/legacy" element={<Legacy />} /> */}',
+        '      <Route path="*" element={<NotFound />} />',
+        '    </Routes>',
+        '  }',
+        '/>',
+      ].join('\n');
+
+      expect(declaredRoutePaths(stripComments(fixture))).toEqual(['/', '/settings']);
+    });
+
+    it('leaves a comment-like sequence inside a string in place', () => {
+      expect(stripComments('const a = "http://x/*y*/z";')).toBe('const a = "http://x/*y*/z";');
+      expect(stripComments("const a = 'http://x';")).toBe("const a = 'http://x';");
+    });
+
+    it('strips a comment while keeping the code on either side', () => {
+      expect(stripComments('a /* gone */ b')).toBe('a  b');
+      expect(stripComments('a // gone\nb')).toBe('a \nb');
+    });
+  });
+
+  // The real App.tsx, not a fixture: if the stripper over-strips against live source, the
+  // route table loses entries and every downstream assertion goes quietly vacuous.
+  // `/` is the route immediately after the `path="/*"` hazard and `/settings` is the last
+  // one before the catch-all, so an over-strip starting at that hazard drops one of them.
+  it('keeps every live route in App.tsx after stripping', () => {
+    expect(routePaths.length).toBeGreaterThan(25);
+    expect(routePaths).toContain('/');
+    expect(routePaths).toContain('/settings');
+    expect(routePaths).toContain('/applications/:id/prep');
   });
 
   // The failure mode this audit is most exposed to is becoming vacuous: a catch-all
