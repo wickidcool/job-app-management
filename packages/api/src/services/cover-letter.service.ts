@@ -128,9 +128,10 @@ const EMPHASIS_DESCRIPTORS: Record<string, string> = {
 // by caller-supplied ids, i.e. the original defect, narrowed rather than
 // closed. An absent caller scopes to `IS NULL`, never to nothing, matching
 // `bulletOwnerScope` in `resume-variant.service.ts` / `interviewPrep.service.ts`,
-// both of which carry this exact `userId ? eq : isNull` shape. `job-fit.service.ts`
-// is deliberately *not* cited as precedent: its `quantified_bullets` read has no
-// owner predicate at all, and that half of WIC-1482 lands with PR #161, not here.
+// both of which carry this exact `userId ? eq : isNull` shape. Those two are cited
+// deliberately and `job-fit.service.ts` is not: its `quantified_bullets` read is the
+// other half of WIC-1482 and lands on a separate branch, so its state here depends on
+// merge order and any claim about it would be stale in one tree or the other.
 // `quantified_bullets.user_id` is
 // `uuid NOT NULL` (`schema.ts:265`), so there is no legacy-null cohort for
 // `IS NULL` to reach and the anonymous local-dev caller gets zero rows — the
