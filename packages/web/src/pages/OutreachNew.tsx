@@ -1,12 +1,9 @@
-import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { OutreachComposer } from '../components/OutreachComposer';
-import type { OutreachPlatform } from '../services/api/types';
 
 export function OutreachNew() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [platform, setPlatform] = useState<OutreachPlatform>('linkedin');
 
   const applicationId = searchParams.get('applicationId') || undefined;
   const fitAnalysisId = searchParams.get('jobFitAnalysisId') || undefined;
@@ -32,34 +29,24 @@ export function OutreachNew() {
           </p>
         </div>
 
-        <div className="mb-6 bg-white border rounded-lg p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-3">Select Platform</label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                checked={platform === 'linkedin'}
-                onChange={() => setPlatform('linkedin')}
-                className="w-4 h-4 text-blue-600"
-              />
-              <span className="text-gray-900">LinkedIn InMail</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                checked={platform === 'email'}
-                onChange={() => setPlatform('email')}
-                className="w-4 h-4 text-blue-600"
-              />
-              <span className="text-gray-900">Email</span>
-            </label>
-          </div>
-        </div>
-
+        {/*
+          The page deliberately renders no platform picker. `OutreachComposer` owns the
+          platform, because the platform is what decides the composer's character budget,
+          its warning thresholds, and whether it shows a Subject field at all — the control
+          belongs with the fields it governs. A second picker here previously wrote to a
+          value the composer read once and then ignored, so the two silently disagreed and
+          the visible one lost (WIC-1583).
+        */}
+        {/*
+          The key covers every prop the composer seeds state from, so a change to any of
+          them remounts it instead of being dropped by a mount-only initialiser. All three
+          come from the query string, so today they only change on navigation — this makes
+          the drop structurally impossible rather than merely unreachable.
+        */}
         <OutreachComposer
-          platform={platform}
+          key={`${company}|${jobTitle}|${fitAnalysisId ?? ''}`}
           fitAnalysisId={fitAnalysisId}
-          prefillContext={
+          initialContext={
             company && jobTitle
               ? {
                   company,

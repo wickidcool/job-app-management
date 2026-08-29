@@ -3,9 +3,15 @@ import type { OutreachPlatform, OutreachMessage } from '../services/api/types';
 import { useGenerateOutreach } from '../hooks/useCoverLetters';
 
 interface OutreachComposerProps {
-  platform: OutreachPlatform;
   fitAnalysisId?: string;
-  prefillContext?: {
+  /**
+   * Seed values for the editable Context fields. Read on mount only — these are the
+   * *initial* values of fields the user then owns, which is what the name says. If the
+   * caller needs a later change to take effect, it must remount the composer with a
+   * `key`; `OutreachNew` does exactly that. Do not add a resync effect: this repo's
+   * `react-hooks/set-state-in-effect` rule rejects it (WIC-1612).
+   */
+  initialContext?: {
     company: string;
     jobTitle: string;
     hiringManager?: string;
@@ -30,17 +36,19 @@ const PLATFORM_LIMITS = {
 };
 
 export function OutreachComposer({
-  platform: initialPlatform,
   fitAnalysisId,
-  prefillContext,
+  initialContext,
   onComplete,
 }: OutreachComposerProps) {
-  const [platform, setPlatform] = useState<OutreachPlatform>(initialPlatform);
+  // Platform is owned here outright, not copied from a prop. It drives `limits` below,
+  // and therefore the generation request, the character budget and whether a Subject
+  // field exists — so nothing outside this component may hold a competing copy.
+  const [platform, setPlatform] = useState<OutreachPlatform>('linkedin');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [company, setCompany] = useState(prefillContext?.company || '');
-  const [jobTitle, setJobTitle] = useState(prefillContext?.jobTitle || '');
-  const [contact, setContact] = useState(prefillContext?.hiringManager || '');
+  const [company, setCompany] = useState(initialContext?.company || '');
+  const [jobTitle, setJobTitle] = useState(initialContext?.jobTitle || '');
+  const [contact, setContact] = useState(initialContext?.hiringManager || '');
   const [useFitAnalysis, setUseFitAnalysis] = useState(!!fitAnalysisId);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -132,9 +140,9 @@ export function OutreachComposer({
           The sections below start at <h2> because the page <h1> is their parent.
         */}
 
-        {/* Platform Selection */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Platform</label>
+        {/* Platform Selection — the only platform picker on the route (WIC-1583) */}
+        <fieldset>
+          <legend className="block text-sm font-medium text-gray-700 mb-2">Platform</legend>
           <div className="flex gap-3">
             {(['linkedin', 'email'] as OutreachPlatform[]).map((p) => (
               <label
@@ -143,6 +151,8 @@ export function OutreachComposer({
               >
                 <input
                   type="radio"
+                  name="outreach-platform"
+                  value={p}
                   checked={platform === p}
                   onChange={() => setPlatform(p)}
                   className="w-4 h-4 text-blue-600"
@@ -151,15 +161,21 @@ export function OutreachComposer({
               </label>
             ))}
           </div>
-        </div>
+        </fieldset>
 
         {/* Context */}
         <div className="bg-gray-50 rounded-lg p-4 space-y-3">
           <h2 className="font-semibold text-gray-900">Context</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Company</label>
+              <label
+                htmlFor="outreach-company"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
+                Company
+              </label>
               <input
+                id="outreach-company"
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -167,8 +183,14 @@ export function OutreachComposer({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+              <label
+                htmlFor="outreach-role"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
+                Role
+              </label>
               <input
+                id="outreach-role"
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -176,8 +198,14 @@ export function OutreachComposer({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Contact</label>
+              <label
+                htmlFor="outreach-contact"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
+                Contact
+              </label>
               <input
+                id="outreach-contact"
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
