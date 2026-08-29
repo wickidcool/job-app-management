@@ -455,13 +455,28 @@ describe('WIC-1437 defect 2 — outreach cover-letter lookup is scoped to the ca
 // One negative case each. All five now go red under `or`, which is what the
 // acceptance criterion on WIC-1502 asks for.
 //
-// Re-measured on the current head, widening the matrix to every owner-bearing
-// conjunction rather than the seven `and(id, owner)` reads alone. That adds
-// `:435`, `updateCoverLetter`'s `and(id, version, owner)` UPDATE predicate,
-// which is not an `and(id, owner)` read and so fell outside the earlier sweep —
-// the `deleteLog` assertion in the update test below is what pins it. Flipping
-// each site to `or` alone: :130 → 7 failed, :342 → 1, :435 → 1, :446 → 1,
-// :461 → 1, :481 → 1, :610 → 3, :715 → 1. Zero survivors across all eight.
+// Re-measured, widening the matrix to every owner-bearing conjunction rather
+// than the seven `and(id, owner)` reads alone. That adds `updateCoverLetter`'s
+// `and(id, version, owner)` UPDATE predicate, which is not an `and(id, owner)`
+// read and so fell outside the earlier sweep.
+//
+// **Both assertions in the update test detect it, independently.** An earlier
+// draft of this comment said the `deleteLog` assertion "is what pins it, not the
+// not-found assertion"; that is false on both halves, measured in both
+// directions. As shipped the red is the *not-found* assertion — under
+// `or(id, version, owner)` the UPDATE matches the victim row, so
+// `updateCoverLetter` returns a DTO instead of throwing and the `deleteLog` loop
+// three lines down is never reached (`expected {…} to be an instance of Error`).
+// Strip the two not-found assertions and keep the loop and it is *still* red
+// (`expected [ {…}, {…}, {…} ] to deeply equal []`), with a pristine-service
+// control on the stripped file staying green. Neither one carries this site alone.
+//
+// The `:130`/`:342`/`:435`/`:446`/`:461`/`:481`/`:610`/`:715` tally that used to
+// sit here is superseded — those line numbers predate the WIC-1482 commit that
+// shifted the service file, and the sweep behind them enumerated by the
+// `and(id, owner)` call *shape*, which misses a hoisted owner term (see the
+// `listCoverLetters` block below). The current per-site matrix, enumerated by
+// the owner *column*, lives in CHANGELOG.md under WIC-1437.
 
 describe('WIC-1502 — every id-addressed cover_letters read rejects a foreign id', () => {
   const VERSION = 1;
