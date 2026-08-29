@@ -30,11 +30,27 @@ The onboarding flow guides new users through their first experience with the Job
 
 ### Trigger Conditions
 
-The onboarding flow activates when:
-- User visits the application for the first time
-- User has zero resumes uploaded
-- User has zero applications created
-- Onboarding has not been explicitly dismissed
+The flow activates when `GET /api/users/me/onboarding/should-show` returns `true`, and on
+no other signal. Do not re-derive the condition on the client — see
+[API_CONTRACTS.md § Should Show Onboarding](../architecture/API_CONTRACTS.md#should-show-onboarding)
+for the shipped rule. In summary:
+
+- A user who has completed onboarding is never shown it again.
+- The returning-user bypass is keyed on **when** the user's resumes and applications were
+  created, not on whether they have any. The discriminator is `onboarding_status.started_at`:
+  work that predates the status row cannot have come from the flow.
+- For a user who has **engaged** with the flow — moved off `welcome`, or completed or
+  skipped any step — only work created *before* `started_at` counts against them. This
+  matters because the resume-upload step *creates* a resume; an unbounded check would eject
+  a new user from the flow the moment their first upload succeeded.
+- For a user we have never seen in the flow — no row, or a pristine `welcome` one — the
+  probe is unbounded: zero resumes **and** zero applications means show it, otherwise do not.
+  Bounding it here would re-show onboarding to a new user who dismissed at `welcome` and
+  then created an application by hand.
+
+There is no "explicitly dismissed" state. The product ships no dismiss endpoint and no
+`dismissed` status; a user who leaves the flow keeps an incomplete row and is shown it
+again on their next visit.
 
 ### Entry Points
 
@@ -1077,29 +1093,36 @@ interface OnboardingState {
 
 **API Endpoints:**
 
+> The request shapes previously sketched here were never built, and one of the endpoints
+> (`POST /api/users/me/onboarding/dismiss`) does not exist. See
+> [API_CONTRACTS.md § Onboarding](../architecture/API_CONTRACTS.md#onboarding) for the
+> authoritative contract; what follows is a summary of what actually ships.
+
 ```typescript
-// Save progress
+// Whether to show onboarding at all — the ONLY authority on visibility.
+// Never derive this from the status row: GET /status auto-creates a `welcome`
+// row for any user without one, so the row's mere existence means nothing.
+GET  /api/users/me/onboarding/should-show   // -> { "shouldShow": boolean }
+
+// The progress row. Note this endpoint WRITES: it initializes a `welcome` row
+// for a user who has none.
+GET  /api/users/me/onboarding/status
+
+// Save progress. All fields optional; send only what changed.
 POST /api/users/me/onboarding/progress
 {
-  "step": 2,
-  "progress": { ... },
-  "timestamp": "2026-05-08T14:00:00Z"
+  "currentStep": "resume_upload",   // welcome | personal_info | resume_upload
+                                    // | first_application | completed
+  "resumeStepCompleted": true       // ...and the other five *Completed/*Skipped flags
 }
 
-// Mark completed
+// Mark completed. No request body.
 POST /api/users/me/onboarding/complete
-{
-  "completedAt": "2026-05-08T14:15:00Z",
-  "metadata": { ... }
-}
-
-// Dismiss onboarding
-POST /api/users/me/onboarding/dismiss
-{
-  "reason": "user_skip",
-  "timestamp": "2026-05-08T14:00:00Z"
-}
 ```
+
+There is no dismiss endpoint. A user who declines a step is recorded with that step's
+`*StepSkipped` flag via `/progress`; a user who leaves the flow entirely simply keeps an
+incomplete row, and `should-show` continues to return `true` for them.
 
 ---
 
