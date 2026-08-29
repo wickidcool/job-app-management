@@ -116,3 +116,79 @@ git merge-file -p          "$D/main.md" "$D/base.md" "$D/main.md"  # positive co
 Always run the control. Without it, a wrong path or a stale `origin` yields a silent "clean" that you will believe.
 
 **Resolving:** keep both sides, and **merge `main` in — never rebase.** Many open PRs here are stacked (a PR whose base is another PR's branch), and rebasing a stack parent invalidates every child.
+
+### Check what the driver did — "clean" is not "correct"
+
+When you merge `main` in, the union driver resolves `CHANGELOG.md` for you and reports success. It
+is resolving by concatenating both sides at each differing hunk, which is right often enough to be
+trusted and wrong in ways nothing reports. Three failure modes have reached `main` or an open PR:
+
+- **Both sides revised the same existing entry.** Union keeps both revisions, so the file ships two
+  contradictory descriptions of one change, with no conflict ever shown (WIC-1561, fixed by #181).
+  The kept copy can be the **superseded** one: in WIC-1597 a merged code-review correction was
+  silently republished alongside the claim it retracted.
+- **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
+  one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
+  last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185).
+- **One side moved a block, the other edited inside it.** The two do not line up as one diff3 region,
+  so union keeps the relocated copy *and* the edited copy — a whole `### ` entry, duplicated. Note
+  what this means: **moving a block is the documented fix for the ordering defect, so the remedy for
+  one failure mode arms another** for the next branch that touches that entry (WIC-1692, caught on
+  PR #212 before merge).
+
+So after any merge that touches `CHANGELOG.md`, run the checks the driver cannot:
+
+```bash
+python3 - CHANGELOG.md <<'PY'
+import re, sys, collections
+L = open(sys.argv[1]).read().split('\n')
+norm = lambda s: re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
+bul, head = collections.defaultdict(list), collections.defaultdict(list)
+for n, l in enumerate(L, 1):
+    s = l.strip()
+    if s.startswith('- ') and len(s) > 60: bul[norm(s)[:70]].append(n)
+    if s.startswith('### '):               head[norm(s)[:55]].append(n)
+sep = [n + 1 for n, l in enumerate(L) if l.startswith('### ') and n and L[n - 1].strip()]
+print('duplicate headings:', {k: v for k, v in head.items() if len(v) > 1} or 'none')
+print('duplicate bullets:', {k: v for k, v in bul.items() if len(v) > 1} or 'none')
+print('headings missing a preceding blank line (line nos):', sep or 'none')
+PY
+```
+
+It compares a **normalised prefix**, not the whole line, because the duplicates that matter are
+usually *reworded* — an earlier `Counter` over byte-identical lines could not see the WIC-1561 class
+it was written for (WIC-1687). The tradeoff is deliberate: a prefix match will also flag genuine
+pairs that merely open the same way, so **read both lines in full before acting — the discriminator
+is the tail, not the prefix.** Two known-benign pairs live on `main` today (the boilerplate
+"Documentation only. No code, no tests…" opener, and the paired RLS "App runtime is unaffected…"
+bullets); anything else is a real double-ship until you have shown otherwise. **A duplicate `### `
+heading has no benign case** — that one is always a bug.
+
+Resolution is **per bullet**. Never take-ours or take-theirs wholesale: each side usually holds an
+entry the other genuinely lacks, which is the whole reason the driver is there. The exception is a
+clean strict superset — if one copy is the other plus additions, delete the shorter copy whole, then
+re-check the seam you left behind.
+
+**Run this on the branch, not only after your own merge.** A clean `main` says nothing about what is
+queued to land on it, and the corruption exists only in the merge *result* — both parents can be
+individually spotless. To see it before you push, simulate what the driver will do, and simulate it
+against **the PR's true base** (`gh pr view N --json baseRefName`), never `main`: many PRs here are
+stacked, and simulating a stacked PR against `main` manufactures duplicates that will never ship.
+
+```bash
+n=212; BASE=$(gh pr view $n --json baseRefName -q .baseRefName)
+git fetch origin "+refs/pull/$n/head:refs/remotes/pr/$n"
+MB=$(git merge-base "origin/$BASE" "refs/remotes/pr/$n")
+git show "origin/$BASE":CHANGELOG.md   > ours.md
+git show "$MB":CHANGELOG.md            > base.md
+git show "refs/remotes/pr/$n":CHANGELOG.md > theirs.md
+git merge-file -p --union ours.md base.md theirs.md > union.md   # then run the checks above
+```
+
+Use `--union` here deliberately: the question is what the driver *will do*, which is the opposite of
+the `merge-file`-without-driver check under "Diagnosing one" (that one asks whether GitHub sees a
+conflict). Don't confuse the two.
+
+**Counts in changelog prose rot.** An entry saying "all six `cursor` rows" was correct when written
+and stale the same day, because another PR documented four more endpoints. Cite the rule the file
+states, not a tally you took by grep (WIC-1567).
