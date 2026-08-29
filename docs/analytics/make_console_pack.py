@@ -287,7 +287,7 @@ def main():
     w("per route for exactly these two. The other **15 tiles are byte-identical across all three**.")
     w("")
     w("(The native `A3n` variant is `_enabled: false` — gated on `resume_upload_started` ever")
-    w("firing — so *no* route builds it today. A3 is the HogQL form everywhere.)")
+    w("firing — so _no_ route builds it today. A3 is the HogQL form everywhere.)")
     w("")
     w("---")
     w("")
@@ -415,7 +415,7 @@ def main():
     for p, desc, query in resolved:
         w(f"### {p['name']}")
         w("")
-        w(f"*{p['_dashboard']} · {desc}*")
+        w(f"_{p['_dashboard']} · {desc}_")
         w("")
         w("```sql")
         w(query["source"]["query"].strip())
