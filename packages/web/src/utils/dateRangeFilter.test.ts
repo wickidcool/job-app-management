@@ -133,6 +133,67 @@ describe('isWithinDateRange — inclusive local-day bounds (WIC-1613)', () => {
   });
 });
 
+describe('reading a bound is self-checking, not a pattern match (WIC-1613)', () => {
+  /**
+   * `isEmptyDateRange` is the observable for `readBound`: a bound that reads as a day
+   * makes the range non-empty, one that does not is ignored. Each case below is chosen
+   * because it separates the round-trip guard from a plausible weaker one — a regex.
+   *
+   * The first draft here *was* a regex, `/^\d{4}-\d{2}-\d{2}$/`. Deleting its anchors
+   * changed no test result, which is the whole reason this block exists: a guard whose
+   * removal is invisible was never guarding.
+   */
+  const READS_AS_A_DAY = [
+    ['a bare calendar day, what the control emits', '2026-03-01'],
+    ['surrounding whitespace', '  2026-03-01  '],
+    // What `JSON.stringify` makes of a `Date` — the shape a shortcut saved against the
+    // old `{ start: Date; end: Date }` type would carry.
+    ['a full ISO timestamp, reduced to its date part', '2026-03-01T00:00:00.000Z'],
+  ] as const;
+
+  const READS_AS_NOTHING = [
+    // A regex accepts both of these; there is no such day in either case.
+    ['an impossible month and day', '2026-13-45'],
+    ['a day that does not exist in that month', '2026-02-30'],
+    // These separate the round trip from an UNANCHORED regex: each contains a
+    // well-formed date, and an unanchored `\d{4}-\d{2}-\d{2}` matches every one.
+    ['prose that merely contains a date', 'on 2026-03-01 please'],
+    ['trailing junk behind ten valid-looking characters', '2026-03-01x'],
+    ['leading junk', 'x2026-03-01'],
+    // Wrong shape rather than wrong value.
+    ['an unpadded day', '2026-3-1'],
+    ['a basic-format day', '20260301'],
+    ['free text', 'last tuesday'],
+    ['the empty string the control emits when cleared', ''],
+  ] as const;
+
+  it.each(READS_AS_A_DAY)('reads %s', (_label, bound) => {
+    expect(isEmptyDateRange({ start: bound })).toBe(false);
+  });
+
+  it.each(READS_AS_NOTHING)('ignores %s', (_label, bound) => {
+    expect(isEmptyDateRange({ start: bound })).toBe(true);
+  });
+
+  it('reads an ISO timestamp as the LOCAL day it names, not as a UTC instant', () => {
+    // `parseISO('2026-03-01T00:00:00Z')` is an instant, and west of UTC that instant is
+    // 28 February locally — so honouring the timestamp directly would shift the window
+    // by a day for half the world. Taking the date part keeps every bound on the same
+    // local-calendar footing.
+    const fromTimestamp = { start: '2026-03-01T00:00:00.000Z', end: '2026-03-31T23:59:59.999Z' };
+    const fromDays = { start: '2026-03-01', end: '2026-03-31' };
+
+    for (const candidate of [MAR_01, MAR_15, MAR_31_LATE, FEB_28_LATE, APR_01_EARLY]) {
+      expect(isWithinDateRange(row(candidate), fromTimestamp)).toBe(
+        isWithinDateRange(row(candidate), fromDays)
+      );
+    }
+    // ...and that agreement is not two filters both matching everything.
+    expect(isWithinDateRange(row(MAR_15), fromTimestamp)).toBe(true);
+    expect(isWithinDateRange(row(APR_01_EARLY), fromTimestamp)).toBe(false);
+  });
+});
+
 describe('isEmptyDateRange (WIC-1613)', () => {
   it('is true only when neither end is a readable day', () => {
     expect(isEmptyDateRange(undefined)).toBe(true);

@@ -1,4 +1,4 @@
-import { endOfDay, isValid, parseISO, startOfDay } from 'date-fns';
+import { endOfDay, format, isValid, parseISO, startOfDay } from 'date-fns';
 import type { Application } from '../types/application';
 
 /**
@@ -53,22 +53,43 @@ export interface DateRangeFilter {
   end?: string;
 }
 
-/** `<input type="date">` emits exactly this, or `''`. */
-const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
- * A bound we cannot read is **ignored**, not treated as an empty window.
+ * Reads one bound into the local day it denotes, or `null` if it denotes no day.
  *
- * The control cannot produce one, but a `localStorage` shortcut saved by an older build
- * can — `SavedFilterShortcuts` stores whatever `FilterOptions` it was handed and never
- * validates it on the way back in. Given corrupt input the choice is between showing
- * every row (the filter appears not to have applied) and showing none (indistinguishable
- * from data loss). We fail towards showing the data.
+ * A bound we cannot read is **ignored**, not treated as an empty window. The control
+ * cannot produce one — `<input type="date">` emits `YYYY-MM-DD` or `''` — but a
+ * `localStorage` shortcut can: `SavedFilterShortcuts` stores whatever `FilterOptions` it
+ * was handed and never validates it on the way back in. Given corrupt input the choice
+ * is between showing every row (the filter visibly did not apply) and showing none
+ * (indistinguishable from data loss). We fail towards showing the data.
+ *
+ * **The guard is a round trip, not a pattern match.** An earlier draft gated on
+ * `/^\d{4}-\d{2}-\d{2}$/`, and deleting that regex's anchors changed no test result —
+ * a shape guard that can be silently disarmed is not a guard. Formatting the parsed
+ * date back and requiring it to equal the input is self-checking: only a string that
+ * really is one calendar day survives, and there is no pattern to drift. It rejects
+ * `2026-13-45` and `2026-02-30` (which a regex accepts), `20260301` and `2026-3-1`
+ * (wrong shape), and any prose containing a date.
+ *
+ * A full ISO timestamp is accepted and reduced to its **date part**, so it is read as a
+ * local calendar day like every other bound rather than as the UTC instant `parseISO`
+ * would otherwise make of it. That is what `JSON.stringify` does to a `Date`, so it is
+ * the shape any shortcut saved against the old `{ start: Date; end: Date }` type would
+ * carry.
  */
 function readBound(day: string | undefined): Date | null {
-  if (!day || !CALENDAR_DAY.test(day)) return null;
-  const parsed = parseISO(day);
-  return isValid(parsed) ? parsed : null;
+  if (typeof day !== 'string') return null;
+
+  const trimmed = day.trim();
+  const dayPart = trimmed.slice(0, 10);
+  const rest = trimmed.slice(10);
+  // Anything after the day may only be a time, never trailing junk that happens to sit
+  // behind ten valid-looking characters.
+  if (rest !== '' && !rest.startsWith('T')) return null;
+
+  const parsed = parseISO(dayPart);
+  if (!isValid(parsed)) return null;
+  return format(parsed, 'yyyy-MM-dd') === dayPart ? parsed : null;
 }
 
 /**
