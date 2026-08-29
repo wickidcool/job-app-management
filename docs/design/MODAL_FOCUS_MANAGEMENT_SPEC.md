@@ -463,6 +463,19 @@ Suggested split — two PRs, so the destructive-action fix is not held up by the
    *(This is PR #95 — open.)*
 2. **PR 2:** the other five. *(This is PR #97 — open.)*
 
+> **Added 2026-08-29 (WIC-1715) — PR 2 now gates a feature, not just an audit item.**
+> `OnboardingModal` is one of PR 2's five. The WIC-1715 ruling
+> (`ONBOARDING_FLOW.md` §Step 4) puts an **inline form with text inputs** on onboarding
+> step 5, and explicitly sequences it behind PR 2 for the focus trap this section
+> installs. So PR #97 is a dependency of PR #146, not merely a parallel a11y fix:
+> merging #146 first would ship the §2 hazard in its sharpest form — a partially
+> completed form a keyboard user can `Tab` straight out of, into a page this dialog's
+> `aria-modal="true"` has already told assistive tech does not exist.
+>
+> Stated here because the dependency runs the *other* way from where anyone would look
+> for it: nothing in #146 mentions focus management, and nothing in the audit table in
+> §2 suggests a feature is waiting on the `OnboardingModal` row.
+
 > **The original sequencing note is spent.** It said `QuickReferenceExport.tsx` and
 > `ConfirmationModal.tsx` had "uncommitted edits in the shared working tree right now (the WIC-1127
 > residual-caps work)" and to land those first. That was a statement about one machine on one
