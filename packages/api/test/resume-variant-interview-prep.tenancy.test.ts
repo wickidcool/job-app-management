@@ -78,6 +78,24 @@
 //
 // ### Matrix B — this tree, WIC-1601's fix applied
 //
+// **Superseded once, and the reason is the point.** The first revision of this
+// matrix used `[or]` — flip `and(` → `or(` — at all twenty-two sites. Ten of
+// them are in `interviewPrep.service.ts`, which imports `{ eq, and, sql, isNull }`
+// and **no `or`**, so those ten cells went red on `ReferenceError: or is not
+// defined`: a kill that fires just as readily against a perfectly scoped
+// predicate, and therefore measures nothing. That is WIC-1610's finding against
+// PR #203's matrix, reproduced verbatim in this one — it was written on
+// 2026-08-27, two days before WIC-1610 named the trap. Re-measured below with a
+// uniform `[drop]` operator, which needs no import.
+//
+// `[drop]` = delete the owner term and nothing else:
+//   - single-line `and(idTerm, ownerScope(t, userId))` → `and(idTerm)`
+//   - multi-line: delete the `ownerScope(...)` line, drop the trailing comma
+//     above it (so the expected numstat is `1 2`, not `1 1`)
+//   - `listResumeVariants` — `[ownerScope(…) as any]` → `[]`
+//   - the two `ownerScope` bodies — `isNull(table.userId)` → `undefined`, i.e.
+//     restoring the WIC-1482 fail-open
+//
 // Re-run by mutating exactly one line and running this file. Line numbers are as
 // of the merge commit that composes #203 and #206; re-derive them with
 // `grep -n 'ownerScope('` before trusting them, because five of the
@@ -89,7 +107,7 @@
 //   resume-variant.service.ts:555   getResumeVariant                      RED ×2
 //   resume-variant.service.ts:589   getResumeVariant baseResume           RED ×1
 //   resume-variant.service.ts:619   listResumeVariants owner condition †  RED ×2
-//   resume-variant.service.ts:679   updateResumeVariant UPDATE            RED ×3
+//   resume-variant.service.ts:682   updateResumeVariant UPDATE §          RED ×2
 //   resume-variant.service.ts:688   updateResumeVariant re-check          RED ×2
 //   resume-variant.service.ts:701   deleteResumeVariant                   RED ×2
 //   resume-variant.service.ts:720   reviseResumeVariant                   RED ×1
@@ -99,13 +117,35 @@
 //   interviewPrep.service.ts:443    generateInterviewPrep prep uniqueness RED ×1
 //   interviewPrep.service.ts:608    getInterviewPrep                      RED ×2
 //   interviewPrep.service.ts:629    getInterviewPrep application          RED ×1
-//   interviewPrep.service.ts:653    getInterviewPrepByApplication         RED ×2
+//   interviewPrep.service.ts:655    getInterviewPrepByApplication         RED ×2
 //   interviewPrep.service.ts:676    updateInterviewPrep                   RED ×1
 //   interviewPrep.service.ts:822    logPracticeSession                    RED ×1
 //   interviewPrep.service.ts:984    exportInterviewPrep                   RED ×1
 //   interviewPrep.service.ts:1000   exportInterviewPrep application       RED ×1
 //   interviewPrep.service.ts:1168   deleteInterviewPrep                   RED ×1
 //   interviewPrep.service.ts:48     ownerScope anonymous fallback ‡       RED ×3
+//
+// Plus the two second-hop predicates WIC-1610 reclassified out of the control
+// list. They carry no owner term — they key on the prep and inherit tenancy
+// from the scoped read above them — but dropping that key is observable, so
+// they are covered sites, not controls:
+//
+//   interviewPrep.service.ts:710    story update  interviewPrepId         RED ×1
+//   interviewPrep.service.ts:926    story result  interviewPrepId         RED ×1
+//
+// Twenty-four cells. All twenty-four passed all four gates: the edit landed
+// (`git diff --numstat` matched), the mutant compiled (`passed + failed == 36`
+// every time, so no cell was a silent parse failure read as green), the suite
+// noticed, and the failure mode was the tenancy semantics rather than a crash —
+// **zero `ReferenceError`s and zero `TypeError`s across the whole matrix**,
+// against ten in the superseded `[or]` revision. The representative failure is
+// `deleteInterviewPrep does not delete another user's prep` →
+// `AssertionError: promise resolved "undefined" instead of rejecting`, i.e. the
+// entry point acting on a record the caller does not own.
+//
+// Twenty-three of the twenty-four kill counts match what the `[or]` revision
+// predicted, which is the cross-check that the operator swap did not quietly
+// change what is covered. The one that moved is §.
 //
 // ### Matrix A — the pre-fix tree (PR #203, WIC-1537 as corrected by WIC-1610)
 //
@@ -144,26 +184,31 @@
 //   interviewPrep.service.ts:683   story update  interviewPrepId  [drop] RED ×1
 //   interviewPrep.service.ts:901   story result  interviewPrepId  [drop] RED ×1
 //
-//   † not an `and(`→`or(` flip — the owner term is an array element, so the
-//     mutation is dropping it: `[ownerScope(…) as any]` → `[]`.
+//   † the owner term is an array element, so the mutation is dropping it:
+//     `[ownerScope(…) as any]` → `[]`.
 //   ‡ `isNull(table.userId)` → `undefined`, i.e. restoring the fail-open. This
 //     is the only aggregate cell in the matrix, because the fallback genuinely
 //     is one shared decision rather than a per-site one.
+//   § the one kill count that moved between operators, and it moved for a
+//     reason that holds up: `[or]` on `and(id, version, userId)` yields
+//     `or(id, version, userId)`, which breaks the 404 path, the 409 path and
+//     the anonymous path at once (RED ×3). `[drop]` removes only the owner
+//     term, so the version/409 path survives (RED ×2). The narrower operator
+//     is the more honest one — three kills for a one-term defect was the
+//     boolean-typo blast radius, not the tenancy signal.
 //
-// All 22 went red at exactly the count predicted before the run. The `×n` is the
-// point: a site count only proves a mutation was *applied*, the kill count
-// proves it changed *behaviour* this file can see (WIC-1574). `:679` kills three
-// because `or(id, version, userId)` breaks the 404 path, the 409 path and the
-// anonymous path at once.
+// The `×n` is the point: a site count only proves a mutation was *applied*, the
+// kill count proves it changed *behaviour* this file can see (WIC-1574).
 //
 // Two traps this matrix hit and had to be re-run past, both worth keeping:
 //
 // - `interviewPrep.service.ts` does not import `or`. The first pass flipped
 //   `and(`→`or(` there and every cell went red on `ReferenceError: or is not
 //   defined` — a kill that fires against a perfectly scoped predicate too, so
-//   those cells measured nothing. The operator has to be imported as part of the
-//   mutant, and an **import-only** cell (kills 0) is what proves the import is
-//   not itself what the tests are seeing.
+//   those cells measured nothing. Either the operator is imported as part of the
+//   mutant (and an **import-only** cell, kills 0, proves the import is not
+//   itself what the tests are seeing), or — as here — you pick an operator that
+//   needs no import at all.
 // - Three ip cells over-shot their prediction before that fix, which is what
 //   exposed it. A cell that kills *more* than predicted deserves the same
 //   scrutiny as one that kills less.
@@ -216,11 +261,19 @@
 // and **all four were dead** — they would have stayed green with their predicate
 // deleted outright, so their green was evidence of nothing.
 //
+// All three candidates were probed that way on this tree, and all three came
+// back REACHED. What separates them is what happens when their second term is
+// dropped:
+//
 //   - `:813` (`:774` pre-fix) is reached by the happy-path case at the bottom of
-//     this file, and stays green when its `version` term is dropped. Real.
-//   - `interviewPrep.service.ts:708`/`:926` (`:683`/`:901` pre-fix) are reached
-//     too, and are *not* controls: they are load-bearing, so they moved into the
-//     matrix above as covered sites with their own cases.
+//     this file, and dropping its `version` term leaves 36/36 green. That is a
+//     real control: the line runs, and the suite is *not* keyed on it.
+//   - `interviewPrep.service.ts:710`/`:926` (`:683`/`:901` pre-fix) are reached
+//     too, but dropping their `interviewPrepId` term kills a case each — so
+//     they are load-bearing, not controls, and they moved into the matrix above
+//     as covered sites. Re-measuring a candidate control by deleting its
+//     predicate is the only way to tell those two states apart; a bare green
+//     cannot.
 //   - `resume-variant.service.ts:638`, the anonymous-caller fallback, was
 //     **withdrawn** rather than made reachable, because executing it would pin
 //     the WIC-1482 fail-open as intended behaviour. On this tree it is moot:
@@ -232,7 +285,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
 // `reviseResumeVariant` is the only entry point here that reaches Anthropic, and
-// it does so *after* the guard at :680. Reaching the optimistic-lock write below
+// it does so *after* the guard at :720. Reaching the optimistic-lock write below
 // it — the one genuine negative control in this file — means completing the
 // happy path, so the client has to be stubbed. Same factory shape as
 // `llm.service.test.ts`.
