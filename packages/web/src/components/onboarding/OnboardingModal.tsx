@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '../../contexts/OnboardingContext';
 import { OnboardingProgressIndicator } from './OnboardingProgressIndicator';
@@ -45,6 +45,15 @@ export function OnboardingModal() {
   const [firstApplicationError, setFirstApplicationError] = useState<string | null>(null);
   const createApplication = useCreateApplication();
 
+  // Two decisions that outlive a render and must not be re-derived from state, because
+  // both guard against a *second* write that state alone cannot distinguish from a first.
+  //
+  // `resumeSkipConfirmed` — the resume step's outcome once the user confirms the warning.
+  // `firstApplicationCreated` — that the application already exists on the server, so a
+  // retry of the step's progress write is a retry and not a second create.
+  const resumeSkipConfirmedRef = useRef(false);
+  const firstApplicationCreatedRef = useRef(false);
+
   const { data: personalInfoData } = usePersonalInfo();
   const updatePersonalInfo = useUpdatePersonalInfo();
 
@@ -81,6 +90,15 @@ export function OnboardingModal() {
 
   const handleResumeUploadSuccess = async (resume: Resume) => {
     setUploadedResume(resume);
+    // ResumeUploadZone has no AbortController and no mount guard, and this modal stays
+    // mounted while the skip warning is open — so an upload started before the warning
+    // still resolves here, into a live parent. If the user has already confirmed the
+    // skip, the step's outcome is settled: writing `resumeStepCompleted` now would put
+    // both flags true on the same row and advance a second time, stepping silently over
+    // step 4. The resume itself is kept — it exists on the server either way.
+    if (resumeSkipConfirmedRef.current) {
+      return;
+    }
     await updateProgress({
       resumeStepCompleted: true,
       resumeStepSkipped: false,
@@ -123,6 +141,13 @@ export function OnboardingModal() {
 
   const handleConfirmSkipResume = async () => {
     setShowResumeSkipConfirm(false);
+    // The other half of the same race: an upload that landed while the warning was open
+    // has already recorded the step as completed and advanced. Skipping on top of that
+    // would contradict the flag it just wrote and discard a resume the user did provide.
+    if (uploadedResume) {
+      return;
+    }
+    resumeSkipConfirmedRef.current = true;
     await handleSkipResume();
   };
 
@@ -150,25 +175,42 @@ export function OnboardingModal() {
 
     setFirstApplicationError(null);
 
-    try {
-      await createApplication.mutateAsync({
-        company,
-        jobTitle,
-        url: firstApplicationUrl.trim() || undefined,
-        status: 'saved',
-      });
-    } catch (error) {
-      console.error('Failed to create first application:', error);
-      setFirstApplicationError("We couldn't save that application. Please try again.");
-      return;
+    if (!firstApplicationCreatedRef.current) {
+      try {
+        await createApplication.mutateAsync({
+          company,
+          jobTitle,
+          url: firstApplicationUrl.trim() || undefined,
+          status: 'saved',
+        });
+      } catch (error) {
+        console.error('Failed to create first application:', error);
+        setFirstApplicationError("We couldn't save that application. Please try again.");
+        return;
+      }
+      firstApplicationCreatedRef.current = true;
     }
 
     // Only after the application actually exists. Writing the flag first would report a
     // completed step for a user who has no application.
-    await updateProgress({
-      applicationStepCompleted: true,
-      applicationStepSkipped: false,
-    });
+    //
+    // `updateProgress` re-throws (OnboardingContext). Left outside a try, a progress write
+    // that failed after a successful create showed nothing at all: no alert, no advance,
+    // and the only affordance left on screen was the button that had just created the
+    // application — so retrying created a second one, silently. The guard above makes the
+    // retry a retry of the write alone.
+    try {
+      await updateProgress({
+        applicationStepCompleted: true,
+        applicationStepSkipped: false,
+      });
+    } catch (error) {
+      console.error('Failed to record the first application step:', error);
+      setFirstApplicationError(
+        "Your application was saved, but we couldn't finish this step. Try again — we won't create a second one."
+      );
+      return;
+    }
     nextStep();
   };
 
@@ -177,12 +219,33 @@ export function OnboardingModal() {
   // would leave the footer as a third silent path that writes neither flag, which is the
   // hole this defect was filed for.
   const handleSkipFirstApplication = async () => {
-    await updateProgress({
-      applicationStepSkipped: true,
-      applicationStepCompleted: false,
-    });
+    // Same failure mode as the create path: an unguarded `updateProgress` here would
+    // reject into nothing, leaving the user on a step whose button appears inert.
+    try {
+      await updateProgress({
+        applicationStepSkipped: true,
+        applicationStepCompleted: false,
+      });
+    } catch (error) {
+      console.error('Failed to record the first application skip:', error);
+      setFirstApplicationError("We couldn't save that just now. Please try again.");
+      return;
+    }
     nextStep();
   };
+
+  // The footer "Next Step" leaves step 5 without an application, which is a skip — but
+  // not while the quick-add form holds data the user has typed. Recording
+  // `applicationStepSkipped: true` on top of a half-filled form both loses the input and
+  // reports the opposite of what the user was doing. An open but untouched form still
+  // skips: opening it is not a commitment.
+  const hasFirstApplicationInput =
+    showFirstApplicationForm &&
+    Boolean(
+      firstApplicationCompany.trim() ||
+      firstApplicationJobTitle.trim() ||
+      firstApplicationUrl.trim()
+    );
 
   // The completion step's two shortcuts have to finish onboarding the same way the
   // footer button does before they leave. Reaching step 6 only advances local state —
@@ -519,7 +582,11 @@ export function OnboardingModal() {
               title="Ready to Add Your First Application?"
               description="You can create your first application now, or explore the app and add one later."
               canProceed={true}
-              onNext={() => void handleSkipFirstApplication()}
+              onNext={() =>
+                hasFirstApplicationInput
+                  ? void handleCreateFirstApplication()
+                  : void handleSkipFirstApplication()
+              }
               onBack={previousStep}
             >
               <div className="mx-auto max-w-md space-y-4">
@@ -608,6 +675,14 @@ export function OnboardingModal() {
                   </form>
                 ) : (
                   <>
+                    {firstApplicationError && (
+                      <p
+                        role="alert"
+                        className="rounded-md border border-error-100 bg-error-50 p-3 text-sm text-error-700"
+                      >
+                        {firstApplicationError}
+                      </p>
+                    )}
                     <button
                       type="button"
                       className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
