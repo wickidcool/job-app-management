@@ -16,7 +16,18 @@
  *     (`db/schema.ts`). So the first caller to reach that insert takes the only
  *     prep slot that application will ever have, and the legitimate owner is
  *     locked out with a 409 forever. That is a hijack/denial on top of the
- *     disclosure. A test that asserts only the response code cannot see it: a
+ *     disclosure.
+ *
+ *     Scope note, because the tense matters: this file closes that path for
+ *     **new** hijacks — no stranger can reach the insert any more. It does not
+ *     repair applications that already carry a foreign prep. For those the owner
+ *     is still locked out, and post-fix the lockout is *worse-shaped*: the
+ *     now-scoped probe no longer matches the foreign row, so the call falls past
+ *     the 409 guard into a raw UNIQUE violation (`23505`, no `statusCode`) —
+ *     a 500, not a clean `APPLICATION_ALREADY_HAS_PREP`. Anyone triaging that
+ *     population by 409 post-merge will find none. Remediating it is WIC-1622.
+ *
+ *     A test that asserts only the response code cannot see any of this: a
  *     not-found guard and an ownership guard both answer `APPLICATION_NOT_FOUND`,
  *     and neither tells you whether a row was written on the way out.
  *
@@ -395,9 +406,22 @@ describe('generateInterviewPrep — the UNIQUE slot cannot be taken by a strange
     expect(rows[0].application_id).toBe(MY_APP);
   });
 
-  it('does not disclose a foreign prep’s id through the 409 branch', async () => {
-    // The uniqueness probe is scoped too, so a foreign prep sitting on the
-    // caller's own application must not surface its id in `details`.
+  it('scopes the uniqueness probe, so a foreign prep is never named in the failure', async () => {
+    // The uniqueness probe at :443 is owner-scoped, so a foreign prep sitting on
+    // the caller's own application is not matched by it.
+    //
+    // Note what that means for the shipped tree: because the probe does NOT see
+    // `prep_theirs`, the function falls *past* the APPLICATION_ALREADY_HAS_PREP
+    // guard and reaches the INSERT, which trips the UNIQUE constraint raw —
+    // `code: '23505'`, `statusCode`/`details` both undefined. There is no 409 on
+    // this path. Unfixed, the probe matched the foreign row and put its id in
+    // `details.existingPrepId`; that disclosure is what this pins shut, and it
+    // remains the single kill for the :443 matrix cell.
+    //
+    // The residual is documented, not fixed here: an application that ALREADY
+    // carries a foreign prep leaves its owner locked out, now behind an
+    // unhandled 23505 rather than a clean 409. Mapping that to a 409 is runtime
+    // code and the backfill of such rows is out of this card's scope (WIC-1622).
     const { generateInterviewPrep } = await import('../src/services/interviewPrep.service.js');
 
     await client.exec(`
@@ -411,8 +435,16 @@ describe('generateInterviewPrep — the UNIQUE slot cannot be taken by a strange
     );
 
     expect(err).not.toBeNull();
-    // Whatever the failure is, it must not name the foreign prep. Unfixed, the
-    // uniqueness probe matched it and put its id in `details.existingPrepId`.
+
+    // Pin the failure positively, not just negatively. `not.toContain` alone is
+    // satisfied trivially by any driver error, since one cannot know the prep's
+    // id — so on its own it would certify nothing. Naming the constraint is what
+    // makes this assert the scoped-probe path was actually taken.
+    expect(err).toMatchObject({ code: '23505' });
+    expect(String(err)).toContain('interview_preps_application_id_key');
+
+    // And it must not name the foreign prep. Unfixed, the uniqueness probe
+    // matched it and put its id in `details.existingPrepId`.
     expect(
       JSON.stringify({ m: String(err), d: (err as { details?: unknown }).details })
     ).not.toContain('prep_theirs');
