@@ -789,6 +789,21 @@ here rather than merely tidy.
   `role="region"` were both rejected, why the bar padding change is load-bearing rather than
   cosmetic, and (its §3) the constraint on how `/cover-letters/new`'s missing `<h1>` must be
   fixed so that this prop does not become unearned again.
+- **A prop in this class can be un-earned from below, not only from above** (WIC-1598). The
+  criterion is where the heading lands *relative to its hosts*, so **demoting the headings around a
+  component collapses the prop exactly as promoting the component's own heading does** — both leave
+  every call site passing the same level. This is not hypothetical: a `/cover-letters/new` heading
+  sweep specified in `ROUTE_HEADING_OUTLINE.md` §4 would have flattened `CoverLetterPreview` to one
+  depth without touching the component or either call site's props, and it was written before the
+  prop shipped. Two consequences for this section:
+  - **Before you promote or demote a heading, grep the subtree for a `headingLevel` prop.** The
+    host's tag is one half of what a child is asked for.
+  - **When the depths genuinely do collapse, retire the prop in a card of its own, citing the
+    ruling that earned it.** A prop deleted as fallout from an unrelated sweep loses the reasoning
+    with it, and the next person re-derives the same design question from scratch. The source guard
+    (`CoverLetterPreview.test.tsx` → `is asked for h3 by CoverLetterGenerator and h2 by
+    CoverLetterDetail`) exists to force that conversation rather than to forbid the change — note
+    that it reads the literal levels, so a structural argument about nesting will not satisfy it.
 
 #### Kanban headings (WIC-1563)
 
