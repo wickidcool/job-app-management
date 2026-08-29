@@ -156,11 +156,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = generateDiffSchema.safeParse(await c.req.json());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const diff = await generateDiff(
-      parsed.data.sourceType,
-      parsed.data.sourceId,
-      requireOwner(c)
-    );
+    const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId, requireOwner(c));
     return c.json(diff, 201);
   })
   .post('/catalog/diffs/:id/apply', async (c) => {

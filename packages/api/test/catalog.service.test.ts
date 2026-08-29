@@ -933,7 +933,10 @@ function diffRow(overrides: Record<string, unknown> = {}) {
  * to assert the owner-absent case, where the term is present but binds a value
  * no stored row can equal.
  */
-function expectDiffLookup(clause: unknown, opts: { userId: string | undefined; triggerId: string }) {
+function expectDiffLookup(
+  clause: unknown,
+  opts: { userId: string | undefined; triggerId: string }
+) {
   const { sql, params } = queryFor(clause);
   expect(sql).toContain('"catalog_diffs"."trigger_source" = $');
   expect(sql).toContain('"catalog_diffs"."trigger_id" = $');

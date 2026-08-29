@@ -8,12 +8,7 @@ import { AppError } from '../types/index.js';
  */
 export class OwnerRequiredError extends AppError {
   constructor() {
-    super(
-      'OWNER_REQUIRED',
-      'Request has no resolved owner',
-      undefined,
-      401
-    );
+    super('OWNER_REQUIRED', 'Request has no resolved owner', undefined, 401);
     this.name = 'OwnerRequiredError';
   }
 }
