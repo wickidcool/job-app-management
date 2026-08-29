@@ -45,9 +45,14 @@ export function Login() {
     }
   };
 
+  // The bootstrap branch is a route state a user can sit in, so it carries the route's h1
+  // like every other branch does. Visually hidden because this screen is a spinner-in-prose
+  // and a display heading over it would be chrome for something that is about to vanish —
+  // but an outline with a hole in it is not a state a screen-reader user can orient in.
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <h1 className="sr-only">Sign in</h1>
         <div className="text-gray-600">Loading...</div>
       </div>
     );
@@ -57,11 +62,28 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          {/*
+            The wordmark keeps its size and its position and stops being a heading. It named
+            the product, not the screen, and it was the page's highest heading with no h1
+            above it — so heading navigation landed on a string that says nothing about what
+            the user is being asked to do (WIC-1099).
+
+            The string itself is deliberately unchanged. `ROUTE_TITLE_CONVENTION.md` §2 has
+            it and `index.html:13` as the last two places saying `Job Application Manager`
+            while the marketing site says Careerpin, pending a Copywriter call. That is a
+            copy decision; this is a markup one, and they are separable now that this element
+            is not carrying the outline.
+          */}
+          <p className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Job Application Manager
-          </h2>
+          </p>
+          <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
+            {mode === 'login' ? 'Sign in' : 'Create an account'}
+          </h1>
           <p className="mt-2 text-center text-sm text-gray-600">
-            {mode === 'login' ? 'Sign in to manage your job applications' : 'Create an account'}
+            {mode === 'login'
+              ? 'Sign in to manage your job applications'
+              : 'Start tracking your job applications'}
           </p>
         </div>
         <div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
