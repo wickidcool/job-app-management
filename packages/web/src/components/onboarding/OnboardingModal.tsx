@@ -214,10 +214,10 @@ export function OnboardingModal() {
     nextStep();
   };
 
-  // Reached from "I'll Do This Later" and from the footer "Next Step" button, which are
-  // the same act: leaving step 5 without an application. Wiring only the named button
-  // would leave the footer as a third silent path that writes neither flag, which is the
-  // hole this defect was filed for.
+  // The footer "Next Step" is the only way to decline this step (WIC-1715 ruling, and
+  // WIC-1689's single-body-control rule before it): the body renders one control in each
+  // state — [Create Application Now] before disclosure, [Save Application] after. Before
+  // WIC-1383 the footer wrote neither flag, which is the hole this defect was filed for.
   const handleSkipFirstApplication = async () => {
     // Same failure mode as the create path: an unguarded `updateProgress` here would
     // reject into nothing, leaving the user on a step whose button appears inert.
@@ -233,19 +233,6 @@ export function OnboardingModal() {
     }
     nextStep();
   };
-
-  // The footer "Next Step" leaves step 5 without an application, which is a skip — but
-  // not while the quick-add form holds data the user has typed. Recording
-  // `applicationStepSkipped: true` on top of a half-filled form both loses the input and
-  // reports the opposite of what the user was doing. An open but untouched form still
-  // skips: opening it is not a commitment.
-  const hasFirstApplicationInput =
-    showFirstApplicationForm &&
-    Boolean(
-      firstApplicationCompany.trim() ||
-      firstApplicationJobTitle.trim() ||
-      firstApplicationUrl.trim()
-    );
 
   // The completion step's two shortcuts have to finish onboarding the same way the
   // footer button does before they leave. Reaching step 6 only advances local state —
@@ -582,11 +569,7 @@ export function OnboardingModal() {
               title="Ready to Add Your First Application?"
               description="You can create your first application now, or explore the app and add one later."
               canProceed={true}
-              onNext={() =>
-                hasFirstApplicationInput
-                  ? void handleCreateFirstApplication()
-                  : void handleSkipFirstApplication()
-              }
+              onNext={() => void handleSkipFirstApplication()}
               onBack={previousStep}
             >
               <div className="mx-auto max-w-md space-y-4">
@@ -689,13 +672,6 @@ export function OnboardingModal() {
                       onClick={handleShowFirstApplicationForm}
                     >
                       Create Application Now
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full rounded-md border border-neutral-300 bg-white px-6 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                      onClick={() => void handleSkipFirstApplication()}
-                    >
-                      I'll Do This Later
                     </button>
                   </>
                 )}

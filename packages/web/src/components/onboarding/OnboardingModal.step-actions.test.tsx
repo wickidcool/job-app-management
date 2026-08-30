@@ -344,14 +344,50 @@ describe('OnboardingModal — first application quick-add (WIC-1383 / AC-7)', ()
     });
     expect(nextStep).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * WIC-1429 round 2. The latch's *placement* is the whole fix, and nothing else pins it.
+   * Set before the create resolves, a create that FAILED would still latch, and the retry
+   * would skip straight to the progress write — marking the step completed for a user
+   * with no application, which is precisely what the comment above that write forbids.
+   *
+   * The sibling "does not mark the step completed when the create call fails" cannot
+   * catch that: it rejects once and never retries, so it never exercises the latch.
+   */
+  it('retrying after a failed create does create the application, rather than latching', async () => {
+    const { updateProgress, nextStep, createApplication } = mockOnboarding();
+    createApplication.mockRejectedValueOnce(new Error('500'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
+    await userEvent.type(screen.getByLabelText(/company/i), 'Acme Corp');
+    await userEvent.type(screen.getByLabelText(/job title/i), 'Staff Engineer');
+    await userEvent.click(screen.getByRole('button', { name: /save application/i }));
+    await screen.findByRole('alert');
+
+    await userEvent.click(screen.getByRole('button', { name: /save application/i }));
+
+    expect(createApplication).toHaveBeenCalledTimes(2);
+    expect(updateProgress).toHaveBeenCalledTimes(1);
+    expect(updateProgress).toHaveBeenCalledWith({
+      applicationStepCompleted: true,
+      applicationStepSkipped: false,
+    });
+    expect(nextStep).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('OnboardingModal — first application skip (WIC-1383 / AC-8)', () => {
-  it('"I\'ll Do This Later" sets applicationStepSkipped and creates nothing', async () => {
+  // WIC-1715 ruling: the body carries no second button, so the footer "Next Step" is the
+  // only way to decline this step. The sibling test that clicked "I'll Do This Later"
+  // folds in here — but its `updateProgress` call-count and `nextStep` assertions were
+  // *not* already present below, so they are carried across rather than dropped with it.
+  it('the footer "Next Step" records the skip, rather than leaving both flags unwritten', async () => {
     const { updateProgress, nextStep, createApplication } = mockOnboarding();
     renderModal();
 
-    await userEvent.click(screen.getByRole('button', { name: /i'll do this later/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next step/i }));
 
     expect(createApplication).not.toHaveBeenCalled();
     expect(updateProgress).toHaveBeenCalledTimes(1);
@@ -362,36 +398,28 @@ describe('OnboardingModal — first application skip (WIC-1383 / AC-8)', () => {
     expect(nextStep).toHaveBeenCalledTimes(1);
   });
 
-  it('the footer "Next Step" records the skip too, rather than leaving both flags unwritten', async () => {
-    const { updateProgress, createApplication } = mockOnboarding();
+  // WIC-1715, "Scope held": the footer decline is *unconditional* and writes
+  // applicationStepSkipped even over a half-typed form. Discarding a partial draft
+  // without a confirm is an accepted cost on an optional step — the flag is honest (the
+  // user left without an application) and AC-8 asks for no gate.
+  //
+  // This replaces a round-1 test asserting the opposite (footer submits when the form
+  // holds input). That predicate did not merely contradict the ruling: with only one
+  // required field typed it routed the footer into the create path, which early-returns
+  // on "Company and job title are both required" — leaving step 5 with no forward exit
+  // at all. Hence one field here, not two: it is the case that had no way out.
+  it('the footer "Next Step" still skips when the quick-add form holds typed data', async () => {
+    const { updateProgress, nextStep, createApplication } = mockOnboarding();
     renderModal();
 
+    await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
+    await userEvent.type(screen.getByLabelText(/company/i), 'Acme Corp');
     await userEvent.click(screen.getByRole('button', { name: /next step/i }));
 
     expect(createApplication).not.toHaveBeenCalled();
     expect(updateProgress).toHaveBeenCalledWith({
       applicationStepSkipped: true,
       applicationStepCompleted: false,
-    });
-  });
-
-  // WIC-1429 review, follow-up on the footer wiring: recording a skip on top of data the
-  // user is in the middle of typing loses the input and reports the opposite of what they
-  // were doing.
-  it('the footer "Next Step" submits a filled quick-add form rather than recording a skip', async () => {
-    const { updateProgress, nextStep, createApplication } = mockOnboarding();
-    renderModal();
-
-    await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
-    await userEvent.type(screen.getByLabelText(/company/i), 'Acme Corp');
-    await userEvent.type(screen.getByLabelText(/job title/i), 'Staff Engineer');
-    await userEvent.click(screen.getByRole('button', { name: /next step/i }));
-
-    expect(createApplication).toHaveBeenCalledTimes(1);
-    expect(updateProgress).toHaveBeenCalledTimes(1);
-    expect(updateProgress).toHaveBeenCalledWith({
-      applicationStepCompleted: true,
-      applicationStepSkipped: false,
     });
     expect(nextStep).toHaveBeenCalledTimes(1);
   });
@@ -411,13 +439,16 @@ describe('OnboardingModal — first application skip (WIC-1383 / AC-8)', () => {
     });
   });
 
-  it('surfaces a failed skip write rather than leaving the button inert', async () => {
+  // Re-pointed at the footer under the WIC-1715 ruling — with the second body button
+  // gone, the footer is the only remaining route into handleSkipFirstApplication, so
+  // this is the same coverage rather than an approximation of it.
+  it('surfaces a failed skip write rather than leaving the control inert', async () => {
     const { updateProgress, nextStep } = mockOnboarding();
     updateProgress.mockRejectedValueOnce(new Error('500'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     renderModal();
 
-    await userEvent.click(screen.getByRole('button', { name: /i'll do this later/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next step/i }));
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(nextStep).not.toHaveBeenCalled();
