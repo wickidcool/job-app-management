@@ -123,6 +123,25 @@ class RewriteShape(unittest.TestCase):
         self.assertIn("AND (event = 'a') -- why", out)
         self.assertTrue(balanced(out))
 
+    def test_block_comment_parens_do_not_desync(self):
+        """A `)` inside a `/* ... */` block comment must not be counted by the paren-depth
+        walk -- otherwise the WHERE body would be closed early, inside the comment."""
+        sql = "SELECT 1 FROM events WHERE event = 'a' /* note ) ( */ AND event = 'b'"
+        out = sx.exclude_from_hogql(sql, PRED)
+        self.assertIn("AND (event = 'a' /* note ) ( */ AND event = 'b')", out)
+        self.assertTrue(balanced(out))
+
+    def test_intersect_and_except_end_the_where_body(self):
+        """INTERSECT/EXCEPT are the set-operator companions to UNION; a WHERE body
+        followed by one must stop there, not over-run into the next SELECT."""
+        for op in ("INTERSECT", "EXCEPT"):
+            with self.subTest(op=op):
+                sql = f"SELECT 1 FROM events WHERE event = 'a' {op} SELECT 1 FROM events WHERE event = 'b'"
+                out = sx.exclude_from_hogql(sql, PRED)
+                self.assertEqual(out.count(PRED), 2)
+                self.assertIn(f"AND (event = 'a') {op}", out)
+                self.assertTrue(balanced(out))
+
 
 class RefusesRatherThanShippingUnfiltered(unittest.TestCase):
     """Every one of these must raise. Passing the query through untouched would ship a

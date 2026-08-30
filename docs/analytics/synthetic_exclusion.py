@@ -66,7 +66,7 @@ WRAPPER_KINDS = frozenset({"InsightVizNode", "DataTableNode", "DataVisualization
 # Keywords that end a WHERE body at its own paren depth. `WHERE` extends to the first one
 # of these, to a closing paren that drops below the starting depth, or to end of query.
 _CLAUSE_END = re.compile(
-    r"\b(GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|WINDOW|SETTINGS|FORMAT)\b",
+    r"\b(GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|WINDOW|SETTINGS|FORMAT)\b",
     re.IGNORECASE,
 )
 _FROM_EVENTS = re.compile(r"\bFROM\s+events\b", re.IGNORECASE)
@@ -86,6 +86,11 @@ def _mask(sql: str) -> str:
     across `'resume_upload_completed'` and closed the injected parenthesis in the middle
     of `event =`. Comments, conversely, *must* read as trimmable: a `)` appended after a
     trailing `-- note` would be commented out and the query would not parse.
+
+    Both comment syntaxes are neutralised. A `)` inside a `/* ... */` block comment would
+    desynchronise the paren-depth count exactly as one inside a `-- line comment` or a
+    string literal would; an unterminated `/*` masks to end of query, matching how HogQL
+    treats it.
     """
     out = list(sql)
     i, n = 0, len(sql)
@@ -105,6 +110,12 @@ def _mask(sql: str) -> str:
         elif sql.startswith("--", i):
             j = sql.find("\n", i)
             j = n if j == -1 else j
+            for k in range(i, j):
+                out[k] = " "
+            i = j
+        elif sql.startswith("/*", i):
+            j = sql.find("*/", i + 2)
+            j = n if j == -1 else j + 2
             for k in range(i, j):
                 out[k] = " "
             i = j
