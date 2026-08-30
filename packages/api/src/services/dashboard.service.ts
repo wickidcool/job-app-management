@@ -74,6 +74,46 @@ function toAttentionApplication(row: AttentionRow): AttentionApplication {
   };
 }
 
+/**
+ * The predicates behind every attention/quick-win count, as pure data.
+ *
+ * WIC-1478. These are the product of that card — "which applications need
+ * attention?" — and until they were lifted out they ran inside
+ * `getDashboardStats`, which `dashboard.routes.test.ts` mocks wholesale. That
+ * left them executed by no test at all: inverting the threshold comparisons,
+ * which compiles and would ship, passed the entire gate while reporting the
+ * freshly-touched rows as the ones needing follow-up.
+ *
+ * Exported so `dashboard.attention-conditions.test.ts` can render each clause
+ * to SQL and assert its status set and comparison direction directly. `now` is
+ * a parameter only so those assertions can pin a fixed instant; production
+ * always passes none.
+ *
+ * `staleCondition` is not built here (WIC-1479). It is `staleWhere()`'s, whole,
+ * so that the attention card's count and `/reports/stale`'s row count are equal
+ * by construction. This function passes `now` through and adds nothing to it —
+ * a local `and(...)` wrapping it here is exactly the second expression the card
+ * exists to delete.
+ */
+export function buildAttentionConditions(now: Date = new Date()) {
+  const unsubmittedThreshold = new Date(now);
+  unsubmittedThreshold.setDate(unsubmittedThreshold.getDate() - UNSUBMITTED_THRESHOLD_DAYS);
+
+  return {
+    unsubmittedThreshold,
+    staleCondition: staleWhere({ now }),
+    missingDescriptionCondition: and(
+      inArray(applications.status, NON_TERMINAL_STATUSES),
+      or(isNull(applications.jobDescription), eq(applications.jobDescription, ''))
+    ),
+    unsubmittedSavedCondition: and(
+      eq(applications.status, 'saved'),
+      lt(applications.createdAt, unsubmittedThreshold)
+    ),
+    interviewingCondition: inArray(applications.status, INTERVIEWING_STATUSES),
+  };
+}
+
 export async function getDashboardStats(userId?: string): Promise<{
   stats: DashboardStats;
   recentActivity: ActivityItem[];
@@ -167,23 +207,16 @@ export async function getDashboardStats(userId?: string): Promise<{
   // by most-recently-updated), so a client-side "which of these are stale?" scan
   // is blind to exactly the rows it exists to surface. Every count below is over
   // the full table, the same way `byStatus` above is.
-  const unsubmittedThreshold = new Date();
-  unsubmittedThreshold.setDate(unsubmittedThreshold.getDate() - UNSUBMITTED_THRESHOLD_DAYS);
-
-  // The same predicate `/reports/stale` runs, built by the same function. The
-  // attention card's count and the report's row count therefore agree by
-  // construction — there is no second expression here that could drift out of
-  // step with it (WIC-1479 AC-N2b).
-  const staleCondition = staleWhere();
-  const missingDescriptionCondition = and(
-    inArray(applications.status, NON_TERMINAL_STATUSES),
-    or(isNull(applications.jobDescription), eq(applications.jobDescription, ''))
-  );
-  const unsubmittedSavedCondition = and(
-    eq(applications.status, 'saved'),
-    lt(applications.createdAt, unsubmittedThreshold)
-  );
-  const interviewingCondition = inArray(applications.status, INTERVIEWING_STATUSES);
+  // `staleCondition` is the same predicate `/reports/stale` runs, built by the
+  // same function. The attention card's count and the report's row count
+  // therefore agree by construction — there is no second expression here that
+  // could drift out of step with it (WIC-1479 AC-N2b).
+  const {
+    staleCondition,
+    missingDescriptionCondition,
+    unsubmittedSavedCondition,
+    interviewingCondition,
+  } = buildAttentionConditions();
 
   const countMatching = async (condition: ReturnType<typeof and>): Promise<number> => {
     const [row] = await db

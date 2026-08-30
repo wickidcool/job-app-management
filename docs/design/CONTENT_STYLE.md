@@ -126,6 +126,10 @@ flip and every other ruling in this document would stand.*
 
 ## ALL CAPS is a typographic treatment, not casing
 
+> **This rule governs how caps are *applied*, not where caps *belong*.** For the sizing rule —
+> caps on a primary result must not be rendered in Overline, which is the smallest step in the
+> scale — see `DESIGN_SYSTEM.md` § *Overline is the wrong instrument for a primary result*.
+
 Uppercase display is applied with CSS, never baked into the string:
 
 ```tsx
