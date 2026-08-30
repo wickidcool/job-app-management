@@ -341,6 +341,14 @@ The WIC-1581 source sweep is the only thing covering 27 of the 29 routes — 18 
 - **The shared reports table at the top of § UC-5 is deliberately left alone.** It reads "Opaque page token, issued by the server as `nextCursor`" — already correct, and better suited to a table that covers three endpoints at once than the per-endpoint phrasing would be.
 - Documentation only. No source, schema, wire, or test change.
 
+### Fixed — every PR preview had a dead database while the deploy reported green (2026-08-30)
+
+The Access-free per-version preview URLs all returned `503 {"status":"degraded","hyperdrive":true,"db":"password authentication failed for user \"postgres\""}`: `db/client.ts` resolves `HYPERDRIVE` -> `DATABASE_URL` -> Node, `wrangler.jsonc` declares `HYPERDRIVE` under `env.preview`, so preview's live credential lived only in Cloudflare Hyperdrive config `374db58fe1014823a9e54ba393125676` — which nothing in CI refreshed. A dev-DB password rotation updated the Actions and prod-Worker secrets and silently left Hyperdrive stale, and `deploy.yml`'s twice-run `wrangler secret bulk --env preview DATABASE_URL` push was inert because the code prefers the binding (WIC-1736).
+
+- **`deploy-preview` now refreshes the Hyperdrive config itself.** A new step reconstructs the same transaction-pooler URL the migration step uses and runs `wrangler hyperdrive update 374db58f… --connection-string … --sslmode require`, so preview credentials track the dev DB instead of drifting; the shared config heals every open PR's preview in one refresh. Advisory (needs `Hyperdrive:Edit` on the deploy token) — the health gate below is the authoritative signal.
+- **The pipeline now asserts the deployed Worker actually works.** A final `Assert preview database is live (/health)` step curls the Access-free URL and fails the job unless `db == "ok"` — asserting on `db`, never `status`/HTTP code, since a wrong-password Hyperdrive and a subrequest-exhausted prod both present as `503 degraded` (same trap as WIC-1386).
+- The inert `DATABASE_URL` push on preview is now annotated as such rather than reading like the mechanism that keeps preview fresh.
+
 ### Docs — A union-driver "clean" merge is not a correct one, so the changelog rules now say how to check
 
 `CLAUDE.md` → "Changelog conventions" told you how to _diagnose_ a `CHANGELOG.md` conflict GitHub sees and local tools do not, and then stopped at "keep both sides". That left the step where the damage actually happens undocumented: `merge=union` resolves the file silently, and its resolution can be wrong in ways no tool reports.

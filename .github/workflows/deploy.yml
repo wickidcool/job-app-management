@@ -366,6 +366,65 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # WIC-1736: preview reads its DB connection from the HYPERDRIVE binding, not
+      # from any Worker secret — `db/client.ts` resolves HYPERDRIVE -> DATABASE_URL
+      # -> Node singleton, and `wrangler.jsonc` declares HYPERDRIVE under
+      # `env.preview`, so preview ALWAYS takes path 1. That means the live preview
+      # credential lives Cloudflare-side in Hyperdrive config
+      # 374db58fe1014823a9e54ba393125676 — and nothing in this pipeline refreshed
+      # it. So a dev-DB password rotation updated the Actions secret and the prod
+      # Worker secret and silently left Hyperdrive stale, giving every PR preview a
+      # dead database (`/health` -> 503, db "password authentication failed for
+      # user postgres") while the deploy still reported green.
+      #
+      # This step refreshes that config from the SAME reconstructed transaction-
+      # pooler URL the migration step proves works, so preview credentials track
+      # the dev DB automatically instead of drifting. The Hyperdrive config is
+      # shared across every preview version, so one refresh heals all open PRs'
+      # previews at once.
+      #
+      # Advisory (continue-on-error) on purpose: if the deploy token lacks
+      # Hyperdrive:Edit the refresh cannot land, but that must not hard-stop the
+      # job before its own deploy — the "Assert preview database is live" gate at
+      # the end of this job is the authoritative loud failure, and it reports the
+      # DB fault directly rather than a token-scope error one step early. When the
+      # refresh does land, that gate goes green.
+      - name: Refresh preview Hyperdrive config
+        id: hyperdrive_refresh
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
+        run: |
+          set -euo pipefail
+          # Reconstruct the transaction-pooler URL exactly as "Run database
+          # migrations" above does, so Hyperdrive tracks the credential the rest of
+          # this job already exercised. prepare:false is set on the preview DB
+          # client (db/client.ts), which is what makes port 6543 pooling safe here.
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+          if [ -n "$SUPABASE_DATABASE_PASSWORD" ]; then
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "$SUPABASE_DATABASE_URL" == postgresql://* ]]; then
+            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            echo "::error::No usable Supabase DB credentials to refresh Hyperdrive — set SUPABASE_DATABASE_PASSWORD (dev env) or a postgresql:// SUPABASE_DATABASE_URL"
+            exit 1
+          fi
+          # The URL carries the DB password — never echo it. wrangler reads it as an
+          # argument; wrangler's own output redacts the password to ***.
+          npx wrangler hyperdrive update 374db58fe1014823a9e54ba393125676 \
+            --connection-string="$DATABASE_URL" \
+            --sslmode require
+          echo "::notice::Refreshed preview Hyperdrive config 374db58fe1014823a9e54ba393125676 from the current dev pooler credentials."
+
       # WIC-1343: the secret push is split out of wrangler-action's `secrets:`
       # input and run as a pair of explicit steps around the deploy. Why:
       #
@@ -403,6 +462,15 @@ jobs:
       # secrets. The production job is intentionally left alone: it only runs on
       # push/dispatch against refs/heads/main, which the workflow-level
       # concurrency group already serializes, so it has no concurrent writer.
+      #
+      # WIC-1736 NOTE: the DATABASE_URL pushed here is INERT on preview. Preview
+      # connects through the HYPERDRIVE binding, and `db/client.ts` prefers that
+      # binding over the DATABASE_URL secret (HYPERDRIVE -> DATABASE_URL -> Node),
+      # so the preview Worker never reads this value — the "Refresh preview
+      # Hyperdrive config" step above is what actually keeps preview's DB
+      # credential fresh. These steps still run because the other four secrets
+      # (SUPABASE_*) ARE read on preview and the 10214-avoidance ordering above is
+      # about those; only the DATABASE_URL key is a no-op here.
       - name: Sync preview Worker secrets (advisory, pre-deploy)
         id: secrets_pre
         continue-on-error: true
@@ -577,6 +645,47 @@ jobs:
               repo: context.repo.repo,
               body: lines.join('\n'),
             })
+
+      # WIC-1736: the deploy above reports success on `wrangler deploy` exiting 0
+      # and nothing afterwards asks the deployed Worker whether it can actually
+      # reach its database. That is exactly how a stale Hyperdrive credential gave
+      # every preview a dead DB for an unknown number of days behind a green
+      # pipeline. This gate closes that: it curls the Access-free /health URL
+      # (derived above) and fails the job unless the DB probe passes.
+      #
+      # Assert on the `db` field, NEVER on `status` or the HTTP code. /health
+      # returns 503 + status:"degraded" for ANY DB fault, so a wrong-password
+      # Hyperdrive (this bug) and a subrequest-exhausted prod (WIC-1386) are
+      # byte-identical at that level — only `db` distinguishes "ok" from a real
+      # fault. Runs last so the QA URL is still posted above even on a red DB, and
+      # retries to absorb Hyperdrive-config propagation and Worker cold start.
+      - name: Assert preview database is live (/health)
+        if: steps.preview.outputs.url != ''
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        run: |
+          set -uo pipefail
+          url="${PREVIEW_URL%/}/health"
+          attempt=1
+          max=5
+          delay=4
+          db=""
+          body=""
+          while :; do
+            body="$(curl -sS --max-time 15 "$url" 2>/dev/null || true)"
+            db="$(printf '%s' "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('db',''))" 2>/dev/null || true)"
+            if [ "$db" = "ok" ]; then
+              echo "::notice::Preview DB healthy (db=ok) at ${url} on attempt ${attempt}/${max}."
+              exit 0
+            fi
+            echo "::warning::Preview /health db != ok (attempt ${attempt}/${max}): db='${db}' body='${body}'"
+            if [ "$attempt" -ge "$max" ]; then break; fi
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+          echo "::error::Preview database is not live: /health reported db='${db}' (expected 'ok') at ${url}. The deployed preview Worker cannot reach the dev database — check Hyperdrive config 374db58fe1014823a9e54ba393125676 and the 'Refresh preview Hyperdrive config' step's log above."
+          exit 1
 
   deploy-production:
     name: Deploy Production
