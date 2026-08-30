@@ -58,6 +58,27 @@
  * which is what makes the column choice observable at all. Both are inert under
  * correct code — one is fresh, one is stale-and-active exactly as the bucket intends.
  *
+ * ## Three more, added in round 2 — the same axis on `staleSaved`
+ *
+ * Both rows above are `status = 'applied'`, and `staleSavedCondition` requires
+ * `status = 'saved'`, so neither ever reaches that bucket and the identical axis
+ * stayed open there:
+ *
+ * | | mutation to `dashboard.service.ts`                        | caught by |
+ * |---|---------------------------------------------------------|-----------|
+ * | R | `staleSavedCondition` reads `staleThreshold` (7d), not `savedThreshold` (3d) | `staleSaved keys off createdAt, and against the 3-day saved threshold` |
+ * | S | `staleSavedCondition` keys off `updatedAt`, not `createdAt` | the same cell, and the ordering cell below |
+ * | U | `staleSaved` sample orders by `updatedAt`, not `createdAt` | `staleSaved sample is ordered by createdAt, not updatedAt` |
+ *
+ * `saved-created-5d` is the one row that closes R and U: it is `saved` (so it
+ * reaches the bucket), created into the (3, 7)-day window (so the threshold choice
+ * moves it), and disagrees between its two columns (so the ordering choice moves
+ * it). Inert under correct code — it is stale-and-saved exactly as intended.
+ *
+ * Note `staleSaved` now counts 3, which is above `ATTENTION_SAMPLE_LIMIT`, so D
+ * reds these cells too. D was already a blanket mutation, so no discrimination is
+ * lost — but it is why D moved from 6 cells to 7.
+ *
  * Keep that property when editing `FIXTURE`: a row is worth adding when some mutation
  * moves it across a boundary, and worth keeping only while it still does.
  */
@@ -264,6 +285,19 @@ describe('getDashboardStats — attention predicates', () => {
       updatedAt: daysAgo(20),
       createdAt: daysAgo(1),
     },
+    // The `staleSaved` mirror of the two rows above, and the reason it has to be
+    // separate from them: `staleSavedCondition` requires `status = 'saved'`, so
+    // `applied-5d` and `applied-stale-born-yesterday` never enter that bucket at
+    // all and neither of the properties they pin is observable there. Created into
+    // the (3, 7)-day window, so reading `staleThreshold` here drops it; last by
+    // `createdAt` but second by `updatedAt`, so ordering on the wrong column pulls
+    // it into the sample.
+    {
+      id: 'saved-created-5d',
+      status: 'saved',
+      updatedAt: daysAgo(20),
+      createdAt: daysAgo(5),
+    },
   ];
 
   beforeEach(() => seed(FIXTURE));
@@ -272,10 +306,11 @@ describe('getDashboardStats — attention predicates', () => {
   it('stale counts rows NOT touched for STALE_THRESHOLD_DAYS', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    // saved-old + applied-oldest + interview-newer + applied-stale-born-yesterday.
+    // saved-old + applied-oldest + interview-newer + applied-stale-born-yesterday
+    // + saved-created-5d (untouched for 20d, and `saved` is non-terminal).
     // Not applied-fresh, not phone-screen-fresh, not applied-5d (inside the 7-day
     // threshold, though outside the 3-day one), and none of the three terminal rows.
-    expect(attention.counts.stale).toBe(4);
+    expect(attention.counts.stale).toBe(5);
     expect(ids(attention.samples.staleActive)).not.toContain('applied-fresh');
   });
 
@@ -283,8 +318,8 @@ describe('getDashboardStats — attention predicates', () => {
   it('stale spans saved; staleActive excludes it', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(attention.counts.stale).toBe(4); // incl. saved-old
-    expect(attention.counts.staleActive).toBe(3); // excl. saved-old
+    expect(attention.counts.stale).toBe(5); // incl. saved-old + saved-created-5d
+    expect(attention.counts.staleActive).toBe(3); // excl. both saved rows
     // The strict containment is the property; equality means the scopes merged.
     expect(attention.counts.stale).toBeGreaterThan(attention.counts.staleActive);
     expect(ids(attention.samples.staleActive)).not.toContain('saved-old');
@@ -318,18 +353,43 @@ describe('getDashboardStats — attention predicates', () => {
     expect(attention.counts.interviewing).toBe(3); // phone-screen-fresh + 2 interviews
   });
 
-  it('staleSaved keys off createdAt, not updatedAt', async () => {
+  /**
+   * Kills S: keying off `updatedAt` drops saved-touched (touched today) and admits
+   * nothing to replace it.
+   * Kills R: reading `staleThreshold` (7d) instead of `savedThreshold` (3d) drops
+   * saved-created-5d, which sits in the gap between the two.
+   */
+  it('staleSaved keys off createdAt, and against the 3-day saved threshold', async () => {
     await seed([
       // Created long ago but touched today: still not-yet-submitted, so it counts.
-      { id: 'saved-touched', status: 'saved', updatedAt: daysAgo(0), createdAt: daysAgo(30) },
+      { id: 'saved-touched', status: 'saved', updatedAt: daysAgo(0), createdAt: daysAgo(25) },
       // Created today: inside the saved threshold.
       { id: 'saved-new', status: 'saved', updatedAt: daysAgo(0), createdAt: daysAgo(0) },
     ]);
 
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(attention.counts.staleSaved).toBe(2); // saved-old + saved-touched
+    // saved-old + saved-touched + saved-created-5d.
+    expect(attention.counts.staleSaved).toBe(3);
     expect(ids(attention.samples.staleSaved)).not.toContain('saved-new');
+  });
+
+  /**
+   * Kills U: the sample is `asc(createdAt)` limit 2, so the two oldest-created rows
+   * take it and saved-created-5d is left out. Ordering by `updatedAt` instead puts
+   * it second (20d, behind saved-old's 30d) and pushes saved-touched (0d) out.
+   *
+   * Separate from the case above so the ordering and the predicate fail
+   * independently — together they would pin three properties under one name.
+   */
+  it('staleSaved sample is ordered by createdAt, not updatedAt', async () => {
+    await seed([
+      { id: 'saved-touched', status: 'saved', updatedAt: daysAgo(0), createdAt: daysAgo(25) },
+    ]);
+
+    const { attention } = await getDashboardStats(USER_A);
+
+    expect(ids(attention.samples.staleSaved)).toEqual(['saved-old', 'saved-touched']);
   });
 
   /**
