@@ -431,6 +431,29 @@ The entry below fixed the except tuple in `organic_watch.py`'s `prod_db_health()
 
 
 
+
+### Fixed — `reviseCoverLetter` no longer persists STAR entry ids it could not resolve
+
+`POST /cover-letters/:id/revise` fetched the selected STAR entries and then wrote the *caller's* id
+list into `selected_star_entry_ids` regardless of what that fetch returned, so an id resolving to no
+row was still stored. `generateCoverLetter` has always rejected that input with `STAR_ENTRY_NOT_FOUND`
+(404); the revise path now does the same, and throws before the model call rather than after it.
+
+- **The check covers the caller-supplied list only, not the stored fallback.** When the request omits
+  `selectedStarEntryIds` the service falls back to the ids already on the row, and validating *that*
+  would make a letter which already stores an unresolvable id impossible to revise ever again —
+  including by an instructions-only edit that never mentions STAR entries. Those rows exist precisely
+  because this write path minted them, so the guard is scoped to close the write vector without
+  stranding what it already wrote. A test pins the narrowing: widening the guard to the fallback list
+  turns it red.
+- **An explicit empty list still clears the row.** `[]` is a request, not an omission, and is
+  distinguished from the fallback case.
+- **This composes with the owner-scoping fix on PR #159 (WIC-1437) and does not depend on it.** Here
+  "did not resolve" means "does not exist", because the catalog read on `main` carries no owner term.
+  Once #159 adds one, another user's id also stops resolving and this same guard rejects it with no
+  further change — which is why the check is computed from the rows the fetch returned rather than
+  from an existence query of its own.
+
 ### Fixed — Route 1 no longer builds 17 dashboard tiles that count probe residue as product usage (2026-08-30)
 
 `console-build-runbook.md` documents three build routes, and only Route 3 got the mandatory synthetic-exclusion predicate — because a human pastes it by hand. Route 1 (`build_dashboards.py`) built straight from the unfiltered payloads: `grep -c registry build_dashboards.py` was **0**, and `insight-payloads.json` held **0** occurrences of `NOT IN`, `NOT (` or `distinct_id`. All 17 enabled tiles read probe residue as product usage, and the documented mitigation was "after an API build, open each of the 17 tiles and add the same `AND NOT (...)` line" — the class of manual step that gets skipped on build day. The builder now derives the predicate from `probe-registry.json` and injects it at build time (WIC-1667).

@@ -475,6 +475,38 @@ export async function reviseCoverLetter(
   const selectedIds = input.selectedStarEntryIds ?? existing.selectedStarEntryIds ?? [];
   const starEntries = await fetchStarEntries(selectedIds);
 
+  // WIC-1492: `selectedIds` was persisted raw at the UPDATE below, so any id the
+  // fetch above did not resolve was still written onto the row. Mirrors the
+  // `generateCoverLetter` guard, with one deliberate difference.
+  //
+  // Validate `input.selectedStarEntryIds`, NOT `selectedIds`. The two differ
+  // exactly when the caller omits the field and `selectedIds` falls back to
+  // `existing.selectedStarEntryIds` — and validating that fallback would make a
+  // row that *already* stores an unresolvable id impossible to revise ever
+  // again, including by an instructions-only edit that never mentions STAR
+  // entries. Those rows are not hypothetical: WIC-1492 filed this defect
+  // precisely because this write path keeps minting them, so a check over the
+  // fallback would brick the exact cohort the fix exists to stop growing.
+  // Narrowing to the caller-supplied list closes the write vector without
+  // stranding what it already wrote.
+  //
+  // The other rejected option — persisting `starEntries.map((e) => e.id)` — keeps
+  // the endpoint non-throwing but silently drops ids the caller asked for, and
+  // silently drops the row's stored ids on an instructions-only revise. Failing
+  // loudly on bad input is preferable to either.
+  if (input.selectedStarEntryIds) {
+    const foundIds = new Set(starEntries.map((e) => e.id));
+    const invalidIds = input.selectedStarEntryIds.filter((id) => !foundIds.has(id));
+    if (invalidIds.length > 0) {
+      throw new CoverLetterError(
+        'STAR_ENTRY_NOT_FOUND',
+        'One or more selected STAR entry IDs do not exist',
+        { invalidIds },
+        404
+      );
+    }
+  }
+
   const tone = (input.tone ?? existing.tone) as string;
   const lengthVariant = (input.lengthVariant ?? existing.lengthVariant) as string;
   const emphasis = (input.emphasis ?? existing.emphasis ?? 'balanced') as string;
