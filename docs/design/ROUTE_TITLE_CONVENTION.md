@@ -250,6 +250,15 @@ which is how a heading no screen reader can reach ships green.
 containing that phrase — so for as long as the copy was aspirational, the audit verified *nothing*
 about these two routes. Dropping the marker is what puts them under the check.
 
+**How strong that check is depends on how rare the literal is**, because `lit not in body` is a
+substring test against the whole file, not a positional one. `/applications/new` is clean: `New
+application` occurs only in the dialog title, so renaming it fails the audit. `/login` carries two
+literals and they are not equally load-bearing — `Sign in` also appears as the `sr-only` `<h1>`, the
+subtitle, the submit button and the mode toggle, so that literal alone could not fail; `Create an
+account` occurs **only** in the `<h1>` ternary, and it is what actually holds the row up. Deleting
+the `<h1>` does fail the audit, via that second literal and not the first. A one-literal `/login`
+row would have been unfalsifiable, so this is worth preserving deliberately rather than by luck.
+
 **Correction (carried forward from the original).** WIC-1046 §1 argued against the `EmptyState` option partly on the grounds that it "leaves NotFound as the only route with no `<h1>` in `<main>`". That was wrong — `/applications/new` already had none. The rest of that argument stands, and the built page has a proper `<h1>`, so the conclusion is unaffected.
 
 ### 6.2 `/job-fit-analysis` loses its `<h1>` in two states — ~~*still true*~~ **fixed 2026-08-29, WIC-1099**
@@ -258,7 +267,7 @@ about these two routes. Dropping the marker is what puts them under the check.
 
 **It was five branches, not the two this section counted.** `JobFitAnalysis` returns from five
 places — analyzing, results, error, application-loading, input — and each is a separate document
-outline. Two of the five had no `<h1>`; the audit that produced this finding saw the two that
+outline. Three of the five had no `<h1>`; the audit that produced this finding saw the two that
 render a *wrong* heading and could not see the application-loading branch, which renders no
 heading at all. The `<h1>` therefore lives in a `JobFitAnalysisFrame` wrapper that every branch
 returns through, rather than being copied into each: five copies are correct right up until
