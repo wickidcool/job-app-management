@@ -75,7 +75,7 @@ Root `CLAUDE.md` told readers that a duplicate `### ` heading "has no benign cas
 
 Repository guidance and its embedded checks. Application code, tests and runtime behaviour are untouched.
 
-### Fixed — a malformed JSON body was reported as a server fault on every write endpoint (2026-08-30)
+### Fixed — a malformed JSON body was reported as a server fault on every write endpoint that takes one (2026-08-30)
 
 Every route read its body as `schema.safeParse(await c.req.json())`, with the `await` outside any `try`. `c.req.json()` throws a `SyntaxError` on unparseable input, `app.onError` has no branch for one, so it took the generic arm and returned `500 INTERNAL_ERROR` — and `console.error`'d the client's typo into the logs as a server fault. **34 call sites across 10 route files, none of them guarded.** All 34 now go through a shared `readJsonBody` helper (`packages/api/src/lib/request.ts`) that raises `400 VALIDATION_ERROR` / `Request body is not valid JSON` (WIC-1524, reported by the Technical Writer while documenting the onboarding endpoints on WIC-1359).
 
@@ -85,6 +85,7 @@ Every route read its body as `schema.safeParse(await c.req.json())`, with the `a
 - **A missing `Content-Type` is not a separate code path.** Measured, because the card asked: Hono does not gate `c.req.json()` on the header, so a body parses with or without it. That is the one thing checked here that needed no change.
 - **The helper is the shape that stays fixed.** A per-route `try`/`catch` would work and reopen at every new endpoint — the same reasoning `lib/pagination.ts` records for cursors.
 - **`API_CONTRACTS.md` documented the `500` as a known rough edge; that paragraph is now the plain `400` contract**, moved out of the onboarding section since it was never onboarding-specific. Both `/api/auth` routes still return `503 NOT_CONFIGURED` for a malformed body in an unconfigured environment — a config gate short-circuits ahead of the parse. That is a different code path and is unchanged. (The card named only `login`; `register` measures the same, so the two guarded sites in `auth.ts` are the ones this suite cannot reach and are covered by the count, not by a case.)
+- **The contract is scoped to write endpoints that take a JSON body, and the qualifier is load-bearing** (WIC-1843, reported by the Technical Writer against this PR's own diff). `POST /resumes/upload` reads `multipart/form-data` via `c.req.parseBody()`, so a malformed body there is a `400` carrying `BAD_REQUEST` / `No file provided` — the status matches but the discriminator the section invites clients to branch on does not. Every `DELETE`, plus writes like `POST /auth/logout`, read no body at all and ignore a malformed one outright (`/auth/logout` measures `204`). The unqualified claim was wrong about more endpoints than the report caught, so the section states the rule rather than a grep tally, per the "counts in prose rot" note in root `CLAUDE.md`.
 
 ### Fixed — a decorative ✓ could land in a STAR field's accessible name (2026-08-29)
 
