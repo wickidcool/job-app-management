@@ -218,6 +218,16 @@ The last thing a new user is asked to do on the first-run flow was a no-op. Step
 - **No behaviour change.** Documentation and one example file only; no source, no tests, no deploy.
 
 
+
+### Docs — ACCESSIBILITY.md names what enforces WCAG 2.1 AA, and what only looks like it does (2026-08-30)
+
+`docs/design/ACCESSIBILITY.md` carried **"Enforcement status: none"** and pointed at `WIC-1483` as the mechanism in progress. Once `WIC-1483` closed, both halves were wrong — in opposite directions, and each in the way that stops the next reader looking again.
+
+- **"None" understated it.** Three checks already fail the build, all steps in the `Lint & Test` job of `.github/workflows/deploy.yml`: `routeHeadingOutline.test.ts` and the rendered `findOutlineSkips` assertions, both under `npm run test`, plus `confirmation-modal-focus-audit.py`. The note now names each check, the command that fails, and its real scope — two components and one static source sweep, not the site.
+- **Pointing at a closed card overstated it.** `WIC-1483` is `done`, but no config landed under it: at `6f91a56`, `packages/web/eslint.config.js` still loads only `js`, `typescript-eslint`, `react-hooks`, `react-refresh` and `prettier`, and neither `eslint-plugin-jsx-a11y` nor `axe-core` is a dependency. A reader who followed the pointer, saw `done` and inferred the mechanism had shipped would have been wrong. The note now cites `WIC-1589` and `WIC-1675` as the work that remains, and says plainly that `A11Y_ENFORCEMENT_RULING.md` is a decision rather than a landing — as that document says of itself.
+- **The lint layer is not credited with SC 1.3.1, then or when it lands.** Heading order is a property of the composition of a page and the components it mounts, so no per-file rule can observe it; `WIC-1483` measured that `jsx-a11y` would have caught **none** of the 16 skips it found.
+- **Three `h1` → `h3` skips are named as still live** — `ProjectsList.tsx`, `ResumeManager.tsx` and `ProjectDetail.tsx`, with line numbers. Each sits in the *populated* render branch while the *empty* branch is correct, since `EmptyState` gained its `headingLevel` prop. That asymmetry is the concrete argument for per-render-branch enforcement over a per-route smoke test that renders one branch and reports clean.
+
 ### Docs — the a11y enforcement decision is ruled, so three implementation cards stop waiting on it (2026-08-30)
 
 `WIC-1192` asked which accessibility checkers `packages/web` should adopt, at what severity, and in what order. It sat unassigned for 11 days while **WIC-1483**, **WIC-1589** and **WIC-1675** queued behind the answer and `ACCESSIBILITY.md` carried an "enforcement status: none" banner. The decision, not the work, was the bottleneck. `A11Y_ENFORCEMENT_RULING.md` rules both halves and hands the config to the implementer.
