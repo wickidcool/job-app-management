@@ -139,6 +139,15 @@ line so a trailing line comment cannot swallow it.
 - All 17 enabled payloads produce injected SQL that is unchanged modulo whitespace.
 
 
+### Fixed — the synthetic-exclusion rewriter now fails closed on an unterminated `/*` and on a comment-only WHERE body (2026-08-30)
+
+Two latent edge cases left by the WIC-1664 review of `build_dashboards.py`, both reachable only by a hand-authored Route 3 query and neither present in any committed payload. An unterminated `/* ...` reproduced the real silent-unfilter signature: `_sql_tokens` masked it to end-of-string, so `WHERE event = 'a' /* oops` swallowed the injected predicate inside the never-closed comment while `inject_hogql` still reported one filtered site — it was bounded only because the emitted SQL was unbalanced and died loudly at PostHog rather than shipping a wrong-but-plausible tile. A WHERE body that is only a comment (`WHERE -- all`) wrapped to `WHERE ()`, empty parens, because the `if not condition` guard saw the non-empty substring `"-- all"` and passed it. Both now `fail()` (WIC-1844).
+
+- **`_sql_tokens` refuses an unterminated block comment** instead of swallowing it to EOF. An unterminated `/*` is never valid input, so no legitimate query is rejected.
+- **The empty-WHERE guard counts tokens after comment masking** rather than trusting the raw substring's truthiness, so a comment-only body is caught exactly as an all-whitespace one already was.
+- Each refusal is pinned by a mutant, matching the branches WIC-1664 pinned: dropping the `close == -1` guard reds only the unterminated-comment test, reverting the guard to `if not condition` reds only the comment-only-WHERE test, and neither touches the other 22 cases. `build_dashboards_selftest.py` is now 24 cases; injected SQL for all 18 payloads is byte-identical, since this only adds refusals on input that is already invalid.
+
+
 ### Fixed — two filter shortcuts named a week they never measured, and the command palette's filter was never read (2026-08-30)
 
 Both the command palette and the applications-list shortcut row offered a saved filter called `Interviews This Week`. Neither carried a time predicate of any kind — both were status-only — so the result set was identical in every week of the year: an application that reached `interview` four months ago, with nothing scheduled, appeared under a label promising this week's interviews. `Recently Applied` had the same defect one entry away in the same two arrays. Ruled and fixed under WIC-1775 (routed via WIC-1812); `docs/design/SAVED_FILTER_SHORTCUT_NAMING.md` is the governing document.
