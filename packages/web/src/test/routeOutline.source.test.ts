@@ -273,6 +273,9 @@ describe('each fix is owned by the file that should own it', () => {
     expect([...executed].sort(), 'the guards that ran are not the table').toEqual(
       guards.map((g) => g.name).sort()
     );
-    expect(new Set(executed).size, 'two entries share a name').toBe(10);
+    expect(
+      new Set(executed).size,
+      'the table must cover all ten files WIC-1675 changed, each exactly once'
+    ).toBe(10);
   });
 });
