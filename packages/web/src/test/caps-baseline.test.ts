@@ -42,9 +42,14 @@ async function declaredAllowList(): Promise<string[]> {
   const config = await new ESLint().calculateConfigForFile(SAMPLE_FILE);
   const setting = config.rules?.[RULE_ID];
 
+  // ESLint normalises severity, so an enabled rule always arrives as an array whose
+  // first element is 2 — `'error'`, `['error']` and `['error', {...}]` alike. The
+  // options object is deliberately optional: the terminal state of this baseline is
+  // `allow` dropped entirely (see eslint.config.js), and that state must stay GREEN
+  // rather than trip a "configured with options" assertion.
   expect(
-    Array.isArray(setting) && setting.length > 1,
-    `${RULE_ID} should be configured with options for ${SAMPLE_FILE}; got ${JSON.stringify(setting)}`
+    Array.isArray(setting) && setting[0] === 2,
+    `${RULE_ID} should be enabled as an error for ${SAMPLE_FILE}; got ${JSON.stringify(setting)}`
   ).toBe(true);
 
   const options = (setting as [unknown, { allow?: string[] } | undefined])[1];
