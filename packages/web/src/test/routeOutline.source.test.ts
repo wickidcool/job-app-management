@@ -9,6 +9,12 @@ import resumeVariantCardSource from '../components/ResumeVariantCard.tsx?raw';
 import savedFilterShortcutsSource from '../components/SavedFilterShortcuts.tsx?raw';
 import topNavigationSource from '../components/TopNavigation.tsx?raw';
 import loginSource from '../pages/Login.tsx?raw';
+import projectDetailSource from '../pages/ProjectDetail.tsx?raw';
+import projectsListSource from '../pages/ProjectsList.tsx?raw';
+import reportsClosedLoopSource from '../pages/ReportsClosedLoop.tsx?raw';
+import reportsNeedsActionSource from '../pages/ReportsNeedsAction.tsx?raw';
+import reportsStaleSource from '../pages/ReportsStale.tsx?raw';
+import resumeManagerSource from '../pages/ResumeManager.tsx?raw';
 
 /**
  * WIC-1675 AC-5 — the source half of the rendered-outline check.
@@ -117,5 +123,128 @@ describe('each fix is owned by the file that should own it', () => {
     expect(count(catalogBrowseSource, H1)).toBe(1);
     expect(count(catalogBrowseSource, H2)).toBeGreaterThanOrEqual(1);
     expect(count(catalogBrowseSource, H3)).toBe(0);
+  });
+});
+
+describe('the six remaining fixed pages, pinned against deletion as well as demotion', () => {
+  /**
+   * Why these exist, and why they pin *exact* counts.
+   *
+   * The render sweep and these guards fail in different directions, and only together do
+   * they cover both ways a heading fix can be undone:
+   *
+   *   - **demotion** (`h2` back to `h3`) reintroduces a skip, so the render sweep catches
+   *     it on every one of these files, guarded or not;
+   *   - **deletion** (the `<h2>` becomes a `<span>`, or goes away) is *invisible* to the
+   *     render sweep. The outline still opens at one `<h1>`, still has no skip — it is
+   *     skip-free precisely because the offending heading is gone — and one heading is
+   *     far too few to move the ≥87 non-empty floor. It reads as a clean page.
+   *
+   * That gap was measured rather than reasoned about: replacing the row `<h2>` in
+   * `ProjectsList.tsx` with a `<span>` left the suite at exactly 216/216 and `tsc -b` at
+   * rc=0, while the identical deletion in `SavedFilterShortcuts.tsx` — which already had a
+   * guard here — went red. It is the same hazard WIC-1586 ruled on one layer up: *"the
+   * `<h2>` side can go to zero and the sweep silently stops enforcing anything."*
+   *
+   * The counts are exact rather than `>= 1` on purpose. Every one of these files has more
+   * than one heading, so a floor of one would still let a page lose headings silently —
+   * `ReportsStale` could drop its empty-state `<h2>` and keep passing on the row `<h2>`.
+   * Exact counts make any heading leaving the file a deliberate, visible edit here.
+   */
+
+  const pages: Array<{
+    name: string;
+    source: string;
+    h1: number;
+    h2: number;
+    h3: number;
+    note: string;
+  }> = [
+    {
+      name: 'ProjectsList.tsx',
+      source: projectsListSource,
+      h1: 1,
+      h2: 2,
+      h3: 0,
+      note: 'the project row card + the "Create New Project" panel',
+    },
+    {
+      name: 'ProjectDetail.tsx',
+      source: projectDetailSource,
+      h1: 1,
+      h2: 1,
+      h3: 0,
+      note: 'the file row card',
+    },
+    {
+      name: 'ResumeManager.tsx',
+      source: resumeManagerSource,
+      h1: 1,
+      h2: 1,
+      h3: 0,
+      note: 'the resume row card',
+    },
+    {
+      name: 'ReportsStale.tsx',
+      source: reportsStaleSource,
+      h1: 1,
+      h2: 2,
+      h3: 0,
+      note: 'the empty-state message + the report row',
+    },
+    {
+      name: 'ReportsNeedsAction.tsx',
+      source: reportsNeedsActionSource,
+      h1: 1,
+      h2: 2,
+      h3: 0,
+      note: 'the empty-state message + the report row',
+    },
+    {
+      // The one file here that keeps an `<h3>`, and it is correct. Its card sub-component
+      // renders inside a section `<h2>`, so `h1 -> h2 -> h3` is a legitimate outline and
+      // the render sweep reports no skip for it. Only the empty-state heading was the
+      // defect, and that is the `h3` -> `h2` this PR made. Pinning `h3` at 1 rather than 0
+      // keeps the deletion guard without demanding a fix the page does not need.
+      name: 'ReportsClosedLoop.tsx',
+      source: reportsClosedLoopSource,
+      h1: 1,
+      h2: 5,
+      h3: 1,
+      note: 'the empty-state message + 4 section headings; its surviving h3 is the card under a section h2',
+    },
+  ];
+
+  it.each(pages)(
+    '$name owns exactly one h1 and keeps its demoted headings ($note)',
+    ({ name, source, h1, h2, h3 }) => {
+      expect(count(source, H1), `${name}: the page must own exactly one h1`).toBe(h1);
+      expect(
+        count(source, H2),
+        `${name}: an h2 was deleted or promoted — the render sweep cannot see this`
+      ).toBe(h2);
+      expect(count(source, H3), `${name}: an h3 came back, or one was deleted`).toBe(h3);
+    }
+  );
+
+  it('is reading real files, not empty strings', () => {
+    for (const { name, source } of pages) {
+      expect(source.length, `${name} looks empty`).toBeGreaterThan(200);
+    }
+  });
+
+  it('guards every production file this PR changed', () => {
+    // Without this, the gap reopens the next time a fix lands: a page gets its heading
+    // corrected, no guard is added, and only the demotion direction is enforced on it.
+    // The list is the ten production files changed by WIC-1675.
+    const guarded = new Set([
+      ...pages.map((p) => p.name),
+      'Login.tsx',
+      'SavedFilterShortcuts.tsx',
+      'ResumeVariantCard.tsx',
+      'CatalogBrowseView.tsx',
+    ]);
+
+    expect(guarded.size).toBe(10);
   });
 });

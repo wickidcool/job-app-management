@@ -33,9 +33,9 @@
  * Mounting the page component keeps the measured outline the *route's*.
  *
  * That trades away one thing, and it is the thing AC-3 turns on: it cannot see a heading
- * an ancestor supplies. That premise is not assumed here — `routeOutline.chrome.test.ts`
- * pins it directly, asserting the chrome files emit no `<h1>` at all, so "the page owns
- * its `<h1>`" stays a measured fact rather than a comment.
+ * an ancestor supplies. That premise is not assumed here — `routeOutline.source.test.ts`
+ * pins it directly, asserting the chrome files emit no heading of any level, so "the page
+ * owns its `<h1>`" stays a measured fact rather than a comment.
  */
 
 /* eslint-disable react-refresh/only-export-components --
@@ -187,6 +187,17 @@ export function outlineRoot(result: RenderResult): HTMLElement {
  * rather than on elapsed ticks. The `loading` branch is excluded by construction: its
  * requests never settle, so `isFetching()` never reaches 0 and waiting for it would hang.
  * One flush is still needed there to let the pending state paint.
+ *
+ * ## What the suite actually pins here, stated honestly
+ *
+ * Removing `settle()` from the sweep entirely is caught hard: non-empty outlines fall from
+ * 97 to 68, well under the ≥87 floor. But the `waitFor` block *on its own* is **not**
+ * pinned — deleting it while keeping the two `act()` flushes leaves the suite green across
+ * consecutive runs, because in this environment the mock resolves within a single
+ * macrotask and the flushes are enough. So the `waitFor` is insurance against a resolution
+ * that needs more than one tick (a real chain of dependent queries, a slower CI box), not
+ * something a failing test would tell you about if it were removed today. Do not read the
+ * green suite as evidence that this specific block is load-bearing right now.
  */
 async function settle(queryClient: QueryClient, forBranch: Branch): Promise<void> {
   await act(async () => {
