@@ -8,6 +8,7 @@ import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
 import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
 import { useDebounce } from '../hooks/useDebounce';
+import { filterByDateRange } from '../utils/dateRangeFilter';
 import type { Application, ApplicationStatus } from '../types/application';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
@@ -63,7 +64,9 @@ export function ApplicationsList() {
   const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
   const updateStatusMutation = useUpdateApplicationStatus();
 
-  // Client-side filtering for multiple companies and activeOnly (API doesn't support these)
+  // Client-side filtering for multiple companies, activeOnly and the date range — none
+  // of which `/applications` supports as a query parameter. Every row already carries
+  // `createdAt` and `appliedAt`, so the date window needs no API change (WIC-1613).
   const applications = useMemo(() => {
     let filtered = rawApplications;
 
@@ -75,8 +78,10 @@ export function ApplicationsList() {
       filtered = filtered.filter((app) => ACTIVE_STATUSES.includes(app.status));
     }
 
+    filtered = filterByDateRange(filtered, filters.dateRange);
+
     return filtered;
-  }, [rawApplications, filters.company, filters.activeOnly]);
+  }, [rawApplications, filters.company, filters.activeOnly, filters.dateRange]);
 
   // Pipeline stats for the summary bar
   const pipelineStats = useMemo(() => calculatePipelineStats(rawApplications), [rawApplications]);

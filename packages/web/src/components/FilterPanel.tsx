@@ -1,10 +1,24 @@
+import { format, startOfMonth, startOfWeek, subMonths } from 'date-fns';
 import type { ApplicationStatus } from '../types/application';
+import type { DateRangeFilter } from '../utils/dateRangeFilter';
 
 export interface FilterOptions {
   search?: string;
   status?: ApplicationStatus[];
   company?: string[];
-  dateRange?: { start: Date; end: Date };
+  /**
+   * WIC-1613 — US-6.3's "filter by date". Until this card `dateRange` was declared here
+   * as `{ start: Date; end: Date }` and referenced nowhere else in `packages/web/src`:
+   * no control wrote it and no list read it, so the clause read as delivered to anything
+   * grepping for the requirement's vocabulary while filtering by date was impossible.
+   *
+   * Two shape changes came with wiring it up, both argued in full on `DateRangeFilter`:
+   * the bounds are `YYYY-MM-DD` **strings** (a `Date` does not survive the
+   * `JSON.stringify` round trip `SavedFilterShortcuts` puts saved filters through), and
+   * each end is **independently optional** (a one-sided "everything since 1 March" is
+   * the common case, and the old type could not express it).
+   */
+  dateRange?: DateRangeFilter;
   activeOnly?: boolean;
 }
 
@@ -24,6 +38,53 @@ const statusLabels: Record<ApplicationStatus, { label: string; icon: string }> =
   rejected: { label: 'Rejected', icon: '❌' },
   withdrawn: { label: 'Withdrawn', icon: '↩️' },
 };
+
+/** The bound format `<input type="date">` reads and writes, in the user's own timezone. */
+const asCalendarDay = (date: Date) => format(date, 'yyyy-MM-dd');
+
+/**
+ * The three presets `COMPONENT_SPECS.md` §6 names for this control. They are shorthand
+ * for the two inputs below rather than a separate filter: each writes the same
+ * `dateRange`, so the boxes always show what a preset selected and either end stays
+ * editable afterwards. The presets alone could not satisfy US-6.3 — "filter by date"
+ * includes windows nobody enumerated — which is why both exist.
+ *
+ * `new Date()` is read inside each thunk, at click time. Evaluated at module load these
+ * would freeze to whenever the bundle was first imported.
+ */
+const DATE_PRESETS: { id: string; label: string; range: () => DateRangeFilter }[] = [
+  {
+    id: 'this-week',
+    label: 'This Week',
+    range: () => ({
+      start: asCalendarDay(startOfWeek(new Date())),
+      end: asCalendarDay(new Date()),
+    }),
+  },
+  {
+    id: 'this-month',
+    label: 'This Month',
+    range: () => ({
+      start: asCalendarDay(startOfMonth(new Date())),
+      end: asCalendarDay(new Date()),
+    }),
+  },
+  {
+    id: 'last-3-months',
+    label: 'Last 3 Months',
+    range: () => ({
+      start: asCalendarDay(subMonths(new Date(), 3)),
+      end: asCalendarDay(new Date()),
+    }),
+  },
+];
+
+/** How an active window is spelled on its chip. Each end is optional and independent. */
+function describeDateRange({ start, end }: DateRangeFilter): string {
+  if (start && end) return `${start} → ${end}`;
+  if (start) return `from ${start}`;
+  return `until ${end}`;
+}
 
 export function FilterPanel({
   onFilterChange,
@@ -52,6 +113,25 @@ export function FilterPanel({
   const selectedCompanies: string[] = activeFilters.company ?? [];
   const activeOnly = activeFilters.activeOnly ?? false;
   const searchInput = activeFilters.search ?? '';
+  const dateStart = activeFilters.dateRange?.start ?? '';
+  const dateEnd = activeFilters.dateRange?.end ?? '';
+  const hasDateRange = Boolean(dateStart || dateEnd);
+
+  // A range with neither end set is written back as `undefined`, not as `{}`, so
+  // "no date filter" has exactly one representation on the wire and in `localStorage`.
+  // This is hygiene, not a load-bearing gate: every consumer re-derives emptiness for
+  // itself anyway (`?? ''` here, `?.start ||` in `SavedFilterShortcuts`,
+  // `isEmptyDateRange` in `filterByDateRange`), so all three stay correct against a `{}`
+  // this never emits. Confirmed by mutation — making it always emit an object changes no
+  // test result (WIC-1613 review, M11). Keep it; do not add a consumer that trusts it.
+  const writeDateRange = (next: DateRangeFilter) => {
+    const start = next.start || undefined;
+    const end = next.end || undefined;
+    onFilterChange({
+      ...activeFilters,
+      dateRange: start || end ? { start, end } : undefined,
+    });
+  };
 
   const handleStatusToggle = (status: ApplicationStatus) => {
     const newStatuses = selectedStatuses.includes(status)
@@ -110,7 +190,8 @@ export function FilterPanel({
     activeFilters.search ||
     selectedStatuses.length > 0 ||
     selectedCompanies.length > 0 ||
-    activeOnly
+    activeOnly ||
+    hasDateRange
   );
 
   return (
@@ -213,6 +294,70 @@ export function FilterPanel({
         </div>
       )}
 
+      {/* Date Range Filter (WIC-1613, US-6.3 "filter by ... date") */}
+      <div>
+        {/*
+          The heading names WHICH date this filters on, because US-6.3 does not and
+          `Application` carries three. Saying "Date added / applied" here is the whole
+          difference between a user reading the result and a user guessing at it — see
+          the note on `applicationFilterDate` for why this pair and not `updatedAt`.
+        */}
+        <div className="text-sm font-medium text-gray-700 mb-1">Date added / applied</div>
+        <p className="text-xs text-gray-500 mb-2">
+          Uses the date you applied, or the date you saved it if you have not applied yet.
+        </p>
+
+        <div className="flex flex-wrap gap-2 mb-3">
+          {DATE_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => writeDateRange(preset.range())}
+              className="px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ minHeight: '44px' }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label htmlFor="dateFrom" className="block text-xs text-gray-600 mb-1">
+              From
+            </label>
+            <input
+              id="dateFrom"
+              type="date"
+              value={dateStart}
+              // Advisory only — the browser hints it, and `isWithinDateRange` still
+              // yields an empty window for an inverted range however it was reached
+              // (typed, pasted, or restored from a saved shortcut).
+              max={dateEnd || undefined}
+              onChange={(e) => writeDateRange({ start: e.target.value, end: dateEnd })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ minHeight: '44px' }}
+              aria-label="Filter from date"
+            />
+          </div>
+          <div>
+            <label htmlFor="dateTo" className="block text-xs text-gray-600 mb-1">
+              To
+            </label>
+            <input
+              id="dateTo"
+              type="date"
+              value={dateEnd}
+              min={dateStart || undefined}
+              onChange={(e) => writeDateRange({ start: dateStart, end: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ minHeight: '44px' }}
+              aria-label="Filter to date"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Active Filters */}
       {hasActiveFilters && (
         <div className="pt-4 border-t border-gray-200">
@@ -238,6 +383,21 @@ export function FilterPanel({
                   className="ml-1 hover:text-blue-900 p-1"
                   style={{ minWidth: '24px', minHeight: '24px' }}
                   aria-label={`Remove search filter: ${activeFilters.search}`}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Date range chip - Touch-optimized */}
+            {hasDateRange && activeFilters.dateRange && (
+              <div className="inline-flex items-center gap-1 px-3 py-2 bg-blue-100 text-blue-800 rounded-md text-sm">
+                <span>Date added / applied: {describeDateRange(activeFilters.dateRange)}</span>
+                <button
+                  onClick={() => onFilterChange({ ...activeFilters, dateRange: undefined })}
+                  className="ml-1 hover:text-blue-900 p-1"
+                  style={{ minWidth: '24px', minHeight: '24px' }}
+                  aria-label="Remove date filter"
                 >
                   ✕
                 </button>

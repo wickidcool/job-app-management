@@ -479,21 +479,63 @@ interface FilterOptions {
   search?: string;
   status?: ApplicationStatus[];
   company?: string[];
-  dateRange?: { start: Date; end: Date };
-  salaryMin?: number;
-  salaryMax?: number;
+  // WIC-1613: `YYYY-MM-DD` local calendar days, each end independently optional.
+  // NOT `Date` — `SavedFilterShortcuts` persists whole `FilterOptions` objects
+  // through `JSON.stringify`, which a `Date` does not survive. See
+  // `packages/web/src/utils/dateRangeFilter.ts`.
+  dateRange?: { start?: string; end?: string };
+  activeOnly?: boolean;
 }
 ```
 
+`salaryMin` / `salaryMax` were specified here and never built; they are omitted above
+rather than left as a declaration nobody implements. `activeOnly` is the reverse — built
+and never specified — and is now written down. (WIC-1613 exists because `dateRange` sat
+in the third category: declared, spelled the way the requirement spells it, and wired to
+nothing. A field listed in this block is a promise, so this block only lists what is real.)
+
+Striking the salary fields is a **statement of fact, not yet a ruling** — nobody has
+decided whether salary filtering is wanted. **WIC-1731** carries that decision, so the
+gap is tracked rather than silently absent; deleting an unbuilt clause without recording
+why is how `dateRange` came to read as delivered for four months. Note that salary,
+unlike date, is not named in any accepted US- clause: US-6.3 asks for "status, company,
+date".
+
 ### UI Elements
 
-| Element    | Type                      | Behavior                                      |
-| ---------- | ------------------------- | --------------------------------------------- |
-| Search     | Text input                | Debounced (300ms), searches title + company   |
-| Status     | Multi-select checkboxes   | Filter by one or more statuses                |
-| Company    | Multi-select autocomplete | Filter by company name                        |
-| Date Range | Date picker               | Presets: This Week, This Month, Last 3 Months |
-| Salary     | Range slider              | Min $0k, Max $500k, step $10k                 |
+| Element     | Type                      | Behavior                                                                  |
+| ----------- | ------------------------- | ------------------------------------------------------------------------- |
+| Search      | Text input                | Debounced (300ms), searches title + company                               |
+| Status      | Multi-select checkboxes   | Filter by one or more statuses                                            |
+| Company     | Multi-select autocomplete | Filter by company name                                                    |
+| Date Range  | Two date inputs + presets | Presets: This Week, This Month, Last 3 Months. Either end may stand alone |
+| Active Only | Toggle switch             | Hides the terminal statuses (Offer, Rejected, Withdrawn)                  |
+
+**Which date the Date Range filters on.** US-6.3 says "filter by ... date" and does not
+say which; `Application` carries `createdAt`, `appliedAt` and `updatedAt`, and they
+select different rows. The control filters on **`appliedAt`, falling back to `createdAt`**
+and is labelled **"Date added / applied"** so the user is told rather than left to infer
+it. `updatedAt` is excluded deliberately: it moves whenever a status changes, so a row
+would leave and re-enter a fixed window without the user touching it. Both bounds are
+inclusive local calendar days.
+
+The presets are shorthand for the two inputs, not a separate filter — each writes the
+same `dateRange`, and either end stays editable afterwards. Presets alone cannot satisfy
+US-6.3, which asks for filtering by date, not by three enumerated windows.
+
+**The presets are calendar-anchored, and deliberately differ from the Dashboard's
+rolling stats.** "This Week" is `startOfWeek(now)` — the current Sunday-start calendar
+week — and "This Month" is month-to-date. The Dashboard's `appliedThisWeek` /
+`appliedThisMonth` (`dashboard.service.ts`) are *rolling*: `now - 7 days` and
+`setMonth(getMonth() - 1)`. So the two can disagree sharply — on a Sunday, "This Week"
+spans one day
+and `appliedThisWeek` spans seven. This is the same US-6.3 acceptance row naming both
+"filter by ... date" and "applied this week", so the divergence is written down here
+rather than left for each layer to rediscover (the WIC-1515/WIC-1516 shape). A filter
+bound is a boundary the user *picks and can see*, so it should land where they expect a
+week to start; a headline stat is a trailing measure, where a rolling window is the
+honest one. ("Last 3 Months" is `subMonths(now, 3)` and is rolling, which is what its
+name says.) If these are ever unified, change both and update this paragraph.
 
 ### Active Filter Chips
 
