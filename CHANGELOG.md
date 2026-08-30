@@ -714,6 +714,18 @@ The WIC-1581 source sweep is the only thing covering 27 of the 29 routes — 18 
 - **The shared reports table at the top of § UC-5 is deliberately left alone.** It reads "Opaque page token, issued by the server as `nextCursor`" — already correct, and better suited to a table that covers three endpoints at once than the per-endpoint phrasing would be.
 - Documentation only. No source, schema, wire, or test change.
 
+
+### Docs — Reformatting a changelog line you did not change is enough to republish a retracted claim (2026-08-30)
+
+The changelog rules in `CLAUDE.md` treated "both sides revised the same entry" as a collision between two *substantive* edits. It is not. `merge=union` grades edits by position, so a branch that only restyles a line — `*emphasis*` to `_emphasis_`, the shape `prettier --parser markdown` produces — collides exactly as hard as one that rewrites it.
+
+- **The damaging pairing is the likely one.** Edits to an already-shipped entry are overwhelmingly corrections, because that is the only reason anyone reopens one. So the collision is normally a branch's stale copy against `main`'s corrected copy — and union emits the branch's first, printing the retracted claim above its own retraction.
+- **Measured on a real instance, since caught and repaired.** At `main` `3b0c0d3`, PR #209 at head `fdd800d` rewrote nine pre-existing lines with emphasis-only changes. `main` had corrected one of them four hours earlier in `70396b0`, so the merge carried that bullet twice, uncorrected copy first — confirmed byte-identical to a real `git merge origin/main` in a scratch worktree. Routed to the branch owner as WIC-1884 and fixed the same day in `cdb1c24`, which reverted all nine; re-measured at head `2085803`, the union introduces nothing. The mode is documented here on the strength of that measurement, not because the branch is still broken.
+- **Four open PRs still carry the pattern, 151 lines between them** — #299 (91), #261 (48), #249 (10), #226 (2), measured at `main` `3b0c0d3`. **None collides today.** They are dormant only because `main` has not touched those lines yet; taking a dormant line and synthesising a `main` that corrects it moves the union from one copy to two, with the untouched control staying at one. Re-measure before quoting this roster — the #209 entry moved from nine lines to zero while this entry was being written.
+- **A second, independent reason the formatter stays scoped to `packages/**`.** The first was that prettier strips the blank line above every `### ` heading and re-arms the weld on every entry at once (WIC-1732). This one is that it rewrites pre-existing lines, and in a union-merged file every rewritten line is a collision candidate. Widening the glob to root `CHANGELOG.md` remains prohibited.
+- **The byte-exact conservation check is blind to this class.** The two copies differ — that is the point — so nothing is lost and no count moves. Only the normalised-prefix bullet check finds it, which is the concrete case that normalisation was worth paying for.
+- Convention text only; nothing executable moved, and no changelog line already on `main` was restyled by this entry.
+
 ### Docs — A union-driver "clean" merge is not a correct one, so the changelog rules now say how to check
 
 `CLAUDE.md` → "Changelog conventions" told you how to _diagnose_ a `CHANGELOG.md` conflict GitHub sees and local tools do not, and then stopped at "keep both sides". That left the step where the damage actually happens undocumented: `merge=union` resolves the file silently, and its resolution can be wrong in ways no tool reports.
