@@ -72,7 +72,7 @@ npm run dev:worker         # API as a Worker via `wrangler dev` (top-level confi
 npm run dev:api            # API on Node.js via tsx (:3000) — faster iteration
 
 npm run build              # Build all packages
-npm run typecheck          # tsc -b web + api --noEmit
+npm run typecheck          # tsc -b web + api --noEmit — same compiler as the build (see below)
 npm run lint               # Lint all packages
 npm run test               # Unit tests (Vitest)
 npm run test:e2e           # Playwright E2E tests
@@ -80,6 +80,23 @@ npm run test:e2e           # Playwright E2E tests
 npm run db:migrate         # Run migrations (reads DATABASE_URL)
 npm run db:push            # Push schema directly (dev only)
 ```
+
+### One TypeScript compiler, and `strict` is declared, not inherited
+
+`typescript` is pinned to the same `~6.0.2` in the root, `packages/web` and `packages/api`, so
+`npm ci` installs exactly one copy at `node_modules/typescript` and every cwd resolves it. Keep it
+that way: if the three ranges drift apart, npm nests a second compiler under the package that
+disagrees, and then **which compiler runs is decided by cwd rather than by config** — a root script
+gets the hoisted one, `packages/web`'s own `build` (cwd `packages/web`) gets the nested one. That is
+how `npm run typecheck` and `npm run build` came to disagree, with the root binary the weaker of the
+two (WIC-1744).
+
+`strict: true` is stated explicitly in `packages/web/tsconfig.app.json`, `tsconfig.node.json` and
+`packages/api/tsconfig.json`. It is written out rather than left to default because the default
+moved — TypeScript 6 turns `strict` on where 5.9 left it off — so an inherited default makes a
+package's strictness a property of the installed version. Note that `tsc --showConfig` echoes only
+options the file sets: it prints nothing for an inherited `strict`, so it cannot tell you which
+default is in force. Do not delete these lines to "clean up"; they are load-bearing.
 
 ## Deployment
 
