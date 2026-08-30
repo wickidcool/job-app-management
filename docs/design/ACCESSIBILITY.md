@@ -376,6 +376,55 @@ Status must be communicated through:
 </span>
 ```
 
+### An Emoji Is Not the Sole Indicator Either — Check Before You `aria-hidden` It
+
+The rule above has a mirror image that is easy to get wrong, because the wrong fix looks
+exactly like the right one. A bare emoji inside an interactive element joins that element's
+**accessible name**, so the glyph's Unicode name is announced in front of the label —
+"sparkles Interviewing, button", "briefcase Senior Engineer, button". The reflex is
+`aria-hidden="true"`, and on a decoration that is correct and complete.
+
+**But `aria-hidden` on a glyph that is the only carrier of a distinction is not a fix — it is
+a silent removal.** It converts a noisy announcement into a missing one, which is worse:
+nothing in the rendered output looks different, and no test that only asserts the label
+catches it. Before hiding a glyph, name the distinction it draws and find where else that
+distinction lives:
+
+| the glyph distinguishes | conveyed elsewhere non-visually? | correct fix |
+| --- | --- | --- |
+| nothing — it repeats adjacent text | yes, by that text | `aria-hidden` alone |
+| a state with another non-visual signal | yes, by that signal | `aria-hidden` alone |
+| a category with no other signal | **no** | `aria-hidden` **plus** an `sr-only` label |
+
+Both branches are live in this repo and the pair is the worked example:
+
+- **`SavedFilterShortcuts`** (WIC-1846) — the ✨ marks `isPredefined`, which is already
+  conveyed by the absence of a delete control next to the button. Decorative. `aria-hidden`
+  alone.
+- **`CommandPalette`** (WIC-1850) — the 💼 / 🏢 / 🕐 / ✨ mark the *result type*, and nothing
+  else does. The background colour is purely visual, and `subtitle` carries no type at all
+  for two of the four types. So the glyph is hidden **and** replaced:
+
+  ```tsx
+  <div aria-hidden="true" className="...">{getResultIcon(result)}</div>
+  <span className="sr-only">{getResultTypeLabel(result)}:</span>
+  ```
+
+  announcing "Application: Senior Engineer Acme Corp" rather than either the glyph's name or
+  a bare title. Emit both halves from **one** shared component, not repeated per call site —
+  `CommandPalette` renders result rows at four sites, and split across four the two halves
+  can drift apart one site at a time.
+
+**Verification.** Assert the **exact** accessible name — `toHaveAccessibleName('…')` or an
+exact `getByRole` name — and in the same test assert the decoration is *still rendered* and
+*still hidden*. Each half alone admits the regression the other catches: a substring matcher
+passes with the emoji still in the name, and a name-only assertion passes for a "fix" that
+deleted the glyph and took the sighted user's signal with it. See
+`packages/web/src/components/CommandPalette.test.tsx`.
+
+Nothing enforces this automatically. `jsx-a11y` cannot: whether a glyph is decorative is a
+fact about the *rest of the row*, not about the element the rule sees.
+
 ---
 
 ## Interactive Elements

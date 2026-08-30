@@ -48,6 +48,91 @@ const SUGGESTED_FILTERS = [
   },
 ];
 
+function getResultIcon(result: SearchResult) {
+  if (result.icon) return result.icon;
+
+  switch (result.type) {
+    case 'application':
+      return '💼';
+    case 'company':
+      return '🏢';
+    case 'recent':
+      return '🕐';
+    case 'suggestion':
+      return '✨';
+    default:
+      return '📄';
+  }
+}
+
+function getResultBgColor(result: SearchResult) {
+  switch (result.type) {
+    case 'application':
+      return 'bg-blue-100';
+    case 'company':
+      return 'bg-purple-100';
+    case 'recent':
+      return 'bg-neutral-100';
+    case 'suggestion':
+      return 'bg-primary-100';
+    default:
+      return 'bg-neutral-100';
+  }
+}
+
+/**
+ * The spoken counterpart to the result-type emoji (WIC-1850).
+ *
+ * Keyed on `type`, never on the glyph: `result.icon` lets a caller override the emoji
+ * (`SUGGESTED_FILTERS` all do), so deriving the label from the icon would leave the four
+ * suggested filters unlabelled and mislabel nothing else usefully.
+ */
+function getResultTypeLabel(result: SearchResult) {
+  switch (result.type) {
+    case 'application':
+      return 'Application';
+    case 'company':
+      return 'Company';
+    case 'recent':
+      return 'Recent search';
+    case 'suggestion':
+      return 'Suggested filter';
+    default:
+      return 'Result';
+  }
+}
+
+/**
+ * The type badge on a result row: the glyph for sighted users, the word for everyone else.
+ *
+ * Both halves are here on purpose, because on this surface the pair is the fix and neither
+ * half is (WIC-1850). Without `aria-hidden` the emoji joins the enclosing button's
+ * *accessible name*, so every row is announced as "briefcase Senior Engineer, button" — and
+ * the palette is arrow-key navigated, so that is heard once per keystroke rather than once
+ * per page. But `aria-hidden` alone would drop information: the emoji is the only signal
+ * that distinguishes one result type from another. `getResultBgColor` is purely visual, and
+ * `subtitle` carries no type at all for `suggestion` and `recent` (they have none) and
+ * nothing type-shaped for `application` (it is the company). So the glyph is replaced by an
+ * `sr-only` label rather than merely silenced.
+ *
+ * Rendered as one component rather than repeated at each of the four call sites so that a
+ * fifth row cannot pick up the emoji without the label. See the decorative-glyph rule in
+ * docs/design/ACCESSIBILITY.md.
+ */
+function ResultTypeBadge({ result }: { result: SearchResult }) {
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
+      >
+        {getResultIcon(result)}
+      </div>
+      <span className="sr-only">{getResultTypeLabel(result)}:</span>
+    </>
+  );
+}
+
 // localStorage helpers
 function getRecentSearches(): string[] {
   try {
@@ -199,38 +284,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     onOpenChange(false);
   };
 
-  const getResultIcon = (result: SearchResult) => {
-    if (result.icon) return result.icon;
-
-    switch (result.type) {
-      case 'application':
-        return '💼';
-      case 'company':
-        return '🏢';
-      case 'recent':
-        return '🕐';
-      case 'suggestion':
-        return '✨';
-      default:
-        return '📄';
-    }
-  };
-
-  const getResultBgColor = (result: SearchResult) => {
-    switch (result.type) {
-      case 'application':
-        return 'bg-blue-100';
-      case 'company':
-        return 'bg-purple-100';
-      case 'recent':
-        return 'bg-neutral-100';
-      case 'suggestion':
-        return 'bg-primary-100';
-      default:
-        return 'bg-neutral-100';
-    }
-  };
-
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -289,11 +342,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div
-                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                                >
-                                  {getResultIcon(result)}
-                                </div>
+                                <ResultTypeBadge result={result} />
                                 <div className="flex-1 overflow-hidden">
                                   <div className="truncate font-medium">{result.title}</div>
                                   {result.subtitle && (
@@ -341,11 +390,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div
-                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                                >
-                                  {getResultIcon(result)}
-                                </div>
+                                <ResultTypeBadge result={result} />
                                 <div className="flex-1 overflow-hidden">
                                   <div className="truncate font-medium">{result.title}</div>
                                 </div>
@@ -388,11 +433,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div
-                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                                >
-                                  {getResultIcon(result)}
-                                </div>
+                                <ResultTypeBadge result={result} />
                                 <div className="flex-1 overflow-hidden">
                                   <div className="truncate font-medium">{result.title}</div>
                                   {result.subtitle && (
@@ -435,11 +476,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                             : 'text-neutral-900 hover:bg-neutral-100'
                         }`}
                       >
-                        <div
-                          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                        >
-                          {getResultIcon(result)}
-                        </div>
+                        <ResultTypeBadge result={result} />
                         <div className="flex-1 overflow-hidden">
                           <div className="truncate font-medium">{result.title}</div>
                           {result.subtitle && (
@@ -468,7 +505,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               </div>
             ) : (
               <div className="p-8 text-center text-neutral-500">
-                <div className="text-4xl mb-2">🔍</div>
+                {/* Purely decorative — "No results found" below says the same thing, so
+                    unlike the row glyphs this one needs no `sr-only` replacement. Without
+                    aria-hidden it is read out as "magnifying glass tilted left" first
+                    (WIC-1850). */}
+                <div className="text-4xl mb-2" aria-hidden="true">
+                  🔍
+                </div>
                 <p>No results found</p>
               </div>
             )}
