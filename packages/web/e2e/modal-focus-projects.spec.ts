@@ -242,6 +242,35 @@ test.describe('ProjectsList — create project dialog', () => {
     await expect(page.getByRole('button', { name: 'Create Project', exact: true })).toBeFocused();
   });
 
+  test('create-success announces the outcome, since focus moved to a control the user did not press', async ({
+    page,
+  }) => {
+    // The other half of the requirement above (WIC-1304). Redirecting focus to the
+    // header button is correct, but it is a context change a screen-reader user
+    // cannot see: without this they hear "Create Project, button" and are never told
+    // the project exists.
+    await setupFirstRunProjectsList(page);
+
+    const liveRegion = page.getByRole('status');
+    // Present and empty *before* the create — assistive tech announces updates to a
+    // region already in the tree, not a region that arrives carrying its message.
+    await expect(liveRegion).toHaveCount(1);
+    await expect(liveRegion).toHaveText('');
+
+    // Portalled out of `#root`, so it cannot put `#root` on `aria-hidden`'s
+    // keep-list and silently stop the background being hidden behind every dialog.
+    expect(await page.locator('#root [role="status"]').count()).toBe(0);
+
+    await page.getByRole('button', { name: 'Create Your First Project' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.getByPlaceholder('e.g., Acme Corp').fill('Acme Corp');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+
+    await expect(page.getByRole('dialog')).toBeHidden();
+    await expect(liveRegion).toHaveText('Project Acme Corp created.');
+    await expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+  });
+
   test('create-success restores the header trigger, which survives the re-render', async ({
     page,
   }) => {
