@@ -17,6 +17,115 @@ The Dialogue Capture Wizard provides a conversational interface for users to cre
 
 ---
 
+## Ruling: draft persistence is dropped (WIC-1621)
+
+**This section takes precedence over every "Autosave", "Draft Recovery", "Save Draft" and
+`onSaveDraft` mention below.** Those are struck in place rather than deleted, so a reader who
+arrives from an old link sees what changed. Measured on `origin/main` @ `bb21d20`.
+
+### What this document claimed, and what is actually built
+
+This spec describes a complete draft-persistence feature — `.draft` files in `data/projects/`,
+autosave every 30 seconds, a recovery prompt on re-open, and a clear-on-save/cancel path — and
+§"Requirements Decisions (From WIC-94)" item 3 marks it **✅**, i.e. shipped.
+
+None of it exists. What ships is a single `localStorage.setItem` in
+`packages/web/src/pages/DialogueCapture.tsx:47`, under the key
+`dialogue-wizard-draft-{variant}`. Measured, not inferred:
+
+| Claim in this doc | Reality on `bb21d20` |
+|---|---|
+| `.draft` files in `data/projects/` | No API, no route, no file. It is `localStorage`. |
+| "Recovery: on wizard re-open, offer to resume" | **No read path exists.** `git grep dialogue-wizard-draft` returns exactly **one** hit tree-wide — the write. |
+| "Clear Draft on successful save or cancel" | No `removeItem` for this key anywhere. The store survives logout and accumulates, keyed per variant. |
+| Item 3 marked ✅ | Unbuilt. |
+| "Escape: Cancel wizard (with confirmation)" | **Also unbuilt** — no `Escape` handler and no `confirm()` in `WizardContainer.tsx`. |
+
+The 30-second autosave also fires **unconditionally**. Its guard is
+`if (Object.keys(data).length > 0)`, and `data` is seeded with three keys
+(`accomplishments`, `jobFit`, `techStack`), so the condition is vacuous. Rendering the real
+route in jsdom and advancing 30s with **zero user input** writes:
+
+```
+{"data":{"accomplishments":[],"jobFit":[],"techStack":[]},"timestamp":"..."}
+```
+
+So the wizard persists project content to disk on a timer the user never started, and a
+"Save Draft" button that returns no feedback and restores nothing.
+
+### The ruling
+
+**Draft persistence is dropped. The affordance stays gone.** Do not build the `.draft` store.
+
+1. **The affordance today is a control that lies.** "Save Draft" implies restoration. There is
+   no read path, so the promise cannot be kept, and the button gives no toast, no confirmation,
+   no observable result at all. That is worse than having no button.
+2. **The autosave is unconsented data-at-rest**, on a timer, surviving logout — for a feature
+   the user cannot benefit from because nothing reads it back.
+3. **Building it properly is disproportionate.** It needs a per-user server-side store, a read
+   path repopulating `WizardContainer` state on mount, a clear path on completion *and* on
+   logout, and a retention policy — a backend and a frontend half — to protect a five-step form
+   whose completion is one submit.
+4. **The actual user-visible harm is narrower than the feature.** It is "close the wizard
+   mid-way and lose what you typed, with no warning." A confirm-on-discard guard closes that
+   completely, with no promise and no data at rest.
+
+### What replaces it
+
+Nothing new: **this document already specified the remedy** and it was never built.
+§"WizardContainer → Keyboard Navigation" reads *"Escape: Cancel wizard (with confirmation)"*.
+Honour that, and extend it to the other two discard paths, so all three behave alike:
+
+| Discard path | Required behaviour |
+|---|---|
+| `Escape` | Confirm before discarding |
+| Header close (`aria-label="Close wizard"`) | Confirm before discarding |
+| In-app navigation away from `/projects/new/dialogue` | Confirm before discarding |
+
+Rules for the guard:
+
+- **Only prompt when there is something to lose.** Track dirtiness against the *seeded* initial
+  state, not `Object.keys(data).length` — that is the exact bug that made the autosave vacuous,
+  and it will reproduce here if copied.
+- **Never prompt on the success path.** Completing the wizard navigates to the new file; that is
+  not a discard.
+- **Confirm copy** — follow `CONTENT_STYLE.md`. Name the loss, do not ask an abstract question:
+  - Title: `Discard this project?`
+  - Body: `You have unsaved answers. Closing now discards them — they are not saved anywhere.`
+  - Confirm: `Discard` · Cancel: `Keep editing`
+  - The body's second clause is load-bearing. Users who saw "Save Draft" for months will
+    reasonably assume a draft exists; the copy has to say plainly that it does not.
+- **Reuse `packages/web/src/components/ConfirmationModal.tsx`. Do not build a new dialog, and do
+  not reach for `window.confirm`.** Its props already take exactly this shape —
+  `{isOpen, title, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel}` — so the
+  copy above maps onto it directly, with `variant="danger"`.
+- **It is a dialog, so `MODAL_FOCUS_MANAGEMENT_SPEC.md` applies** — focus trap, `Escape` resolves
+  to "Keep editing", focus returns to the control that opened it. Be aware of what you are
+  inheriting: at `bb21d20` `ConfirmationModal` declares **no** `role="dialog"`, no `aria-modal`,
+  no focus trap and no `restoreFocusTo` (the repo's own `confirmation-modal-focus-audit.py`
+  reports §5.3 as *not enforced* pending WIC-1181 / PR #115). Reusing it is still right — the fix
+  belongs in the shared component, not in a wizard-local copy — but this guard must not be
+  reported as focus-managed until that lands.
+- **Nesting matters.** `WizardContainer` is itself `role="dialog" aria-modal="true"`, so this is
+  a dialog inside a dialog: the focus-restore target is the wizard control that was activated,
+  not the page beneath.
+- **No `beforeunload`.** It cannot carry this copy, browsers show their own generic string, and
+  it would fire on tab close where the user has no recourse. The in-app router guard is the
+  whole scope.
+
+### Status
+
+The ruling is the deliverable of WIC-1621 and is in force from this commit. The code changes it
+implies are **not** in this commit and are tracked separately:
+
+- **Removal** of the write, the 30s interval, the Ctrl/Cmd+S handler and the "Save Draft" button
+  is already authored in the branch behind WIC-1495. Do not duplicate it here.
+- **The confirm-on-discard guard** is not written anywhere yet. It must land *with or after* the
+  removal — shipping the removal alone takes the user from "a button that lies" to "silent
+  total loss", which is the one ordering that is worse than today.
+
+---
+
 ## Design Principles
 
 1. **Conversational, Not Form-Like** — Questions feel natural, one at a time
@@ -105,6 +214,11 @@ The Dialogue Capture Wizard provides a conversational interface for users to cre
 - **UC-1b (Correct):** Shows file picker → Loads full data → Wizard allows edits
 
 ---
+
+> **Wireframe note (WIC-1621).** Every wizard frame below draws `[Save Draft]` in the header.
+> **That control is removed** — see the ruling section at the top of this file. The frames are
+> left as drawn rather than redrawn, because their ASCII alignment is load-bearing and the
+> single change is the deletion of that one chip. Read every `[Save Draft]` below as absent.
 
 ### Step 1 — Company Capture
 
@@ -396,7 +510,7 @@ interface WizardContainerProps {
   existingFileId?: string
   onComplete: (generatedFile: ProjectFile) => void
   onCancel: () => void
-  onSaveDraft: (draftData: Partial<ProjectData>) => void
+  // onSaveDraft — REMOVED by WIC-1621. See the ruling section at the top of this file.
 }
 
 interface WizardState {
@@ -418,8 +532,10 @@ interface WizardState {
 **Keyboard Navigation:**
 - Tab: Move between fields
 - Enter: Submit current step (if valid)
-- Escape: Cancel wizard (with confirmation)
-- Ctrl/Cmd + S: Save draft
+- Escape: Cancel wizard (with confirmation) — **still required, and still unbuilt.** This is the
+  guard WIC-1621 rules in; see the ruling section at the top of this file for the confirm copy
+  and the other two discard paths it must cover.
+- ~~Ctrl/Cmd + S: Save draft~~ — struck, WIC-1621
 
 ---
 
@@ -467,7 +583,15 @@ interface WizardButtonProps {
 
 **Size:** Same as primary
 
-#### Ghost Button (Save Draft)
+#### Ghost Button
+
+> ~~(Save Draft)~~ — WIC-1621 removes the "Save Draft" button, which is `variant="ghost"`'s
+> **only** call site in the app today (`git grep 'variant="ghost"'` → 1 hit, at `bb21d20`).
+> The replacement guard reuses `ConfirmationModal`, which renders its own buttons rather than
+> `WizardButton`, so it does **not** pick this variant back up. **`variant="ghost"` therefore
+> becomes unused.** Leave the variant defined — it is part of the button scale and costs
+> nothing — but do not cite it as live, and do not treat a future ghost usage as precedented
+> by this section.
 
 | State | Background | Text Color | Border | Shadow |
 |-------|------------|------------|--------|--------|
@@ -502,9 +626,10 @@ interface WizardButtonProps {
   Back
 </WizardButton>
 
-// Ghost
-<WizardButton variant="ghost" onClick={handleSaveDraft}>
-  Save Draft
+// Ghost — WIC-1621 removes `handleSaveDraft`, this variant's only call site. Kept as a
+// reference example; there is no live ghost usage in the app.
+<WizardButton variant="ghost" onClick={handleSomething}>
+  Ghost action
 </WizardButton>
 ```
 
@@ -728,12 +853,16 @@ flowchart TD
 | Save failure | Network or server issue | Show error toast, enable retry |
 | Catalog write error | Permissions or disk issue | Show error, contact support link |
 
-### Autosave & Draft Recovery
+### Autosave & Draft Recovery — STRUCK (WIC-1621)
 
-- **Autosave:** Save partial data to `.draft` file in `data/projects/` directory every 30 seconds
-- **Draft Format:** Same structure as final file but with `.draft` extension (e.g., `acme-corp-engineer.draft`)
-- **Recovery:** On wizard re-open, check for `.draft` file and offer to resume
-- **Clear Draft:** Delete `.draft` file on successful save or user explicitly cancels
+> **Struck. Never built, and not to be built.** See §"Ruling: draft persistence is dropped
+> (WIC-1621)". Replaced by a confirm-on-discard guard. Retained struck, not deleted, because
+> `onSaveDraft` and the "Save Draft" wireframes elsewhere in this file still refer to it.
+
+- ~~**Autosave:** Save partial data to `.draft` file in `data/projects/` directory every 30 seconds~~
+- ~~**Draft Format:** Same structure as final file but with `.draft` extension (e.g., `acme-corp-engineer.draft`)~~
+- ~~**Recovery:** On wizard re-open, check for `.draft` file and offer to resume~~
+- ~~**Clear Draft:** Delete `.draft` file on successful save or user explicitly cancels~~
 
 ---
 
@@ -803,8 +932,8 @@ After wizard completes:
 ### Keyboard Navigation
 - Tab order: Question → Inputs → Back → Next
 - Enter: Submit current step
-- Escape: Cancel wizard (with confirm)
-- Ctrl/Cmd + S: Save draft
+- Escape: Cancel wizard (with confirm) — unbuilt; ruled in by WIC-1621, see the ruling section
+- ~~Ctrl/Cmd + S: Save draft~~ — struck, WIC-1621
 
 ### Screen Reader Support
 - Announce step changes: "Step 2 of 5: Role and Period"
@@ -834,8 +963,10 @@ After wizard completes:
 
 - [ ] All validation rules enforce correctly per WIC-94 acceptance criteria
 - [ ] Can navigate back without losing data
-- [ ] Draft autosave to `.draft` file works
-- [ ] Draft recovery prompts on re-open
+- [ ] ~~Draft autosave to `.draft` file works~~ — struck, WIC-1621
+- [ ] ~~Draft recovery prompts on re-open~~ — struck, WIC-1621
+- [ ] Discarding via `Escape`, the header close button, or in-app navigation away all prompt to confirm when the wizard is dirty (WIC-1621)
+- [ ] Completing the wizard does **not** prompt (WIC-1621)
 - [ ] STAR input validates all four components (S, T, A, R)
 - [ ] Tech stack tag input works (no autocomplete)
 - [ ] Job fit free text input works (no predefined checkboxes)
@@ -859,7 +990,7 @@ The following questions were resolved in [WIC-94](/WIC/issues/WIC-94):
 
 1. **Multi-file projects:** One file per company-role combination with multiple STAR sections within. ✅
 2. **Job fit inference:** System prompts but does NOT suggest. User enters freely. ✅
-3. **Draft persistence:** Save partial data to `.draft` file in project directory for resumption. ✅
+3. ~~**Draft persistence:** Save partial data to `.draft` file in project directory for resumption.~~ **❌ Reversed by WIC-1621 — and the ✅ that stood here was false.** It was never built: the only implementation is a `localStorage` write with no read path. Draft persistence is dropped; see §"Ruling: draft persistence is dropped (WIC-1621)".
 4. **File naming:** Auto-generated slug format `{company}-{role}` (lowercased, hyphenated). ✅
 5. **Tech stack source:** User input only, NO autocomplete or suggestions. ✅
 6. **Job fit categories:** User-defined, NO predefined checkboxes. ✅
