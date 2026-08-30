@@ -21,13 +21,17 @@
 //
 //   DATABASE_URL=... node scripts/migrate-project-storage-keys.mjs --local ./data [--apply]
 //
-// Idempotent: a second run finds no legacy keys and exits 0.
+// Idempotent: a second run finds no legacy keys and exits 0. A legacy file
+// whose namespaced destination is already occupied is *never* moved — that is
+// an overwrite plus an unrecoverable delete, not a migration — so it too is
+// reported and left in place behind a non-zero exit.
 import postgres from 'postgres';
 import {
   S3Client,
   ListObjectsV2Command,
   CopyObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -38,25 +42,71 @@ const localIdx = process.argv.indexOf('--local');
 const LOCAL_DIR = localIdx === -1 ? null : process.argv[localIdx + 1];
 
 /**
- * Legacy vs already-migrated, decided purely on key segment count.
+ * Legacy vs already-migrated.
  *
  *   projects/index.md                    2 -> legacy index (derived, delete)
  *   projects/{slug}/{file}               3 -> legacy
+ *   projects/{userId}/index.md           3 -> per-owner index (derived, leave)
  *   projects/{userId}/{slug}/{file}      4 -> already namespaced
  *
- * The count is exact rather than a heuristic **only because a project file name
- * can never contain `/`** — `project.service.validateFileName` rejects `..`,
- * `/` and `\`, so a legacy slug directory is always exactly one level deep and
- * no key can be ambiguous between the two shapes. If that guard ever loosens,
- * this discriminator breaks and the migration would mis-file. Exported so
- * `test/migrate-project-storage-keys.test.ts` pins it.
+ * Segment count alone very nearly decides it. A project *file* name can never
+ * contain `/` — `project.service.validateFileName` rejects `..`, `/` and `\` —
+ * so a legacy slug directory is always exactly one level deep, and no
+ * *file* key is ambiguous between the two shapes.
+ *
+ * The exception is the per-owner index this same change introduced:
+ * `generateProjectIndex` writes `projects/{userId}/index.md`
+ * (`project.service.ts`, via `ownerProjectsPrefix`), which has three segments
+ * just like a legacy key. Reading it as legacy makes every post-migration
+ * index an orphan and pins the exit code at 2 forever — destroying the one
+ * signal this script exists to give, since an operator could no longer tell a
+ * genuinely commingled slug from a benign derived artefact.
+ *
+ * `ownerIds` (the *userId* set, not the slug set) is what separates them.
+ * Without it the caller gets the old segment-count-only behaviour, which is
+ * correct for every shape except that index — so a legacy project file
+ * legitimately named `index.md` is still classified legacy, as it must be.
+ *
+ * Exported so `test/migrate-project-storage-keys.test.ts` pins it.
  */
-export function classify(key) {
+export function classify(key, ownerIds = new Set()) {
   const parts = key.split('/');
   if (parts[0] !== 'projects') return { kind: 'foreign' };
   if (parts.length === 2) return { kind: 'legacy-index' }; // projects/index.md
-  if (parts.length === 3) return { kind: 'legacy', slug: parts[1], fileName: parts[2] };
+  if (parts.length === 3) {
+    if (parts[2] === 'index.md' && ownerIds.has(parts[1])) return { kind: 'namespaced' };
+    return { kind: 'legacy', slug: parts[1], fileName: parts[2] };
+  }
   return { kind: 'namespaced' };
+}
+
+/** The owner-namespaced key a legacy artefact belongs at. */
+export function destKey(item) {
+  return `projects/${item.userId}/${item.slug}/${item.fileName}`;
+}
+
+/**
+ * Refuse to move anything whose destination is already occupied.
+ *
+ * `--apply` copies then *deletes the source*, so an occupied destination is
+ * not a merge — it is one file overwriting another and the loser being
+ * unrecoverable. It happens whenever a user has written to a project since the
+ * fix shipped: the new bytes live at the namespaced key while their pre-fix
+ * bytes still sit at the legacy one, so migrating would replace current
+ * content with stale content and then delete the evidence.
+ *
+ * Like a commingled slug, this is a human call, so it is reported and counted
+ * into the non-zero exit rather than guessed at. Pure and exported so it is
+ * testable without a backend.
+ */
+export function splitCollisions(movable, existingKeys) {
+  const moves = [];
+  const collisions = [];
+  for (const m of movable) {
+    const dest = destKey(m);
+    (existingKeys.has(dest) ? collisions : moves).push({ ...m, dest });
+  }
+  return { moves, collisions };
 }
 
 /**
@@ -98,6 +148,59 @@ async function listAllKeys(s3, bucket) {
   return keys;
 }
 
+/**
+ * Enumerate the local dev tree at `{dataDir}/projects`.
+ *
+ * `ownerIds` is the set of **userIds**, which is what tells an already-migrated
+ * `projects/{userId}/…` subtree from a legacy `projects/{slug}/…` one. Asking
+ * the slug set instead inverts both branches: every already-migrated tree gets
+ * walked as though it were legacy (its slug directories enumerated as *files*),
+ * and — far worse — every genuinely legacy directory is skipped, so a run over
+ * a purely-legacy tree enumerates nothing, reports zero unresolved slugs and
+ * exits 0 having migrated nothing. A success exit that means the opposite of
+ * what it says is the one outcome this script is built to prevent.
+ *
+ * Returns the legacy files, the legacy global index, and the already-namespaced
+ * keys (so `splitCollisions` can see an occupied destination without a second
+ * pass over the disk).
+ *
+ * Exported for `test/migrate-project-storage-keys.test.ts`: this walk used to
+ * live inline in `main()` with no cover at all, which is exactly how an
+ * inverted membership test survived a full green suite.
+ */
+export async function enumerateLocal(root, ownerIds) {
+  const legacy = [];
+  const legacyIndexes = [];
+  const existingKeys = new Set();
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    // A directory named for a *user id* is an already-migrated tree, not a slug.
+    if (e.isDirectory() && ownerIds.has(e.name)) {
+      const subdirs = await fs
+        .readdir(path.join(root, e.name), { withFileTypes: true })
+        .catch(() => []);
+      for (const slug of subdirs) {
+        if (!slug.isDirectory()) continue; // e.g. the per-owner index.md
+        for (const f of await fs.readdir(path.join(root, e.name, slug.name)).catch(() => [])) {
+          existingKeys.add(`projects/${e.name}/${slug.name}/${f}`);
+        }
+      }
+      continue;
+    }
+    if (e.isFile() && e.name === 'index.md') {
+      legacyIndexes.push(path.join(root, e.name));
+      continue;
+    }
+    if (!e.isDirectory()) continue;
+    // Anything that is not a known owner id is treated as a legacy slug dir.
+    const files = await fs.readdir(path.join(root, e.name)).catch(() => []);
+    for (const f of files) {
+      legacy.push({ key: path.join(root, e.name, f), slug: e.name, fileName: f });
+    }
+  }
+  return { legacy, legacyIndexes, existingKeys };
+}
+
 /** slug -> [userId, ...], from the only authority on ownership. */
 async function ownersBySlug(sql) {
   const rows = await sql`SELECT slug, user_id FROM projects ORDER BY slug, user_id`;
@@ -128,27 +231,19 @@ async function main() {
 
   try {
     const owners = await ownersBySlug(sql);
+    // `owners` is keyed by *slug*. Both enumerators below need to recognise a
+    // *userId*, which is a different set entirely — see `enumerateLocal`.
+    const ownerIds = new Set([...owners.values()].flat());
 
     // Enumerate legacy entries from whichever backend we were pointed at.
     let legacy = []; // { key, slug, fileName }
     let legacyIndexes = [];
+    let existingKeys = new Set(); // already-namespaced keys, for collision checks
     if (LOCAL_DIR) {
-      const root = path.join(LOCAL_DIR, 'projects');
-      const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
-      for (const e of entries) {
-        // A directory named for a user_id is an already-migrated tree, not a slug.
-        if (e.isDirectory() && owners.has(e.name)) continue;
-        if (e.isFile() && e.name === 'index.md') {
-          legacyIndexes.push(path.join(root, e.name));
-          continue;
-        }
-        if (!e.isDirectory()) continue;
-        // Anything that is not a known owner id is treated as a legacy slug dir.
-        const files = await fs.readdir(path.join(root, e.name)).catch(() => []);
-        for (const f of files) {
-          legacy.push({ key: path.join(root, e.name, f), slug: e.name, fileName: f });
-        }
-      }
+      ({ legacy, legacyIndexes, existingKeys } = await enumerateLocal(
+        path.join(LOCAL_DIR, 'projects'),
+        ownerIds
+      ));
     } else {
       bucket = process.env.R2_BUCKET;
       if (!bucket || !process.env.R2_ENDPOINT) {
@@ -165,23 +260,27 @@ async function main() {
         forcePathStyle: true,
       });
       for (const key of await listAllKeys(s3, bucket)) {
-        const c = classify(key);
+        const c = classify(key, ownerIds);
         if (c.kind === 'legacy') legacy.push({ key, slug: c.slug, fileName: c.fileName });
         else if (c.kind === 'legacy-index') legacyIndexes.push(key);
+        else if (c.kind === 'namespaced') existingKeys.add(key);
       }
     }
 
     // Bucket the legacy slugs by how confidently we can place them.
     const { movable, commingled, orphaned } = bucketByOwnership(legacy, owners);
+    // ...then withhold any whose destination is already occupied.
+    const { moves, collisions } = splitCollisions(movable, existingKeys);
 
     console.log(`Mode:            ${APPLY ? 'APPLY' : 'DRY RUN (pass --apply to execute)'}`);
     console.log(`Backend:         ${LOCAL_DIR ? `local fs (${LOCAL_DIR})` : `R2 (${bucket})`}`);
     console.log(`Legacy files:    ${legacy.length}`);
-    console.log(`  unambiguous:   ${movable.length}`);
+    console.log(`  unambiguous:   ${moves.length}`);
     console.log(
       `  commingled:    ${[...commingled.values()].reduce((n, v) => n + v.files.length, 0)}`
     );
     console.log(`  orphaned:      ${[...orphaned.values()].reduce((n, v) => n + v.length, 0)}`);
+    console.log(`  dest occupied: ${collisions.length}`);
     console.log(`Legacy indexes:  ${legacyIndexes.length} (regenerable; deleted, not moved)`);
 
     for (const [slug, { owners: o, files }] of commingled) {
@@ -194,22 +293,34 @@ async function main() {
         `\n!! ORPHANED slug "${slug}" — no projects row owns it; ${files.length} file(s) left in place.`
       );
     }
+    for (const c of collisions) {
+      console.log(`\n!! DESTINATION OCCUPIED — ${c.dest} already exists.`);
+      console.log(
+        `   projects/${c.slug}/${c.fileName} left in place. The owner has written since the fix`
+      );
+      console.log(`   shipped, so migrating would replace current bytes with pre-fix ones.`);
+    }
 
     if (APPLY) {
-      for (const m of movable) {
+      for (const m of moves) {
         if (LOCAL_DIR) {
-          const dest = path.join(LOCAL_DIR, 'projects', m.userId, m.slug, m.fileName);
+          const dest = path.join(LOCAL_DIR, m.dest);
           await fs.mkdir(path.dirname(dest), { recursive: true });
+          // `rename` clobbers silently and `moves` was computed from an earlier
+          // walk, so re-check rather than trust the plan: this is the step that
+          // destroys the source.
+          if (await fs.stat(dest).catch(() => null)) {
+            throw new Error(`Refusing to overwrite ${m.dest} — it appeared after the scan.`);
+          }
           await fs.rename(m.key, dest);
         } else {
-          const dest = `projects/${m.userId}/${m.slug}/${m.fileName}`;
-          await s3.send(
-            new CopyObjectCommand({
-              Bucket: bucket,
-              CopySource: `${bucket}/${m.key}`,
-              Key: dest,
-            })
-          );
+          // The key may contain spaces or `#` — `validateFileName` only rejects
+          // path traversal — and CopySource is a URL path, so an unencoded one
+          // fails the copy and aborts the run.
+          const source = `${bucket}/${m.key}`.split('/').map(encodeURIComponent).join('/');
+          await s3.send(new CopyObjectCommand({ Bucket: bucket, CopySource: source, Key: m.dest }));
+          // Confirm the copy landed *before* destroying the only other replica.
+          await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: m.dest }));
           await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: m.key }));
         }
       }
@@ -222,24 +333,24 @@ async function main() {
       }
       // Prune the now-empty legacy slug directories on the local backend.
       if (LOCAL_DIR) {
-        for (const slug of new Set(movable.map((m) => m.slug))) {
+        for (const slug of new Set(moves.map((m) => m.slug))) {
           await fs.rmdir(path.join(LOCAL_DIR, 'projects', slug)).catch(() => null);
         }
       }
       console.log(
-        `\nMoved ${movable.length} file(s); removed ${legacyIndexes.length} legacy index(es).`
+        `\nMoved ${moves.length} file(s); removed ${legacyIndexes.length} legacy index(es).`
       );
-    } else if (movable.length) {
+    } else if (moves.length) {
       console.log('\nWould move:');
-      for (const m of movable.slice(0, 20)) {
+      for (const m of moves.slice(0, 20)) {
         console.log(
           `  projects/${m.slug}/${m.fileName}  ->  projects/${m.userId}/${m.slug}/${m.fileName}`
         );
       }
-      if (movable.length > 20) console.log(`  ... and ${movable.length - 20} more`);
+      if (moves.length > 20) console.log(`  ... and ${moves.length - 20} more`);
     }
 
-    const unresolved = commingled.size + orphaned.size;
+    const unresolved = commingled.size + orphaned.size + collisions.length;
     if (unresolved > 0) {
       console.error(`\n${unresolved} slug(s) could not be placed automatically. See above.`);
       process.exit(2);

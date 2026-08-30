@@ -4,6 +4,16 @@ This document outlines accessibility requirements and best practices to ensure t
 
 **Target Compliance:** WCAG 2.1 Level AA
 
+> **Enforcement status: none. This target is not mechanically verified.** Checked against `main` @ `6911bcb` (2026-08-27): the repository carries no `eslint-plugin-jsx-a11y`, no `axe`/`vitest-axe`/`jest-axe`, no `pa11y` and no Lighthouse budget, and `packages/web/eslint.config.js` loads only `js`, `typescript-eslint`, `react-hooks`, `react-refresh` and `prettier`. Nothing in `.github/workflows/deploy.yml` fails when a page violates this document.
+>
+> The gap is measured, not theoretical. A heading-order scan that resolves component-rendered headings at their usage site — recursively, across every branch a view can render — found a **majority of pages skipping a heading level** (WCAG SC 1.3.1), several with no `<h1>` at all, including `Login`, the product's only pre-authentication page. Figures and the per-page breakdown are recorded on **WIC-1480**, measured 2026-08-26 at `8e19705`; they predate the fixes landed since and are not restated here, because a count in prose goes stale the day after it is taken.
+>
+> **Read every requirement below as guidance a reviewer checks by hand.** The [Testing Checklist](#testing-checklist) is the entire process today, and no box in it is automated.
+>
+> A mechanism is in progress under **WIC-1483**: `eslint-plugin-jsx-a11y` plus rendered per-render-branch heading-outline assertions, both hosted by the existing `lint-and-test` job. When it lands, this note is replaced by a citation naming that job and the command that fails the build — and the replacement must still state what remains unverified, because heading order plus a lint rule set is not WCAG 2.1 AA. Tracked for this document by **WIC-1584**.
+>
+> **The scope of that mechanism is now decided** (WIC-1192, 2026-08-30): adopt `jsx-a11y` at `strict`/`error` behind a frozen file baseline, plus `axe-core` hosted in the vitest + RTL harness rather than in Playwright E2E. The reasoning, the measured backlog (**47 findings across 22 app-source files** at `743cfeb`, every `label-has-associated-control` hit hand-verified as a true positive) and the baseline table are in `A11Y_ENFORCEMENT_RULING.md`. **That is a decision, not a landing** — the sentence above still holds, and this note stays until the config is in `packages/web/eslint.config.js`.
+
 ---
 
 ## Table of Contents
@@ -155,6 +165,10 @@ Use ARIA live regions to announce dynamic changes without moving focus.
 </div>
 ```
 
+> A toast host is an **app-level** live region, so *where* you mount it matters as much as
+> what you put in it. See [Where app-level live regions must be mounted](#where-app-level-live-regions-must-be-mounted)
+> before adding one.
+
 **Announcement Examples:**
 - "Application saved successfully"
 - "Status changed to Interview"
@@ -171,6 +185,63 @@ Use ARIA live regions to announce dynamic changes without moving focus.
 **Politeness Levels:**
 - `polite`: Non-urgent updates (success messages, status changes)
 - `assertive`: Urgent updates (errors, warnings)
+
+#### Where app-level live regions must be mounted
+
+> **Rule.** An app-level live region — a toast host, a route-change announcer, a save-status
+> region, anything that outlives one screen — must be **portalled to `document.body` as a
+> sibling of `#root`**, never rendered in place inside the tree.
+
+**Why.** `aria-hidden` (the package Radix uses to hide the background behind a modal) treats
+every `[aria-live]` element as something it must *not* hide — and it exempts that element's
+**entire ancestor chain** along with it. A live region rendered at `#root > … > div[aria-live]`
+therefore puts `#root` itself on the keep-list, and `#root` never receives `aria-hidden` when a
+dialog opens. Verified in `aria-hidden@1.2.6` (`dist/es2015/index.js`): `:133` collects every
+`[aria-live]` under the parent node into `targets`, and `:48–52` walks each target up its whole
+`parentNode` chain into `elementsToKeep`.
+
+This is not a warning about a control leaking — an in-place announcer that wraps nothing
+focusable leaks nothing, because sibling subtrees are still hidden correctly. The cost is that
+**`#root[aria-hidden]` silently stops being true**, and that is the check most people reach for
+to prove the background *is* hidden. The dialog still opens, focus still traps, and nothing
+looks wrong.
+
+**Worked example — this has already cost a test run.** PR #115 added a post-delete announcer to
+`ResumeManager` and rendered it in place. It immediately broke the existing `#root[aria-hidden]`
+assertion shipped in **PR #95**, on the first run. The fix was to portal the announcer to
+`<body>`; there it is exempted on its own account and hides nothing.
+
+```tsx
+import { createPortal } from 'react-dom';
+
+// ✅ App-level announcer — outside #root
+return createPortal(
+  <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+    {message}
+  </div>,
+  document.body,
+);
+
+// ❌ Same markup rendered in place inside #root
+//    → #root never gets aria-hidden behind any dialog, app-wide
+```
+
+**Two things authors get wrong:**
+
+- **Mount it permanently and change only its text.** Assistive tech announces *updates* to a
+  region already in the accessibility tree. A region that mounts at the same moment its message
+  appears may not be announced at all.
+- **Never put a focusable element inside a live region.** That is a separate and worse failure —
+  the control stays operable behind every dialog, which is a real focus-trap escape. It cost us
+  `EmptyState` once (WIC-1155).
+
+**Component-local** live regions (a progress indicator, a board's drag announcer) may stay in
+place — they are content, not app chrome. But they still suppress the `#root` attribute while
+mounted, so on a page that renders one, do not use `#root[aria-hidden]` as your
+background-hiding assertion; assert on the specific background subtree instead.
+
+Full rationale, including the discriminator against the WIC-1155 failure, lives in
+`MODAL_FOCUS_MANAGEMENT_SPEC.md` → *Rule — app-level live regions belong outside `#root`*.
 
 ---
 
@@ -473,9 +544,11 @@ Provide "Load More" button as alternative to infinite scroll for keyboard/screen
 
 ### Automated Testing
 
-- [ ] Run [axe DevTools](https://www.deque.com/axe/devtools/) in browser
-- [ ] Run [Pa11y](https://pa11y.org/) or [Lighthouse](https://developers.google.com/web/tools/lighthouse) in CI
-- [ ] Check HTML validation (W3C Validator)
+**None of these is wired up.** These three boxes have been unchecked since this document was written; they describe tools someone could run, not a pipeline that runs them. An unchecked box here means "nobody has done this", not "this is queued" — see the enforcement-status note at the top of this document, and **WIC-1483**.
+
+- [ ] Run [axe DevTools](https://www.deque.com/axe/devtools/) in browser — manual, per-session; no CI equivalent installed
+- [ ] Run [Pa11y](https://pa11y.org/) or [Lighthouse](https://developers.google.com/web/tools/lighthouse) in CI — **not installed**; `deploy.yml` has no accessibility step
+- [ ] Check HTML validation (W3C Validator) — manual
 
 ### Manual Testing
 
@@ -486,6 +559,9 @@ Provide "Load More" button as alternative to infinite scroll for keyboard/screen
 - [ ] Modals trap focus correctly
 - [ ] Escape closes modals/dropdowns
 - [ ] No keyboard traps
+- [ ] With a dialog open, `#root` actually carries `aria-hidden` — an app-level live region
+      left inside `#root` silently removes it ([rule](#where-app-level-live-regions-must-be-mounted)).
+      Check this on an **empty-list** state too, not just a populated fixture
 
 #### Screen Reader Testing
 
@@ -561,12 +637,43 @@ Common patterns used in this project:
 ## Implementation Priority
 
 **Phase 1 (MVP):**
-- [x] Keyboard navigation for all features
-- [x] Proper form labels and validation
-- [x] Focus management in modals
-- [x] ARIA labels for interactive elements
-- [x] Color contrast validation
-- [x] Screen reader testing (basic)
+
+> **All six boxes below were checked, and all six were wrong.** Re-measured against `main` @
+> `0e5d97a` on 2026-08-29 — every one of the six, not just the one that prompted the check. The
+> claims are restated underneath each box so the next reader can re-run the measurement instead of
+> trusting the tick. **No box here may be re-checked without a fresh measurement and the commit it
+> was taken at**; a PR number is a claim about the future and rots the day it is typed, which is how
+> this list came to assert six things that were not true.
+>
+> The counts below are counts in prose and will go stale, exactly as the enforcement note at the top
+> of this document warns. They are pinned to `0e5d97a` for that reason, and they are **not** the
+> mechanism — the mechanism is **WIC-1483** (`eslint-plugin-jsx-a11y` in the existing
+> `lint-and-test` job). When it lands, boxes 2 and 4 become machine-checkable and these hand counts
+> should be deleted rather than updated.
+
+- [ ] Keyboard navigation for all features — **partial.** Kanban drag-and-drop *is* keyboard
+      operable (`KanbanBoard.tsx` wires `KeyboardSensor` with `sortableKeyboardCoordinates`). But
+      all six hand-rolled dialogs handle **zero** `Escape` keypresses and have no focus trap, so a
+      keyboard user who opens one cannot leave it. See `MODAL_FOCUS_MANAGEMENT_SPEC.md` §2.
+- [ ] Proper form labels and validation — **validation yes, labels no.** Validation is real
+      (`react-hook-form` + `zod`). **28 of 98** form controls in `packages/web/src` expose no
+      programmatic accessible name: 11 sit beside a visible `<label>` that carries no `htmlFor`
+      (assistive tech reads these as unlabelled), and 17 have no label at all.
+- [ ] Focus management in modals — **not shipped.** `packages/web/src/hooks/useDialogFocusRestore.ts`
+      does not exist and no `useDialogFocusRestore` / `fallbackRef` / `RESTORE_WATCH_MS` symbol
+      appears anywhere under `packages/web/src`. Authority for this item is
+      **`MODAL_FOCUS_MANAGEMENT_SPEC.md` §5** (hook contract, *specified, not implemented*); §2 of
+      that document audits all six dialogs and every row still holds at `0e5d97a`.
+- [ ] ARIA labels for interactive elements — **partial.** Two controls have no accessible name at
+      all: the `role="switch"` toggle in `FilterPanel.tsx` and the icon-only back button in
+      `InterviewPrepPage.tsx`. The 17 unlabelled form controls above are additional to those.
+- [ ] Color contrast validation — **never performed.** `DESIGN_SYSTEM.md` carries this same item
+      *unchecked* under its Implementation Checklist (`- [ ] Test color contrast ratios (WCAG AA
+      minimum)`), and the repo has no `axe`, `pa11y`, Lighthouse budget or contrast assertion in any
+      `package.json` or in `.github/workflows/`. Nothing has measured this, by hand or in CI.
+- [ ] Screen reader testing (basic) — **no evidence it happened.** The only screen-reader artifact in
+      the repo is `docs/qa/WIC-186-QA-GUIDE.md`, which *instructs* a tester to enable NVDA, JAWS or
+      VoiceOver. That is a procedure, not a result; no outcome is recorded anywhere.
 
 **Phase 2 (Post-MVP):**
 - [ ] Advanced ARIA patterns for custom widgets

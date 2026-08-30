@@ -412,3 +412,21 @@ and do not re-file the missing `$pageview` — there is no autocapture by design
 Re-check **C1-C3** once real multi-session traffic exists — they key on `person_id` and the
 identity graph (WIC-822 server attribution + WIC-825 client `identify()` alias) is correct in
 principle but unproven against organic users.
+
+**"Empty now, fills in later" is not true of every empty tile.** Before reading any zero as a
+traffic reading, check the event's class in **`docs/analytics/event-reachability-matrix.md`**,
+which classifies all 9 taxonomy events by whether their call site can execute at all. Three
+classes, three different meanings for the same `0`:
+
+- **outage-immune** (`resume_upload_started`, `resume_upload_validation_failed`) — fire from the
+  browser straight to PostHog with no Worker in the path. A zero here really is a demand reading.
+- **outage-blocked** (`resume_upload_cta_clicked`, `resume_manager_viewed`,
+  `resume_exports_link_clicked`, `resume_upload_submitted`/`_completed`/`_failed`) — gated behind
+  a DB-backed fetch that currently 500s. A zero here restates the outage and says nothing about
+  demand. These fill in only after prod recovers, **not** merely when traffic arrives.
+- **unreachable** (`export_viewed`) — dead code, so **B1 never fills in at any traffic level**
+  until WIC-1707 lands. This is the one already called out above.
+
+The trap in that list is `resume_manager_viewed`: it reads like a plain page-view event, but its
+effect guard is `!isLoading && !error`, so a failed resume-list fetch suppresses it. Classify by
+call site, not by event name.
