@@ -87,13 +87,13 @@
     "file": "src/services/interviewPrep.service.ts",
     "check": "COND",
     "detail": "'userId' branched on in a ternary test",
-    "count": 6
+    "count": 1
   },
   {
     "file": "src/services/interviewPrep.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 6
+    "count": 7
   },
   {
     "file": "src/services/personal-info.service.ts",
@@ -141,19 +141,13 @@
     "file": "src/services/resume-variant.service.ts",
     "check": "COND",
     "detail": "'userId' branched on in a ternary test",
-    "count": 6
-  },
-  {
-    "file": "src/services/resume-variant.service.ts",
-    "check": "COND",
-    "detail": "'userId' branched on in an if test",
     "count": 1
   },
   {
     "file": "src/services/resume-variant.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 4
+    "count": 5
   },
   {
     "file": "src/services/resume.service.ts",

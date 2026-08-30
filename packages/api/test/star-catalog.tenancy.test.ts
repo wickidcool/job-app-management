@@ -384,13 +384,25 @@ describe('generateInterviewPrep tenancy (UC-7, D3)', () => {
     // `ALTER COLUMN user_id SET NOT NULL` (Step 2); `quantifiedBullets.userId`
     // is `.notNull()`, and the insert path is rejected with `23502`.
     //
-    // WIC-1638 goes one step further. Asserting `IS NULL` was fail-closed, but
+    // WIC-1638 went one step further. Asserting `IS NULL` was fail-closed, but
     // it kept an owner-absent branch inside `bulletOwnerScope` — the helper
     // added to *centralise* owner scoping, so every new call site inherited the
-    // fallback. `bulletOwnerScope` now takes `userId: string` and emits an
-    // unconditional equality; absence is rejected once at the route edge by
-    // `requireOwner`. This still exercises the predicate directly, so the mutant
-    // that restores the ternary is caught here and not only by the compiler.
+    // fallback. WIC-1638 made the owner required and dropped the branch.
+    //
+    // WIC-1764 reconciled that against WIC-1601, which landed on `main` first
+    // and deleted `bulletOwnerScope` in favour of a generic
+    // `ownerScope(table, userId?)` shared with `applications` and
+    // `interview_preps` — both nullable, both relying on the `IS NULL` fallback
+    // for the ADR-003 local-dev anonymous path, and both still reached by entry
+    // points that take `userId?: string`. The fallback therefore stays.
+    //
+    // The required-owner guarantee moved to where it can hold for this table:
+    // `requireOwner` at the route edge (401 OWNER_REQUIRED) and `userId: string`
+    // on `generateInterviewPrep`. Both predicate shapes fail closed here anyway —
+    // `quantifiedBullets.userId` is `.notNull()` since `0017`, so `IS NULL`
+    // selects the empty set exactly as `= NULL` did. This still exercises the
+    // predicate directly, so the drop-the-term mutant is caught here and not
+    // only by the compiler.
     const stub = stubDb({
       catalog: [
         bullet({ id: '01HZ_BUL_ORPHAN', rawText: MINE, userId: ORPHAN_OWNER }),
@@ -409,8 +421,7 @@ describe('generateInterviewPrep tenancy (UC-7, D3)', () => {
     // owner equality bound to the absent owner, against a table holding two
     // owned rows. Dropping the term would serve both of them.
     const { sql, params } = render(stub.catalogClauses()[0]);
-    expect(sql).toContain('"quantified_bullets"."user_id" = $');
-    expect(params).toContain(undefined);
+    expect(sql).toContain('"quantified_bullets"."user_id" is null');
     expect(params).not.toContain(ORPHAN_OWNER);
     expect(params).not.toContain(OTHER);
     // Never reached the model, so no foreign `rawText` can be persisted.
