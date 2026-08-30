@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+import { coverLetterService } from '../services/api';
+import type { OutreachMessage } from '../services/api/types';
 import { OutreachNew } from './OutreachNew';
 
 /**
@@ -29,6 +31,34 @@ function renderOutreachNew(initialEntry = '/outreach/new') {
     </QueryClientProvider>
   );
 }
+
+/** The Generate button is disabled until Company and Role are both filled. */
+const PREFILLED = '/outreach/new?company=TechCorp&jobTitle=Staff%20Engineer';
+
+/** 23 characters, so it sits under every budget either platform imposes. */
+const GENERATED: OutreachMessage = {
+  platform: 'email',
+  subject: 'Coffee chat this week?',
+  body: 'Generated message body.',
+  characterCount: 23,
+  generatedAt: '2026-08-29T12:00:00.000Z',
+};
+
+/**
+ * Stubs the one network call the route makes, at the service boundary rather than at
+ * the hook. `vi.mock` of `../hooks/useCoverLetters` would have to enumerate that
+ * module's nine exports, and any future import from it inside this render tree would
+ * silently become `undefined`; a spy on the single method leaves the hook, the
+ * mutation and the composer's own `handleGenerate` as the real thing, so what the
+ * assertions below observe is the payload the app would actually have sent.
+ */
+function stubGenerateOutreach() {
+  return vi.spyOn(coverLetterService, 'generateOutreach').mockResolvedValue(GENERATED);
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('OutreachNew heading outline', () => {
   it('names the route exactly once, in the page <h1>', () => {
@@ -129,20 +159,57 @@ describe('OutreachNew platform picker', () => {
     expect(linkedin).not.toBeChecked();
   });
 
-  it('drives the composer’s email-only affordances from that one picker', async () => {
+  it('sends the platform the user picked in the generation request', async () => {
+    const generateOutreach = stubGenerateOutreach();
     const user = userEvent.setup();
-    renderOutreachNew();
+    renderOutreachNew(PREFILLED);
 
-    // LinkedIn InMail has no subject line; email does. The Subject field only appears
-    // once a message body exists, so what is observable before generation is the
-    // character budget: 1900 for InMail, unlimited for email.
     await user.click(screen.getByRole('radio', { name: /email/i }));
+    await user.click(screen.getByRole('button', { name: 'Generate Message' }));
 
-    expect(screen.getByRole('radio', { name: /email/i })).toBeChecked();
+    // The headline harm: the user picked Email and the model was asked for an InMail.
+    // Pre-fix the page's radio never reached this call, so `platform` stayed 'linkedin'
+    // no matter what the screen showed.
+    await waitFor(() =>
+      expect(generateOutreach).toHaveBeenCalledWith(
+        expect.objectContaining({ platform: 'email', targetCompany: 'TechCorp' })
+      )
+    );
+  });
+
+  it('gives email a Subject field and email’s character budget', async () => {
+    stubGenerateOutreach();
+    const user = userEvent.setup();
+    renderOutreachNew(PREFILLED);
+
+    await user.click(screen.getByRole('radio', { name: /email/i }));
+    await user.click(screen.getByRole('button', { name: 'Generate Message' }));
+
+    // Everything `PLATFORM_LIMITS` drives is inside `{body && (…)}`, so the picker's
+    // effect is only observable after a generation — which is why this test stubs one
+    // rather than asserting on the radio again.
+    expect(await screen.findByText('Subject Line')).toBeInTheDocument();
+    expect(screen.getByText('Body')).toBeInTheDocument();
+    // 500 recommended, no hard maximum.
+    expect(screen.getByText('23 / 500 recommended')).toBeInTheDocument();
+  });
+
+  it('gives LinkedIn no Subject field and the 1900/300 InMail budget', async () => {
+    stubGenerateOutreach();
+    const user = userEvent.setup();
+    renderOutreachNew(PREFILLED);
+
+    // LinkedIn is the default, so this is the state a user who never touches the picker
+    // gets — and the state the page's dead picker used to leave them in silently.
+    await user.click(screen.getByRole('button', { name: 'Generate Message' }));
+
+    expect(await screen.findByText('Message')).toBeInTheDocument();
+    expect(screen.queryByText('Subject Line')).not.toBeInTheDocument();
+    expect(screen.getByText('23 / 300 recommended (1900 max)')).toBeInTheDocument();
   });
 
   it('carries ?company=&jobTitle= through to the composer’s context fields', () => {
-    renderOutreachNew('/outreach/new?company=TechCorp&jobTitle=Staff%20Engineer');
+    renderOutreachNew(PREFILLED);
 
     expect(screen.getByLabelText('Company')).toHaveValue('TechCorp');
     expect(screen.getByLabelText('Role')).toHaveValue('Staff Engineer');

@@ -36,10 +36,15 @@ export function OutreachNew() {
           the fields it governs. A second picker here wrote to a value the composer read
           once and then ignored, so the two silently disagreed and the visible one lost.
 
-          The key covers every prop the composer seeds state from, so a change to any of
-          them remounts it rather than being dropped by a mount-only initialiser. All three
-          come from the query string and so only change on navigation today; the key makes
-          the drop structurally impossible rather than merely unreachable.
+          The key covers every prop *this page* passes that the composer seeds state from,
+          so a change to any of them remounts it rather than being dropped by a mount-only
+          initialiser. It does not cover `initialContext.hiringManager`, which seeds the
+          Contact field — this page never passes it, and a caller that does must add it.
+
+          All three come from the query string, so reaching the stale-seed case would need
+          a link to /outreach/new from within /outreach/new, which does not exist. The key
+          is defence-in-depth against a state that is unreachable today and kept so
+          deliberately; nothing in the suite enforces it.
         */}
         <OutreachComposer
           key={`${company}|${jobTitle}|${fitAnalysisId ?? ''}`}
