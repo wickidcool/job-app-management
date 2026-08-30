@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { differenceInDays, parseISO, startOfDay } from 'date-fns';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
@@ -9,6 +9,7 @@ import { FloatingActionButton } from '../components/FloatingActionButton';
 import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
 import { useDebounce } from '../hooks/useDebounce';
 import { filterByDateRange } from '../utils/dateRangeFilter';
+import { parseStatusParam } from '../constants/applicationStatus';
 import type { Application, ApplicationStatus } from '../types/application';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
@@ -40,8 +41,30 @@ function calculatePipelineStats(applications: Application[]) {
 
 export function ApplicationsList() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<FilterOptions>({});
+  const [searchParams] = useSearchParams();
+  const statusParam = searchParams.get('status');
+
+  // The command palette links here as `/applications?status=interview,phone_screen`. Until
+  // WIC-1775 that query string was never read, so every shortcut landed on the unfiltered
+  // list and the label above it was false whatever it said.
+  const [filters, setFilters] = useState<FilterOptions>(() => {
+    const status = parseStatusParam(statusParam);
+    return status.length > 0 ? { status } : {};
+  });
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [prevStatusParam, setPrevStatusParam] = useState(statusParam);
+
+  // Re-apply when a shortcut navigates here while this page is already mounted — the
+  // initialiser above only runs on first render. This is the derived-state-during-render
+  // pattern (as in CommandPalette), not an effect: an effect would render the stale list
+  // first and then correct it, and the lint rule rejects the cascading render.
+  if (statusParam !== prevStatusParam) {
+    setPrevStatusParam(statusParam);
+    const status = parseStatusParam(statusParam);
+    if (status.length > 0) {
+      setFilters((prev) => ({ ...prev, status }));
+    }
+  }
 
   // `filters` updates on every keystroke so that `FilterPanel` can stay controlled (it
   // holds no state of its own — see WIC-1612), so the debounce that used to live inside

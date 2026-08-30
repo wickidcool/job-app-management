@@ -4,6 +4,10 @@
 **Date:** 2026-08-30.
 **Scope:** The salary *filter* in COMPONENT_SPECS §6 (FilterPanel) only.
 **Measured against:** `origin/main` @ `ac490f9` and PR #221 @ `43bbcb6`.
+**Since measured:** PR #221 landed on `main` in the PR #211 squash `e26a142` (2026-08-30),
+so the `salaryMin` / `salaryMax` strike this ruling closes is now on `main` rather than
+pending. The measurements above are unchanged — they are cited at the commits they were
+taken at, deliberately, so re-reading this file never depends on a PR's current state.
 
 The one-paragraph version lives in [`COMPONENT_SPECS.md`](./COMPONENT_SPECS.md) §6, next
 to the `FilterOptions` block it governs. This file is the evidence behind it.

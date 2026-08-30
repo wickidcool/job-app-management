@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { ApplicationsList } from '../pages/ApplicationsList';
 import { FilterPanel, type FilterOptions } from './FilterPanel';
+import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import type { ApplicationStatus } from '../types/application';
 
 /**
@@ -42,7 +43,7 @@ const STATUS_CHECKBOX_LABELS: Record<ApplicationStatus, string> = {
 
 const ALL_STATUSES = Object.keys(STATUS_CHECKBOX_LABELS) as ApplicationStatus[];
 
-/** The statuses the "Interviews This Week" predefined shortcut applies. */
+/** The statuses the `interviewing` predefined shortcut applies. */
 const SHORTCUT_STATUSES: ApplicationStatus[] = ['interview', 'phone_screen'];
 
 function apiRow(
@@ -125,14 +126,25 @@ function renderApplicationsPage() {
   );
 }
 
-/** Opens the collapsible panel, then applies the "Interviews This Week" shortcut. */
+/**
+ * Opens the collapsible panel, then applies the `interviewing` shortcut.
+ *
+ * The label is read from `FILTER_SHORTCUT_LABELS`, not spelled out: WIC-1775 renamed this
+ * shortcut from `Interviews This Week` to `Interviewing` (the old name promised a time
+ * window the status-only filter never applied), and a hardcoded copy here would silently
+ * stop matching — which is exactly how this merge first broke.
+ */
 async function openPanelThenApplyShortcut(user: ReturnType<typeof userEvent.setup>) {
   // Order matters: the defect only exists when the panel is ALREADY MOUNTED when the
   // shortcut writes. Applying the shortcut first would let the (removed) `useState`
   // initialisers read the fresh value and the bug would not reproduce.
   await user.click(screen.getByRole('button', { name: 'Show filters' }));
   await screen.findByRole('checkbox', { name: STATUS_CHECKBOX_LABELS.interview });
-  await user.click(screen.getByRole('button', { name: /Interviews This Week/ }));
+  // Substring, not exact: the shortcut buttons prefix a decorative ✨ that is not
+  // aria-hidden, so the accessible name is "✨Interviewing" (tracked separately).
+  await user.click(
+    screen.getByRole('button', { name: new RegExp(FILTER_SHORTCUT_LABELS.interviewing) })
+  );
 }
 
 describe('/applications filter panel, driven by the real page (WIC-1612)', () => {
