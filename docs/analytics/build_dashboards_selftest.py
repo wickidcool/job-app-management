@@ -173,7 +173,13 @@ class InjectHogql(unittest.TestCase):
         self.assertEqual(sites, 1)
         self.assertTrue(balanced(out))
 
-    # -- comment handling: both cases are regressions caught on this branch -----------
+    # -- comment handling ---------------------------------------------------------------
+    #
+    # The first three are regressions caught on this branch. The last two pin the `--`
+    # masking branch of `_sql_tokens`, which the first three left entirely unpinned: it
+    # could be deleted outright without reddening any of them (WIC-1664 review). Each
+    # `/* */` case below has a `--` twin, because the two comment syntaxes fail the same
+    # two ways and only the block-comment half had cover.
 
     def test_trailing_line_comment_does_not_swallow_the_closing_paren(self):
         # Regression: the wrap used to emit `(cond -- why)`, commenting out the `)` and
@@ -197,12 +203,37 @@ class InjectHogql(unittest.TestCase):
         self.assertTrue(balanced(out), f"unbalanced parens: {out!r}")
         self.assertIn("AND NOT (", uncommented(out))
 
+    def test_line_comment_parens_do_not_desync(self):
+        # The `--` twin of test_block_comment_parens_do_not_desync. Without the line
+        # comment masked in `_sql_tokens`, this `)` decrements depth and the wrap closes
+        # at the wrong index, emitting unbalanced SQL.
+        out, sites = bd.inject_hogql(
+            "SELECT count() FROM events WHERE event = 'a' -- note )\nAND event = 'b'",
+            PRED,
+        )
+        self.assertEqual(sites, 1)
+        self.assertTrue(balanced(out), f"unbalanced parens: {out!r}")
+        self.assertIn("AND NOT (", uncommented(out))
+
     def test_keyword_inside_a_comment_does_not_end_the_where_body(self):
         out, _ = bd.inject_hogql(
             "SELECT count() FROM events WHERE event = 'a' /* GROUP BY x */ AND event = 'b'",
             PRED,
         )
         self.assertIn("AND event = 'b'", uncommented(out))
+        self.assertTrue(balanced(out))
+
+    def test_keyword_inside_a_line_comment_does_not_end_the_where_body(self):
+        # The `--` twin of the block-comment case, and the worse one: an unmasked
+        # `-- GROUP BY x` ends the WHERE body early and *promotes the commented text
+        # into executable SQL*, silently regrouping the tile. Paren balance and the
+        # site count both still look correct, so only this assertion catches it.
+        out, _ = bd.inject_hogql(
+            "SELECT count() FROM events WHERE event = 'a' -- GROUP BY x\nAND event = 'b'",
+            PRED,
+        )
+        self.assertIn("AND event = 'b'", uncommented(out))
+        self.assertNotIn("GROUP BY", uncommented(out))
         self.assertTrue(balanced(out))
 
     # -- refusals ---------------------------------------------------------------------

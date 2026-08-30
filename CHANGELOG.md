@@ -116,12 +116,23 @@ line so a trailing line comment cannot swallow it.
   are meant to be read by humans — walks into it.
 - **The fail-closed guarantee was the thing that broke.** `apply_exclusion` treats a
   nonzero site count as success, so a rewrite that filters nothing but *reports* a site
-  defeats it. That is why the block-comment case is the dangerous one and the line-comment
-  case is not.
-- New `docs/analytics/build_dashboards_selftest.py` — 20 offline cases, wired into
+  defeats it. **Both** comment syntaxes reach that outcome, not just `/* */`: an unmasked
+  `-- GROUP BY x` ends the WHERE body early and promotes the commented text into
+  *executable* SQL, silently regrouping the tile while the site count, the paren balance
+  and a live `AND NOT (` all still read correct. The line-comment case has a loud form
+  (`-- note )` emits unbalanced SQL) and this silent one; only the loud form was obvious.
+- New `docs/analytics/build_dashboards_selftest.py` — 22 offline cases, wired into
   `Lint & Test`. It needs no PostHog credential, so it runs on every PR; the live half
   (`build_dashboards.py --dry-run`) still needs a key. Verified against the pre-fix file:
-  exactly the three comment cases fail there and the other 17 pass both ways.
+  exactly the four comment cases fail there and the other 18 pass both ways.
+- **Each masking branch is pinned by a mutant, because three tests were not enough.** The
+  `--` branch of `_sql_tokens` could originally be deleted outright without reddening a
+  single case (WIC-1664 review); the two `--` twins of the `/* */` tests close that. Each
+  mutation now reds exactly its own pair and nothing else: dropping the `/*` branch reds 2,
+  dropping the `--` branch reds 2, reverting the wrap reds 1. Note the pre-fix file alone
+  could never have found this — against it, `line_comment_parens_do_not_desync` *passes*,
+  because the missing mask adds a stray `)` while the old wrap swallows the real one and
+  the two errors cancel. Only a targeted mutant separates them.
 - Its helpers deliberately re-implement comment and literal masking instead of calling
   `_sql_tokens`. Borrowing the module's own tokenizer made the line-comment case pass
   spuriously, because the helper mis-parsed the output exactly as the injector did.
