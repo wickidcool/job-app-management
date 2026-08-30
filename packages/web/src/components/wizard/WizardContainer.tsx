@@ -1,4 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ConfirmationModal } from '../ConfirmationModal';
+import { useInAppNavigationGuard } from '../../hooks/useInAppNavigationGuard';
 import { ProgressIndicator } from './ProgressIndicator';
 import { WizardStep } from './WizardStep';
 import { WizardButton } from './WizardButton';
@@ -55,6 +58,90 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
   });
   const [currentTech, setCurrentTech] = useState<string[]>([]);
   const totalSteps = 5;
+
+  const navigate = useNavigate();
+
+  // Dirty means "the user typed something we would throw away", measured
+  // against the *seeded* initial state above.
+  //
+  // Deliberately NOT `Object.keys(data).length > 0`: `data` is seeded with
+  // three keys, so that test is true before the user touches anything. That is
+  // the exact bug that made the old 30-second autosave fire unconditionally
+  // (WIC-1621); it is repeated here only to be named and avoided.
+  //
+  // `currentSTAR`/`currentTech` count even though they are not yet in `data` —
+  // a half-typed accomplishment that was never "saved" is precisely the work a
+  // user would be upset to lose.
+  const isDirty =
+    !!data.company ||
+    !!data.role ||
+    !!data.period ||
+    !!data.industry ||
+    (data.accomplishments?.length ?? 0) > 0 ||
+    (data.jobFit?.length ?? 0) > 0 ||
+    (data.techStack?.length ?? 0) > 0 ||
+    Object.values(currentSTAR).some((field) => field.length > 0) ||
+    currentTech.length > 0;
+
+  // Completion deliberately does NOT disarm this (AC-4 needs no latch here).
+  // Finishing the wizard navigates with a programmatic `navigate()`, which this
+  // guard does not intercept by design — see useInAppNavigationGuard.
+  //
+  // A latch would also be actively wrong: `DialogueCapture.handleComplete`
+  // catches a failed create and only alerts, leaving the wizard mounted with
+  // every answer still in it. Disarming on "completed" would drop the guard for
+  // a user whose work was never saved — the precise case it exists for.
+  const guardActive = isDirty;
+
+  const { pendingHref, clearPendingNavigation } = useInAppNavigationGuard(guardActive);
+
+  // `pendingHref` is set by an intercepted link click; the other two paths set
+  // this directly. Both funnel into the same confirmation.
+  const [discardRequested, setDiscardRequested] = useState(false);
+  const confirmOpen = discardRequested || pendingHref !== null;
+
+  const requestDiscard = useCallback(() => {
+    if (guardActive) {
+      setDiscardRequested(true);
+      return;
+    }
+    // Nothing to lose — AC-3: an untouched wizard must not prompt.
+    onCancel();
+  }, [guardActive, onCancel]);
+
+  const handleKeepEditing = useCallback(() => {
+    setDiscardRequested(false);
+    clearPendingNavigation();
+  }, [clearPendingNavigation]);
+
+  const handleConfirmDiscard = useCallback(() => {
+    const href = pendingHref;
+    setDiscardRequested(false);
+    clearPendingNavigation();
+    if (href) {
+      navigate(href);
+    } else {
+      onCancel();
+    }
+  }, [pendingHref, clearPendingNavigation, navigate, onCancel]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // While the confirmation is up, Escape belongs to it: it means "keep
+      // editing", not a second discard request.
+      if (confirmOpen) {
+        event.stopPropagation();
+        handleKeepEditing();
+        return;
+      }
+      event.stopPropagation();
+      requestDiscard();
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [confirmOpen, handleKeepEditing, requestDiscard]);
 
   const handleComplete = useCallback(() => {
     // Generate filename
@@ -361,7 +448,7 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={onCancel}
+                onClick={requestDiscard}
                 className="text-neutral-600 hover:text-neutral-800 text-h3"
                 aria-label="Close wizard"
               >
@@ -382,6 +469,28 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
         {/* Step Content */}
         <div className="flex-1 overflow-y-auto px-8 py-6">{renderStepContent()}</div>
       </div>
+
+      {/*
+        Nested inside the wizard, which is itself role="dialog" aria-modal.
+        Focus therefore restores to the wizard control, not the page. This is
+        NOT focus-managed: ConfirmationModal declares no role="dialog", no
+        aria-modal and no focus trap; the repo's own
+        docs/design/confirmation-modal-focus-audit.py reports
+        MODAL_FOCUS_MANAGEMENT_SPEC §5.3 as unenforced pending WIC-1181. Reuse
+        is still correct — fix the shared component, not a wizard-local copy.
+      */}
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        variant="danger"
+        title="Discard this project?"
+        message={
+          'You have unsaved answers. Closing now discards them — they are not saved anywhere.'
+        }
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        onConfirm={handleConfirmDiscard}
+        onCancel={handleKeepEditing}
+      />
     </div>
   );
 }
