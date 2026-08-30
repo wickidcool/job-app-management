@@ -4,15 +4,29 @@ This document outlines accessibility requirements and best practices to ensure t
 
 **Target Compliance:** WCAG 2.1 Level AA
 
-> **Enforcement status: none. This target is not mechanically verified.** Checked against `main` @ `6911bcb` (2026-08-27): the repository carries no `eslint-plugin-jsx-a11y`, no `axe`/`vitest-axe`/`jest-axe`, no `pa11y` and no Lighthouse budget, and `packages/web/eslint.config.js` loads only `js`, `typescript-eslint`, `react-hooks`, `react-refresh` and `prettier`. Nothing in `.github/workflows/deploy.yml` fails when a page violates this document.
+> **Enforcement status: partial, and far narrower than this document's scope.** Measured against `main` @ `9ec6309` (2026-08-30; the tree outside `docs/` is byte-identical to the `6f91a56` this note was first taken at, so no source-derived figure below moved). Three checks fail the build, all of them steps in the **`Lint & Test`** job of `.github/workflows/deploy.yml`:
 >
-> The gap is measured, not theoretical. A heading-order scan that resolves component-rendered headings at their usage site — recursively, across every branch a view can render — found a **majority of pages skipping a heading level** (WCAG SC 1.3.1), several with no `<h1>` at all, including `Login`, the product's only pre-authentication page. Figures and the per-page breakdown are recorded on **WIC-1480**, measured 2026-08-26 at `8e19705`; they predate the fixes landed since and are not restated here, because a count in prose goes stale the day after it is taken.
+> | check | the command that fails the build | what it actually covers |
+> | --- | --- | --- |
+> | `src/test/routeHeadingOutline.test.ts` (WIC-1581) | `npm run test` | No string is rendered as both an `<h1>` and an `<h2>`. A **static source** sweep — it reads literal heading text only. |
+> | `findOutlineSkips` / `getOutline` (`src/test/headingOutline.ts`, WIC-1571) | `npm run test` | **Rendered** heading-outline skip assertions. Asserted against exactly **two application components** — `KanbanBoard.test.tsx` and `CoverLetterPreview.test.tsx`. It has a third importer, `src/test/headingOutline.test.tsx`, but that is the helper's own unit test against deliberate fixtures and so enforces nothing about the app. |
+> | `docs/design/confirmation-modal-focus-audit.py` (WIC-1670) | `python3 docs/design/confirmation-modal-focus-audit.py` | Every `ConfirmationModal` call site either passes `restoreFocusTo` or declares a `focus-restore-exempt` reason (SC 2.4.3, the WIC-1181 class). |
 >
-> **Read every requirement below as guidance a reviewer checks by hand.** The [Testing Checklist](#testing-checklist) is the entire process today, and no box in it is automated.
+> **Everything else in this document is still guidance a reviewer checks by hand.** `npm run lint` carries **no accessibility rules at all**: at `9ec6309`, `packages/web/eslint.config.js` loads only `js`, `typescript-eslint`, `react-hooks`, `react-refresh` and `prettier`, and none of `eslint-plugin-jsx-a11y`, `axe-core`, `pa11y` or a Lighthouse budget is a dependency. The [Testing Checklist](#testing-checklist) remains the whole process for every criterion outside the table above, and no box in it is automated.
 >
-> A mechanism is in progress under **WIC-1483**: `eslint-plugin-jsx-a11y` plus rendered per-render-branch heading-outline assertions, both hosted by the existing `lint-and-test` job. When it lands, this note is replaced by a citation naming that job and the command that fails the build — and the replacement must still state what remains unverified, because heading order plus a lint rule set is not WCAG 2.1 AA. Tracked for this document by **WIC-1584**.
+> **SC 1.3.1 is not covered site-wide, and the lint layer will not cover it when it lands.** Heading order is a property of the *composition* of a page and the components it mounts, so it is structurally invisible to any per-file rule — WIC-1483 measured that `eslint-plugin-jsx-a11y` would have caught **none** of the 16 heading skips it found, and `A11Y_ENFORCEMENT_RULING.md` §4.2 records the same limit independently. **Do not credit `jsx-a11y` with SC 1.3.1.** Of the two heading checks that do exist, the first is blind to expression-built headings (**11 of 33 `<h1>` and 11 of 42 `<h2>`** were already invisible to it at `6911bcb`), and the second covers 2 components against **29 page components and 32 distinct route paths**. Take those two denominators from the source, not from a raw glob: `packages/web/src/pages/*.tsx` is 33 files, but four of them are tests (`ApplicationsList.statusParam`, `CoverLetterNew`, `NotFound`, `OutreachNew`), and `App.tsx` declares 34 `<Route>` elements that resolve to 32 distinct `path=` values, two of which (`*`, `/*`) are catch-alls.
 >
-> **The scope of that mechanism is now decided** (WIC-1192, 2026-08-30): adopt `jsx-a11y` at `strict`/`error` behind a frozen file baseline, plus `axe-core` hosted in the vitest + RTL harness rather than in Playwright E2E. The reasoning, the measured backlog (**47 findings across 22 app-source files** at `743cfeb`, every `label-has-associated-control` hit hand-verified as a true positive) and the baseline table are in `A11Y_ENFORCEMENT_RULING.md`. **That is a decision, not a landing** — the sentence above still holds, and this note stays until the config is in `packages/web/eslint.config.js`.
+> **Four `h1` → `h3` skips are live on `main` right now** (re-measured at `3a649e1`), none of them visible to any check above. Three share one shape: `pages/ProjectsList.tsx` (`<h1>` `:59`, `<h3>` `:96`), `pages/ResumeManager.tsx` (`:94`, `:135`) and `pages/ProjectDetail.tsx` (`:40`, `:66`) each skip in the *populated* render branch, while the *empty* branch of all three is correct because `EmptyState` gained a `headingLevel` prop under WIC-1417. That asymmetry is the argument for per-render-branch enforcement specifically — a per-route check that rendered a single branch would report all three clean.
+>
+> **The fourth should change how the table above is read, because it is the page the rendered-outline check was written for.** `pages/ApplicationsList.tsx` skips in *every* branch: `<h1>` "Applications" at `:136`, then `SavedFilterShortcuts` — mounted unconditionally at `:165`, under a comment reading "always visible" — renders `<h3>` "Filter Shortcuts" at `SavedFilterShortcuts.tsx:113`. `KanbanBoard`'s `<h2>` column headings do not arrive until `:195`, after it. The check stays green because `KanbanBoard.test.tsx:49-55` renders a hand-written approximation of the page — a literal `<h1>Applications</h1>` followed by `<KanbanBoard>` — and that fixture never mounts the sibling that causes the skip. **A rendered-outline assertion certifies the composition it renders, not the route it is named after.** The fixture is the thing that has to match the page, and nothing checks that it does. Its sibling check is the control that shows this is a fixture problem rather than a method problem: `CoverLetterPreview.test.tsx` builds its fixture the same way, and there the real page does agree — `CoverLetterDetail.tsx` goes `<h1>` `:104` → `<h2>` from `CoverLetterPreview`, with no skip. Filed as WIC-1834.
+>
+> The wider gap is measured, not theoretical: a scan resolving component-rendered headings at their usage site, recursively across every branch a view can render, found a **majority of pages skipping a heading level**, several with no `<h1>` at all, including `Login`, the product's only pre-authentication page. Figures and the per-page breakdown are on **WIC-1480** (2026-08-26 at `8e19705`); they predate the fixes landed since and are not restated here, because a count in prose goes stale the day after it is taken.
+>
+> **Spec-side coverage: all seven accepted feature specs assert this criterion, and not one of them cites a mechanism.** Measured 2026-08-30 against the specification documents themselves rather than a summary of them: **7 of 7** carry an accessibility acceptance criterion — `AC-Q3` in UC-1 (WIC-94), UC-2 (WIC-101), UC-3 (WIC-113), UC-4 (WIC-127), the resume spec (WIC-47) and onboarding (WIC-238), and the same criterion under the name `AC-N7` in UC-5 (WIC-143). All seven state it in the same words: one `<h1>` per rendered view, no level skipped, in every branch the view can render, including levels contributed by shared components — which is SC 1.3.1. **The "only 1 of 7 specs carries an accessibility criterion" figure is superseded and should not be requoted**; it was true before the WIC-1480 decomposition landed, and it is still being restated in write-ups taken from those older notes. Six of the seven record their own status as NOT MET; UC-1 is the only one whose surfaces pass.
+>
+> **Two of the seven now state the opposite of what is true.** UC-3's AC-Q3 says "nothing in the repository could have failed it, because there is no accessibility tooling at all", and UC-5's AC-N7 says "Nothing in the repository can fail AC-N7 automatically". Both were correct when written and both are now wrong in the narrow way that matters — the three checks in the table above do fail the build. The figure they should carry instead is the one this section already gives from the other direction: the rendered-outline check reaches components inside **two** of the seven specs (UC-4's `CoverLetterPreview`, UC-5's `KanbanBoard`), and for UC-5 it reaches a fixture rather than the route. Amending the specs themselves is a Business Analyst edit and is routed as WIC-1833; this note is the repository-side flag required by **WIC-1584 AC-3**, and WIC-15 §8-A is its specification-side counterpart.
+>
+> **The full mechanism is decided but not landed — do not cite the ruling as enforcement.** WIC-1192 ruled on 2026-08-30 (`A11Y_ENFORCEMENT_RULING.md`, merged `ee6c217`) that the repo adopts `jsx-a11y` at `strict`/`error` behind a frozen 23-file baseline, plus `axe-core` hosted in the vitest + RTL harness rather than in Playwright E2E; the measured backlog is **47 findings across 22 app-source files** at `743cfeb`, every `label-has-associated-control` hit hand-verified as a true positive. That document states in its own opening note that it is a decision rather than a shipped mechanism, and neither dependency is installed at `9ec6309`. **WIC-1483 is closed and no config is on `main` — but read that as "built and unmerged", not "not built".** PR #226 (`8845a5e`, opened 2026-08-29) carries `packages/web/eslint.config.js`, `packages/web/package.json` and `src/test/jsxA11yBaseline.test.ts`; measured 2026-08-30 it is `OPEN`, unmerged, `MERGEABLE`, every check `SUCCESS` (Deploy Production skipped) and **zero reviews**, which is the whole of why it is `BLOCKED`. The remaining work after it lands is **WIC-1589** (the 47 baselined findings) and **WIC-1675** (rendered per-route, per-render-branch outline). This note is replaced when `packages/web/eslint.config.js` carries the config, and the replacement must still state what remains unverified, because heading order plus a lint rule set is not WCAG 2.1 AA. Citation written under **WIC-1584**.
 
 ---
 
@@ -147,6 +161,64 @@ All functionality must be accessible via keyboard alone. No mouse required.
   </div>
 </form>
 ```
+
+#### Dialogs — every `Dialog.Content` needs a `Dialog.Title`, and the id must be Radix's own
+
+A dialog with no title has **no accessible name at all**: a screen reader announces "dialog"
+and stops, so the user has no idea what just took their focus. SC 4.1.2. It is the cheapest
+a11y defect in the codebase to create, because nothing about the rendered page looks wrong.
+
+Radix does say so, on every mount, in the console:
+
+```
+`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+```
+
+So the rule is: **render `Dialog.Title` and `Dialog.Description`, and let Radix assign both
+ids.** Where the design has no room for a visible title — `CommandPalette` opens with nothing
+above its search field — make the title `sr-only` rather than omitting it.
+
+```tsx
+<Dialog.Content>
+  <Dialog.Title className="sr-only">Quick search</Dialog.Title>
+  <Dialog.Description className="sr-only">
+    Type to search applications, companies, and statuses. Use the up and down arrow keys to
+    move between results, and Enter to open one.
+  </Dialog.Description>
+```
+
+**⛔ Do not pass your own `id` to either one, and do not hand-write `aria-describedby` on
+`Dialog.Content`.** The warnings resolve `context.titleId` / `context.descriptionId` through
+`getElementById` (`@radix-ui/react-dialog` 1.1.15, `dist/index.mjs:295` and `:308`), so an
+overridden id leaves that lookup empty and **the warning fires against markup that is
+actually correct** — which trains everyone to ignore it.
+
+`ApplicationForm.tsx` was the worked example of this: genuinely named and described, and
+warning on every mount for no reason but the id override. Fixed in WIC-1854 — as of that
+commit all three `Dialog.Content` call sites in `packages/web/src` (`ApplicationForm`,
+`CommandPalette`, `ApplicationNew`) render a `Dialog.Title` and let Radix assign both ids,
+so any of them is safe to copy. Re-sweep with `grep -rn 'Dialog.Content' packages/web/src`
+rather than trusting that count; it was 3 when written.
+
+Reusing existing visible copy as the description, via `aria-describedby` pointed at a node
+already on screen, is the textbook move and was tried on `CommandPalette` and rejected: the
+node in question was the keyboard-hint footer, which is written to be *glanced at* and reads
+as a stutter aloud. Prefer it when the visible text is a sentence; write a `sr-only`
+description when it is a row of hints.
+
+**Verification.** Assert the **exact** accessible name and description, and in the same file
+spy on `console.error` / `console.warn` and assert neither Radix message fires — with a
+positive control that mounts a deliberately unnamed dialog, or the guard passes just as
+happily against a broken spy. See `packages/web/src/components/CommandPalette.test.tsx`
+(WIC-1851) and `ApplicationForm.test.tsx` (WIC-1854).
+
+**The console guard is not redundant with the name assertions — for the id-override defect it
+is the only thing that catches it.** Measured on WIC-1854: against the pre-fix component the
+accessible name and description assertions **passed**, because the markup really was correct;
+only the console guard and an assertion that `aria-describedby` resolves to Radix's *generated*
+id failed. So write both, and prefer asserting the id is the generated one over asserting the
+attribute merely exists.
 
 ### Live Regions
 
@@ -362,6 +434,74 @@ Status must be communicated through:
 </span>
 ```
 
+### An Emoji Is Not the Sole Indicator Either — Check Before You `aria-hidden` It
+
+The rule above has a mirror image that is easy to get wrong, because the wrong fix looks
+exactly like the right one. A bare emoji inside an interactive element joins that element's
+**accessible name**, so the glyph's Unicode name is announced in front of the label —
+"sparkles Interviewing, button", "briefcase Senior Engineer, button". The reflex is
+`aria-hidden="true"`, and on a decoration that is correct and complete.
+
+**But `aria-hidden` on a glyph that is the only carrier of a distinction is not a fix — it is
+a silent removal.** It converts a noisy announcement into a missing one, which is worse:
+nothing in the rendered output looks different, and no test that only asserts the label
+catches it. Before hiding a glyph, name the distinction it draws and find where else that
+distinction lives:
+
+| the glyph distinguishes | conveyed elsewhere non-visually? | correct fix |
+| --- | --- | --- |
+| nothing — it repeats adjacent text | yes, by that text | `aria-hidden` alone |
+| a state with another non-visual signal | yes, by that signal | `aria-hidden` alone |
+| a category with no other signal | **no** | `aria-hidden` **plus** an `sr-only` label |
+
+Both branches are live in this repo and the pair is the worked example:
+
+- **`SavedFilterShortcuts`** (WIC-1846) — the ✨ marks `isPredefined`, which is already
+  conveyed by the absence of a delete control next to the button. Decorative. `aria-hidden`
+  alone.
+- **`CommandPalette`** (WIC-1850) — the 💼 / 🏢 / 🕐 / ✨ mark the *result type*, and nothing
+  else does. The background colour is purely visual, and `subtitle` carries no type at all
+  for two of the four types. So the glyph is hidden **and** replaced:
+
+  ```tsx
+  <div aria-hidden="true" className="...">{getResultIcon(result)}</div>
+  <span className="sr-only">{getResultTypeLabel(result)}:</span>
+  ```
+
+  announcing "Application: Senior Engineer Acme Corp" rather than either the glyph's name or
+  a bare title. Emit both halves from **one** shared component, not repeated per call site —
+  `CommandPalette` renders result rows at four sites, and split across four the two halves
+  can drift apart one site at a time.
+
+**There is a third row the table above does not cover: a glyph that is not a signal about
+the content but *is* the content.** A `<kbd>` holding `↑↓` or `↵` is the whole instruction —
+delete it and the sentence reads "to navigate … to select" — so neither `aria-hidden` alone
+nor "it's decorative" applies. Bare, it is announced by Unicode name, and `↵` is **"downwards
+arrow with corner leftwards"**, which is not a key anyone can go and press. Take the same
+hidden-plus-`sr-only` shape, and put the *key's name* in the replacement, not a description
+of the arrow (WIC-1851):
+
+```tsx
+<kbd className="…">
+  <span aria-hidden="true">↵</span>
+  <span className="sr-only">Enter</span>
+</kbd>
+```
+
+Do not sweep this over every `<kbd>` in a file. The `ESC` hint in the same footer already
+spells its key in letters and needs no treatment; giving it one is noise, and the sweep is
+how it gets one.
+
+**Verification.** Assert the **exact** accessible name — `toHaveAccessibleName('…')` or an
+exact `getByRole` name — and in the same test assert the decoration is *still rendered* and
+*still hidden*. Each half alone admits the regression the other catches: a substring matcher
+passes with the emoji still in the name, and a name-only assertion passes for a "fix" that
+deleted the glyph and took the sighted user's signal with it. See
+`packages/web/src/components/CommandPalette.test.tsx`.
+
+Nothing enforces this automatically. `jsx-a11y` cannot: whether a glyph is decorative is a
+fact about the *rest of the row*, not about the element the rule sees.
+
 ---
 
 ## Interactive Elements
@@ -544,7 +684,7 @@ Provide "Load More" button as alternative to infinite scroll for keyboard/screen
 
 ### Automated Testing
 
-**None of these is wired up.** These three boxes have been unchecked since this document was written; they describe tools someone could run, not a pipeline that runs them. An unchecked box here means "nobody has done this", not "this is queued" — see the enforcement-status note at the top of this document, and **WIC-1483**.
+**None of these is wired up.** These three boxes have been unchecked since this document was written; they describe tools someone could run, not a pipeline that runs them. An unchecked box here means "nobody has done this", not "this is queued" — see the enforcement-status note at the top of this document, and **PR #226** (WIC-1483), which is open and unmerged.
 
 - [ ] Run [axe DevTools](https://www.deque.com/axe/devtools/) in browser — manual, per-session; no CI equivalent installed
 - [ ] Run [Pa11y](https://pa11y.org/) or [Lighthouse](https://developers.google.com/web/tools/lighthouse) in CI — **not installed**; `deploy.yml` has no accessibility step
@@ -647,9 +787,12 @@ Common patterns used in this project:
 >
 > The counts below are counts in prose and will go stale, exactly as the enforcement note at the top
 > of this document warns. They are pinned to `0e5d97a` for that reason, and they are **not** the
-> mechanism — the mechanism is **WIC-1483** (`eslint-plugin-jsx-a11y` in the existing
-> `lint-and-test` job). When it lands, boxes 2 and 4 become machine-checkable and these hand counts
-> should be deleted rather than updated.
+> mechanism — the mechanism is `eslint-plugin-jsx-a11y` in the existing `lint-and-test` job, written
+> under **WIC-1483** and, measured 2026-08-30, sitting unmerged in **PR #226**. Per the warning
+> directly above, treat that as a measurement and not a promise: the card is closed, so its status
+> field will never tell you whether the config shipped. Boxes 2 and 4 become machine-checkable only
+> once `packages/web/eslint.config.js` **on `main`** carries the config, and at that point these hand
+> counts should be deleted rather than updated.
 
 - [ ] Keyboard navigation for all features — **partial.** Kanban drag-and-drop *is* keyboard
       operable (`KanbanBoard.tsx` wires `KeyboardSensor` with `sortableKeyboardCoordinates`). But
