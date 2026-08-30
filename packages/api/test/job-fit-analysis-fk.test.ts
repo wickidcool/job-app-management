@@ -45,7 +45,7 @@ const schemaSource = readFileSync(
 );
 
 const migration = readFileSync(
-  fileURLToPath(new URL('../src/db/migrations/0020_job_fit_analyses.sql', import.meta.url)),
+  fileURLToPath(new URL('../src/db/migrations/0022_job_fit_analyses.sql', import.meta.url)),
   'utf8'
 );
 
@@ -107,7 +107,7 @@ describe('the four job_fit_analysis_id columns are real FKs (AC-4)', () => {
   }
 });
 
-describe('migration 0020 (AC-4)', () => {
+describe('migration 0022 (AC-4)', () => {
   it('nulls every dangling referrer before adding any constraint', () => {
     // ORDER IS THE ASSERTION. Every existing value names an analysis that has
     // never existed, so `ADD CONSTRAINT` on real data fails unless the NULLing
@@ -128,18 +128,60 @@ describe('migration 0020 (AC-4)', () => {
     }
   });
 
-  it('is registered in the drizzle journal', () => {
-    // A migration file the runner never reads is not a migration (WIC-1408).
+  it('is registered in the drizzle journal, last, with the newest timestamp', () => {
+    // A migration file the runner never reads is not a migration (WIC-1408) —
+    // but registration alone is not enough here, and this assertion is the one
+    // that caught a real silent skip.
+    //
+    // `drizzle-orm/pg-core/dialect.js:56` applies a migration only when
+    // `Number(lastDbMigration.created_at) < migration.folderMillis`, comparing
+    // against the *single newest* applied row. `created_at` is the journal's
+    // `when`. So a migration whose `when` is not strictly greater than
+    // everything already applied to the target database is **skipped in
+    // silence** — `db:migrate` prints "Migrations complete." and exits 0.
+    //
+    // This is not hypothetical: the first cut of this migration was numbered
+    // 0020 with `when: 1777620258000`, which collided exactly with PR #238's
+    // `0020_backfill_catalog_diffs_user_id` and sat below PR #261's `0021`
+    // (1777623858000). Both had already run against the shared preview
+    // database, so this file never executed there and the deploy still went
+    // green — caught only because `verify-rls.mjs` derives its table list from
+    // the live schema and `job_fit_analyses` was missing from it.
     const journal = JSON.parse(
       readFileSync(
         fileURLToPath(new URL('../src/db/migrations/meta/_journal.json', import.meta.url)),
         'utf8'
       )
-    ) as { entries: { idx: number; tag: string }[] };
+    ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    const entry = journal.entries.find((e) => e.tag === '0020_job_fit_analyses');
-    expect(entry, '0020 must be in _journal.json or db:migrate skips it').toBeDefined();
+    const entry = journal.entries.find((e) => e.tag === '0022_job_fit_analyses');
+    expect(entry, '0022 must be in _journal.json or db:migrate skips it').toBeDefined();
     expect(entry!.idx).toBe(Math.max(...journal.entries.map((e) => e.idx)));
+    expect(entry!.when).toBe(Math.max(...journal.entries.map((e) => e.when)));
+  });
+
+  it('the journal has unique indices and strictly increasing timestamps', () => {
+    // The general form of the same trap, for whoever adds 0023. Two branches
+    // that each pick "the next number" produce a duplicate `idx` and, more
+    // dangerously, a non-monotonic `when` — and the loser is skipped with no
+    // error anywhere.
+    const journal = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL('../src/db/migrations/meta/_journal.json', import.meta.url)),
+        'utf8'
+      )
+    ) as { entries: { idx: number; when: number; tag: string }[] };
+
+    const indices = journal.entries.map((e) => e.idx);
+    expect(new Set(indices).size, 'duplicate idx in _journal.json').toBe(indices.length);
+
+    const whens = journal.entries.map((e) => e.when);
+    for (let i = 1; i < whens.length; i++) {
+      expect(
+        whens[i],
+        `${journal.entries[i].tag} must have a later \`when\` than ${journal.entries[i - 1].tag}`
+      ).toBeGreaterThan(whens[i - 1]);
+    }
   });
 
   it('creates the table before it is referenced', () => {
