@@ -219,6 +219,17 @@ The last thing a new user is asked to do on the first-run flow was a no-op. Step
 
 
 
+
+### Docs — two figures in `ACCESSIBILITY.md` counted test files as product surface (2026-08-30)
+
+The enforcement note added by the entry directly below quoted two denominators taken from a raw glob rather than from the source, and both overstated the universe those checks are measured against. The finding they support is unchanged — a smaller denominator makes the covered share larger, not the uncovered count smaller — but they are numbers the note invites a reader to quote. Raised by the Business Analyst, who hit the same two errors pasting the counterpart citation into `WIC-15`.
+
+- **"33 page files" is 29 page components.** `packages/web/src/pages/*.tsx` is 33 files at `9ec6309`, but four of them are tests: `ApplicationsList.statusParam`, `CoverLetterNew`, `NotFound` and `OutreachNew`. The note now states 29 and shows the derivation, so the next reader re-measures instead of re-globbing.
+- **"34 routes" is 32 distinct route paths.** `App.tsx` declares 34 `<Route>` elements, and they resolve to 32 distinct `path=` values, two of which are catch-alls.
+- **"Imported by exactly two test files" was three.** `src/test/headingOutline.ts` is imported by `KanbanBoard.test.tsx`, `CoverLetterPreview.test.tsx` **and** `src/test/headingOutline.test.tsx`. The load-bearing claim is the one the note now makes — the helper is asserted against exactly **two application components**; the third importer is the helper's own unit test against deliberate fixtures, and a helper's own unit test enforces nothing about the app.
+- **"No config landed under WIC-1483" was true of `main` and read as "nobody built it".** It is built: PR #226 (`8845a5e`) carries `packages/web/eslint.config.js`, `packages/web/package.json` and `src/test/jsxA11yBaseline.test.ts`, and measured 2026-08-30 it is `OPEN`, unmerged, `MERGEABLE`, every check `SUCCESS`, with zero reviews. Both places this file pointed at `WIC-1483` now name the PR and its measured state, because a closed card's status field can never answer "did the config ship".
+- **The enforcement note is re-pinned from `6f91a56` to `9ec6309`.** Every path outside `docs/` is byte-identical between those two commits, so no source-derived figure moved; the pin moves so that the re-measurement is auditable at the commit it was actually taken at.
+
 ### Docs — ACCESSIBILITY.md names what enforces WCAG 2.1 AA, and what only looks like it does (2026-08-30)
 
 `docs/design/ACCESSIBILITY.md` carried **"Enforcement status: none"** and pointed at `WIC-1483` as the mechanism in progress. Once `WIC-1483` closed, both halves were wrong — in opposite directions, and each in the way that stops the next reader looking again.
