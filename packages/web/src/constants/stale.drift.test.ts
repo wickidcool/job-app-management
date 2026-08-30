@@ -155,15 +155,17 @@ describe('the report reads the shared default rather than a literal', () => {
  * `packages/api/test/stale.definition.test.ts`).
  *
  * This exists because the first pass of WIC-1479 fixed three definitions and
- * shipped with five. The two it missed — `ApplicationsList`'s "Stale (14+ days)"
- * pipeline tile and `ApplicationCard`'s "Stale" badge — agreed with the report
- * on the *threshold* and differed on the *status set*, so every guard aimed at
- * the number 7 or at the API's source walked straight past them. At 20 days an
- * `interview` row was badged stale on the list and absent from the report.
+ * shipped with seven. Two of the four it missed — `ApplicationsList`'s
+ * "Stale (14+ days)" pipeline tile and `ApplicationCard`'s "Stale" badge —
+ * agreed with the report on the *threshold* and differed on the *status set*,
+ * so every guard aimed at the number 7 or at the API's source walked straight
+ * past them. At 20 days an `interview` row was badged stale on the list and
+ * absent from the report. The other two, both in `ReportsPipeline`, are the
+ * ones this scan itself found.
  *
  * What the scan detects, precisely: a value derived from a row's `updatedAt`
  * and then compared against a numeric literal. That is the shape of a
- * client-side staleness predicate, and it is the shape both missed surfaces had.
+ * client-side staleness predicate, and it is the shape those two surfaces had.
  * It deliberately does *not* fire on deriving elapsed days for display —
  * `QuickWins` renders "No update for N days" over a population the server
  * already selected, which is the sanctioned pattern, not a second definition.

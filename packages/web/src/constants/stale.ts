@@ -19,7 +19,7 @@
  * already hold and never ask the server about staleness at all. Those two are
  * why `isStale` lives here: found in the review of PR #222 still carrying their
  * own 14-day-over-every-active-status rule, they were definitions 3 and 4 of the
- * five WIC-1479 turned out to be about.
+ * seven WIC-1479 turned out to be about.
  */
 
 import type { ApplicationStatus } from '../types/application';
