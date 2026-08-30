@@ -807,3 +807,90 @@ describe('WIC-1406 — generateDiff scopes to the caller, not to the named docum
     expect(rows.find((t) => t.tagSlug === 'react')).toBeDefined();
   });
 });
+
+/*
+ * `generateDiffSchema` is `z.enum(['resume', 'application'])`, so the endpoint
+ * the WIC-1406 tests above defend has a second source type, and an application
+ * discloses a different but equally private thing: which company the owner is
+ * applying to, the role, and the location. Note the application shape is
+ * `status: 'pending'` rather than auto-applied, so the exposure here is the
+ * response body rather than a write into the victim's catalog.
+ */
+describe('WIC-1406 — generateDiff scoping, application source', () => {
+  async function seedApp(id: string, userId: string) {
+    await db.insert(applications).values({
+      id,
+      userId,
+      jobTitle: 'Staff Engineer',
+      company: 'Initech Holdings',
+      location: 'Zurich',
+    });
+  }
+
+  it('refuses to build a diff from an application the caller does not own', async () => {
+    await seedApp('01APP_A', USER_A);
+
+    const result = await generateDiff('application', '01APP_A', USER_B).catch((e: unknown) => e);
+
+    expect(result, 'the foreign call must reject rather than resolve').toBeInstanceOf(Error);
+    // Not `JSON.stringify(result)`: Error has no enumerable own properties, so
+    // that serializes to '{}' and the assertion holds no matter what leaked.
+    // The message is the channel a handler would actually surface.
+    expect((result as Error).message).not.toContain('Initech');
+    expect((result as Error).message).not.toContain('Zurich');
+    expect(await db.select().from(catalogDiffs)).toHaveLength(0);
+    expect(await db.select().from(companyCatalog)).toHaveLength(0);
+  });
+
+  it("still builds a diff for the owner's own application", async () => {
+    // Positive control: the assertions above must not hold merely because
+    // application-sourced generateDiff stopped working for everyone.
+    await seedApp('01APP_A', USER_A);
+
+    const diff = await generateDiff('application', '01APP_A', USER_A);
+    expect(
+      diff.changes.find((c) => c.entity === 'company_catalog'),
+      "the owner's own application must still yield a company entry"
+    ).toBeDefined();
+  });
+});
+
+/*
+ * Every other fixture logs `experienceEntries=0`, so the resume-path
+ * company_catalog dedup read is never executed — deleting its `userId` term
+ * leaves the suite green. Unlike the application-path company read (covered by
+ * AC-3), this one is only reached when the resume parses into experience
+ * entries, which needs an EXPERIENCE heading.
+ */
+const RESUME_WITH_EXPERIENCE = [
+  'EXPERIENCE',
+  'Globex Corporation | Staff Engineer | 2020-2024',
+  '- Built dashboards in React.',
+  '- Mentored two engineers on the platform team.',
+].join('\n');
+
+describe('WIC-1404 — company_catalog scoping on the resume path', () => {
+  it("does not touch another tenant's company row when B's resume names the same employer", async () => {
+    await seedResume('01RESUME_A', USER_A);
+    await seedResume('01RESUME_B', USER_B);
+
+    await processCatalogChange(resumeEvent('01RESUME_A', USER_A, RESUME_WITH_EXPERIENCE));
+    const [aBefore] = await db
+      .select()
+      .from(companyCatalog)
+      .where(eq(companyCatalog.userId, USER_A));
+    expect(aBefore, 'A must acquire a company row from their own resume').toBeDefined();
+
+    await processCatalogChange(resumeEvent('01RESUME_B', USER_B, RESUME_WITH_EXPERIENCE));
+
+    const [bRow] = await db.select().from(companyCatalog).where(eq(companyCatalog.userId, USER_B));
+    expect(bRow, 'B must get their own company row').toBeDefined();
+
+    const [aAfter] = await db
+      .select()
+      .from(companyCatalog)
+      .where(eq(companyCatalog.userId, USER_A));
+    expect(aAfter.applicationCount).toBe(aBefore.applicationCount);
+    expect(aAfter.version).toBe(aBefore.version);
+  });
+});
