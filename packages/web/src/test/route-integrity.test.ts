@@ -141,9 +141,7 @@ const appSources = Object.fromEntries(
       // (neither contains a link-shaped string); `routeOutlineRoutes.tsx` carries the
       // concrete URLs the outline sweep mounts, including a deliberately unrouted one
       // for the `*` catch-all, and surfaced it. (WIC-1675)
-      !/^\.\/[^/]+$/.test(file) &&
-      !file.includes('/test/') &&
-      !/\.(test|spec)\.tsx?$/.test(file)
+      !/^\.\/[^/]+$/.test(file) && !file.includes('/test/') && !/\.(test|spec)\.tsx?$/.test(file)
   )
 );
 
