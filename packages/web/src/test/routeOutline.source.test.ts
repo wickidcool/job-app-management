@@ -47,8 +47,79 @@ function count(source: string, tag: RegExp): number {
 }
 
 const H1 = /<h1[\s>]/g;
-const H2 = /<h2[\s>]/g;
 const H3 = /<h3[\s>]/g;
+
+/**
+ * Level 2 has two spellings in this codebase, and both are real `<h2>` elements.
+ *
+ * A Radix `Dialog.Title` renders an `<h2>` unless it is given `asChild` — asserted
+ * directly rather than taken from the docs, in the `Dialog.Title` case below. Counting
+ * only the literal tag would have made this guard lie: WIC-1141 (#97) converted
+ * `ProjectsList`'s "Create New Project" panel heading from `<h2>` to `<Dialog.Title>` on
+ * `main` while this branch was open. That is a *rename*, not a deletion — the heading is
+ * still rendered at level 2 — but a literal-tag count reads it as the page losing a
+ * heading, and the merge is textually clean, so nothing else would have flagged it.
+ *
+ * This matters more here than the arithmetic suggests: the heading now lives behind a
+ * dialog, which is *user* state, so the render sweep (which varies only data state) never
+ * opens it. For that one heading this source guard is the only coverage there is.
+ */
+const H2_LITERAL = /<h2[\s>]/g;
+const DIALOG_TITLE = /<Dialog\.Title[\s>]/g;
+
+function countH2(source: string): number {
+  return count(source, H2_LITERAL) + count(source, DIALOG_TITLE);
+}
+
+describe('countH2 treats Dialog.Title as an h2 because Radix renders one (measured)', () => {
+  /**
+   * `countH2` is only honest if a `<Dialog.Title>` really is an `<h2>`. That is a fact
+   * about a dependency, so it is asserted here rather than cited: a Radix major that
+   * changed the default element would otherwise turn every `Dialog.Title` in the guarded
+   * files into a silent over-count, and the guards would keep passing.
+   *
+   * `createElement` rather than JSX because this is a `.ts` file — deliberately, so the
+   * source guards stay a fast pure-string check with no renderer in the common path.
+   */
+  it('renders an h2 with no asChild', async () => {
+    const { createElement: h } = await import('react');
+    const { render, screen } = await import('@testing-library/react');
+    const Dialog = await import('@radix-ui/react-dialog');
+
+    render(
+      h(
+        Dialog.Root,
+        { open: true },
+        h(
+          Dialog.Portal,
+          null,
+          h(
+            Dialog.Content,
+            { 'aria-describedby': undefined },
+            h(Dialog.Title, null, 'Create New Project')
+          )
+        )
+      )
+    );
+
+    expect(screen.getByText('Create New Project').tagName).toBe('H2');
+  });
+
+  it('the guarded files use Dialog.Title without asChild, which would change the element', () => {
+    // `asChild` makes Radix render the child instead, so the h2 assumption would not hold.
+    // Only ProjectsList among the guarded files uses Dialog.Title at all.
+    const withDialogTitle = [['ProjectsList.tsx', projectsListSource]] as const;
+
+    for (const [name, source] of withDialogTitle) {
+      const stripped = stripComments(source);
+      expect(count(stripped, DIALOG_TITLE), `${name}: expected one Dialog.Title`).toBe(1);
+      expect(
+        /<Dialog\.Title[^>]*\basChild\b/.test(stripped),
+        `${name}: Dialog.Title gained asChild — it may no longer render an h2`
+      ).toBe(false);
+    }
+  });
+});
 
 describe('no ancestor supplies a route its h1 (the AC-3 premise, measured)', () => {
   /**
@@ -178,7 +249,9 @@ describe('each fix is owned by the file that should own it', () => {
       h1: 1,
       h2: 2,
       h3: 0,
-      note: 'the project row card + the "Create New Project" panel',
+      // The "Create New Project" heading is a `<Dialog.Title>` since WIC-1141 (#97), not a
+      // literal `<h2>`. It still renders an h2, so it still counts — see `countH2`.
+      note: 'the project row card + the "Create New Project" dialog title',
     },
     {
       name: 'ProjectDetail.tsx',
@@ -251,7 +324,7 @@ describe('each fix is owned by the file that should own it', () => {
 
     expect(count(source, H1), `${name}: this file must emit exactly ${h1} h1`).toBe(h1);
     expect(
-      count(source, H2),
+      countH2(source),
       `${name}: an h2 was deleted or promoted — the render sweep cannot see this`
     ).toBe(h2);
     expect(count(source, H3), `${name}: an h3 came back, or one was deleted`).toBe(h3);
