@@ -232,10 +232,16 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // pin is how many were READ. And it said the mutation was otherwise fully green, which
     // stopped being true when 'states its enforcement surface exactly' was added below —
     // that test ties the `warn` set to the rules the baseline records, so a narrowed
-    // baseline reds it too (8 configured vs 4 surviving). Deleting this line leaves that
-    // one red; also trimming BASELINED_RULES to the 4 survivors moves the failure to the
-    // `error` count (28, not 24). Getting this mutation green now means editing the
+    // baseline reds it too (6 configured vs 3 surviving). Deleting this line leaves that
+    // one red; also trimming BASELINED_RULES to the 3 survivors moves the failure to the
+    // `error` count (29, not 26). Getting this mutation green now means editing the
     // assertions themselves, not just the baseline — which is the point of both guards.
+    //
+    // Those four figures are re-derived on every slice, not decremented. WIC-1589's first
+    // slice moved them from 8/4/28/24 to 6/3/29/26 — the survivor count fell because two
+    // whole rules left BASELINED_RULES, and the mutated `error` count ROSE. A note like
+    // this one is exactly the kind of prose that goes quietly false when the thing it
+    // describes moves, so it is measured each time or it does not get to stay.
     //
     // 151 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);
