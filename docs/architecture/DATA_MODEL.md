@@ -814,6 +814,67 @@ Diffs expire 7 days after creation (`expires_at = created_at + INTERVAL '7 days'
 
 ---
 
+## Job Fit Analyses (UC-3)
+
+Results of `POST /api/catalog/job-fit/analyze`: a parsed job description scored against the user's
+catalog, optionally attached to the application it is about.
+
+> **This table was specified before it existed.** The `interview_preps` DDL below has given
+> `job_fit_analysis_id TEXT REFERENCES job_fit_analyses(id) ON DELETE SET NULL` since UC-7 was
+> written, and the relationship index lists `interview_preps -> job_fit_analyses` — but this document
+> never defined the referent, and it was never built. Four tables therefore shipped
+> `job_fit_analysis_id` as bare `TEXT` referencing nothing, and `analyzeJobFit` returned a result it
+> did not write down. Closed by WIC-1652 / ADR-012; the omission is recorded here because a
+> half-specified FK is what let it pass review.
+
+```sql
+CREATE TABLE job_fit_analyses (
+  id                       TEXT PRIMARY KEY,
+  user_id                  UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  application_id           TEXT REFERENCES applications(id) ON DELETE CASCADE,
+  job_description_text     TEXT,
+  job_description_url      TEXT,
+  recommendation           TEXT CHECK (recommendation IS NULL OR recommendation IN
+                             ('strong_fit', 'moderate_fit', 'stretch', 'low_fit')),
+  fit_score                INTEGER CHECK (fit_score IS NULL OR (fit_score >= 0 AND fit_score <= 100)),
+  summary                  TEXT NOT NULL,
+  confidence               TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+  parsed_jd                JSONB NOT NULL,
+  strong_matches           JSONB NOT NULL DEFAULT '[]',
+  partial_matches          JSONB NOT NULL DEFAULT '[]',
+  gaps                     JSONB NOT NULL DEFAULT '[]',
+  recommended_star_entries JSONB NOT NULL DEFAULT '[]',
+  catalog_empty            BOOLEAN NOT NULL DEFAULT FALSE,
+  analyzed_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_job_fit_analyses_user_application
+  ON job_fit_analyses(user_id, application_id, created_at DESC);
+CREATE INDEX idx_job_fit_analyses_application ON job_fit_analyses(application_id);
+```
+
+Three nullability decisions carry meaning and are not oversights:
+
+- **`application_id` is nullable.** Analysing a bare job description with no application in hand is a
+  shipped flow — `/job-fit-analysis` is reachable without an `appId` — so `NOT NULL` here would
+  reject requests that are valid today. Only an analysis that *has* an application can tick that
+  application's workflow checklist; one without is a scratch analysis.
+- **`recommendation` and `fit_score` are nullable together.** `NULL` is a *result* — "unscored", i.e.
+  the catalog was empty or the job description named no required skills — and not "not analysed".
+  The by-fit-tier report keeps `unscored` and `not_analyzed` as distinct tiers for exactly this
+  reason. A `NOT NULL` `fit_score` would force a `0` that renders as "0% match".
+- **`recommendation` is `TEXT` with a CHECK, not a Postgres enum.** It is a wire value that `FitTier`
+  is *defined in terms of*; pinning it into an enum would make adding a member a two-place change
+  with a migration in the middle. The CHECK gives the same integrity without that coupling.
+
+`fit_score` is the weighted required-skill match percentage the UC-3 scoring cascade already computes
+(exact matches count 1, alias/related count 0.5, over `parsed_jd.requiredStack` length). It is stored
+rather than recomputed so the tier and the percentage shown beside it are read off one number and
+cannot drift.
+
+---
+
 ## Resume Variants (UC-6)
 
 Resume variants are tailored resume versions generated for specific job applications.
@@ -832,7 +893,7 @@ Resume variants are tailored resume versions generated for specific job applicat
 │    │ format                │ resume_format     │ chronological/etc   │
 │    │ section_emphasis      │ section_emphasis  │ balanced/etc        │
 │ FK │ base_resume_id        │ TEXT              │ references resumes  │
-│    │ job_fit_analysis_id   │ TEXT              │ nullable            │
+│ FK │ job_fit_analysis_id   │ TEXT              │ refs job_fit_analyses│
 │    │ selected_bullets      │ JSONB             │ bullet selections   │
 │    │ selected_tech_tags    │ JSONB             │ tag IDs array       │
 │    │ selected_themes       │ JSONB             │ theme slugs array   │
@@ -1126,6 +1187,10 @@ interface PracticeSession {
 |--------------|--------------|--------------|-------|
 | `interview_preps` | `applications` | N:1 | One prep per application (UNIQUE constraint) |
 | `interview_preps` | `job_fit_analyses` | N:1 (optional) | Uses fit analysis for gap mitigations |
+| `cover_letters` | `job_fit_analyses` | N:1 (optional) | Generated against a stored analysis |
+| `resume_variants` | `job_fit_analyses` | N:1 (optional) | Generated against a stored analysis |
+| `outreach_messages` | `job_fit_analyses` | N:1 (optional) | Generated against a stored analysis |
+| `job_fit_analyses` | `applications` | N:1 (optional) | The application the analysis is about |
 | `interview_prep_stories` | `interview_preps` | N:1 | Stories belong to a prep |
 | `interview_prep_stories` | `quantified_bullets` | N:1 | References catalog STAR entries |
 | `prep_question_story_links` | `interview_prep_stories` | N:1 | Links questions to suggested stories |

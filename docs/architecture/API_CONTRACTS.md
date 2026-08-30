@@ -1368,6 +1368,7 @@ interface AnalyzeJobFitRequest {
   // Exactly one of jobDescriptionText or jobDescriptionUrl required
   jobDescriptionText?: string;  // 50-50,000 characters
   jobDescriptionUrl?: string;   // Valid URL to job posting
+  applicationId?: string;       // Application this analysis is about (WIC-1652)
 }
 ```
 
@@ -1375,7 +1376,10 @@ interface AnalyzeJobFitRequest {
 
 ```typescript
 interface AnalyzeJobFitResponse {
+  id: string;                   // ULID of the persisted analysis (WIC-1652)
+  applicationId: string | null; // Owning application, or null for a scratch analysis
   recommendation: 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit' | null;
+  fitScore: number | null;      // Weighted required-skill match, 0-100
   summary: string;
   confidence: 'high' | 'medium' | 'low';
   
@@ -1610,6 +1614,12 @@ curl -X POST "$API_BASE/catalog/job-fit/analyze" \
 | `URL_FETCH_FAILED` | 422 | Could not retrieve job description from URL (blocked, timeout, etc.) |
 | `URL_FETCH_TIMEOUT` | 422 | URL fetch exceeded 10 second timeout |
 | `RATE_LIMIT_EXCEEDED` | 429 | Request rate limit exceeded (see headers) |
+| `APPLICATION_NOT_FOUND` | 404 | `applicationId` names no application the caller owns |
+
+`APPLICATION_NOT_FOUND` is raised **before** the rate-limit slot is taken and before the model is
+called, so an unresolvable `applicationId` costs the caller nothing. It deliberately does not
+distinguish "no such application" from "belongs to another user" — the lookup is scoped by owner, so
+telling the two apart would make the endpoint an existence oracle over other users' application ids.
 
 **Error Response Example**:
 
@@ -1625,6 +1635,49 @@ curl -X POST "$API_BASE/catalog/job-fit/analyze" \
   }
 }
 ```
+
+---
+
+#### List Stored Analyses
+
+```
+GET /catalog/job-fit/analyses
+```
+
+Every analysis is persisted (WIC-1652 / ADR-012), so this is how a client finds one again — in
+particular how `ApplicationDetail` decides whether an application has been analysed and what it
+scored, without re-running a rate-limited LLM call.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `applicationId` | string | — | Restrict to analyses owned by this application |
+| `limit` | integer | 20 | Page size, 1-100 |
+
+**Response**: `200 OK`
+
+```typescript
+interface ListJobFitAnalysesResponse {
+  analyses: JobFitAnalysisSummary[];   // newest first, by analyzedAt
+}
+
+interface JobFitAnalysisSummary {
+  id: string;
+  applicationId: string | null;
+  recommendation: 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit' | null;
+  fitScore: number | null;
+  summary: string;
+  confidence: 'high' | 'medium' | 'low';
+  catalogEmpty: boolean;
+  analyzedAt: string;                  // ISO 8601
+}
+```
+
+A **summary**, not the whole analysis: the caller this exists for renders a tick and a percentage,
+and would otherwise pull four JSONB payloads per application to do it. Results are scoped to the
+calling user; the `applicationId` filter is applied *in addition to* that scoping, never instead of
+it, because application ids are caller-supplied.
 
 ---
 
@@ -2715,10 +2768,17 @@ new member is ranked — the two cannot silently drift apart again. Display labe
 concern and do not version anything (`packages/web/src/constants/fitLevel.ts`; see the note under
 the UC-3 scoring algorithm).
 
-**Current limitation**: UC-3 analyses are not persisted — there is no `job_fit_analyses` table and
-`applications` carries no analysis reference — so every application currently reports
-`not_analyzed`, `analyzed: 0`. The contract above is what the endpoint returns once that lands; only
-the data source changes.
+> **Superseded 2026-08-30 (WIC-1652).** This section used to read *"UC-3 analyses are not persisted —
+> there is no `job_fit_analyses` table"*. They are now: `job_fit_analyses` exists, every
+> `POST /catalog/job-fit/analyze` writes a row, and an analysis may carry an owning `application_id`.
+> So `FitTier` is a live wire value with a real data source, and the warning above about
+> `weak_fit`/`not_analyzed` having been safe to change *because nothing was stored* no longer
+> applies — any further change to either union is now a genuine breaking revision.
+
+**Current limitation**: this report does not yet read `job_fit_analyses`. The table and its write
+path landed under WIC-1652; joining `applications` to its newest analysis so the report stops
+reporting `not_analyzed` for every row is the remaining work. Only the data source changes — the
+contract above is unaffected.
 
 ---
 
