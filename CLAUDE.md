@@ -99,16 +99,36 @@ Anchoring below the top entry breaks that. "Below the current top entry" resolve
 
 **That is a reduction, not a fix, and it decays as the advice is followed.** "Below the top entry" is itself a position, so once enough PRs take it, it becomes the new shared anchor — and PRs *are* commonly cut from the same `main`, which is the case the paragraph above assumes away. Measured 2026-08-29 across the 32 open `main`-based PRs that touch `CHANGELOG.md`: the top-of-`[Unreleased]` anchor carried **11**, and the two lines at the foot of the top entry carried **8** (#92/#93/#177/#232 on one, #171/#179/#208/#213 on the next). Two positions, 19 of 32 PRs. Everything from the third entry down was uncontended or held a single PR.
 
-So derive the anchor instead of inheriting one. This prints the old-side start line of every open `main`-based PR's `CHANGELOG.md` hunks; insert somewhere absent from the output:
+So derive the anchor instead of inheriting one — but **derive it as content, not as a line number.**
+Each PR's hunk positions are in *its own merge base's* coordinates, and open PRs do not share one:
+measured 2026-08-30, 49 open `main`-based PRs sit on **22 distinct merge bases**. Tallying raw
+`@@ -N` values therefore compares numbers from 22 different coordinate systems — it splits one real
+anchor across several N and merges unrelated anchors that happen to share an N. Both errors were
+live: the eight PRs stacked on the top anchor span **five** merge bases, and PR #242 at `@@ -63`
+and PR #211 at `@@ -116` are the *same seam*.
+
+Only the top-of-`[Unreleased]` anchor is exempt, and only by construction — the backfill note has
+sat directly above it since `1ea6186`, so line ~10 does mean the same thing in every base. That
+exemption is exactly why the old line-number tally looked reliable: its single largest bucket was
+the one position where it could not be wrong.
+
+Resolve each hunk to the `### ` heading it lands in front of, and tally *that*. Insert before a
+heading absent from the output:
 
 ```bash
 git fetch origin '+refs/pull/*/head:refs/remotes/pr/*'
-gh pr list --state open --limit 200 --json number,baseRefName \
+gh pr list --state open --limit 300 --json number,baseRefName \
   -q '.[] | select(.baseRefName == "main") | .number' |
 while read -r n; do
   git rev-parse -q --verify "refs/remotes/pr/$n" >/dev/null || continue
   MB=$(git merge-base origin/main "refs/remotes/pr/$n")
-  git diff -U0 "$MB" "refs/remotes/pr/$n" -- CHANGELOG.md | grep -oE '^@@ -[0-9]+'
+  git show "$MB":CHANGELOG.md > /tmp/mb.$$.md
+  git diff -U0 "$MB" "refs/remotes/pr/$n" -- CHANGELOG.md |
+    grep -oE '^@@ -[0-9]+' | tr -d '@ -' |
+    while read -r at; do
+      awk -v s="$at" 'NR>=s && /^### /{print substr($0,1,58); exit}' /tmp/mb.$$.md
+    done
+  rm -f /tmp/mb.$$.md
 done | sort | uniq -c | sort -rn
 ```
 
@@ -116,6 +136,13 @@ Restrict it to `main`-based PRs as shown. A stacked PR merge-based against `main
 parent's hunks as well as its own, which inflates every position it touches.
 
 **Any figure here is perishable — re-run it, never quote it.** A previous revision of this section recorded "every open PR inserts inside lines 8–58"; that was false within hours.
+
+**A clear anchor is necessary and not sufficient — check the conflict delta too.** Picking an
+uncontended heading only means no *other* PR shares your seam today. Before you push, confirm your
+change adds no conflict to any open PR, by running the `merge-file --diff3` check under "Diagnosing
+one" for each open PR against `main`-with-your-change and against `main` without it, and comparing.
+This section's own author picked a heading off a stale line-number tally, and that check is what
+caught the collision with #242 before it shipped.
 
 ### Diagnosing one
 
@@ -149,7 +176,9 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
   silently republished alongside the claim it retracted.
 - **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
-  last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185).
+  last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
+  most common of the three by a wide margin and has a one-line prevention: see
+  "Start your entry with a blank line" below.
 - **One side moved a block, the other edited inside it.** The two do not line up as one diff3 region,
   so union keeps the relocated copy *and* the edited copy — a whole `### ` entry, duplicated. Note
   what this means: **moving a block is the documented fix for the ordering defect, so the remedy for
@@ -260,6 +289,55 @@ The distinction decides the fix, so it is not bookkeeping:
 - **Already in the branch file** → the merge is innocent, so the fix belongs to the branch — *if
   there is a fix owed at all.* Run the self-heal test below before you write anyone's name down.
   Most hits in this class repair themselves.
+
+### Start your entry with a blank line — the weld is the common case, and this prevents it
+
+**Write your inserted block so it both begins and ends with a blank line**, i.e. the run of `+`
+lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
+the file. Your entry then reads with two blank lines above it on the branch. That looks redundant
+and is not: the second one is what survives the union.
+
+Measured 2026-08-30 over all 74 open PRs whose `CHANGELOG.md` differs from their true base, each
+simulated with the three-input control: **9 will weld a `### ` heading onto the previous entry's
+last bullet, and 0 will introduce a duplicate bullet or heading.** The weld is not one failure mode
+among three — right now it is the *only* one queued. All nine are `main`-based: #92, #93, #160,
+#165, #171, #179, #208, #211, #213.
+
+**Every one of those nine branch files is individually weld-free, and so is `main`.** The defect
+exists only in the merge result, which is why nothing on the PR page shows it and why the pre-push
+simulation is the only thing that can.
+
+The cause is that both sides insert at the same blank-line separator. The base holds that blank
+once; union emits both insertion blocks around it, the first block gets the blank, and the second
+block's heading lands directly against the first block's last bullet.
+
+The remedy was tested against all nine, by rebuilding each branch with an extra blank line added to
+each inserted run and re-running the simulation:
+
+| variant | welds across the 9 |
+|---|---|
+| as-is | **9** |
+| extra **leading** blank | **0** |
+| extra **trailing** blank | **9** — no effect |
+| both | **0** |
+
+**The obvious instinct is the wrong one.** Padding the *end* of your entry changes nothing; the
+blank that gets consumed is the one above your heading. And a leading blank *without* keeping the
+trailing one merely relocates the weld onto the following entry's heading. Leading blank, trailing
+blank, both.
+
+**Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
+Resolved to content anchors, all nine welders do sit on a *shared* seam, and on only three of them:
+five PRs before `### Docs — Two heading rulings…` (#171 #179 #208 #211 #213), two before
+`### Fixed — Every match and gap row…` (#160 #165), two before `### Added — restoreFocusTo…`
+(#92 #93). But the single most contended anchor in the file — eight PRs stacked at the top of
+`[Unreleased]` — welds **zero** times. Two structurally identical insertions, both placed after an
+existing blank and both blank-terminated, differ only in how diff3 happened to align the *other*
+side's competing insertion.
+
+So the anchor command answers "will GitHub call this CONFLICTING"; only the union simulation
+answers "will the driver corrupt the result". Different questions, and their answers disagree.
+Run the simulation.
 
 ### Before accusing a branch, ask whether `main` already fixes it
 
