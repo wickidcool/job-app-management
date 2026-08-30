@@ -14,7 +14,8 @@ import { useCallback, useEffect, useState } from 'react';
  *
  * ## What this covers, and what it does not
  *
- * Covered: left-clicks on in-app `<a href="/...">` elements — which is how
+ * Covered: left-clicks on anchor elements whose `href` is an in-app absolute
+ * path (a leading `/`) — which is how
  * `TopNavigation`/`MobileNavigation` move between routes. That matters for the
  * dialogue wizard specifically because it renders no focus trap (pending
  * WIC-1181), so a keyboard user can tab out of the overlay and reach the nav.
