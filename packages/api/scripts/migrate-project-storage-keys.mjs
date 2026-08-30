@@ -176,7 +176,10 @@ export async function enumerateLocal(root, ownerIds) {
   for (const e of entries) {
     // A directory named for a *user id* is an already-migrated tree, not a slug.
     if (e.isDirectory() && ownerIds.has(e.name)) {
-      for (const slug of await fs.readdir(path.join(root, e.name), { withFileTypes: true })) {
+      const subdirs = await fs
+        .readdir(path.join(root, e.name), { withFileTypes: true })
+        .catch(() => []);
+      for (const slug of subdirs) {
         if (!slug.isDirectory()) continue; // e.g. the per-owner index.md
         for (const f of await fs.readdir(path.join(root, e.name, slug.name)).catch(() => [])) {
           existingKeys.add(`projects/${e.name}/${slug.name}/${f}`);
