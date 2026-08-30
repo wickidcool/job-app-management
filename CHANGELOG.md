@@ -137,6 +137,40 @@ Both the command palette and the applications-list shortcut row offered a saved 
 - **A pre-existing full-suite flake was measured and left alone.** `OnboardingModal.test.tsx` fails intermittently under parallel load: 2 of 4 runs on unmodified `main`, versus 1 of 3 with this branch applied. It renders no route this change touches. Filed separately rather than folded in.
 
 
+
+### Added — `upload_id` correlates all three `resume_upload` legs, so the gap-derived failure metric joins per upload
+
+The failure KPI of record (`docs/analytics/dashboard-spec.md` §6) is gap-derived: a
+`resume_upload_submitted` with no matching terminal event is a failure. That join had no key.
+`session_id` is one-to-many over uploads, and `resume_id` / `export_id` are generated *by* the work
+that may fail, so neither can ever appear on `_submitted` or `_failed`.
+
+`uploadResume()` now generates one ULID per call and emits it as `upload_id` at all four emit sites
+— `resume_upload_submitted`, **both** `resume_upload_completed` callsites (the duplicate
+short-circuit and the full pipeline), and `resume_upload_failed`. This retires the two limitations
+recorded in dashboard-spec.md §6.5: the metric was valid only in aggregate (a session that uploaded
+twice and failed once netted out to "fine"), and an upload spanning a window boundary was
+miscounted. §6.6 Query 2 now resolves per upload.
+
+- **Purely additive.** No existing count, funnel or breakdown changes, the §6 gap metric reads the
+  same before and after, and no dashboard rebuild is required.
+- **This does not make `_failed` reliable, and does not retire the gap metric.** Delivery is
+  deliberately unchanged: `ctx.waitUntil()` would defer the `fetch` into the *same* exhausted
+  per-invocation subrequest budget and be dropped identically, so it would look like a fix and
+  change nothing (dashboard-spec.md §6.3). Only a Tail Worker / Logpush is genuinely out-of-band.
+- **The `ResumeUpload*Props` interfaces are documentation, not enforcement.** `track()` takes
+  `Record<string, unknown>`, so `tsc` does not check emit callsites against them and a dropped or
+  misspelled `upload_id` compiles clean. `packages/api/test/resume-upload-correlation.test.ts` is
+  the enforcement — it drives the real `uploadResume()` across all three legs and asserts the shared
+  *value*, not mere presence. A five-mutant matrix pins it: deleting `upload_id` from each of the
+  four emit sites reds only the tests covering that site, and replacing the ULID with a constant
+  reds only the distinctness test — the one case a presence-only assertion would wave through, and
+  which would otherwise join every upload in the account to every other.
+- Verification against production still needs a deliberate probe: analytics has no organic traffic
+  (6 lifetime events, all synthetic). Register any probe in `docs/analytics/probe-registry.json` —
+  an end-to-end probe that submits without completing is byte-identical in shape to a real outage.
+
+
 ### Fixed — the changelog classifier files a real double-ship under a label that reads as benign (2026-08-30)
 
 Root `CLAUDE.md` sorted every duplicate-bullet hit into three classes and described the third, `distinct entries`, as "almost always two real entries that merely open the same way". There is a fourth class that lands in it: union keeps both copies but files one under a **different `### ` entry**, so the superseded text stays where it belongs and the correction lands somewhere it does not. Two entries end up wrong instead of one. Found on PR #129 at head `97989e6`, filed as WIC-1768, and fixed by its owner in `a7a13fb` before this entry merged (WIC-1567 follow-up).
