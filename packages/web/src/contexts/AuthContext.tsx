@@ -70,8 +70,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchCurrentUser]);
 
   useEffect(() => {
+    // An expired session ends the session just as a sign-out does, so it sweeps the
+    // same keys: the shared-browser threat in WIC-1495 does not distinguish "chose to
+    // log out" from "was logged out". Safe to sweep here because this listener is
+    // strictly 401-driven — `auth:unauthorized` has exactly one dispatch site
+    // (`services/api/apiClient.ts`), inside `!response.ok` behind `status === 401`.
+    // An offline or parse failure never reaches it; it throws NETWORK_ERROR from the
+    // catch below that check. Do NOT move this sweep into a request catch block,
+    // which would wipe a still-valid session's data every time the network blips.
     const handleUnauthorized = () => {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
+      clearAppStorage();
       setToken(null);
       setUser(null);
       reset();

@@ -11,8 +11,8 @@
  * same function, and swept only the token.
  *
  * Adding a key: declare it here, import it at the call site, and it is swept by
- * construction. `appStorage.registry.test.ts` fails if a `localStorage` key string
- * is introduced anywhere else in `src/`, which is what keeps that true.
+ * construction. `test/appStorageRegistry.test.ts` fails if a `localStorage` key
+ * string is introduced anywhere else in `src/`, which is what keeps that true.
  *
  * Scope note: `sessionStorage` is deliberately untouched. Its one key
  * (`wic_analytics_session_id`, `services/analytics.ts`) is already rotated on
