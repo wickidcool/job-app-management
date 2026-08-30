@@ -89,44 +89,6 @@ describe('no ancestor supplies a route its h1 (the AC-3 premise, measured)', () 
 });
 
 describe('each fix is owned by the file that should own it', () => {
-  it('Login.tsx emits the /login h1 itself', () => {
-    // /login is the one route ProtectedRoute does not wrap, so nothing above it could
-    // ever supply a heading. Before this fix the page opened at <h2>.
-    expect(count(loginSource, H1)).toBe(1);
-    expect(count(loginSource, H2)).toBe(0);
-  });
-
-  it('SavedFilterShortcuts.tsx emits no h1 — the /applications page keeps that', () => {
-    // The forbidden fix, stated directly: this panel takes over the page's h1. It sits
-    // under /applications' own <h1>Applications</h1>, so its own heading must be an h2.
-    expect(count(savedFilterShortcutsSource, H1)).toBe(0);
-    expect(count(savedFilterShortcutsSource, H2)).toBeGreaterThanOrEqual(1);
-
-    // ...and the other way it can go wrong: deleting the panel heading instead of
-    // demoting it. Then the outline is skip-free because the h3 is simply gone, and the
-    // render sweep — which only reports *skips* and the opening level — would not notice.
-    expect(count(savedFilterShortcutsSource, H3)).toBe(0);
-  });
-
-  it('ResumeVariantCard.tsx emits no h1, and its card heading is an h2', () => {
-    expect(count(resumeVariantCardSource, H1)).toBe(0);
-    expect(count(resumeVariantCardSource, H2)).toBe(1);
-    expect(count(resumeVariantCardSource, H3)).toBe(0);
-  });
-
-  it('CatalogBrowseView.tsx owns the /catalog h1, and its cards are h2', () => {
-    // The exception that proves the rule, and it is deliberate rather than an oversight:
-    // `CatalogPage.tsx` is a one-line wrapper that renders this component and nothing
-    // else, so this file *is* the page body and the route's single `<h1>` belongs here.
-    // Pinning it at exactly 1 still forbids the failure mode the others guard against —
-    // a second `<h1>` appearing when a card heading gets promoted too far.
-    expect(count(catalogBrowseSource, H1)).toBe(1);
-    expect(count(catalogBrowseSource, H2)).toBeGreaterThanOrEqual(1);
-    expect(count(catalogBrowseSource, H3)).toBe(0);
-  });
-});
-
-describe('the six remaining fixed pages, pinned against deletion as well as demotion', () => {
   /**
    * Why these exist, and why they pin *exact* counts.
    *
@@ -146,13 +108,20 @@ describe('the six remaining fixed pages, pinned against deletion as well as demo
    * guard here — went red. It is the same hazard WIC-1586 ruled on one layer up: *"the
    * `<h2>` side can go to zero and the sweep silently stops enforcing anything."*
    *
-   * The counts are exact rather than `>= 1` on purpose. Every one of these files has more
-   * than one heading, so a floor of one would still let a page lose headings silently —
-   * `ReportsStale` could drop its empty-state `<h2>` and keep passing on the row `<h2>`.
-   * Exact counts make any heading leaving the file a deliberate, visible edit here.
+   * The counts are exact rather than `>= 1` on purpose. A floor of one lets a file lose
+   * headings silently wherever it has more than one — `ReportsStale` could drop its
+   * empty-state `<h2>` and keep passing on the row `<h2>`. Four of these ten files pin a
+   * single `h2`, where a floor would have been equally strong; pinning them exactly costs
+   * nothing and keeps one rule instead of two. Exact counts make any heading leaving any
+   * of these files a deliberate, visible edit here.
+   *
+   * The `h1` column is the AC-5 assertion proper: it names, per file, whether that file is
+   * the one allowed to emit the route's `<h1>`. `h1: 0` on a shared component is what
+   * forbids the tempting wrong fix of promoting its heading instead of adding one to the
+   * page.
    */
 
-  const pages: Array<{
+  const guards: Array<{
     name: string;
     source: string;
     h1: number;
@@ -160,6 +129,49 @@ describe('the six remaining fixed pages, pinned against deletion as well as demo
     h3: number;
     note: string;
   }> = [
+    {
+      // /login is the one route ProtectedRoute does not wrap, so nothing above it could
+      // ever supply a heading. Before this fix the page opened at h2.
+      name: 'Login.tsx',
+      source: loginSource,
+      h1: 1,
+      h2: 0,
+      h3: 0,
+      note: 'the page owns the /login h1 itself',
+    },
+    {
+      // The forbidden fix, stated directly: this panel takes over the page's h1. It sits
+      // under /applications' own h1 "Applications", so its own heading must be an h2.
+      // The h3 pin catches the other way it can go wrong — deleting the panel heading
+      // instead of demoting it, which the render sweep reads as a clean page.
+      name: 'SavedFilterShortcuts.tsx',
+      source: savedFilterShortcutsSource,
+      h1: 0,
+      h2: 1,
+      h3: 0,
+      note: 'the panel heading, demoted; /applications keeps the h1',
+    },
+    {
+      name: 'ResumeVariantCard.tsx',
+      source: resumeVariantCardSource,
+      h1: 0,
+      h2: 1,
+      h3: 0,
+      note: 'the card heading; the host page keeps the h1',
+    },
+    {
+      // The exception that proves the rule, and it is deliberate rather than an oversight:
+      // `CatalogPage.tsx` is a one-line wrapper that renders this component and nothing
+      // else, so this file *is* the page body and the route's single h1 belongs here.
+      // Pinning it at exactly 1 still forbids the failure mode the others guard against —
+      // a second h1 appearing when a card heading gets promoted too far.
+      name: 'CatalogBrowseView.tsx',
+      source: catalogBrowseSource,
+      h1: 1,
+      h2: 1,
+      h3: 0,
+      note: 'the sole body of /catalog, so it owns the h1; its cards are h2',
+    },
     {
       name: 'ProjectsList.tsx',
       source: projectsListSource,
@@ -215,36 +227,52 @@ describe('the six remaining fixed pages, pinned against deletion as well as demo
     },
   ];
 
-  it.each(pages)(
-    '$name owns exactly one h1 and keeps its demoted headings ($note)',
-    ({ name, source, h1, h2, h3 }) => {
-      expect(count(source, H1), `${name}: the page must own exactly one h1`).toBe(h1);
-      expect(
-        count(source, H2),
-        `${name}: an h2 was deleted or promoted — the render sweep cannot see this`
-      ).toBe(h2);
-      expect(count(source, H3), `${name}: an h3 came back, or one was deleted`).toBe(h3);
-    }
-  );
+  /**
+   * What actually ran, recorded by the guards themselves.
+   *
+   * This is the input to the coverage check below, and it exists because the previous
+   * revision's coverage check had no input at all: it measured the length of a
+   * hand-written literal against the constant 10, so it was *anti-correlated* with the
+   * thing it claimed to assert. Deleting a whole guard while leaving its name in the
+   * literal passed (measured: 18 tests -> 17, nothing red), and removing a name while
+   * leaving the guard intact failed. Recording each name from inside the guard body makes
+   * the two directions impossible to separate: a guard that does not run cannot report
+   * itself.
+   *
+   * Pushed on the first line, before any assertion, so a guard that runs and *fails*
+   * still counts as covered — this measures coverage, not passing.
+   */
+  const executed: string[] = [];
 
-  it('is reading real files, not empty strings', () => {
-    for (const { name, source } of pages) {
-      expect(source.length, `${name} looks empty`).toBeGreaterThan(200);
-    }
+  it.each(guards)('$name pins h1=$h1 h2=$h2 h3=$h3 — $note', ({ name, source, h1, h2, h3 }) => {
+    executed.push(name);
+
+    expect(count(source, H1), `${name}: this file must emit exactly ${h1} h1`).toBe(h1);
+    expect(
+      count(source, H2),
+      `${name}: an h2 was deleted or promoted — the render sweep cannot see this`
+    ).toBe(h2);
+    expect(count(source, H3), `${name}: an h3 came back, or one was deleted`).toBe(h3);
+
+    // `?raw` on a missing path is a build error, but a file emptied or reduced to a stub
+    // would make every count above pass vacuously at zero.
+    expect(source.length, `${name} looks empty`).toBeGreaterThan(200);
   });
 
-  it('guards every production file this PR changed', () => {
-    // Without this, the gap reopens the next time a fix lands: a page gets its heading
-    // corrected, no guard is added, and only the demotion direction is enforced on it.
-    // The list is the ten production files changed by WIC-1675.
-    const guarded = new Set([
-      ...pages.map((p) => p.name),
-      'Login.tsx',
-      'SavedFilterShortcuts.tsx',
-      'ResumeVariantCard.tsx',
-      'CatalogBrowseView.tsx',
-    ]);
-
-    expect(guarded.size).toBe(10);
+  it('every guard in the table above actually ran, and the table is the full fixed set', () => {
+    // Runs last by declaration order, so `executed` is complete by the time this reads it.
+    //
+    // Two failure directions, both real:
+    //   - a guard deleted (or skipped) => `executed` is short => red here;
+    //   - an entry added without its counts being real => it reds in its own guard above.
+    //
+    // The size pin is the third: WIC-1675 changed exactly ten production files, and every
+    // one of them must appear. A future fix that lands without a guard has to edit this
+    // number, which is the visible edit the old check failed to force.
+    expect(executed.length, 'a guard was deleted or skipped').toBe(guards.length);
+    expect([...executed].sort(), 'the guards that ran are not the table').toEqual(
+      guards.map((g) => g.name).sort()
+    );
+    expect(new Set(executed).size, 'two entries share a name').toBe(10);
   });
 });
