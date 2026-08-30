@@ -185,6 +185,8 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
   one failure mode arms another** for the next branch that touches that entry (WIC-1692, caught on
   PR #212 before merge).
 
+**This is now enforced in CI by `.github/workflows/changelog-union-detector.yml` (WIC-1792)** — it runs the misfiled-, duplicate- and weld checks below in the `ours = PR head` orientation against each PR's own base, on every `pull_request` that touches `CHANGELOG.md` (annotating and failing on a union-introduced hit) and on a scheduled sweep of all open PRs; run it by hand only to reproduce or debug.
+
 So after any merge that touches `CHANGELOG.md`, run the checks the driver cannot:
 
 ```bash

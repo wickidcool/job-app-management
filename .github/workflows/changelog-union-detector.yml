@@ -1,0 +1,278 @@
+name: Changelog Union-Corruption Detector
+
+# WIC-1792. The `merge=union` driver on CHANGELOG.md silently resolves merges
+# that duplicate, relocate or weld changelog prose — with NO conflict ever
+# shown and a successful exit. Root CLAUDE.md ("Changelog conventions") carries
+# a correct, threshold-free detector for that class, but until this workflow
+# nothing ran it: every sweep to date was a human or agent running it by hand,
+# and the defects are invisible in `git diff` and never raise a merge conflict.
+# This workflow wires it into CI. The detector is lifted from CLAUDE.md as-is.
+#
+# WHAT IT CHECKS (three union-driver defects, all subtracted by CONTENT so a
+# defect already sitting on a branch is never blamed on the merge):
+#   * misfiled bullets  — a bullet union filed under a `### ` heading that
+#                         NEITHER parent filed it under;
+#   * duplicate bullets — more copies of a bullet under one heading than either
+#                         parent had;
+#   * welded headings   — a `### ` heading union left touching the previous
+#                         entry's last bullet (the eaten-blank-line seam).
+#
+# FOUR THINGS THIS IMPLEMENTATION GETS RIGHT — each was a measured bug, not a
+# preference (see CLAUDE.md for the evidence):
+#   1. Orientation is `ours = PR head`, `theirs = the PR's own base tip`. That
+#      is what `git checkout <pr> && git merge <base>` does, and it is
+#      byte-identical to the real merge. The reversed order silently DROPS hits.
+#   2. Each PR is measured against its OWN base (`gh pr view N --json
+#      baseRefName`), never `main` — ~1/4 of open PRs are stacked, and
+#      simulating a stacked PR against `main` manufactures phantom duplicates.
+#   3. Everything is content-addressed: a hit is keyed on the normalised
+#      heading / bullet text, never a `@@ -N` line number. ours, theirs and
+#      union are three different coordinate systems.
+#   4. It uses `git merge-file --union` directly (NOT `git merge-tree`), so the
+#      `--attr-source` trap does not apply: merge-file does not read
+#      .gitattributes and we pass `--union` explicitly.
+#
+# SECURITY: this job runs `git` and `python3` over CHANGELOG.md text only. It
+# never runs a `run:` step from PR head code, never builds, never executes the
+# tree. `pull_request` (not `_target`) gives fork PRs a read-only token, which
+# is all that is needed to read a changelog and post annotations.
+#
+# This file lives under .github/workflows/**, so it is `[skip ci]`-eligible
+# under skip-ci-guard.yml and merges without a deploy.
+
+on:
+  # Per-PR gate: check the PR under test against its own base and annotate/fail.
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'CHANGELOG.md'
+      - '.github/workflows/changelog-union-detector.yml'
+  # Scheduled sweep across every open PR (report-only), like skip-ci-sweeper.
+  # Catches PRs whose base advanced after their last push, which no per-PR
+  # event re-fires for.
+  schedule:
+    - cron: '37 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  # Per-PR runs are independent; the sweep coalesces (each pass re-reads the
+  # full open-PR set from live state, so a newer run subsumes an older one).
+  group: changelog-union-detector-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'sweep' }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
+
+jobs:
+  detect:
+    name: Detect union-driver corruption
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out full history (no PR head code is executed)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Write the detector (lifted from CLAUDE.md)
+        run: |
+          cat > "$RUNNER_TEMP/detector.py" <<'PYEOF'
+          #!/usr/bin/env python3
+          # Given the three inputs of a CHANGELOG.md union merge — ours (PR head),
+          # theirs (the PR's own base tip) and union (git merge-file --union
+          # output) — report only the corruption the union ADDED. Every check
+          # subtracts by content (normalised heading/bullet text), never by line
+          # number: ours, theirs and union are three different coordinate systems.
+          import re, sys, json, collections
+
+          norm = lambda s: re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
+
+
+          def load(path):
+              with open(path, encoding='utf-8') as fh:
+                  return fh.read().split('\n')
+
+
+          def homes(lines):
+              """bullet-prefix -> Counter of `### ` heading-prefixes it sits under."""
+              h, cur = collections.defaultdict(collections.Counter), ''
+              for l in lines:
+                  s = l.strip()
+                  if s.startswith('### '):
+                      cur = norm(s)[:60]
+                  elif s.startswith('- ') and len(s) > 60:
+                      h[norm(s)[:70]][cur] += 1
+              return h
+
+
+          def welds(lines):
+              """normalised heading-prefix -> (heading text, welded-onto prev line).
+              A weld is a `### ` line whose immediately preceding line is non-blank."""
+              out = {}
+              for n, l in enumerate(lines):
+                  if l.startswith('### ') and n and lines[n - 1].strip():
+                      out[norm(l)[:55]] = (l.strip(), lines[n - 1].strip())
+              return out
+
+
+          def full_bullet(lines, prefix):
+              """Recover a readable bullet from its normalised 70-char prefix."""
+              for l in lines:
+                  s = l.strip()
+                  if s.startswith('- ') and len(s) > 60 and norm(s)[:70] == prefix:
+                      return s
+              return prefix
+
+
+          def detect(ours_p, theirs_p, union_p):
+              ours, theirs, union = load(ours_p), load(theirs_p), load(union_p)
+              o, t, u = homes(ours), homes(theirs), homes(union)
+              hits = []
+
+              # misfiled + duplicate (subtracts BOTH parents' homes)
+              for k, heads in u.items():
+                  parents = set(o.get(k, {})) | set(t.get(k, {}))
+                  if not parents:
+                      continue  # bullet absent from both parents: not this class
+                  for head, cnt in heads.items():
+                      if head not in parents:  # filed where NEITHER parent filed it
+                          hits.append({
+                              'type': 'misfiled',
+                              'bullet': full_bullet(union, k),
+                              'heading': head,
+                              'msg': 'union filed this bullet under a heading '
+                                     'neither parent used',
+                          })
+                      else:                    # more copies than either parent had
+                          pmax = max(o.get(k, {}).get(head, 0),
+                                     t.get(k, {}).get(head, 0))
+                          if cnt > pmax and cnt > 1:
+                              hits.append({
+                                  'type': 'duplicate',
+                                  'bullet': full_bullet(union, k),
+                                  'heading': head,
+                                  'count': cnt,
+                                  'parent_max': pmax,
+                                  'msg': 'union produced %d copies of this bullet '
+                                         'under one heading (parents had at most '
+                                         '%d)' % (cnt, pmax),
+                              })
+
+              # welded headings (union welds minus parents' welds, keyed on text)
+              ow, tw, uw = welds(ours), welds(theirs), welds(union)
+              for k, (heading, onto) in uw.items():
+                  if k in ow or k in tw:
+                      continue  # weld already on a parent: not introduced here
+                  hits.append({
+                      'type': 'weld',
+                      'heading': heading,
+                      'welded_onto': onto,
+                      'msg': 'union welded this heading onto the previous entry '
+                             '(missing blank-line separator)',
+                  })
+
+              return hits
+
+
+          if __name__ == '__main__':
+              print(json.dumps(detect(sys.argv[1], sys.argv[2], sys.argv[3])))
+          PYEOF
+          echo "detector written to $RUNNER_TEMP/detector.py"
+
+      - name: Simulate each PR's union merge and report corruption
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          DET="$RUNNER_TEMP/detector.py"
+          WORK="$RUNNER_TEMP/cd"; mkdir -p "$WORK"
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            PRS="$PR_NUMBER"
+            echo "## Changelog union-corruption — PR #$PR_NUMBER" >> "$SUMMARY"
+          else
+            PRS=$(gh pr list --state open --limit 300 --json number -q '.[].number' | sort -n)
+            echo "## Changelog union-corruption — scheduled sweep" >> "$SUMMARY"
+          fi
+
+          total_hits=0
+          fail_current=0
+          hit_prs=""
+          printed_header=0
+
+          for n in $PRS; do
+            base=$(gh pr view "$n" --json baseRefName -q .baseRefName 2>/dev/null) || continue
+            [ -z "$base" ] && continue
+            git fetch origin "+refs/pull/$n/head:refs/cud/pr/$n" --quiet 2>/dev/null \
+              || { echo "::warning::could not fetch head of #$n"; continue; }
+            git fetch origin "$base" --quiet 2>/dev/null || true
+            git rev-parse -q --verify "origin/$base" >/dev/null 2>&1 \
+              || { echo "::warning::base origin/$base missing for #$n"; continue; }
+            mb=$(git merge-base "origin/$base" "refs/cud/pr/$n" 2>/dev/null) || continue
+
+            git show "refs/cud/pr/$n:CHANGELOG.md"  > "$WORK/ours.md"   2>/dev/null || continue
+            git show "$mb:CHANGELOG.md"             > "$WORK/base.md"   2>/dev/null || continue
+            git show "origin/$base:CHANGELOG.md"    > "$WORK/theirs.md" 2>/dev/null || continue
+
+            # ours = PR head, theirs = the PR's own base tip. Side order is NOT a
+            # convention — it changes the output and the wrong order drops hits.
+            git merge-file -p --union "$WORK/ours.md" "$WORK/base.md" "$WORK/theirs.md" \
+              > "$WORK/union.md" 2>/dev/null
+
+            hits=$(python3 "$DET" "$WORK/ours.md" "$WORK/theirs.md" "$WORK/union.md" 2>/dev/null)
+            [ -z "$hits" ] && continue
+            count=$(printf '%s' "$hits" | jq 'length')
+            [ "$count" -eq 0 ] && continue
+
+            total_hits=$((total_hits + count))
+            hit_prs="$hit_prs #$n"
+            [ "$n" = "${PR_NUMBER:-}" ] && [ "$EVENT_NAME" = "pull_request" ] && fail_current=1
+
+            if [ "$printed_header" -eq 0 ]; then
+              echo "" >> "$SUMMARY"
+              echo "| PR | base | type | heading | detail |" >> "$SUMMARY"
+              echo "|----|------|------|---------|--------|" >> "$SUMMARY"
+              printed_header=1
+            fi
+
+            # Emit one annotation per hit (on the current PR only) and one
+            # summary row per hit (always).
+            printf '%s' "$hits" | jq -c '.[]' | while read -r h; do
+              typ=$(printf '%s' "$h" | jq -r '.type')
+              head=$(printf '%s' "$h" | jq -r '.heading')
+              msg=$(printf '%s' "$h" | jq -r '.msg')
+              bullet=$(printf '%s' "$h" | jq -r '.bullet // .welded_onto // ""')
+              detail=$(printf '%s — %s' "$msg" "$bullet")
+              # Markdown-escape the pipe for the table.
+              row_head=$(printf '%s' "$head" | sed 's/|/\\|/g')
+              row_detail=$(printf '%s' "$detail" | sed 's/|/\\|/g')
+              echo "| #$n | \`$base\` | $typ | $row_head | $row_detail |" >> "$SUMMARY"
+              if [ "$EVENT_NAME" = "pull_request" ]; then
+                echo "::error file=CHANGELOG.md,title=Changelog $typ (union driver hides this)::#$n [$typ]: $msg. Heading: \"$head\". Text: \"$bullet\""
+              fi
+            done
+          done
+
+          echo "" >> "$SUMMARY"
+          if [ "$total_hits" -eq 0 ]; then
+            echo "No union-introduced changelog corruption detected." >> "$SUMMARY"
+            echo "No union-introduced changelog corruption detected."
+          else
+            echo "**$total_hits union-introduced hit(s) across:**$hit_prs" >> "$SUMMARY"
+            echo "Note: hits are perishable — a hit repairs itself once the offending seam leaves the base. Re-run before acting." >> "$SUMMARY"
+            echo "$total_hits union-introduced hit(s) across:$hit_prs"
+          fi
+
+          # The scheduled sweep is report-only: it comments on many PRs, most of
+          # which are not the run's concern, so it never fails the workflow (each
+          # PR gets its own pull_request check). A per-PR run fails only when THE
+          # PR under test is corrupt.
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$fail_current" -eq 1 ]; then
+            echo "::error::This PR's merge into its base introduces changelog corruption the union driver hides. Resolve per bullet (or add a trailing blank line for a weld); see CLAUDE.md 'Changelog conventions'."
+            exit 1
+          fi
+          exit 0
