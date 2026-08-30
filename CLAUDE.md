@@ -99,16 +99,36 @@ Anchoring below the top entry breaks that. "Below the current top entry" resolve
 
 **That is a reduction, not a fix, and it decays as the advice is followed.** "Below the top entry" is itself a position, so once enough PRs take it, it becomes the new shared anchor — and PRs *are* commonly cut from the same `main`, which is the case the paragraph above assumes away. Measured 2026-08-29 across the 32 open `main`-based PRs that touch `CHANGELOG.md`: the top-of-`[Unreleased]` anchor carried **11**, and the two lines at the foot of the top entry carried **8** (#92/#93/#177/#232 on one, #171/#179/#208/#213 on the next). Two positions, 19 of 32 PRs. Everything from the third entry down was uncontended or held a single PR.
 
-So derive the anchor instead of inheriting one. This prints the old-side start line of every open `main`-based PR's `CHANGELOG.md` hunks; insert somewhere absent from the output:
+So derive the anchor instead of inheriting one — but **derive it as content, not as a line number.**
+Each PR's hunk positions are in *its own merge base's* coordinates, and open PRs do not share one:
+measured 2026-08-30, 49 open `main`-based PRs sit on **22 distinct merge bases**. Tallying raw
+`@@ -N` values therefore compares numbers from 22 different coordinate systems — it splits one real
+anchor across several N and merges unrelated anchors that happen to share an N. Both errors were
+live: the eight PRs stacked on the top anchor span **five** merge bases, and PR #242 at `@@ -63`
+and PR #211 at `@@ -116` are the *same seam*.
+
+Only the top-of-`[Unreleased]` anchor is exempt, and only by construction — the backfill note has
+sat directly above it since `1ea6186`, so line ~10 does mean the same thing in every base. That
+exemption is exactly why the old line-number tally looked reliable: its single largest bucket was
+the one position where it could not be wrong.
+
+Resolve each hunk to the `### ` heading it lands in front of, and tally *that*. Insert before a
+heading absent from the output:
 
 ```bash
 git fetch origin '+refs/pull/*/head:refs/remotes/pr/*'
-gh pr list --state open --limit 200 --json number,baseRefName \
+gh pr list --state open --limit 300 --json number,baseRefName \
   -q '.[] | select(.baseRefName == "main") | .number' |
 while read -r n; do
   git rev-parse -q --verify "refs/remotes/pr/$n" >/dev/null || continue
   MB=$(git merge-base origin/main "refs/remotes/pr/$n")
-  git diff -U0 "$MB" "refs/remotes/pr/$n" -- CHANGELOG.md | grep -oE '^@@ -[0-9]+'
+  git show "$MB":CHANGELOG.md > /tmp/mb.$$.md
+  git diff -U0 "$MB" "refs/remotes/pr/$n" -- CHANGELOG.md |
+    grep -oE '^@@ -[0-9]+' | tr -d '@ -' |
+    while read -r at; do
+      awk -v s="$at" 'NR>=s && /^### /{print substr($0,1,58); exit}' /tmp/mb.$$.md
+    done
+  rm -f /tmp/mb.$$.md
 done | sort | uniq -c | sort -rn
 ```
 
@@ -116,6 +136,13 @@ Restrict it to `main`-based PRs as shown. A stacked PR merge-based against `main
 parent's hunks as well as its own, which inflates every position it touches.
 
 **Any figure here is perishable — re-run it, never quote it.** A previous revision of this section recorded "every open PR inserts inside lines 8–58"; that was false within hours.
+
+**A clear anchor is necessary and not sufficient — check the conflict delta too.** Picking an
+uncontended heading only means no *other* PR shares your seam today. Before you push, confirm your
+change adds no conflict to any open PR, by running the `merge-file --diff3` check under "Diagnosing
+one" for each open PR against `main`-with-your-change and against `main` without it, and comparing.
+This section's own author picked a heading off a stale line-number tally, and that check is what
+caught the collision with #242 before it shipped.
 
 ### Diagnosing one
 
@@ -149,7 +176,9 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
   silently republished alongside the claim it retracted.
 - **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
-  last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185).
+  last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
+  most common of the three by a wide margin and has a one-line prevention: see
+  "Start your entry with a blank line" below.
 - **One side moved a block, the other edited inside it.** The two do not line up as one diff3 region,
   so union keeps the relocated copy *and* the edited copy — a whole `### ` entry, duplicated. Note
   what this means: **moving a block is the documented fix for the ordering defect, so the remedy for
@@ -160,18 +189,26 @@ So after any merge that touches `CHANGELOG.md`, run the checks the driver cannot
 
 ```bash
 python3 - CHANGELOG.md <<'PY'
-import re, sys, collections
+import re, sys, collections, difflib
 L = open(sys.argv[1]).read().split('\n')
 norm = lambda s: re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
-bul, head = collections.defaultdict(list), collections.defaultdict(list)
+bul, head, cur = collections.defaultdict(list), collections.defaultdict(list), None
 for n, l in enumerate(L, 1):
     s = l.strip()
-    if s.startswith('- ') and len(s) > 60: bul[norm(s)[:70]].append(n)
-    if s.startswith('### '):               head[norm(s)[:55]].append(n)
-sep = [n + 1 for n, l in enumerate(L) if l.startswith('### ') and n and L[n - 1].strip()]
+    if s.startswith('### '):
+        cur = (n, s); head[norm(s)[:55]].append(n)
+    if s.startswith('- ') and len(s) > 60: bul[norm(s)[:70]].append((n, cur))
+sep = {norm(l)[:55]: n + 1 for n, l in enumerate(L) if l.startswith('### ') and n and L[n - 1].strip()}
 print('duplicate headings:', {k: v for k, v in head.items() if len(v) > 1} or 'none')
-print('duplicate bullets:', {k: v for k, v in bul.items() if len(v) > 1} or 'none')
-print('headings missing a preceding blank line (line nos):', sep or 'none')
+print('welded headings (normalised text -> line no):', sep or 'none')
+for k, v in bul.items():
+    if len(v) < 2: continue
+    hs = [h for _, h in v]
+    r = difflib.SequenceMatcher(None, norm(hs[0][1]), norm(hs[-1][1])).ratio() if all(hs) else 0
+    print('SAME-ENTRY' if len({h[0] for h in hs}) == 1 else
+          'REVISION-PAIR' if r >= .75 else 'distinct entries',
+          f'sim={r:.2f}', k[:60])
+    for n, h in v: print(f'    L{n} under L{h[0]}: {h[1][:88]}')
 PY
 ```
 
@@ -179,10 +216,41 @@ It compares a **normalised prefix**, not the whole line, because the duplicates 
 usually *reworded* — an earlier `Counter` over byte-identical lines could not see the WIC-1561 class
 it was written for (WIC-1687). The tradeoff is deliberate: a prefix match will also flag genuine
 pairs that merely open the same way, so **read both lines in full before acting — the discriminator
-is the tail, not the prefix.** Two known-benign pairs live on `main` today (the boilerplate
-"Documentation only. No code, no tests…" opener, and the paired RLS "App runtime is unaffected…"
-bullets); anything else is a real double-ship until you have shown otherwise. **A duplicate `### `
-heading has no benign case** — that one is always a bug.
+is the tail, not the prefix.**
+
+**Do not read `duplicate headings: none` as a clean bill of health.** That check is high-precision
+and low-recall: a duplicate `### ` heading has no benign case, so a hit is always a bug — but its
+*silence proves nothing*, because a correction normally rewords the heading along with the body, and
+the fixed 55-character prefix then sees two different strings. Measured 2026-08-29 on PRs #146
+(`1a4b992`) and #160 (`c0d9089`): each carries the WIC-1309 fit-tier entry twice, once in the
+retracted wording and once in the WIC-1319 correction, and the exact check reports `none` on both.
+The two headings diverge at character **54** of the normalised string, one position inside the
+55-char window. A whole-entry double-ship was invisible to the signal advertised as the reliable one,
+by a single character. Widening the window cannot fix that — it makes the check stricter, not more
+sensitive.
+
+**So the bullet check is the sensitive one, and every hit is now reported with the `### ` entry it
+sits under.** The enclosing headings are what tell you which of three different bugs you have:
+
+- **`SAME-ENTRY`** — both copies under one heading. The union interleaved two revisions *inside* a
+  single entry, so the entry now states a claim and its own retraction a few lines apart. Keep the
+  corrected bullets, delete the superseded ones, leave the heading alone. (PR #117 today: four
+  bullets where the entry should have two.)
+- **`REVISION-PAIR`** — the copies sit under two near-identical headings. Union kept a whole entry
+  *and* its rewrite. Delete the superseded entry entire, heading included, then re-check the seam.
+  (PRs #146 and #160 today.)
+- **`distinct entries`** — different, dissimilar headings. Both known-benign pairs on `main` land
+  here (the boilerplate "Documentation only. No code, no tests…" opener at similarity 0.40, and the
+  paired RLS "App runtime is unaffected…" bullets at 0.50), while the fit-tier double-ship scores
+  0.83. **This label is not a verdict of benign** — it is also where the misfiling case lands, and
+  the similarity score cannot tell the two apart. See "A copy filed under a heading neither parent
+  used" below, and run that check before dismissing a hit in this class.
+
+The similarity is a *classifier on bullet hits*, not a standalone heading sweep. Run over every
+`### ` pair instead it is too noisy to act on: on `main` at `eb40da8` a bare 0.75 threshold flags two
+pairs that are genuinely distinct — the WIC-1373 and WIC-1365 catalog-scoping entries (0.81, different
+services, different endpoints) and `UC-6: Resume Variant Generation` against `UC-4: Cover Letter
+Generation` (0.75). Anchored to a shared bullet it produced zero false positives over the same file.
 
 Resolution is **per bullet**. Never take-ours or take-theirs wholesale: each side usually holds an
 entry the other genuinely lacks, which is the whole reason the driver is there. The exception is a
@@ -217,11 +285,213 @@ touching `CHANGELOG.md`, each simulated against its true base: the raw union out
 of which only **20** were introduced by the merge; the other **16** were already committed on the
 branch or inherited from its base.
 
+**Subtract by content, never by line number — `ours`, `theirs` and `union` are three different
+coordinate systems.** This is the same error as the anchor tally (above), and it survived in the
+weld control until 2026-08-30. Measured over the open PRs that day: subtracting *line numbers*
+reports **17** PRs welding, subtracting *normalised heading text* reports **10**. All 7 extra are
+false — the weld already sat on the branch and the merge merely shifted it down the file. PR #95's
+weld is line 511 in `theirs.md` and line 600 in `union.md`; PR #117's is on **both** parents (169
+and 78) and lands at 172; PR #168 carries the same **7** welds in `ours.md` and `union.md`, offset
+by nine lines, and a line-number control blames the merge for every one of them. That is why the
+check above prints normalised heading text as its key and the line number only as a locator: key on
+the text, and the subtraction is merge-base independent.
+
 The distinction decides the fix, so it is not bookkeeping:
 
 - **Union introduced it** → resolve the merge properly (per bullet, or delete the strict subset).
-- **Already in the branch file** → the merge is innocent; edit the entry on the branch. Re-merging
-  `main` will not help, and the raw-file hit is unconditional — it ships whatever the merge does.
+- **Already in the branch file** → the merge is innocent, so the fix belongs to the branch — *if
+  there is a fix owed at all.* Run the self-heal test below before you write anyone's name down.
+  Most hits in this class repair themselves.
+
+### A copy filed under a heading neither parent used — similarity cannot see this one
+
+The three classes above all assume the two copies are competing for the *same* place in the file.
+There is a fourth: union keeps both copies but files one of them under a **different `### ` entry**,
+where it reads as a claim about a change it has nothing to do with. The superseded text stays in the
+entry it belongs to, and the correction lands somewhere it does not. Two entries are now wrong
+instead of one, and the surviving pair is *less* obviously duplicated than in the other three cases,
+not more.
+
+**Do not reach for a similarity threshold here — it is anti-correlated, in both places you would try
+it.** Measured 2026-08-30 on PR #129 (`test/wic1371-stubdb-table-keyed`), which will do exactly this
+on merge:
+
+| pair | heading sim | bullet sim | truth |
+|---|---|---|---|
+| #129's WIC-1354 test bullet | 0.47 | **0.24** | **real misfiling** |
+| `main`'s "Documentation only…" | 0.40 | 0.64 | benign |
+| `main`'s "App runtime is unaffected…" | 0.50 | 0.68 | benign |
+
+By *heading* similarity the real bug sits at 0.47, between the two benign exemplars — inside the
+known-benign band, so the `distinct entries` label fires and the prose above used to invite
+dismissal. Raising or lowering the threshold cannot separate them; the real hit is bracketed. Going
+to *bullet* similarity instead inverts the ranking rather than fixing it: the genuine revision pair
+scores **lowest of the three**, because a thorough correction rewrites the body it corrects, while
+the benign pairs share long boilerplate openers. Either threshold, tuned either direction, ranks the
+one real bug below both false ones.
+
+The discriminator is structural and needs no threshold. **A bullet belongs under exactly one
+heading. If the union filed a copy under a heading that neither parent filed it under, the union
+misfiled it** — there is no benign reading, and the test is merge-base independent because it keys
+on heading text rather than position:
+
+```bash
+python3 - ours.md theirs.md union.md <<'PY'
+import re, sys, collections
+norm = lambda s: re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
+def homes(p):
+    h, cur = collections.defaultdict(set), None
+    for l in open(p):
+        s = l.strip()
+        if s.startswith('### '): cur = norm(s)
+        if s.startswith('- ') and len(s) > 60 and cur: h[norm(s)[:70]].add(cur)
+    return h
+o, t, u = map(homes, sys.argv[1:4])
+hit = False
+for k, hs in u.items():
+    new = hs - o.get(k, set()) - t.get(k, set())
+    if len(hs) > 1 and new:
+        hit = True
+        print('MISFILED', k[:60])
+        for n in sorted(new): print('    now also under:', n[:80])
+print('no misfiled bullets' if not hit else '')
+PY
+```
+
+Run it on the same three files the union simulation already produced. Across the 78 open PRs on
+2026-08-30 — 66 with a `CHANGELOG.md` differing from their true base — it returned **exactly one
+hit, #129, and no false positives**, and it stays silent on both known-benign `main` pairs that the
+similarity classifier flags every run. It has since been re-run over 81 open PRs (69 with a delta)
+and returns **zero**, because that one hit was fixed; the check is here for the next one.
+
+The #129 instance is worth keeping as the worked example, because it closed. At head `97989e6` the
+PR was `CONFLICTING / DIRTY`, so its author had no path to merge that avoided running the driver
+over this file, and the driver would have resolved it silently and reported success. Its branch file
+was clean — both parents carried only the two benign pairs, the union carried three. Filed as
+WIC-1768; the owner merged `main` in and resolved the hunk per bullet in `a7a13fb`, and the PR went
+`MERGEABLE`. Re-measured at that head: union clean on all three checks, the bullet present once in
+its corrected form under the entry it belongs to, and the seam it left behind un-welded.
+
+**Re-measure an accusation immediately before you act on it.** This one was written against
+`97989e6` and was already fixed at `a7a13fb` by the time the entry describing it was ready to merge
+— a gap of well under an hour. The pre-merge re-measure is what caught it; without that step this
+file would carry a present-tense accusation against a branch that had already complied, with a green
+check on it. A claim about someone else's branch is exactly as perishable as a board ask.
+
+**Write your inserted block so it both begins and ends with a blank line**, i.e. the run of `+`
+lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
+the file. Your entry then reads with two blank lines above it on the branch. That looks redundant
+and is not: the second one is what survives the union.
+
+Measured 2026-08-30 across the 78 open PRs, of which **65** have a `CHANGELOG.md` differing from
+their true base, each simulated with the content-addressed three-input control: **10 will weld a
+`### ` heading onto the previous entry's last bullet, and 0 will introduce a duplicate bullet or
+heading.** The weld is not one failure mode among three — right now it is the *only* one queued.
+Nine are `main`-based (#92, #93, #160, #165, #171, #179, #208, #211, #213) and **one is stacked**:
+#123, on `fix/wic1312-shared-cursor-guard`.
+
+**Do not restrict this sweep to `main`-based PRs.** An earlier revision of this section reported
+nine welders and asserted all of them were `main`-based. #123 was welding then too — its three
+simulation inputs are commits dated 2026-08-26 and have not moved since, so the result is a
+deterministic function of unchanged data — and it was simply outside the population that got
+measured. A stacked PR welds against *its own base branch* exactly as readily.
+
+**Every one of those ten branch files is individually weld-free, and so is `main`.** The defect
+exists only in the merge result, which is why nothing on the PR page shows it and why the pre-push
+simulation is the only thing that can.
+
+The cause is that both sides insert at the same blank-line separator. The base holds that blank
+once; union emits both insertion blocks around it, the first block gets the blank, and the second
+block's heading lands directly against the first block's last bullet.
+
+The remedy was tested against all ten, by rebuilding each branch with an extra blank line added to
+each inserted run and re-running the simulation. Every one of the ten behaves identically, the
+stacked #123 included:
+
+| variant | welds across the 10 |
+|---|---|
+| as-is | **10** |
+| extra **leading** blank | **0** |
+| extra **trailing** blank | **10** — no effect |
+| both | **0** |
+
+**The obvious instinct is the wrong one.** Padding the *end* of your entry changes nothing; the
+blank that gets consumed is the one above your heading. And a leading blank *without* keeping the
+trailing one merely relocates the weld onto the following entry's heading. Leading blank, trailing
+blank, both.
+
+**Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
+Resolved to content anchors, the ten welders sit on four seams, and nine of them share one: five
+weld onto `### Fixed — The organic-traffic watcher…` (#171 #179 #208 #211 #213), two onto
+`### Fixed — three of ONBOARDING_FLOW.md's eight Must-Have…` (#92 #93), two onto
+`### Security — catalog tag updates and diff generation…` (#160 #165) — and **#123 welds onto
+`### Security — App-host transport hardening` entirely alone**, which is the other half of why a
+shared-anchor heuristic would have missed it. But the single most contended anchor in the file —
+eight PRs stacked at the top of
+`[Unreleased]` — welds **zero** times. Two structurally identical insertions, both placed after an
+existing blank and both blank-terminated, differ only in how diff3 happened to align the *other*
+side's competing insertion.
+
+So the anchor command answers "will GitHub call this CONFLICTING"; only the union simulation
+answers "will the driver corrupt the result". Different questions, and their answers disagree.
+Run the simulation.
+
+### Before accusing a branch, ask whether `main` already fixes it
+
+A previous revision of this section said that when a hit is already committed on the branch,
+"re-merging `main` will not help." That is wrong, and wrong in the direction that manufactures false
+accusations. Measured 2026-08-30 across the ten open PRs still carrying the WIC-1319 retracted
+fit-tier claim — `main` carries zero, PR #204 deleted it — **nine of the ten repair themselves the
+next time `main` is merged in.** Exactly one does not.
+
+The discriminator is a single question: **is the offending text in `git merge-base origin/main
+<branch>`?**
+
+- **Present in the merge base** → the branch is a *passenger*. `main`'s correction is a deletion
+  relative to a shared ancestor, so it is a one-sided change: the three-way merge applies it cleanly
+  and the union driver is never consulted for that region. The stale text is absent from the merge
+  result whether or not the author ever merges `main` themselves. **Do not file a card, do not edit
+  the branch, do not name it in an entry.**
+- **Absent from the merge base** → the branch *owns* the text. `main`'s deletion has nothing to
+  attach to, so there is no correction to propagate and merging `main` forward will never remove it.
+  Only a hand edit on the branch fixes it.
+
+Owning it is what a *committed* union result looks like. On PR #117 the duplicate arrived inside
+merge commit `508289b` (`fix/wic1309-fit-tier-blurbs` merged into `copy/wic1318-fit-tier-blurbs`) at
+a moment when the source branch still held the retracted wording. That source branch has since been
+corrected and now measures clean — but #117 committed the driver's output, converting a transient
+merge artifact into a branch-side addition. **The union driver's damage becomes permanent at the
+instant it is committed**, which is the practical reason to run the pre-push simulation instead of
+trusting a clean `git merge`.
+
+```bash
+Q='would have appeared directly above a match count of 20/20'   # the offending text
+for ref in refs/remotes/pr/146 refs/remotes/pr/117; do
+  MB=$(git merge-base origin/main "$ref")
+  printf '%-22s mergebase=%s branch=%s\n' "${ref#refs/remotes/}" \
+    "$(git show "$MB":CHANGELOG.md          | grep -c "$Q")" \
+    "$(git show "$ref":CHANGELOG.md         | grep -c "$Q")"
+done
+# mergebase=1 → passenger, self-heals.   mergebase=0 branch=1 → owner, needs a hand edit.
+```
+
+**Run the self-heal test against `origin/main`, not against the PR's true base** — the opposite of
+the union simulation above, and for a different reason: the simulation asks *what will this merge
+produce*, so it needs the base the merge actually uses; the self-heal test asks *where does the
+correction live*, and the correction lives on `main`. A stacked PR whose immediate base still carries
+the stale text is not thereby an owner. #191 and #123 both show the duplicate in a union against
+their own bases, and both are passengers against `main`.
+
+Confirm with the round trip rather than the counts alone — merge `main` into the branch, then merge
+that result into `main`, and run the checks on the output. On #146 the final file has zero
+occurrences and the detector is clean; on #117 it retains the retracted claim and both `SAME-ENTRY`
+bullet pairs.
+
+The cost of not having this test was real. The affected set filed on 2026-08-29 named PRs #146 and
+#160: #146 is a passenger, and #160's branch (`494d49d`) now measures zero occurrences outright.
+Neither was ever actionable. Today's sweep finds the text on ten branches and exactly one of them —
+#117, already tracked under WIC-1677 and blocked — is work anybody owes. **A hit tells you the text
+is present; only the merge base tells you whether it is a problem.**
 
 Baselining against `main` instead of the PR's own base gets this backwards. Against `main`, PR #117
 appeared to introduce three duplicate bullets; against its own base *and* its own head it introduces
