@@ -5,6 +5,7 @@ import { Breadcrumb } from '../components/Breadcrumb';
 import { EmptyState } from '../components/EmptyState';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
 import { useDialogFocusRestore } from '../hooks/useDialogFocusRestore';
+import { useLiveAnnouncer } from '../hooks/useLiveAnnouncer';
 
 export function ProjectsList() {
   const navigate = useNavigate();
@@ -21,6 +22,12 @@ export function ProjectsList() {
   // The Project Name input carries `autoFocus`, so Radix never dispatches
   // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
   const focusRestore = useDialogFocusRestore({ fallbackRef: headerCreateRef });
+  // The other half of the same requirement. `useDialogFocusRestore` above sends
+  // focus to the header button when the empty-state trigger is destroyed by the
+  // refetch its own dialog caused — but a control the user did not press taking
+  // focus is a context change they cannot see, so on its own it reads as
+  // "Create Project, button" and nothing else. WIC-1304.
+  const { announce, announcer } = useLiveAnnouncer();
 
   // Shared by the Cancel button, Escape, and outside-click, so every dismissal
   // path clears the draft rather than only the button.
@@ -31,16 +38,20 @@ export function ProjectsList() {
   };
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim()) return;
+    const name = newProjectName.trim();
+    if (!name) return;
 
     try {
       await createProject.mutateAsync({
-        name: newProjectName.trim(),
+        name,
         description: newProjectDescription.trim() || undefined,
       });
       setShowCreateModal(false);
       setNewProjectName('');
       setNewProjectDescription('');
+      // Read `name` rather than `newProjectName`, which the two lines above have
+      // already emptied.
+      announce(`Project "${name}" created.`);
     } catch (error) {
       console.error('Failed to create project:', error);
       alert('Failed to create project. Please try again.');
@@ -50,6 +61,10 @@ export function ProjectsList() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {/* Rendered on this arm too: a live region only announces updates once it
+            is already in the accessibility tree, so it must not appear at the
+            same moment its first message does. */}
+        {announcer}
         <div className="mb-6 animate-pulse">
           <div className="mb-2 h-8 w-48 rounded bg-neutral-200"></div>
           <div className="h-4 w-96 rounded bg-neutral-200"></div>
@@ -65,6 +80,10 @@ export function ProjectsList() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      {/* Portalled to <body>, so it does not put #root on `aria-hidden`'s
+          keep-list and defeat background hiding — see the hook, and
+          MODAL_FOCUS_MANAGEMENT_SPEC.md §6. */}
+      {announcer}
       <Breadcrumb
         trail={[
           { label: 'Dashboard', href: '/' },

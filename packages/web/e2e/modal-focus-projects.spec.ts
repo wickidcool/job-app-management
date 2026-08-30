@@ -29,16 +29,23 @@ import { test, expect, type Page } from '@playwright/test';
  * elements and `<script>` (`dist/es2015/index.js` L131-133), and exempting a node keeps its
  * whole ancestor chain. So `#root[aria-hidden]` only holds on a page that renders no
  * in-page live region. Measured on `/projects` at this commit: 0 `[aria-live]` and 0
- * `<script>` inside `#root`, dialog open or closed. `EmptyState` used to carry
+ * `<script>` inside `#root`, dialog open or closed. Note the qualifier — this page
+ * *does* render a live region since WIC-1304, the create-success announcer from
+ * `useLiveAnnouncer`; it stays compatible with the assertion only because the hook
+ * portals it to `<body>` as a sibling of `#root`. That is the rule, not a detail:
+ * render the same region in place and this test goes red. `EmptyState` used to carry
  * `aria-live="polite"` and did suppress the attribute app-wide; WIC-1155 (`6435d79`)
  * removed it, and `EmptyState.tsx:71-74` now carries a comment explaining why it must not
  * come back.
  *
  * Two traps if you extend this: assert on `#root`, not on `<main>` — `main` is hidden by
  * being *inside* the hidden subtree and never gets an `aria-hidden` attribute of its own,
- * so asserting on it fails in both worlds. And if a component-local live region is ever
- * added to this page the `#root` assertion will go red; per ACCESSIBILITY.md that is the
- * signal to assert on the specific background subtree instead, not a flake to retry.
+ * so asserting on it fails in both worlds. And if a component-local live region — one
+ * rendered *in place*, as content, the way `ProgressIndicator` and `KanbanBoard` do — is
+ * ever added to this page, the `#root` assertion will go red; per ACCESSIBILITY.md that is
+ * the signal to assert on the specific background subtree instead, not a flake to retry.
+ * A page-level announcer is not that case and must not be "fixed" that way: portal it to
+ * `<body>` via `useLiveAnnouncer` and the assertion keeps holding.
  */
 
 const MOCK_USER = {
@@ -270,6 +277,38 @@ test.describe('ProjectsList — create project dialog', () => {
 
     // It should land on the surviving control for the same action.
     await expect(page.getByRole('button', { name: 'Create Project', exact: true })).toBeFocused();
+  });
+
+  test('create-success announces the outcome in a polite live region', async ({ page }) => {
+    await setupFirstRunProjectsList(page);
+
+    // The region has to be in the accessibility tree *before* the message lands —
+    // assistive tech announces updates to an existing region, and one that mounts
+    // alongside its first message may not be announced at all.
+    const announcer = page.locator('body > [aria-live="polite"]');
+    await expect(announcer).toHaveCount(1);
+    await expect(announcer).toHaveText('');
+
+    const emptyStateTrigger = page.getByRole('button', { name: 'Create Your First Project' });
+    await emptyStateTrigger.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.getByPlaceholder('e.g., Acme Corp').fill('Acme Corp');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+
+    // The other half of the destroyed-trigger rule (MODAL_FOCUS_MANAGEMENT_SPEC.md
+    // §5.2): the sibling test above proves focus lands on the header button, but a
+    // control the user did not press taking focus is a context change they cannot
+    // see. Without this the whole create is narrated as "Create Project, button".
+    await expect(announcer).toHaveText('Project "Acme Corp" created.');
+    await expect(announcer).toHaveAttribute('aria-atomic', 'true');
+
+    // §6: it must be a sibling of #root, not inside it. An in-place [aria-live]
+    // node puts its whole ancestor chain — #root included — on `aria-hidden`'s
+    // keep-list, silently defeating the background hiding asserted above.
+    expect(await page.locator('#root [aria-live]').count()).toBe(0);
   });
 
   test('create-success restores the header trigger, which survives the re-render', async ({
