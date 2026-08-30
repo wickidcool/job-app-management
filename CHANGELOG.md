@@ -416,6 +416,16 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 
 
 
+
+### Fixed — a Radix warning fired against `ApplicationForm`'s correct dialog markup (2026-08-30)
+
+`ApplicationForm` put `aria-describedby="application-form-description"` on `Dialog.Content` and the matching `id` on `Dialog.Description`. That markup is correct — the dialog had a real accessible name, a real accessible description, and the attribute pointed at a node that existed — and Radix printed `` Missing `Description` or `aria-describedby={undefined}` `` on every mount regardless (WIC-1854).
+
+- **Why it warned.** `DescriptionWarning` (`@radix-ui/react-dialog` 1.1.15, `dist/index.mjs:302-311`) never reads the `aria-describedby` attribute. It resolves Radix's *own* generated `context.descriptionId` with `getElementById`, so overriding the id moves the node off that id and the lookup returns null. Only the description warning fired here; `Dialog.Title` did not override its id, so `TitleWarning` stayed quiet.
+- **The fix is a deletion.** Both the `id` prop and the hand-written `aria-describedby` are gone, and Radix wires them. No accessibility behaviour changes — it was already correct — so this is console noise only. It is worth fixing because it is a **false positive on a real warning**: WIC-1851 existed because `CommandPalette` genuinely had no accessible name, and Radix had been saying so on every mount for as long as the component existed. A warning that also fires against correct code is one everybody learns to scroll past.
+- **The name assertions could not have caught this.** Measured against the pre-fix component: `toHaveAccessibleName` and `toHaveAccessibleDescription` both **passed**, because the markup really was right. Only the `console.warn` guard and an assertion that `aria-describedby` resolves to Radix's *generated* id failed. `ApplicationForm.test.tsx` is new and carries both, plus the positive control from `CommandPalette.test.tsx` that mounts a deliberately unnamed dialog and asserts it does warn — without which the guard passes against a broken spy or a Radix version that stopped warning.
+- **The other dialogs were swept, not assumed.** All three `Dialog.Content` call sites in `packages/web/src` render a `Dialog.Title`, so there is no SC 4.1.2 defect of the WIC-1851 class outstanding; `ApplicationNew.tsx` was already clean and overrode no ids. `docs/design/ACCESSIBILITY.md` → "Dialogs" no longer names `ApplicationForm` as the standing offender and records why the console guard is not redundant with the name assertions.
+
 ### Fixed — every command-palette result announced its type emoji's name instead of its type (2026-08-30)
 
 `CommandPalette` maps each result to a type emoji — 💼 application, 🏢 company, 🕐 recent search, ✨ suggested filter, 📄 fallback — and rendered it in a bare layout `<div>` at all four result-row call sites. With no `aria-hidden` the glyph joined the enclosing button's **accessible name**, so every row was announced as *"briefcase Senior Engineer, button"*. The palette is arrow-key navigated, so that was heard once per `ArrowDown`, not once per page (WIC-1850).
