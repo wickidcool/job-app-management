@@ -124,6 +124,46 @@ Repository guidance and its embedded checks. Application code, tests and runtime
 
 
 
+
+### Fixed — a SQL comment could silently unfilter a dashboard tile, and the synthetic exclusion had no offline test (2026-08-30)
+
+`build_dashboards.py`'s `_sql_tokens` skipped string literals but not comments, so a `)`
+inside a `/* ... */` decremented the scope depth. The injected `AND NOT (<predicate>)`
+then landed **inside the comment**, where it is discarded — while `inject_hogql` still
+reported one filtered site, `apply_exclusion` (which only aborts on *zero* sites) passed
+it, and the tile executed green against unfiltered probe residue. A trailing `-- ...`
+comment produced the milder version: the closing paren was commented out, leaving the
+SQL unbalanced. Both are now masked whole, and the wrap puts its closing paren on its own
+line so a trailing line comment cannot swallow it.
+
+- **Latent, not shipped.** None of the 18 committed payloads contains a SQL comment, so
+  no tile ever built wrong. This closes the gap before a hand-authored query — Route 3's
+  are meant to be read by humans — walks into it.
+- **The fail-closed guarantee was the thing that broke.** `apply_exclusion` treats a
+  nonzero site count as success, so a rewrite that filters nothing but *reports* a site
+  defeats it. **Both** comment syntaxes reach that outcome, not just `/* */`: an unmasked
+  `-- GROUP BY x` ends the WHERE body early and promotes the commented text into
+  *executable* SQL, silently regrouping the tile while the site count, the paren balance
+  and a live `AND NOT (` all still read correct. The line-comment case has a loud form
+  (`-- note )` emits unbalanced SQL) and this silent one; only the loud form was obvious.
+- New `docs/analytics/build_dashboards_selftest.py` — 22 offline cases, wired into
+  `Lint & Test`. It needs no PostHog credential, so it runs on every PR; the live half
+  (`build_dashboards.py --dry-run`) still needs a key. Verified against the pre-fix file:
+  exactly the four comment cases fail there and the other 18 pass both ways.
+- **Each masking branch is pinned by a mutant, because three tests were not enough.** The
+  `--` branch of `_sql_tokens` could originally be deleted outright without reddening a
+  single case (WIC-1664 review); the two `--` twins of the `/* */` tests close that. Each
+  mutation now reds exactly its own pair and nothing else: dropping the `/*` branch reds 2,
+  dropping the `--` branch reds 2, reverting the wrap reds 1. Note the pre-fix file alone
+  could never have found this — against it, `line_comment_parens_do_not_desync` *passes*,
+  because the missing mask adds a stray `)` while the old wrap swallows the real one and
+  the two errors cancel. Only a targeted mutant separates them.
+- Its helpers deliberately re-implement comment and literal masking instead of calling
+  `_sql_tokens`. Borrowing the module's own tokenizer made the line-comment case pass
+  spuriously, because the helper mis-parsed the output exactly as the injector did.
+- All 17 enabled payloads produce injected SQL that is unchanged modulo whitespace.
+
+
 ### Fixed — two filter shortcuts named a week they never measured, and the command palette's filter was never read (2026-08-30)
 
 Both the command palette and the applications-list shortcut row offered a saved filter called `Interviews This Week`. Neither carried a time predicate of any kind — both were status-only — so the result set was identical in every week of the year: an application that reached `interview` four months ago, with nothing scheduled, appeared under a label promising this week's interviews. `Recently Applied` had the same defect one entry away in the same two arrays. Ruled and fixed under WIC-1775 (routed via WIC-1812); `docs/design/SAVED_FILTER_SHORTCUT_NAMING.md` is the governing document.
