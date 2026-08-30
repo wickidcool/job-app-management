@@ -31,6 +31,7 @@ const bulletSelectionSchema = z.object({
 
 const generateSchema = z
   .object({
+    applicationId: z.string().min(1).max(64).optional(),
     jobDescriptionText: z.string().min(50).max(50000).optional(),
     jobDescriptionUrl: z.string().url().optional(),
     jobFitAnalysisId: z.string().optional(),
@@ -85,6 +86,8 @@ const suggestBulletsSchema = z
 
 const listQuerySchema = z.object({
   status: z.enum(['draft', 'finalized']).optional(),
+  // Exact match — see the note on the cover-letter list schema (WIC-1544 AC-3).
+  applicationId: z.string().min(1).max(64).optional(),
   company: z.string().optional(),
   search: z.string().optional(),
   format: z.enum(formatValues).optional(),

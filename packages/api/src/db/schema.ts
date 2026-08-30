@@ -399,6 +399,12 @@ export interface RevisionEntry {
 export const coverLetters = pgTable('cover_letters', {
   id: text('id').primaryKey(),
   userId: uuid('user_id'),
+  // WIC-1544. Nullable and never backfilled: rows written before 0022 have no
+  // recoverable association, and `set null` because the letter is the user's
+  // writing and outlives the application it was aimed at.
+  applicationId: text('application_id').references(() => applications.id, {
+    onDelete: 'set null',
+  }),
   status: coverLetterStatusEnum('status').notNull().default('draft'),
   title: text('title').notNull(),
   targetCompany: text('target_company').notNull(),
@@ -521,6 +527,10 @@ export interface VariantRevisionEntry {
 export const resumeVariants = pgTable('resume_variants', {
   id: text('id').primaryKey(),
   userId: uuid('user_id'),
+  // WIC-1544 — same shape, same reasoning as `coverLetters.applicationId`.
+  applicationId: text('application_id').references(() => applications.id, {
+    onDelete: 'set null',
+  }),
   status: resumeVariantStatusEnum('status').notNull().default('draft'),
   title: text('title').notNull(),
   targetCompany: text('target_company').notNull(),

@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import {
+  applications,
   resumeVariants,
   quantifiedBullets,
   techStackTags,
@@ -83,11 +84,41 @@ function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
 }
 
+// ── Application association (WIC-1544) ────────────────────────────────────────
+
+/**
+ * Resolve a caller-supplied `applicationId` to an application this caller owns.
+ *
+ * Uses the same `ownerScope` as every other read in this file, for the same
+ * reason and one more: `applicationId` is a client-supplied foreign key, so an
+ * unscoped lookup would let a caller staple another user's application id onto
+ * their own variant. Throws 404 rather than dropping the id silently, matching
+ * `BASE_RESUME_NOT_FOUND` below.
+ */
+async function resolveOwnedApplicationId(applicationId: string, userId?: string): Promise<string> {
+  const db = getDb();
+  const [app] = await db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(and(eq(applications.id, applicationId), ownerScope(applications, userId)))
+    .limit(1);
+  if (!app) {
+    throw new ResumeVariantError(
+      'APPLICATION_NOT_FOUND',
+      'Referenced application does not exist',
+      undefined,
+      404
+    );
+  }
+  return app.id;
+}
+
 // ── DTO mappers ───────────────────────────────────────────────────────────────
 
 function toDTO(row: ResumeVariantRow): ResumeVariantDTO {
   return {
     id: row.id,
+    applicationId: row.applicationId,
     status: row.status as ResumeVariantDTO['status'],
     title: row.title,
     targetCompany: row.targetCompany,
@@ -120,6 +151,7 @@ function toDTO(row: ResumeVariantRow): ResumeVariantDTO {
 function toSummaryDTO(row: ResumeVariantRow): ResumeVariantSummaryDTO {
   return {
     id: row.id,
+    applicationId: row.applicationId,
     status: row.status as ResumeVariantSummaryDTO['status'],
     title: row.title,
     targetCompany: row.targetCompany,
@@ -230,6 +262,10 @@ export async function generateResumeVariant(
   }
 
   const db = getDb();
+
+  const applicationId = input.applicationId
+    ? await resolveOwnedApplicationId(input.applicationId, userId)
+    : null;
 
   // Validate base resume if provided
   if (input.baseResumeId) {
@@ -521,6 +557,7 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
     .values({
       id,
       userId: userId ?? null,
+      applicationId,
       status: 'draft',
       title,
       targetCompany,
@@ -623,6 +660,7 @@ export async function getResumeVariant(
 export async function listResumeVariants(
   params: {
     status?: string;
+    applicationId?: string;
     company?: string;
     search?: string;
     format?: string;
@@ -647,6 +685,10 @@ export async function listResumeVariants(
     if (validFormats.includes(params.format)) {
       conditions.push(eq(resumeVariants.format, params.format as any));
     }
+  }
+  if (params.applicationId) {
+    // `eq`, not `ilike` — see the route schema note (WIC-1544 AC-3).
+    conditions.push(eq(resumeVariants.applicationId, params.applicationId) as any);
   }
   if (params.company) {
     conditions.push(ilike(resumeVariants.targetCompany, `%${params.company}%`) as any);

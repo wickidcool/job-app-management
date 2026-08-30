@@ -18,6 +18,7 @@ const emphasisValues = ['technical', 'leadership', 'balanced'] as const;
 
 const generateSchema = z
   .object({
+    applicationId: z.string().min(1).max(64).optional(),
     jobDescriptionText: z.string().min(50).max(50000).optional(),
     jobDescriptionUrl: z.string().url().optional(),
     jobFitAnalysisId: z.string().optional(),
@@ -88,6 +89,10 @@ const exportSchema = z
 
 const listQuerySchema = z.object({
   status: z.enum(['draft', 'finalized']).optional(),
+  // Exact match, unlike `company` below, which is a substring `ilike`. An id is
+  // an identity, not a search term: a prefix of one ULID is a legitimate prefix
+  // of another, so `ilike` here would silently widen the filter (WIC-1544 AC-3).
+  applicationId: z.string().min(1).max(64).optional(),
   company: z.string().optional(),
   search: z.string().optional(),
   limit: z.coerce.number().int().positive().max(100).optional(),
