@@ -162,6 +162,52 @@ All functionality must be accessible via keyboard alone. No mouse required.
 </form>
 ```
 
+#### Dialogs — every `Dialog.Content` needs a `Dialog.Title`, and the id must be Radix's own
+
+A dialog with no title has **no accessible name at all**: a screen reader announces "dialog"
+and stops, so the user has no idea what just took their focus. SC 4.1.2. It is the cheapest
+a11y defect in the codebase to create, because nothing about the rendered page looks wrong.
+
+Radix does say so, on every mount, in the console:
+
+```
+`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+```
+
+So the rule is: **render `Dialog.Title` and `Dialog.Description`, and let Radix assign both
+ids.** Where the design has no room for a visible title — `CommandPalette` opens with nothing
+above its search field — make the title `sr-only` rather than omitting it.
+
+```tsx
+<Dialog.Content>
+  <Dialog.Title className="sr-only">Quick search</Dialog.Title>
+  <Dialog.Description className="sr-only">
+    Type to search applications, companies, and statuses. Use the up and down arrow keys to
+    move between results, and Enter to open one.
+  </Dialog.Description>
+```
+
+**⛔ Do not pass your own `id` to either one, and do not hand-write `aria-describedby` on
+`Dialog.Content`.** The warnings resolve `context.titleId` / `context.descriptionId` through
+`getElementById` (`@radix-ui/react-dialog` 1.1.15, `dist/index.mjs:295` and `:308`), so an
+overridden id leaves that lookup empty and **the warning fires against markup that is
+actually correct** — which trains everyone to ignore it. `ApplicationForm.tsx:227` does
+override the id; its dialog is genuinely named and described, and it warns anyway. Copy the
+wiring from `CommandPalette.tsx`, not from there.
+
+Reusing existing visible copy as the description, via `aria-describedby` pointed at a node
+already on screen, is the textbook move and was tried on `CommandPalette` and rejected: the
+node in question was the keyboard-hint footer, which is written to be *glanced at* and reads
+as a stutter aloud. Prefer it when the visible text is a sentence; write a `sr-only`
+description when it is a row of hints.
+
+**Verification.** Assert the **exact** accessible name and description, and in the same file
+spy on `console.error` / `console.warn` and assert neither Radix message fires — with a
+positive control that mounts a deliberately unnamed dialog, or the guard passes just as
+happily against a broken spy. See `packages/web/src/components/CommandPalette.test.tsx`
+(WIC-1851).
+
 ### Live Regions
 
 Use ARIA live regions to announce dynamic changes without moving focus.
@@ -414,6 +460,25 @@ Both branches are live in this repo and the pair is the worked example:
   a bare title. Emit both halves from **one** shared component, not repeated per call site —
   `CommandPalette` renders result rows at four sites, and split across four the two halves
   can drift apart one site at a time.
+
+**There is a third row the table above does not cover: a glyph that is not a signal about
+the content but *is* the content.** A `<kbd>` holding `↑↓` or `↵` is the whole instruction —
+delete it and the sentence reads "to navigate … to select" — so neither `aria-hidden` alone
+nor "it's decorative" applies. Bare, it is announced by Unicode name, and `↵` is **"downwards
+arrow with corner leftwards"**, which is not a key anyone can go and press. Take the same
+hidden-plus-`sr-only` shape, and put the *key's name* in the replacement, not a description
+of the arrow (WIC-1851):
+
+```tsx
+<kbd className="…">
+  <span aria-hidden="true">↵</span>
+  <span className="sr-only">Enter</span>
+</kbd>
+```
+
+Do not sweep this over every `<kbd>` in a file. The `ESC` hint in the same footer already
+spells its key in letters and needs no treatment; giving it one is noise, and the sweep is
+how it gets one.
 
 **Verification.** Assert the **exact** accessible name — `toHaveAccessibleName('…')` or an
 exact `getByRole` name — and in the same test assert the decoration is *still rendered* and
