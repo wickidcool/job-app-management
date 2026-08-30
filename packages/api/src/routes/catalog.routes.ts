@@ -21,6 +21,7 @@ import {
 } from '../services/catalog.service.js';
 import { analyzeJobFit } from '../services/job-fit.service.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -152,7 +153,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     return c.json(diff);
   })
   .post('/catalog/generate-diff', async (c) => {
-    const parsed = generateDiffSchema.safeParse(await c.req.json());
+    const parsed = generateDiffSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     const diff = await generateDiff(
@@ -163,7 +164,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     return c.json(diff, 201);
   })
   .post('/catalog/diffs/:id/apply', async (c) => {
-    const parsed = applyDiffSchema.safeParse(await c.req.json());
+    const parsed = applyDiffSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     const result = await applyDiff(c.req.param('id'), parsed.data, c.get('userId') ?? undefined);
@@ -174,7 +175,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   .post('/catalog/diffs/:id/resolve', async (c) => {
-    const parsed = resolveDiffItemSchema.safeParse(await c.req.json());
+    const parsed = resolveDiffItemSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     const result = await resolveDiffItem(
@@ -193,7 +194,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     return c.json(companies);
   })
   .post('/catalog/companies/merge', async (c) => {
-    const parsed = mergeEntitiesSchema.safeParse(await c.req.json());
+    const parsed = mergeEntitiesSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     const result = await mergeCompanies(
@@ -257,7 +258,7 @@ export const catalogRoutes = new Hono<AppEnv>()
   })
   .post('/catalog/tags/:type/merge', async (c) => {
     const type = c.req.param('type');
-    const parsed = mergeTagsSchema.safeParse(await c.req.json());
+    const parsed = mergeTagsSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
@@ -289,13 +290,13 @@ export const catalogRoutes = new Hono<AppEnv>()
     const id = c.req.param('id');
 
     if (type === 'job-fit') {
-      const parsed = updateJobFitTagSchema.safeParse(await c.req.json());
+      const parsed = updateJobFitTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
       const tag = await updateJobFitTag(id, parsed.data, c.get('userId') ?? undefined);
       return c.json(tag);
     } else if (type === 'tech-stack') {
-      const parsed = updateTechStackTagSchema.safeParse(await c.req.json());
+      const parsed = updateTechStackTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
       const tag = await updateTechStackTag(id, parsed.data, c.get('userId') ?? undefined);
@@ -330,7 +331,7 @@ export const catalogRoutes = new Hono<AppEnv>()
   })
   // ── Job Fit Analysis ────────────────────────────────────────────────────────
   .post('/catalog/job-fit/analyze', async (c) => {
-    const parsed = analyzeJobFitSchema.safeParse(await c.req.json());
+    const parsed = analyzeJobFitSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
