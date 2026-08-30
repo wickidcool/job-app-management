@@ -239,10 +239,12 @@ sits under.** The enclosing headings are what tell you which of three different 
 - **`REVISION-PAIR`** — the copies sit under two near-identical headings. Union kept a whole entry
   *and* its rewrite. Delete the superseded entry entire, heading included, then re-check the seam.
   (PRs #146 and #160 today.)
-- **`distinct entries`** — different, dissimilar headings. Almost always two real entries that merely
-  open the same way. Both known-benign pairs on `main` land here (the boilerplate "Documentation
-  only. No code, no tests…" opener at similarity 0.40, and the paired RLS "App runtime is
-  unaffected…" bullets at 0.50), while the fit-tier double-ship scores 0.83.
+- **`distinct entries`** — different, dissimilar headings. Both known-benign pairs on `main` land
+  here (the boilerplate "Documentation only. No code, no tests…" opener at similarity 0.40, and the
+  paired RLS "App runtime is unaffected…" bullets at 0.50), while the fit-tier double-ship scores
+  0.83. **This label is not a verdict of benign** — it is also where the misfiling case lands, and
+  the similarity score cannot tell the two apart. See "A copy filed under a heading neither parent
+  used" below, and run that check before dismissing a hit in this class.
 
 The similarity is a *classifier on bullet hits*, not a standalone heading sweep. Run over every
 `### ` pair instead it is too noisy to act on: on `main` at `eb40da8` a bare 0.75 threshold flags two
@@ -301,7 +303,80 @@ The distinction decides the fix, so it is not bookkeeping:
   there is a fix owed at all.* Run the self-heal test below before you write anyone's name down.
   Most hits in this class repair themselves.
 
-### Start your entry with a blank line — the weld is the common case, and this prevents it
+### A copy filed under a heading neither parent used — similarity cannot see this one
+
+The three classes above all assume the two copies are competing for the *same* place in the file.
+There is a fourth: union keeps both copies but files one of them under a **different `### ` entry**,
+where it reads as a claim about a change it has nothing to do with. The superseded text stays in the
+entry it belongs to, and the correction lands somewhere it does not. Two entries are now wrong
+instead of one, and the surviving pair is *less* obviously duplicated than in the other three cases,
+not more.
+
+**Do not reach for a similarity threshold here — it is anti-correlated, in both places you would try
+it.** Measured 2026-08-30 on PR #129 (`test/wic1371-stubdb-table-keyed`), which will do exactly this
+on merge:
+
+| pair | heading sim | bullet sim | truth |
+|---|---|---|---|
+| #129's WIC-1354 test bullet | 0.47 | **0.24** | **real misfiling** |
+| `main`'s "Documentation only…" | 0.40 | 0.64 | benign |
+| `main`'s "App runtime is unaffected…" | 0.50 | 0.68 | benign |
+
+By *heading* similarity the real bug sits at 0.47, between the two benign exemplars — inside the
+known-benign band, so the `distinct entries` label fires and the prose above used to invite
+dismissal. Raising or lowering the threshold cannot separate them; the real hit is bracketed. Going
+to *bullet* similarity instead inverts the ranking rather than fixing it: the genuine revision pair
+scores **lowest of the three**, because a thorough correction rewrites the body it corrects, while
+the benign pairs share long boilerplate openers. Either threshold, tuned either direction, ranks the
+one real bug below both false ones.
+
+The discriminator is structural and needs no threshold. **A bullet belongs under exactly one
+heading. If the union filed a copy under a heading that neither parent filed it under, the union
+misfiled it** — there is no benign reading, and the test is merge-base independent because it keys
+on heading text rather than position:
+
+```bash
+python3 - ours.md theirs.md union.md <<'PY'
+import re, sys, collections
+norm = lambda s: re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
+def homes(p):
+    h, cur = collections.defaultdict(set), None
+    for l in open(p):
+        s = l.strip()
+        if s.startswith('### '): cur = norm(s)
+        if s.startswith('- ') and len(s) > 60 and cur: h[norm(s)[:70]].add(cur)
+    return h
+o, t, u = map(homes, sys.argv[1:4])
+hit = False
+for k, hs in u.items():
+    new = hs - o.get(k, set()) - t.get(k, set())
+    if len(hs) > 1 and new:
+        hit = True
+        print('MISFILED', k[:60])
+        for n in sorted(new): print('    now also under:', n[:80])
+print('no misfiled bullets' if not hit else '')
+PY
+```
+
+Run it on the same three files the union simulation already produced. Across the 78 open PRs on
+2026-08-30 — 66 with a `CHANGELOG.md` differing from their true base — it returned **exactly one
+hit, #129, and no false positives**, and it stays silent on both known-benign `main` pairs that the
+similarity classifier flags every run. It has since been re-run over 81 open PRs (69 with a delta)
+and returns **zero**, because that one hit was fixed; the check is here for the next one.
+
+The #129 instance is worth keeping as the worked example, because it closed. At head `97989e6` the
+PR was `CONFLICTING / DIRTY`, so its author had no path to merge that avoided running the driver
+over this file, and the driver would have resolved it silently and reported success. Its branch file
+was clean — both parents carried only the two benign pairs, the union carried three. Filed as
+WIC-1768; the owner merged `main` in and resolved the hunk per bullet in `a7a13fb`, and the PR went
+`MERGEABLE`. Re-measured at that head: union clean on all three checks, the bullet present once in
+its corrected form under the entry it belongs to, and the seam it left behind un-welded.
+
+**Re-measure an accusation immediately before you act on it.** This one was written against
+`97989e6` and was already fixed at `a7a13fb` by the time the entry describing it was ready to merge
+— a gap of well under an hour. The pre-merge re-measure is what caught it; without that step this
+file would carry a present-tense accusation against a branch that had already complied, with a green
+check on it. A claim about someone else's branch is exactly as perishable as a board ask.
 
 **Write your inserted block so it both begins and ends with a blank line**, i.e. the run of `+`
 lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
