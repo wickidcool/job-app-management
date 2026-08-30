@@ -589,8 +589,8 @@ export function OnboardingModal() {
                       )}
 
                       <p className="text-sm text-neutral-500">
-                        We'll save this as <span className="font-medium">Saved</span> so you can move
-                        it along the board once you apply.
+                        We'll save this as <span className="font-medium">Saved</span> so you can
+                        move it along the board once you apply.
                       </p>
 
                       <button
@@ -765,8 +765,12 @@ export function OnboardingModal() {
             the parent must stay mounted while the warning is open. WIC-1383 originally
             wrote this as an early `return` that replaced the whole modal, which is a
             shape WIC-1141 removed — an unmanaged dialog has no focus trap, no Escape
-            and no focus restore. Radix stacks the layers and hides the panel behind it
-            from assistive tech, so nothing here has to hand-roll that. */}
+            and no focus restore. Radix supplies all three here.
+            Measured caveat, so nobody reads more into this than is true: with the
+            warning open, jsdom reports *two* exposed dialogs — the panel behind it is
+            not `aria-hidden`. That is not specific to this dialog; the dismiss
+            confirmation above behaves identically, so it is a property of the nesting
+            WIC-1141 introduced. Tracked separately rather than fixed here. */}
           <Dialog.Root
             open={showResumeSkipConfirm}
             onOpenChange={(next) => {

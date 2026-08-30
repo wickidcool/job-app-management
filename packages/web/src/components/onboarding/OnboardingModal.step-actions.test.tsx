@@ -87,7 +87,7 @@ function renderModal() {
  * can hold one in flight across a click. The zone validates before calling the service —
  * `.pdf` and >= 1KB — so the file has to be a plausible one, not an empty stub.
  */
-function startResumeUpload(container: HTMLElement) {
+function startResumeUpload() {
   let resolveUpload!: (resume: Resume) => void;
   vi.mocked(resumeService.upload).mockReturnValue(
     new Promise<Resume>((resolve) => {
@@ -95,7 +95,11 @@ function startResumeUpload(container: HTMLElement) {
     })
   );
 
-  const fileInput = container.querySelector('input[type="file"]');
+  // Queried off the document, not `render`'s container: WIC-1141 made this component a
+  // Radix Dialog and `Dialog.Portal` mounts the panel on document.body, outside the
+  // container the test rendered into. Against the container this resolves to null, and
+  // the guard below is what catches that — so it stays.
+  const fileInput = document.querySelector('input[type="file"]');
   expect(fileInput).not.toBeNull();
   const file = new File([new Uint8Array(2048)], 'cv.pdf', { type: 'application/pdf' });
   fireEvent.change(fileInput as HTMLInputElement, { target: { files: [file] } });
@@ -115,7 +119,12 @@ describe('OnboardingModal — resume skip warning (WIC-1383 / AC-5)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /skip for now/i }));
 
-    const dialog = screen.getByRole('dialog');
+    // Two dialogs are in the tree: the onboarding panel stays mounted and the warning
+    // nests inside it (WIC-1141's Radix conversion). Take the innermost — selecting it
+    // structurally rather than by name keeps the accessible-name assertion below able to
+    // fail, which `getByRole('dialog', { name })` would not.
+    const dialogs = screen.getAllByRole('dialog');
+    const dialog = dialogs[dialogs.length - 1];
     expect(dialog).toHaveAccessibleName(/continue without a resume\?/i);
     // The AC asks for a warning "about reduced functionality" — assert the dialog
     // actually says what is lost, not merely that some dialog opened.
@@ -160,12 +169,15 @@ describe('OnboardingModal — resume skip warning (WIC-1383 / AC-5)', () => {
 });
 
 /**
- * WIC-1429 review, required 3. The warning dialog early-returns in place of the whole
- * modal, so opening it unmounts ResumeUploadZone — but the zone has no AbortController
- * and no mount guard, and `OnboardingModal` itself stays mounted. An upload in flight
- * therefore still resolves into a live `onUploadSuccess`, on either side of the confirm
- * click. Both orders wrote a flag contradicting the other and advanced twice, silently
- * stepping over step 4.
+ * WIC-1429 review, required 3. The race these cover survived the WIC-1141 merge, but its
+ * mechanism changed and the original wording no longer describes the code: the warning
+ * used to early-`return` in place of the whole modal, unmounting ResumeUploadZone. It is
+ * now a nested Radix dialog, so the zone stays mounted and visible behind the warning.
+ * That makes the race *wider*, not narrower — the zone has no AbortController and no
+ * mount guard, so an upload in flight resolves into a live `onUploadSuccess` on either
+ * side of the confirm click, and it can now also be *started* while the warning is open.
+ * Both orders wrote a flag contradicting the other and advanced twice, silently stepping
+ * over step 4.
  *
  * These are ordering assertions, so they observe the *sequence* of writes and the
  * `nextStep` count. Asserting only the end state cannot tell one advance from two.
@@ -173,9 +185,9 @@ describe('OnboardingModal — resume skip warning (WIC-1383 / AC-5)', () => {
 describe('OnboardingModal — resume skip races an in-flight upload (WIC-1429)', () => {
   it('an upload that lands while the warning is open is not overwritten by the confirmed skip', async () => {
     const { updateProgress, nextStep } = mockOnboarding({ currentStep: 3 });
-    const { container } = renderModal();
+    renderModal();
 
-    const finishUpload = startResumeUpload(container);
+    const finishUpload = startResumeUpload();
     await userEvent.click(screen.getByRole('button', { name: /skip for now/i }));
     await finishUpload();
 
@@ -199,9 +211,9 @@ describe('OnboardingModal — resume skip races an in-flight upload (WIC-1429)',
 
   it('an upload that resolves after the skip was confirmed does not advance a second time', async () => {
     const { updateProgress, nextStep } = mockOnboarding({ currentStep: 3 });
-    const { container } = renderModal();
+    renderModal();
 
-    const finishUpload = startResumeUpload(container);
+    const finishUpload = startResumeUpload();
     await userEvent.click(screen.getByRole('button', { name: /skip for now/i }));
     await userEvent.click(screen.getByRole('button', { name: /skip anyway/i }));
 
