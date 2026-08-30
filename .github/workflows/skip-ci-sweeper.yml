@@ -90,7 +90,7 @@ concurrency:
 
 jobs:
   sweep:
-    name: Sweep open PRs for skip-marker vs runtime code
+    name: Sweep open PRs for GitHub-native skip markers
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -106,10 +106,11 @@ jobs:
 
             // ---------------------------------------------------------------
             // KEEP IN SYNC WITH .github/workflows/skip-ci-guard.yml.
-            // These two lists are duplicated on purpose: the guard runs with no
+            // SKIP_PATTERNS is duplicated on purpose: the guard runs with no
             // checkout, so it cannot import a shared module, and adding one
             // would mean giving it a checkout step it deliberately does not
-            // have. If you change SKIP_PATTERNS or ALLOWED, change both files.
+            // have. If you change SKIP_PATTERNS or the pass/fail rule below
+            // (WIC-1877: any GitHub-native skip marker fails), change both files.
             // ---------------------------------------------------------------
 
             // GitHub's documented skip keywords, plus the `skip-checks` trailer.
@@ -124,15 +125,6 @@ jobs:
               /\[\s*actions[ _-]?skip\s*\]/i,
               /\*\*\*NO_CI\*\*\*/i,
               /^\s*skip-checks:\s*true\s*$/im,
-            ];
-
-            // Paths with no runtime surface, so there is nothing for CI to have
-            // proven. `.github/workflows/**` is here because a workflow-only
-            // change is exactly the no-deploy merge route this repo relies on.
-            const ALLOWED = [
-              (p) => p.startsWith('docs/'),
-              (p) => p.endsWith('.md'),
-              (p) => p.startsWith('.github/workflows/'),
             ];
 
             const runUrl =
@@ -167,21 +159,21 @@ jobs:
                   owner, repo, pull_number: pr.number, per_page: 100,
                 });
                 const paths = files.map((f) => f.filename);
-                const runtime = paths.filter((p) => !ALLOWED.some((ok) => ok(p)));
 
+                // WIC-1877: any GitHub-native skip marker on a PR head fails —
+                // it suppresses push AND pull_request, so the PR has zero build
+                // evidence, including the docs audits in Lint & Test. The
+                // no-deploy route is `[skip deploy]` (not a suppressor), which
+                // keeps the checks running.
                 let state, description;
                 if (!marker) {
                   state = 'success';
-                  description = 'No CI skip marker on the head commit.';
-                } else if (runtime.length === 0) {
-                  state = 'success';
-                  description =
-                    `Skip marker present, but all ${paths.length} changed path(s) are docs/markdown/workflow-only.`;
+                  description = 'No GitHub-native CI-skip marker on the head commit.';
                 } else {
                   state = 'failure';
                   description =
-                    `Skip marker "${message.match(marker)[0]}" with ${runtime.length} runtime path(s): ` +
-                    runtime.slice(0, 3).join(', ');
+                    `GitHub-native skip marker "${message.match(marker)[0]}" — zero build evidence. ` +
+                    `Use [skip deploy] to skip only the deploy.`;
                 }
                 // The status description field is truncated by the API at 140.
                 description = description.length > 140
@@ -227,13 +219,14 @@ jobs:
 
             if (failing.length) {
               summary.addRaw(
-                `\n**${failing.length} PR(s) pair a CI skip marker with runtime code:** ` +
+                `\n**${failing.length} PR(s) carry a GitHub-native CI-skip marker:** ` +
                 `${failing.map((r) => `#${r.n}`).join(', ')}. ` +
-                `Each merges with no build evidence. Drop the marker (anywhere in the ` +
-                `message, body included) and force-push.\n`
+                `Each merges with no build evidence — including the docs audits in Lint & Test. ` +
+                `Use \`[skip deploy]\` to skip only the deploy, then drop the skip marker ` +
+                `(anywhere in the message, body included) and force-push.\n`
               );
             } else {
-              summary.addRaw('\nNo open PR pairs a skip marker with runtime code.\n');
+              summary.addRaw('\nNo open PR carries a GitHub-native CI-skip marker.\n');
             }
             await summary.write();
 

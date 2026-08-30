@@ -6,11 +6,21 @@ name: Skip-CI Guard
 # `main` it also escapes REVIEW_REQUIRED, so it reads MERGEABLE / CLEAN: the
 # most merge-ready-looking state in the repo, with no build evidence behind it.
 #
-# The `[skip ci]` route is deliberate and stays supported — it is how #94
-# (9640312), #82 (82b6b85), #86, #91, #96 and 8e19705 all merged without firing
-# a deploy. This guard does not tax it. It only fires when a skip marker is
-# combined with a change to runtime code, which is the one combination that is
-# never legitimate.
+# WIC-1877 — THE RULE CHANGED. This guard used to permit a GitHub-native skip
+# marker on a docs/markdown/workflow-only PR (the "no-deploy merge route"). That
+# carve-out was wrong: three of the audits in `Lint & Test` gate ONLY docs
+# (`doc-reference-audit`, `route-title-table-audit`, `wireframe-casing-audit`),
+# so `[skip ci]` on a docs change suppressed exactly the checks that exist to
+# verify it — permitted AND unverified. `f07b9f6` landed a dangling ADR citation
+# on `main` that way and went unseen ~2.5h. The no-deploy route now uses
+# `[skip deploy]` (see deploy.yml): NOT a GitHub directive, so the run still
+# fires and `Lint & Test` still runs; only `deploy-production` is gated off.
+#
+# So a GitHub-native CI-skip marker on a PR head is now NEVER allowed — it always
+# means zero build evidence. This guard fails on any such marker regardless of
+# which paths changed, and points the author at `[skip deploy]` instead.
+# (`[skip deploy]` is not a suppressor and is not matched here; a PR using it
+# passes as an ordinary PR and its checks run.)
 #
 # WHY `pull_request_target` AND WHY A SEPARATE FILE:
 # GitHub's skip directive applies to `push` and `pull_request` only. If this job
@@ -45,11 +55,11 @@ concurrency:
 
 jobs:
   guard:
-    name: Skip-CI vs runtime code
+    name: Skip-CI marker on a PR head
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check for a skip marker on a runtime-code change
+      - name: Reject any GitHub-native CI-skip marker on the PR head
         uses: actions/github-script@v7
         with:
           script: |
@@ -72,16 +82,6 @@ jobs:
               /^\s*skip-checks:\s*true\s*$/im,
             ];
 
-            // Paths that may legitimately ship under a skip marker: they have no
-            // runtime surface, so there is nothing for CI to have proven.
-            // `.github/workflows/**` is here because a workflow-only change is
-            // exactly the no-deploy merge route this repo relies on.
-            const ALLOWED = [
-              (p) => p.startsWith('docs/'),
-              (p) => p.endsWith('.md'),
-              (p) => p.startsWith('.github/workflows/'),
-            ];
-
             const { data: commit } = await github.rest.repos.getCommit({
               owner, repo, ref: pr.head.sha,
             });
@@ -92,41 +92,35 @@ jobs:
               owner, repo, pull_number: pr.number, per_page: 100,
             });
             const paths = files.map((f) => f.filename);
-            const runtime = paths.filter((p) => !ALLOWED.some((ok) => ok(p)));
 
-            const list = (xs) => xs.map((p) => `- \`${p}\``).join('\n');
             const summary = core.summary
               .addHeading('Skip-CI Guard', 2)
               .addRaw(`Head commit: \`${pr.head.sha.slice(0, 8)}\`\n\n`)
               .addRaw(`Skip marker: ${marker ? `**present** (\`${message.match(marker)[0]}\`)` : 'absent'}\n\n`)
-              .addRaw(`Changed files: ${paths.length} (${runtime.length} outside the allowlist)\n\n`);
+              .addRaw(`Changed files: ${paths.length}\n\n`);
 
             if (!marker) {
-              summary.addRaw('No skip marker on the head commit, so this PR is built by the normal `pull_request` workflows. Nothing to enforce.\n');
+              summary.addRaw('No GitHub-native CI-skip marker on the head commit, so this PR is built by the normal `pull_request` workflows. Nothing to enforce. (To land without a production deploy, use `[skip deploy]` — it is not a suppressor, so the checks still run.)\n');
               await summary.write();
               core.info(`PASS: no skip marker on ${pr.head.sha}.`);
               return;
             }
 
-            if (runtime.length === 0) {
-              summary.addRaw('Skip marker present, but every changed path is docs/markdown/workflow-only — the deliberate no-deploy merge route. Allowed.\n');
-              await summary.write();
-              core.info(`PASS: skip marker present but all ${paths.length} changed path(s) are allowlisted.`);
-              return;
-            }
-
+            // WIC-1877: any GitHub-native skip marker on a PR head is rejected.
+            // It suppresses BOTH `push` and `pull_request`, so the PR merges with
+            // zero build evidence — including the docs audits in `Lint & Test`.
+            // The no-deploy route is `[skip deploy]`, which keeps the checks.
             summary
               .addRaw('### Blocked\n\n')
-              .addRaw('This PR carries a CI skip marker **and** changes runtime code, so it would merge with no build evidence at all — zero check runs, which GitHub renders as mergeable.\n\n')
-              .addRaw('Paths outside the allowlist:\n\n')
-              .addRaw(`${list(runtime)}\n\n`)
-              .addRaw('Fix: amend the head commit to drop the skip marker and force-push, then let the normal checks run. Note the marker is matched anywhere in the message — including prose inside backticks — so remove it from the body too, or spell it without the brackets.\n');
+              .addRaw('This PR carries a **GitHub-native CI-skip marker**, which suppresses both the `push` and `pull_request` events. It would merge with no build evidence at all — zero check runs (which GitHub renders as mergeable), and in particular none of the `docs/`-gating audits in `Lint & Test`.\n\n')
+              .addRaw('**Fix — use `[skip deploy]` instead.** It is not a GitHub directive, so the workflow still runs and `Lint & Test` (with its docs/analytics audits) still verifies the change; only the production deploy is gated off. Amend the head commit to drop the `[skip ci]`-family marker (it is matched **anywhere** in the message, including prose inside backticks — remove it from the body too, or spell it without the brackets), add `[skip deploy]` if you want to skip the deploy, and force-push.\n');
             await summary.write();
 
             core.setFailed(
-              `Head commit ${pr.head.sha.slice(0, 8)} carries a CI skip marker ` +
-              `("${message.match(marker)[0]}") while changing ${runtime.length} ` +
-              `runtime path(s): ${runtime.join(', ')}. ` +
-              `A skipped PR has zero check runs and still reports as mergeable. ` +
-              `Drop the marker (anywhere in the message, body included) and force-push.`
+              `Head commit ${pr.head.sha.slice(0, 8)} carries a GitHub-native ` +
+              `CI-skip marker ("${message.match(marker)[0]}"). It suppresses both ` +
+              `push and pull_request, so the PR has zero check runs — including the ` +
+              `docs audits in Lint & Test — yet still reports as mergeable. ` +
+              `Use [skip deploy] to skip the deploy while keeping the checks; ` +
+              `drop the skip marker (anywhere in the message, body included) and force-push.`
             );

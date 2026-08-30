@@ -79,6 +79,37 @@ Deploys to production with safeguards:
 - Runs database migrations before deployment
 - Deploys to Cloudflare Pages production
 
+## Merge markers: `[skip deploy]` is the no-deploy route — not `[skip ci]` (WIC-1877)
+
+To land a change on `main` **without** firing a production deploy — a docs merge,
+a workflow-only change, a runbook update — put **`[skip deploy]`** in the head/merge
+commit message.
+
+- `[skip deploy]` is **not** a GitHub-native directive, so the workflow run still
+  fires: `Lint & Test` (and its five docs/analytics audits) runs on `main` as
+  usual, and only the `Deploy Production` job is gated off. `E2E Tests` is also
+  skipped on a `[skip deploy]` push, because the PR that produced the change
+  already ran it and no deploy follows.
+- The gate is wired on the `deploy-production` (and `e2e-tests`) `if:` in
+  `.github/workflows/deploy.yml`, reading `github.event.head_commit.message`.
+  `workflow_dispatch` is the manual production lever and is **never** skip-gated.
+
+**Do not use `[skip ci]` (or `[ci skip]`, `[no ci]`, `[skip actions]`, the
+`skip-checks:` trailer, `***NO_CI***`) to avoid a deploy.** Those are
+GitHub-native and suppress the **entire** run — including the docs audits that
+gate `docs/`. A `[skip ci]` docs commit was therefore both permitted and
+unverified: a dangling ADR citation reached `main` this way (`f07b9f6`) and sat
+red for ~2.5h, poisoning every branch that rebased onto it. `skip-ci-guard.yml`
+(per-PR) and `skip-ci-sweeper.yml` (open-PR sweep, the required `skip-ci-sweep`
+status) now **fail any PR head carrying a GitHub-native skip marker**, and point
+you here.
+
+Note the guards see PR heads only — a *direct push* to `main` bearing `[skip ci]`
+is not caught by them. The companion WIC-1867 change adds a scheduled `main` docs
+audit (`docs-audit.yml`) as the backstop for that residual case: it runs the docs
+audits on `main` hourly regardless of any marker, so a red `main` is detected
+within the hour.
+
 ## Required Secrets
 
 Configure these in GitHub repository settings under Settings > Secrets and variables > Actions:
