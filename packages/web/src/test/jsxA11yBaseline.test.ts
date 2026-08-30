@@ -220,8 +220,19 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // the glob and regenerate A11Y_BASELINE from the narrowed run — which is exactly the
     // shape of "regenerate the baseline until it goes green" — and the two agree with each
     // other perfectly while most of the tree goes unchecked. Measured: glob narrowed to
-    // `src/pages/**` with the baseline and `--max-warnings` lowered to match is fully green
-    // on 8 of 148 files without this line, and fails here with it.
+    // `src/pages/**`, with A11Y_BASELINE and both `--max-warnings` ceilings regenerated to
+    // agree, reads **32 of 151** files and fails here.
+    //
+    // Two corrections to an earlier version of this note, both from re-measuring it rather
+    // than re-reading it. It said "8 of 148", which was the wrong quantity as well as a
+    // stale total: 8 is how many files had findings, and the number this line exists to
+    // pin is how many were READ. And it said the mutation was otherwise fully green, which
+    // stopped being true when 'states its enforcement surface exactly' was added below —
+    // that test ties the `warn` set to the rules the baseline records, so a narrowed
+    // baseline reds it too (8 configured vs 4 surviving). Deleting this line leaves that
+    // one red; also trimming BASELINED_RULES to the 4 survivors moves the failure to the
+    // `error` count (28, not 24). Getting this mutation green now means editing the
+    // assertions themselves, not just the baseline — which is the point of both guards.
     //
     // 151 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);
