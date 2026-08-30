@@ -15,6 +15,7 @@ import { Breadcrumb } from '../components/Breadcrumb';
 import { useCoverLetters } from '../hooks/useCoverLetters';
 import { useResumeVariants } from '../hooks/useResumeVariants';
 import { useInterviewPrepByApplication } from '../hooks/useInterviewPrep';
+import { useJobFitAnalyses } from '../hooks/useJobFitAnalysis';
 import { TARGETED_LIST_PAGE_MAX, itemsForApplication } from '../constants/applicationMatch';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
@@ -76,6 +77,32 @@ export function ApplicationDetail() {
   // body and caught it.
   const { data: interviewPrep } = useInterviewPrepByApplication(id);
   const hasInterviewPrep = !!interviewPrep?.interviewPrep;
+
+  // Job fit analyses for this application, which — like the interview prep and
+  // unlike the two artefact lists above — are *looked up* rather than
+  // reconstructed. `job_fit_analyses.application_id` is a real foreign key and
+  // the endpoint filters on it, so none of the company-substring/page-cap
+  // machinery applies here and `limit: 1` is safe: the server has already
+  // narrowed to this application and ordered newest first, so the one row it
+  // returns is the one the checklist wants (WIC-1652).
+  //
+  // Asking the server to filter is not an optimisation. `application_id` is
+  // nullable — analysing a bare job description from `/job-fit-analysis` with
+  // no `appId` is a supported flow — so an unfiltered page can be entirely rows
+  // that belong to no application, and a client filter over it could only
+  // remove rows, never recover the one this page needed (WIC-1533).
+  const { data: fitAnalyses } = useJobFitAnalyses(
+    { applicationId: id, limit: 1 },
+    { enabled: !!id }
+  );
+  const latestFitAnalysis = fitAnalyses?.analyses?.[0];
+  // "An analysis exists", not "an analysis scored something". An unscored
+  // analysis — empty catalog, or a job description naming no required skills —
+  // is still one the user has run, and the step must stop offering to create
+  // it. The score is carried separately and stays nullable all the way to the
+  // badge so that `null` (unscored) and `0` (a real zero) do not collapse.
+  const hasFitAnalysis = !!latestFitAnalysis;
+  const fitScore = latestFitAnalysis?.fitScore;
 
   const updateStatusMutation = useUpdateApplicationStatus();
   const updateMutation = useUpdateApplication();
@@ -212,6 +239,8 @@ export function ApplicationDetail() {
             applicationId={id!}
             status={application.status}
             hasJobDescription={!!application.jobDescription}
+            hasFitAnalysis={hasFitAnalysis}
+            fitScore={fitScore}
             hasCoverLetter={coverLetters.length > 0}
             coverLetterId={latestCoverLetter?.id}
             hasResumeVariant={resumeVariants.length > 0}
