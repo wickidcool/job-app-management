@@ -443,11 +443,14 @@ check on it. A claim about someone else's branch is exactly as perishable as a b
 lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
 the file. Check the shape of the `+` run in `git diff`, not whether the file "looks" spaced.
 
-Re-measured 2026-08-30 09:4xZ at `main` = `30b61a2`, across the 83 open PRs, of which **80** have a
+Re-measured 2026-08-30 at `main` = `30b61a2`, across the 86 open PRs, of which **82** have a
 `CHANGELOG.md` differing from their true base, each simulated in the real orientation with the
 content-addressed three-input control: **9 will weld a `### ` heading onto the previous entry's last
 bullet** — #92 `78ac9f8`, #93 `8ca23e5`, #118 `aaf4b75`, #123 `24f4f5e`, #149 `8d68c7f`, #165
 `309d97c`, #171 `a0e370c`, #179 `70c7652`, #208 `b4b87c6`, one weld each, all currently `main`-based.
+Those figures are from the re-run taken **immediately before this revision merged**, not from the
+draft: the population had already grown by three PRs while the entry was being written, though the
+roster and every head SHA in it were unchanged.
 The weld remains far the most common failure mode queued to land. Run in the wrong orientation the
 same sweep reports one fewer, silently dropping #149.
 
