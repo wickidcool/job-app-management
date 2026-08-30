@@ -71,18 +71,31 @@ type StrippedSource = string & { readonly __commentsStripped: true };
  * the more dangerous failure of the two: a noisy false positive gets fixed, whereas a
  * route table with live routes missing makes the audit quietly vacuous.
  *
- * The scanner only ever deletes comment content, so mis-reading a quote can under-strip but
- * can never eat a route. The one residual over-strip risk is a bare `/*` outside any string
- * — regex literals are not tracked, and `App.tsx` contains none. The route-table floor
- * assertions below are what fail if that changes.
+ * The scanner only ever deletes comment content, so a mis-read quote *usually* under-strips.
+ * Not always, and this is the correction that matters: a desync which closes *inside a
+ * double-quoted string* consumes that string's opening quote, which shifts double-quote parity
+ * for everything after it. `path="/*"` is then read as a bare comment opener rather than a
+ * string, and the scanner deletes from there to the next closer. Two lines of ordinary JSX are
+ * enough — `<p>Sarah's applications</p>` above `<div title="Don't panic" />`: the possessive
+ * opens the window, the contraction closes it mid-attribute, and the route table goes from 30
+ * entries to 29, losing `/`. Regex literals are not tracked either, and `App.tsx` contains
+ * none. The route-table floor assertions below are what catch both, and they name `/`
+ * specifically because `path="/*"` is the only in-string comment opener in the file and `/` is
+ * the only route between it and the next closer — so an over-strip that starts at the hazard
+ * cannot avoid dropping a route the assertion names.
  *
  * Under-stripping is the safe direction for route *loss*, but it is not harmless here,
  * because "leaving today's behaviour" is the bug this function exists to fix. The scanner
  * is not JSX-aware: a lone `'` in JSX text ("Don't") is not a string delimiter, but it is
- * read as one, which suspends comment detection for the rest of the file. That silently
- * turns this function back into a no-op. `strips every JSX comment opener out of the real
- * App.tsx` below is the canary for that desync; it is what makes the failure loud instead
- * of green.
+ * read as one, which suspends comment detection until the *next* `'`. That is a bounded
+ * window, not the rest of the file — anything inside it passes through verbatim, so a route
+ * commented out in there is read as live, and this function is a no-op over that span.
+ *
+ * What makes that catchable is a structural property, not the fact that `App.tsx` happens to
+ * contain three comment openers today: a route commented out in JSX-comment form carries its
+ * own opener into the window with it, so the opener survives stripping exactly when the route
+ * does. `strips every JSX comment opener out of the real App.tsx` below keys on that, which is
+ * why it reds on the desync itself rather than on any particular file layout.
  */
 function stripComments(source: string): StrippedSource {
   let out = '';
@@ -321,11 +334,15 @@ describe('in-app navigation targets', () => {
   // `App.tsx` has no commented-out route today and so a no-op stripper is green.
   //
   // The concrete way that happens: a lone `'` in JSX copy is not a string delimiter, but
-  // the scanner treats it as one, suspends comment detection at that point and passes the
-  // rest of the file through verbatim. Measured — `<p>Don't forget to review</p>` above a
-  // commented-out `<Route path="/legacy">`, plus a live link to `/legacy`, is 10 passed/10;
-  // changing only `Don't` to `Do not` reports the dead link. One apostrophe reopens the
-  // exact defect this file exists to close, so it is pinned here rather than left in prose.
+  // the scanner treats it as one and suspends comment detection until the next `'`. Whatever
+  // falls inside that window passes through verbatim. Measured — `<p>Don't forget to review</p>`
+  // above a commented-out `<Route path="/legacy">`, plus a live link to `/legacy`, is 10
+  // passed/10; changing only `Don't` to `Do not` reports the dead link. One apostrophe reopens
+  // the exact defect this file exists to close, so it is pinned here rather than left in prose.
+  //
+  // This cell does not depend on where App.tsx's own comments sit. A route commented out in
+  // JSX-comment form carries its own opener into the window, so the opener survives stripping
+  // exactly when the route survives it — the route is its own tripwire.
   //
   // The anchor is `{/*` and not `/*` on purpose: `path="/*"` legitimately survives stripping
   // inside its string literal, which the cell above pins, so the broader pattern would fail
