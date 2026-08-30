@@ -220,6 +220,18 @@ The last thing a new user is asked to do on the first-run flow was a no-op. Step
 
 
 
+
+### Docs — every accepted spec asserts the accessibility criterion, and a green check hides the page that fails it (2026-08-30)
+
+`docs/design/ACCESSIBILITY.md`'s enforcement note recorded what fails the build and what does not, and said nothing about the specifications that assert the requirement in the first place. Measured against the seven accepted feature specification documents themselves rather than a summary of them: **all seven carry the criterion, and not one of them cites a mechanism** (WIC-1584 AC-3; the specification-side counterpart is WIC-15 §8-A).
+
+- **"Only 1 of 7 specs carries an accessibility criterion" is superseded, and requoting it inverts the finding.** `AC-Q3` is in UC-1, UC-2, UC-3, UC-4, the resume spec and onboarding, and the same criterion is named `AC-N7` in UC-5 — seven documents, one wording, all of it SC 1.3.1, and six of the seven record their own status as NOT MET. The figure was true before the WIC-1480 decomposition landed. The gap it describes is not that six specs lack the criterion; it is that seven carry it with nothing behind it. Two of the seven still assert that nothing in the repository can fail them, which the three checks named in the note have made false — routed to the Business Analyst as WIC-1833, those documents not being editable from here.
+- **A rendered-outline assertion certifies the composition it renders, not the route it is named after.** `ApplicationsList` skips `h1` → `h3` in every branch at `3a649e1`: `<h1>` at `:136`, then `SavedFilterShortcuts` mounted unconditionally at `:165` rendering `<h3>` at `SavedFilterShortcuts.tsx:113`, with `KanbanBoard`'s `<h2>` column headings arriving only at `:195`. The single CI check that can fail a heading skip is wired to `KanbanBoard` — the component on that very page — and it is green, because its fixture is a hand-written `<h1>Applications</h1>` followed by `<KanbanBoard>`, commented "the `ApplicationsList` shape", which never mounts the sibling that causes the skip. Filed as WIC-1834.
+- **Its sibling check is the control that makes this a fixture defect rather than a method defect.** `CoverLetterPreview.test.tsx` builds its fixture the same way, and there the real page does agree — `CoverLetterDetail` goes `<h1>` `:104` → `<h2>`, no skip. The pattern is sound; what is missing is anything that checks a fixture still resembles the page it claims to model, so this one drifted and spent the check's credibility on the way.
+- **The note's live-skip count goes from three to four, and the fourth is listed apart rather than appended.** The three already recorded (`ProjectsList`, `ResumeManager`, `ProjectDetail`) skip only in the populated branch, because `EmptyState` gained a `headingLevel` prop under WIC-1417. `ApplicationsList` has no clean branch at all, so it is not another instance of the same shape and grouping it with them would lose the distinction the per-render-branch argument rests on.
+
+No source, test or workflow file is touched here; every code line cited is a measurement of `main` at `3a649e1`.
+
 ### Docs — two figures in `ACCESSIBILITY.md` counted test files as product surface (2026-08-30)
 
 The enforcement note added by the entry directly below quoted two denominators taken from a raw glob rather than from the source, and both overstated the universe those checks are measured against. The finding they support is unchanged — a smaller denominator makes the covered share larger, not the uncovered count smaller — but they are numbers the note invites a reader to quote. Raised by the Business Analyst, who hit the same two errors pasting the counterpart citation into `WIC-15`.
