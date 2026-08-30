@@ -11,6 +11,8 @@ This document outlines accessibility requirements and best practices to ensure t
 > **Read every requirement below as guidance a reviewer checks by hand.** The [Testing Checklist](#testing-checklist) is the entire process today, and no box in it is automated.
 >
 > A mechanism is in progress under **WIC-1483**: `eslint-plugin-jsx-a11y` plus rendered per-render-branch heading-outline assertions, both hosted by the existing `lint-and-test` job. When it lands, this note is replaced by a citation naming that job and the command that fails the build — and the replacement must still state what remains unverified, because heading order plus a lint rule set is not WCAG 2.1 AA. Tracked for this document by **WIC-1584**.
+>
+> **The scope of that mechanism is now decided** (WIC-1192, 2026-08-30): adopt `jsx-a11y` at `strict`/`error` behind a frozen file baseline, plus `axe-core` hosted in the vitest + RTL harness rather than in Playwright E2E. The reasoning, the measured backlog (**47 findings across 22 app-source files** at `743cfeb`, every `label-has-associated-control` hit hand-verified as a true positive) and the baseline table are in `A11Y_ENFORCEMENT_RULING.md`. **That is a decision, not a landing** — the sentence above still holds, and this note stays until the config is in `packages/web/eslint.config.js`.
 
 ---
 
