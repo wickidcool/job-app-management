@@ -88,6 +88,33 @@ Root `CLAUDE.md` told readers that a duplicate `### ` heading "has no benign cas
 
 Repository guidance and its embedded checks. Application code, tests and runtime behaviour are untouched.
 
+
+### Tests — the storage backfill's `main()` wiring is covered; five reinstatable defects are not (2026-08-30)
+
+- `packages/api/scripts/migrate-project-storage-keys.mjs` exported four pure helpers and the suite
+  pinned them well — but only where they were *defined*, never where `main()` consumed them, and
+  `main()` is where both WIC-1433 round-2 defects actually lived. Five mutants inside `main()`
+  survived the full green suite. The worst is silent: hand the local walk the **slug** set instead
+  of the userId set and it enumerates nothing, prints `Legacy files: 0`, prints "All legacy project
+  artefacts are attributable" and exits **0**, leaving every project file on the shared cross-tenant
+  prefix. An operator reads that as done.
+- Fixed structurally rather than with more assertions. `ownerIdsOf` is now the single place the
+  userId set is derived, and it **throws** on a pre-derived set rather than honouring it — a `Set`
+  answers `.values()` too, so the wrong argument would otherwise reproduce the original bug exactly.
+  Both enumerators take the slug map itself, and the backend branch moved out of `main()` into an
+  exported `enumerate`: making the wrong argument unpassable does not make the call site *testable*,
+  and both round-2 defects were call-site defects.
+- The unresolved tally no longer adds two slug counts to a file count and labels the total
+  "N slug(s)". `unresolvedCounts` reports slugs, occupied destinations and files separately, and an
+  occupied destination alone still blocks. The exit code was already right; the number was not.
+- The local walk's `.catch(() => [])` swallowed `EACCES` identically to `ENOENT`, so an unreadable
+  legacy directory produced that same false "all attributable / exit 0". Only a missing directory is
+  tolerated now. This deliberately reverses `c1b50f9` — aborting loudly is the safe direction for a
+  script whose entire product is a trustworthy answer to "is the move complete?".
+- 41 tests, up from 22. Verified by mutation: all five reported survivors now red, plus five further
+  mutants covering the new seams — 10/10 red, 0 survivors, each gated on the mutant parsing and on
+  `passed + failed` matching the baseline, so a non-compiling mutant cannot read green.
+
 ### Fixed — a decorative ✓ could land in a STAR field's accessible name (2026-08-29)
 
 `STARInput` marked a valid field with `<span aria-label="Field valid">✓</span>`. The span has no `role`, so it maps to the ARIA `generic` role, whose name-from-author is **prohibited** in ARIA 1.2 — assistive tech may honour that `aria-label` or ignore it, and both readings are conformant. Because the span sits inside the `<label>` that names the textarea, the two readings produced two different accessible names for the form control: `"Situation: … Field valid"` when honoured, `"Situation: … ✓"` when dropped. Closes WIC-1191, the second and last member of the class opened by WIC-1185 (`ChangeActionBadge`, PR #101).
