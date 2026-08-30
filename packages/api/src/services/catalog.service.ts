@@ -11,6 +11,8 @@ import {
   catalogDiffs,
   catalogChangeLog,
   wikilinkRegistry,
+  resumes,
+  applications,
 } from '../db/schema.js';
 import type { DiffChange, ReviewItem } from '../db/schema.js';
 import {
@@ -887,6 +889,29 @@ export async function generateDiff(
   userId?: string
 ) {
   const db = getDb();
+  // The route validates only the *shape* of sourceId, so an authenticated
+  // caller may name any user's document ULID. Nothing downstream re-checks it
+  // on the way in: getTextContent reads the source row by id alone, and the
+  // extraction that follows auto-applies whatever it finds into the *caller's*
+  // catalog before the scoped lookup below ever runs. Resolving ownership here
+  // is what makes the 404 a decision this boundary takes, rather than a side
+  // effect of a predicate two layers down — so it holds even if the reader
+  // beneath is later widened.
+  if (userId) {
+    const [owned] =
+      sourceType === 'resume'
+        ? await db
+            .select({ id: resumes.id })
+            .from(resumes)
+            .where(and(eq(resumes.id, sourceId), eq(resumes.userId, userId)))
+        : await db
+            .select({ id: applications.id })
+            .from(applications)
+            .where(and(eq(applications.id, sourceId), eq(applications.userId, userId)));
+    // Same 404 the owner's own missing document yields — a foreign id and an
+    // absent one must stay indistinguishable to the caller.
+    if (!owned) throw new NotFoundError(sourceType === 'resume' ? 'Resume' : 'Application');
+  }
   // processCatalogChange reads the owner off event.metadata.userId (the shape
   // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
   // and every catalog row auto-applied alongside it — with user_id null, which
