@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -165,6 +165,38 @@ describe('OnboardingModal — resume skip warning (WIC-1383 / AC-5)', () => {
       expect.objectContaining({ resumeStepCompleted: true })
     );
     expect(nextStep).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * WIC-1711. AC-5's warning was written as an early `return` that replaced the whole
+   * modal; re-expressing it on WIC-1141's Radix dialog is the merge decision this file
+   * now depends on, and the reviewer's stated risk was that a careless re-application
+   * would silently drop the focus management.
+   *
+   * It would have. Measured before this test existed: deleting `{...resumeSkipFocusRestore}`
+   * from the dialog killed *zero* of the other 25 cases. Radix does not restore focus on
+   * its own for a controlled dialog — `Dialog.Content` cancels the focus scope's restore
+   * and focuses `context.triggerRef`, which only a rendered `Dialog.Trigger` populates,
+   * so focus lands on `<body>` (see `useDialogFocusRestore`'s header). The binding is the
+   * only thing that returns it, and nothing was holding it in place.
+   *
+   * Asserted against the trigger element rather than `not.toBe(document.body)`: the
+   * latter passes for focus landing anywhere at all, including on the wrong control.
+   */
+  it('restores focus to "Skip for now" when the warning is dismissed', async () => {
+    mockOnboarding({ currentStep: 3 });
+    renderModal();
+
+    const trigger = screen.getByRole('button', { name: /skip for now/i });
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole('button', { name: /go back/i }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: /skip for now/i }))
+    );
   });
 });
 
