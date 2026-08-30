@@ -177,8 +177,12 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
 - **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
   last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
-  most common of the three by a wide margin and has a one-line prevention: see
-  "Start your entry with a blank line" below.
+  most common of the three by a wide margin and has a one-line prevention: **write your inserted
+  block so it both begins and ends with a blank line** — *both*, because the two merges your entry
+  undergoes consume opposite edges, and because for two PRs on a shared base no per-branch
+  arrangement is safe in every merge order (both measured below). **Do not treat the weld as
+  cosmetic** — it is the precondition for the fourth
+  mode; see "A weld you commit is a misfile you have armed for whoever branches off you next".
 - **One side moved a block, the other edited inside it.** The two do not line up as one diff3 region,
   so union keeps the relocated copy *and* the edited copy — a whole `### ` entry, duplicated. Note
   what this means: **moving a block is the documented fix for the ordering defect, so the remedy for
@@ -264,18 +268,41 @@ against **the PR's true base** (`gh pr view N --json baseRefName`), never `main`
 stacked, and simulating a stacked PR against `main` manufactures duplicates that will never ship.
 
 ```bash
-n=212; BASE=$(gh pr view $n --json baseRefName -q .baseRefName)
+n=115; BASE=$(gh pr view $n --json baseRefName -q .baseRefName)
 git fetch origin "+refs/pull/$n/head:refs/remotes/pr/$n"
 MB=$(git merge-base "origin/$BASE" "refs/remotes/pr/$n")
-git show "origin/$BASE":CHANGELOG.md   > ours.md
-git show "$MB":CHANGELOG.md            > base.md
-git show "refs/remotes/pr/$n":CHANGELOG.md > theirs.md
+git show "refs/remotes/pr/$n":CHANGELOG.md > ours.md    # PR head is OURS
+git show "$MB":CHANGELOG.md                > base.md
+git show "origin/$BASE":CHANGELOG.md       > theirs.md  # the base branch is THEIRS
 git merge-file -p --union ours.md base.md theirs.md > union.md   # then run the checks above
 ```
 
 Use `--union` here deliberately: the question is what the driver *will do*, which is the opposite of
 the `merge-file`-without-driver check under "Diagnosing one" (that one asks whether GitHub sees a
 conflict). Don't confuse the two.
+
+**⛔ Put the PR head on the `ours` side — side order is not a convention, it changes the output.**
+Union concatenates ours-then-theirs inside each differing region, so swapping the two files moves
+where a duplicated bullet lands. The operation being simulated is the one every `CONFLICTING` PR
+here must actually perform — `git checkout <pr-branch> && git merge <base>` — and `git merge` puts
+the **current branch** on `ours`. That is the PR head, not the base. Verified 2026-08-30 on PR #115
+by running the real merge in a scratch worktree and comparing: the `ours = PR head` simulation is
+**byte-identical** to what `git merge` wrote; the `ours = base branch` simulation differs (first
+difference at line 598).
+
+Getting this backwards does not merely relabel the output, it **loses hits**, and it loses them
+silently. Measured the same day over the 81 open PRs, 78 with a `CHANGELOG.md` differing from their
+true base, `origin/main` at `ee6c217`:
+
+| check | `ours = PR head` (real) | `ours = base branch` (wrong) |
+|---|---|---|
+| misfiled bullets | **1 PR** — #115 | **0 PRs** |
+| welded `### ` headings | **11 PRs** | 10 PRs — misses #149 |
+
+The wrong orientation is a strict subset in both rows: it found nothing the right one missed, and
+missed a live defect in each. An earlier revision of this section shipped the wrong orientation and
+reported the misfiling check as returning zero across the whole board; that zero was an artifact of
+side order, not a clean board.
 
 **Then run the checks on all three inputs, not just on `union.md`.** A hit in the merge result does
 not mean the merge caused it: the same duplicate or weld may already be sitting in `ours.md` or
@@ -340,31 +367,67 @@ python3 - ours.md theirs.md union.md <<'PY'
 import re, sys, collections
 norm = lambda s: re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
 def homes(p):
-    h, cur = collections.defaultdict(set), None
+    h, cur = collections.defaultdict(collections.Counter), ''
     for l in open(p):
         s = l.strip()
-        if s.startswith('### '): cur = norm(s)
-        if s.startswith('- ') and len(s) > 60 and cur: h[norm(s)[:70]].add(cur)
+        if s.startswith('### '): cur = norm(s)[:60]
+        elif s.startswith('- ') and len(s) > 60: h[norm(s)[:70]][cur] += 1
     return h
 o, t, u = map(homes, sys.argv[1:4])
 hit = False
-for k, hs in u.items():
-    new = hs - o.get(k, set()) - t.get(k, set())
-    if len(hs) > 1 and new:
-        hit = True
-        print('MISFILED', k[:60])
-        for n in sorted(new): print('    now also under:', n[:80])
-print('no misfiled bullets' if not hit else '')
+for k, heads in u.items():
+    parents = set(o.get(k, {})) | set(t.get(k, {}))
+    if not parents: continue          # in neither parent: not this class
+    for h, n in heads.items():
+        if h not in parents:          # (1) filed where NEITHER parent filed it
+            hit = True
+            print('MISFILED  ', k[:60], '\n    now under:', h[:80])
+        else:                         # (2) more copies under one heading than either parent had
+            pmax = max(o.get(k, {}).get(h, 0), t.get(k, {}).get(h, 0))
+            if n > pmax and n > 1:
+                hit = True
+                print(f'DUPLICATE x{n} (parent max {pmax})', k[:60], '\n    under:', h[:80])
+print('clean' if not hit else '')
 PY
 ```
 
-Run it on the same three files the union simulation already produced. Across the 78 open PRs on
-2026-08-30 — 66 with a `CHANGELOG.md` differing from their true base — it returned **exactly one
-hit, #129, and no false positives**, and it stays silent on both known-benign `main` pairs that the
-similarity classifier flags every run. It has since been re-run over 81 open PRs (69 with a delta)
-and returns **zero**, because that one hit was fixed; the check is here for the next one.
+**Run both halves — they catch the same corruption in different orientations, and neither is a
+superset of the other.** A bullet that union both duplicates *and* relocates presents as MISFILED
+when the copy lands under a foreign heading, and as DUPLICATE when both copies land under the same
+one. Which of the two you get depends on side order, so a check that only looks for one of them goes
+quiet exactly when you swap the inputs. Measured on WIC-1768's own fixture (PR #129 at its pre-fix
+head `97989e6`, merge base `3714e956`, `main` at `743cfeb`) — the same three files, differing only
+in which side is `ours`:
 
-The #129 instance is worth keeping as the worked example, because it closed. At head `97989e6` the
+| orientation | MISFILED | DUPLICATE |
+|---|---|---|
+| `ours = PR head` (the real merge) | 0 | **1** |
+| `ours = base branch` | **2** | 0 |
+
+One corruption, two presentations, and the presentation flips with side order. Since you should only
+ever run the real orientation, the misfiling check *alone* would have reported that PR clean. Note
+also that **two** bullets travel together there, not one — the `stubDb` test-double bullet moves with
+the WIC-1354 bullet — so a hit count is not a defect count.
+
+Run it on the same three files the union simulation already produced. Across the 81 open PRs on
+2026-08-30 — 78 with a `CHANGELOG.md` differing from their true base, `origin/main` at `ee6c217` —
+it returns **exactly one hit, #115, and no false positives**, and it stays silent on both
+known-benign `main` pairs that the similarity classifier flags every run.
+
+**PR #115 is the live worked example, and it is the reason the orientation matters.**
+`fix/wic1181-post-delete-focus` → `fix/wic1141-modal-focus-pr2` (stacked), head `7890a2c`, merge base
+`88478f0b`, `CONFLICTING / DIRTY` — so it *must* take its base in, in exactly the orientation that
+exposes this. The bullet **"Background hiding is asserted twice — on the trigger's reachability and
+on `#root[aria-hidden]`"** is the WIC-1758 correction: it lives on the base branch under
+`### Accessibility — Focus management on the remaining five dialogs`, and the merge files it under
+the sibling entry `### Accessibility — Focus management on the destructive-delete confirmation` —
+same date, near-identical heading, a change it has nothing to do with. Meanwhile the *superseded*
+wording it was written to replace ("asserted on the trigger's reachability, **not** on
+`#root[aria-hidden]`") survives untouched in the entry it belongs to. Two entries wrong, the
+retracted claim republished, and the correction filed where nobody will read it — with no conflict
+shown and a successful exit. Filed as WIC-1786.
+
+The #129 instance is worth keeping as the second worked example, because it closed. At head `97989e6` the
 PR was `CONFLICTING / DIRTY`, so its author had no path to merge that avoided running the driver
 over this file, and the driver would have resolved it silently and reported success. Its branch file
 was clean — both parents carried only the two benign pairs, the union carried three. Filed as
@@ -380,61 +443,248 @@ check on it. A claim about someone else's branch is exactly as perishable as a b
 
 **Write your inserted block so it both begins and ends with a blank line**, i.e. the run of `+`
 lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
-the file. Your entry then reads with two blank lines above it on the branch. That looks redundant
-and is not: the second one is what survives the union.
+the file. Check the shape of the `+` run in `git diff`, not whether the file "looks" spaced.
 
-Measured 2026-08-30 across the 78 open PRs, of which **65** have a `CHANGELOG.md` differing from
-their true base, each simulated with the content-addressed three-input control: **10 will weld a
-`### ` heading onto the previous entry's last bullet, and 0 will introduce a duplicate bullet or
-heading.** The weld is not one failure mode among three — right now it is the *only* one queued.
-Nine are `main`-based (#92, #93, #160, #165, #171, #179, #208, #211, #213) and **one is stacked**:
-#123, on `fix/wic1312-shared-cursor-guard`.
+**Do not run Prettier over `CHANGELOG.md`, and do not widen the format glob to reach it — the
+formatter deletes the pad you just added.** `format` and `format:check` are scoped to
+`packages/**/*.{ts,tsx,css,md}`, so the root changelog sits outside every gate the repo has; a
+Prettier editor plugin on format-on-save ignores that glob entirely, which is the realistic way this
+happens to you. Measured 2026-08-30 with the pinned Prettier 3.8.3, `--parser markdown` over the
+whole file at `main` = `e3533d7`: the reformat removes **10 blank lines, and every one of them sits
+immediately above a `### ` heading** — eight entry seams, which is exactly the leading padding the
+paragraph above prescribes. The count moves with the file; the ratio is the durable part.
+Prettier collapses any run of blank lines to one and cannot tell a separator from a pad, so widening
+the glob would strip the remedy from eight entries in one commit and re-arm the weld on each. The
+two conventions are in direct conflict, the padding wins, and the changelog stays out of the
+formatter's scope on purpose.
 
-**Do not restrict this sweep to `main`-based PRs.** An earlier revision of this section reported
-nine welders and asserted all of them were `main`-based. #123 was welding then too — its three
-simulation inputs are commits dated 2026-08-26 and have not moved since, so the result is a
-deterministic function of unchanged data — and it was simply outside the population that got
-measured. A stacked PR welds against *its own base branch* exactly as readily.
+**Never escape a backtick inside a code span — CommonMark ignores the escape, and the mis-parse is
+silent and total.** The escape does not stop the backtick from closing the span, so the span ends
+early and every code span in the rest of the paragraph inverts: prose renders as code and the code
+fragments render as prose. Measured on the WIC-1377 entry, which carried
+`` sql`…` `` written the escaped way: **all 8** code spans in that paragraph were prose, and its
+`**parameter list**` reached the rendered page as literal asterisks. Prettier then faithfully
+re-serialises that inverted tree, and because a code span needs no surrounding whitespace the reflow
+**eats word-boundary spaces**, while exiting 0 and reporting success. Use the padded double-backtick
+form, which round-trips through Prettier unchanged (WIC-1732):
 
-**Every one of those ten branch files is individually weld-free, and so is `main`.** The defect
-exists only in the merge result, which is why nothing on the PR page shows it and why the pre-push
+```markdown
+wrong:  `sql\`${companyCatalog.id} = ANY(${sourceIds})\``
+right:  `` sql`${companyCatalog.id} = ANY(${sourceIds})` ``
+
+what the wrong form costs on the next reformat, silently, in prose nobody edited:
+  ... interpolated into a `sql`template as a comma-separated ...
+  ... `($1, $2)`is a row constructor and `= ANY(...)`requires an array ...
+```
+
+The two padding spaces just inside the doubled delimiters are load-bearing: CommonMark strips one
+leading and one trailing space from a code span, and without them the span's own trailing backtick
+runs into the closing delimiter. Render-check any paragraph that mixes code spans with literal
+backticks — this class is invisible in the source and shows up only in the parsed output.
+
+Re-measured 2026-08-30 at `main` = `30b61a2`, across the 86 open PRs, of which **82** have a
+`CHANGELOG.md` differing from their true base, each simulated in the real orientation with the
+content-addressed three-input control: **9 will weld a `### ` heading onto the previous entry's last
+bullet** — #92 `78ac9f8`, #93 `8ca23e5`, #118 `aaf4b75`, #123 `24f4f5e`, #149 `8d68c7f`, #165
+`309d97c`, #171 `a0e370c`, #179 `70c7652`, #208 `b4b87c6`, one weld each, all currently `main`-based.
+Those figures are from the re-run taken **immediately before this revision merged**, not from the
+draft: the population had already grown by three PRs while the entry was being written, though the
+roster and every head SHA in it were unchanged.
+The weld remains far the most common failure mode queued to land. Run in the wrong orientation the
+same sweep reports one fewer, silently dropping #149.
+
+**Quote every accused PR at a head SHA, and re-run the sweep — not a spot check — immediately before
+you merge.** The revision that shipped this paragraph named **11** PRs including #211 and #248, and
+both had already been repaired by the DevOps Engineer (`f4df7af` 08:13Z, `cb8e641` 08:16Z, each
+commit message reading *"repair two union-driver welds"*) **before that PR was even opened** at
+08:19Z, let alone merged at 09:29Z. So this file shipped a stale accusation with a green check on
+it — the exact outcome the pre-merge re-measure exists to prevent, and the first time it has reached
+`main` rather than being caught in draft. The discipline did not fail because it was forgotten; it
+failed because the accused set had grown from one branch to eleven, and re-checking eleven by hand
+is work that quietly gets skipped. **Re-run the same command that produced the roster** — it is one
+sweep, not eleven checks — and let the diff in the roster be the answer. The two dropouts are also
+the good news in this section: the blank-line discipline is being adopted and it works in practice,
+on a single branch merging its own base in. (Which edge, and when that is not enough, is below.)
+
+**Do not restrict this sweep to `main`-based PRs.** An earlier revision reported nine welders and
+asserted all were `main`-based, while a stacked PR was welding against its own base the whole time
+and was simply outside the population measured. A stacked PR welds against *its own base branch*
+exactly as readily; whether today's cohort happens to be `main`-based is an accident of what has
+merged this week, not a property of the defect.
+
+**Every one of those branch files is individually weld-free, and so is `main`.** The defect exists
+only in the merge result, which is why nothing on the PR page shows it and why the pre-push
 simulation is the only thing that can.
 
 The cause is that both sides insert at the same blank-line separator. The base holds that blank
-once; union emits both insertion blocks around it, the first block gets the blank, and the second
-block's heading lands directly against the first block's last bullet.
+once; union emits both insertion blocks around it, the **first** block keeps the blank, and the
+**second** block's heading lands directly against the first block's last bullet.
 
-The remedy was tested against all ten, by rebuilding each branch with an extra blank line added to
-each inserted run and re-running the simulation. Every one of the ten behaves identically, the
-stacked #123 included:
+**⛔ The blank that gets eaten is the one at the join between the two competing insertions — which
+is a different edge of *your* block depending on which merge you are looking at.** Union emits
+ours-then-theirs, so the block emitted **first** loses the blank at its **end** and the block emitted
+**second** loses the blank at its **start**. Those are not two blanks. They are the same physical
+line in the merged file, named from the two sides of it.
 
-| variant | welds across the 10 |
+Every entry goes through two merges, and they point in opposite directions:
+
+| the merge | who is `ours` | the edge of your block at the join |
+|---|---|---|
+| **pre-push** — `git merge <base>` on your branch, to clear `CONFLICTING` | your PR head | its **trailing** edge |
+| **landing** — `main` or your base branch takes your PR | the base | its **leading** edge |
+
+Measured 2026-08-30 by running one pair of inputs both ways — PRs #188 (`fcc5e4e`) and #180
+(`c6cf108`), siblings on `fix/wic1478-dashboard-attention-aggregates` (`a18981e`), `main` at
+`a46c63a`. `main` merges #180 in: the weld lands on **#180's**
+heading, its leading blank consumed. #180's branch merges that same `main` in: the weld lands on
+**#188's** heading, and the blank that went is #180's *trailing* one. Same two files, opposite
+direction, opposite edge.
+
+**So pad both edges, and treat the old tie-break as retired.** A previous revision of this section
+said "if you only add one, add the trailing one." That is right for the pre-push merge and wrong for
+the landing merge — and it is the landing merge that publishes a weld to `main`, where it arms the
+misfile for every branch that subsequently merges `main` (next section). Of the two, the leading
+blank is the one with the larger blast radius. Add both, and stop choosing.
+
+The table below stands as measured, and what it measured was the **pre-push** merge only. Re-tested
+2026-08-30 at `main` = `30b61a2` over all 9 then-current welders by rebuilding each branch with an
+extra blank added to each inserted run:
+
+| variant | welders remaining, of 9 |
 |---|---|
-| as-is | **10** |
-| extra **leading** blank | **0** |
-| extra **trailing** blank | **10** — no effect |
-| both | **0** |
+| as-is | **9** |
+| extra **leading** blank | **9** — no effect |
+| extra **trailing** blank | **1** |
+| both | **1** |
 
-**The obvious instinct is the wrong one.** Padding the *end* of your entry changes nothing; the
-blank that gets consumed is the one above your heading. And a leading blank *without* keeping the
-trailing one merely relocates the weld onto the following entry's heading. Leading blank, trailing
-blank, both.
+Confirmed with a real merge rather than a simulation: PR #92 rebuilt each way and actually merged
+with `git merge origin/main` in a scratch worktree welds with the leading blank and **does not weld
+with the trailing one**.
+
+**One of the nine resists the remedy: #149 still welds with a trailing blank, and with both.** So
+a blank-line discipline is a very good default, not a guarantee; the simulation is still the thing
+that answers the question for your branch. **And it is a prevention, not a repair** — it stops a
+weld being created, it does nothing about one already committed, and once a committed weld reaches a
+merge base you share with someone the damage is no longer yours to undo (next section).
+
+#### Two PRs on a shared base: the remedy is order-dependent, and it does not compose
+
+Everything above treats the blank as something you can get right on your own branch. For **sibling
+PRs stacked on the same base** that is not true, and the failure is not a corner case — it is the
+arrangement the advice above produces if both authors follow it.
+
+When two siblings insert at the same seam, their entries land adjacent to each other on `main`, so
+the contested join is *between the two of them*. The edge that needs padding therefore belongs to
+whichever sibling merges **second** — and merge order is not under either author's control.
+
+Measured 2026-08-30, `main` = `a46c63a`. PRs #188 (`test/wic1574-…`, `fcc5e4e`) and #180
+(`fix/wic1497-…`, `c6cf108`), siblings on `fix/wic1478-…` (`a18981e`). Every figure is the weld
+count on the simulated post-merge `main`, from
+a real `git merge` in a scratch worktree with the union driver active. Control: **all ten input refs
+are individually weld-free**, and so is `main`, so every weld below is introduced by the merge.
+
+| extra blank added | order 160, 188, 180 | order 160, 180, 188 |
+|---|---|---|
+| none | 1 | 1 |
+| leading, on #188 | 1 | **0** |
+| leading, on #180 | **0** | 1 |
+| leading, on both | 1 | 1 |
+| trailing, on #188 | **0** | 1 |
+| trailing, on #180 | 1 | **0** |
+| trailing, on both | 1 | 1 |
+| **both edges, on #188 only** | **0** | **0** |
+| **both edges, on #180 only** | **0** | **0** |
+| **both edges, on both** | 1 | 1 |
+
+Three things follow, and the third is the one that matters:
+
+- **Every single-edge remedy is order-dependent.** Each works in exactly one of the two orders and
+  welds in the other. Since the weld always lands on the heading of whichever sibling merges second,
+  and neither author schedules that, no single-edge choice is safe.
+- **Padding both edges of exactly one sibling is clean in both orders** — the only arrangement here
+  that is. This is why the standing advice is *both* edges, not a tie-break between them.
+- **Padding both edges of both siblings welds in both orders, exactly as badly as padding neither.**
+  So the obvious move — every author applies the documented remedy to their own branch — is
+  precisely the arrangement that fails.
+
+That last row means **the remedy is not composable, and you cannot reason about your edge one branch
+at a time.** The blanks are real lines that travel with their blocks, so adding one at an
+*uncontested* seam changes how diff3 aligns the contested one. With a leading blank on both
+siblings the merged file ends up carrying a visible stray double blank above the first entry and
+still welding at the join below it: the padding moved to a seam nobody was competing for, and the
+one that was contested was eaten anyway.
+
+**So for siblings on a shared base, prevention is not something either author can apply
+unilaterally.** Two honest options: coordinate, so that exactly one of the two pads both edges and
+the other leaves its block alone; or accept that the check on the merge *result* is the only
+control. Prefer the second — it does not require the two authors to be awake at the same time.
+
+**Whoever merges the second of two siblings owns running that check,** in the merge commit, before
+pushing. That is the first moment the two blocks are adjacent, so it is the first moment the weld
+either exists or does not, and it is the last moment before it becomes a committed weld in a merge
+base other branches will inherit. Neither PR page shows it, both branch tips report clean, and
+nothing in CI runs the check today (WIC-1792).
 
 **Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
-Resolved to content anchors, the ten welders sit on four seams, and nine of them share one: five
-weld onto `### Fixed — The organic-traffic watcher…` (#171 #179 #208 #211 #213), two onto
-`### Fixed — three of ONBOARDING_FLOW.md's eight Must-Have…` (#92 #93), two onto
-`### Security — catalog tag updates and diff generation…` (#160 #165) — and **#123 welds onto
-`### Security — App-host transport hardening` entirely alone**, which is the other half of why a
-shared-anchor heuristic would have missed it. But the single most contended anchor in the file —
-eight PRs stacked at the top of
-`[Unreleased]` — welds **zero** times. Two structurally identical insertions, both placed after an
-existing blank and both blank-terminated, differ only in how diff3 happened to align the *other*
-side's competing insertion.
+Resolved to content anchors, the 9 welds sit on four seams: three onto
+`### Fixed — onboarding no longer opens over an established user's dashboard…` (#123 #149 #165),
+three onto `### Fixed — The organic-traffic watcher…` (#171 #179 #208), two onto
+`### Fixed — three of ONBOARDING_FLOW.md's eight Must-Have…` (#92 #93), and one onto
+`### Documentation — The four remaining UC-5 report endpoints…` (#118 alone). But the single most
+contended anchor in the file — the PRs stacked at the top of `[Unreleased]` — welds **zero** times.
+Two structurally identical insertions, both placed after an existing blank and both
+blank-terminated, differ only in how diff3 happened to align the *other* side's competing insertion.
 
 So the anchor command answers "will GitHub call this CONFLICTING"; only the union simulation
 answers "will the driver corrupt the result". Different questions, and their answers disagree.
 Run the simulation.
+
+### A weld you commit is a misfile you have armed for whoever branches off you next
+
+The weld reads like a formatting nit — one missing blank line, nothing lost. It is not. A `### `
+heading welded to the previous entry's last bullet is **inside that bullet's diff3 region**, so the
+next ordinary edit to that bullet drags the heading along with it, and union files the edited copy
+under whichever entry it lands after. The weld does not corrupt anything by itself; it converts the
+*next* routine change into the fourth failure mode above.
+
+Watched end to end on live branches, 2026-08-30, all four steps inside two hours:
+
+1. **07:25Z** — a routine `git merge origin/main` on `fix/wic1478-dashboard-attention-aggregates`
+   welds `### Fixed — onboarding no longer opens…` onto the previous entry's last bullet. The driver
+   reports success. The weld is **committed** in the merge commit `2f3efb8`. Every commit on that
+   branch before it carries zero welds, so the merge is unambiguously where it came from.
+2. That commit becomes the **merge base shared with two stacked children**, PRs #188 and #180.
+3. **08:18Z** — #188's author notices the weld and repairs it *on their own branch* (`19543ab`,
+   "restore the blank line before the onboarding entry"). This buys them nothing.
+4. **09:33Z** — the parent edits that welded bullet, a one-line change extending it (`05bb701`).
+   Both children's merges now file the **corrected** copy under a foreign heading while the
+   superseded copy keeps the right home — and under **two different** foreign headings, `### Tests —
+   The Dashboard attention aggregates…` in #188 and `### Fixed — moving a kanban card…` in #180,
+   which is on its own enough to prove the merge invented the placement rather than inheriting it.
+
+One push, two corrupted children, neither of whose authors did anything wrong. The counterfactuals
+are what make it actionable — same three inputs, only the welds removed:
+
+| base branch's `CHANGELOG.md` | #180 | #188 |
+|---|---|---|
+| as-is | MISFILED | MISFILED |
+| weld repaired **today**, on the parent | **MISFILED** — no help | **MISFILED** — no help |
+| weld never committed (merge base clean too) | clean | clean |
+
+**So the repair window closes when the weld enters a merge base you share.** Fixing it on the parent
+afterwards is just another edit in the contested region; it cannot reach back into the base the
+children branched from. This retires the reassurance an earlier revision of this file offered about
+the weld backlog — that each welder "self-resolves once its author adopts the convention". Adopting
+the convention late does not undo what is already committed, and it does nothing at all for anything
+already stacked on you.
+
+Two concrete rules follow:
+
+- **Never commit a weld.** Run the check above after *every* `merge main` that touches
+  `CHANGELOG.md`, not just before a push, and repair it in that same commit. A weld caught before it
+  is committed costs one blank line; the same weld caught two hours later cost two PRs.
+- **If you own a branch other PRs are stacked on, you are a shared surface.** Check the seam before
+  you push a `CHANGELOG.md` edit, and tell your children when you have touched an entry near one.
 
 ### Before accusing a branch, ask whether `main` already fixes it
 
@@ -481,6 +731,22 @@ produce*, so it needs the base the merge actually uses; the self-heal test asks 
 correction live*, and the correction lives on `main`. A stacked PR whose immediate base still carries
 the stale text is not thereby an owner. #191 and #123 both show the duplicate in a union against
 their own bases, and both are passengers against `main`.
+
+**⛔ "Passenger" predicts self-healing only while the deletion stays one-sided — and the union
+driver is what breaks that.** The passenger argument above depends on the three-way merge seeing a
+clean one-sided deletion, which it only does if the *other* side leaves that region alone. When both
+sides touch it, the region becomes a conflict region, the union driver is consulted after all, and
+it concatenates instead of applying the deletion — so the superseded text survives a merge the test
+says will remove it. PR #115 is the worked counterexample: the retracted "asserted on the trigger's
+reachability, **not** on `#root[aria-hidden]`" wording is present in its merge base (`88478f0b`), so
+the test says *passenger, self-heals, file nothing* — and the real `git merge` keeps it anyway,
+because #115 inserted its own entry directly against the same seam. **Confirm with the round trip
+below before trusting a passenger verdict on any branch that also edits near the correction.**
+
+**And run it against whichever ref carries the correction, which for a stacked PR is usually its
+base branch, not `main`.** #115's correction lives on `fix/wic1141-modal-focus-pr2`; `origin/main`
+carries neither wording, so the against-`main` form of this test is simply uninformative there
+rather than wrong. Read where the fix actually landed before picking the ref.
 
 Confirm with the round trip rather than the counts alone — merge `main` into the branch, then merge
 that result into `main`, and run the checks on the output. On #146 the final file has zero
