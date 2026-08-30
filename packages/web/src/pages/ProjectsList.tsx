@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Link, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { EmptyState } from '../components/EmptyState';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
+import { useDialogFocusRestore } from '../hooks/useDialogFocusRestore';
 
 export function ProjectsList() {
   const navigate = useNavigate();
@@ -11,6 +13,22 @@ export function ProjectsList() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
+  // The header "Create Project" button is the one trigger that survives the
+  // create-success re-render; the empty-state button below unmounts the moment
+  // the list stops being empty. It offers the same action, so it is where focus
+  // belongs when the dialog was opened from the empty state and succeeded.
+  const headerCreateRef = useRef<HTMLButtonElement | null>(null);
+  // The Project Name input carries `autoFocus`, so Radix never dispatches
+  // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
+  const focusRestore = useDialogFocusRestore({ fallbackRef: headerCreateRef });
+
+  // Shared by the Cancel button, Escape, and outside-click, so every dismissal
+  // path clears the draft rather than only the button.
+  const handleCancelCreate = () => {
+    setShowCreateModal(false);
+    setNewProjectName('');
+    setNewProjectDescription('');
+  };
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
@@ -69,6 +87,7 @@ export function ProjectsList() {
             💬 Add New Project (Guided)
           </button>
           <button
+            ref={headerCreateRef}
             onClick={() => setShowCreateModal(true)}
             className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
@@ -125,10 +144,21 @@ export function ProjectsList() {
         </div>
       )}
 
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h2 className="mb-4 text-lg font-semibold text-neutral-900">Create New Project</h2>
+      <Dialog.Root
+        open={showCreateModal}
+        onOpenChange={(next) => {
+          if (!next) handleCancelCreate();
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <Dialog.Content
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl"
+            {...focusRestore}
+          >
+            <Dialog.Title className="mb-4 text-lg font-semibold text-neutral-900">
+              Create New Project
+            </Dialog.Title>
             <div className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-neutral-700">
@@ -157,17 +187,16 @@ export function ProjectsList() {
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
               <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setNewProjectName('');
-                  setNewProjectDescription('');
-                }}
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                Cancel
-              </button>
-              <button
+                type="button"
                 onClick={handleCreateProject}
                 disabled={!newProjectName.trim() || createProject.isPending}
                 className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
@@ -175,9 +204,9 @@ export function ProjectsList() {
                 {createProject.isPending ? 'Creating...' : 'Create'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

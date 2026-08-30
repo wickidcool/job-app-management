@@ -793,6 +793,15 @@ Common patterns used in this project:
 > field will never tell you whether the config shipped. Boxes 2 and 4 become machine-checkable only
 > once `packages/web/eslint.config.js` **on `main`** carries the config, and at that point these hand
 > counts should be deleted rather than updated.
+>
+> **Boxes 1 and 3 quantify the modal dialogs, and that is the count actively moving.** The Radix
+> `Dialog` migration lands dialog-by-dialog rather than in one commit, so "all six hand-rolled
+> dialogs" in box 1 and the symbol-absence claim in box 3 are readings of `0e5d97a` and of nothing
+> else. Re-measure before quoting either — `grep -rl '@radix-ui/react-dialog' packages/web/src`
+> is the whole measurement. Neither box becomes tickable on that migration alone: box 1 also covers
+> keyboard access outside dialogs, and box 3 is held open by **WIC-1181** — a confirm action that
+> unmounts its own trigger still drops focus on `<body>` — independently of how many dialogs have
+> moved.
 
 - [ ] Keyboard navigation for all features — **partial.** Kanban drag-and-drop *is* keyboard
       operable (`KanbanBoard.tsx` wires `KeyboardSensor` with `sortableKeyboardCoordinates`). But
