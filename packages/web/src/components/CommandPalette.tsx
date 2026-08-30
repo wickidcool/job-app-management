@@ -289,6 +289,34 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content className="fixed left-[50%] top-[20%] z-50 w-full max-w-2xl translate-x-[-50%] translate-y-[-20%] rounded-lg bg-white shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+          {/*
+            The dialog's own name and description (WIC-1851). Without these the palette
+            opened as an unnamed "dialog" — SC 4.1.2 — on the surface a keyboard-first user
+            reaches most often, and Radix said so on every mount.
+
+            Neither may carry an `id` prop. Radix's `TitleWarning` / `DescriptionWarning`
+            look up `context.titleId` / `context.descriptionId` with `getElementById`
+            (@radix-ui/react-dialog 1.1.15, dist/index.mjs:295 and :308), so overriding the
+            id leaves the lookup empty and the console warning fires even though the markup
+            is correct. `ApplicationForm.tsx:227` does override it and warns for that reason
+            — follow the wiring here, not that call site's ids.
+
+            Both are `sr-only` rather than visible: the palette's whole visual design is that
+            it appears with nothing above the search field.
+
+            Pointing `aria-describedby` at the footer instead — one copy of the instructions
+            rather than two — was tried and rejected. The footer is written to be glanced at,
+            so it reads as a stutter aloud ("Navigate with arrow keys, up and down arrow keys
+            to navigate…"), and it says nothing about typing, which is the affordance a
+            first-time listener actually needs. The two texts are close enough that a change
+            to the key handling must update both; `handleKeyDown` is the thing to grep.
+          */}
+          <Dialog.Title className="sr-only">Quick search</Dialog.Title>
+          <Dialog.Description className="sr-only">
+            Type to search applications, companies, and statuses. Use the up and down arrow keys to
+            move between results, and Enter to open one.
+          </Dialog.Description>
+
           <div className="flex flex-col">
             <div className="flex items-center border-b border-neutral-200 px-4">
               <svg
@@ -520,9 +548,25 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               <div className="flex items-center justify-between">
                 <span>Navigate with arrow keys</span>
                 <span className="flex gap-2">
-                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">↑↓</kbd>
+                  {/*
+                    Key glyphs, not decoration (WIC-1851). These carry the whole instruction —
+                    remove them and the sentence is "to navigate … to select" — so the
+                    decorative-glyph rule's `aria-hidden`-alone branch does not apply. But left
+                    bare they are announced by Unicode name: ↵ is "downwards arrow with corner
+                    leftwards", which is not a key any listener can find. So each is hidden and
+                    replaced by the key's spoken name, the same hidden-plus-`sr-only` shape
+                    WIC-1850 used on the result rows, and the footer reads as "Up and down arrow
+                    keys to navigate, Enter to select".
+                  */}
+                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">
+                    <span aria-hidden="true">↑↓</span>
+                    <span className="sr-only">Up and down arrow keys</span>
+                  </kbd>
                   to navigate
-                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">↵</kbd>
+                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">
+                    <span aria-hidden="true">↵</span>
+                    <span className="sr-only">Enter</span>
+                  </kbd>
                   to select
                 </span>
               </div>
