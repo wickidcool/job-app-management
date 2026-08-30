@@ -396,6 +396,16 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+
+### Fixed — a decorative ✨ was read as part of every predefined filter shortcut's name (2026-08-30)
+
+The four predefined shortcuts in `SavedFilterShortcuts` render a ✨ inside the button to mark them as built-in. It carried no `aria-hidden`, so it joined the button's **accessible name**: the row exposed `✨Needs Follow-up`, `✨Interviewing`, `✨Applied` and `✨Active Offers`, and a screen reader announced the emoji's Unicode name before every label — *"sparkles Interviewing, button"* (WIC-1846).
+
+- **The decoration was never available to the users it was announced to.** `isPredefined` is already conveyed non-visually by the absence of the delete control beside the button, so the emoji added a spoken word per shortcut and no information. `aria-hidden="true"` on the span leaves it rendered and removes it from the name; nothing about the visual row changes.
+- **It had already bent the tests around itself, which is how it surfaced.** `FilterPanel.test.tsx` could not query these buttons by the names anyone calls them: an exact `{ name: 'Interviewing' }` found nothing, so the helper matched on a substring regex and carried a comment explaining why. `SavedFilterShortcuts.test.tsx` went further and needed a *function* matcher for `Applied`, because a substring or end-anchored matcher also accepts `Recently Applied` — the label WIC-1775 had just removed for promising a window its filter never measured. Both workarounds are deleted here in favour of exact `FILTER_SHORTCUT_LABELS` names, which is the stricter assertion as well as the simpler one.
+- **Tested against deleting the decoration, not just hiding it.** Five new cases in `SavedFilterShortcuts.test.tsx` (`npm run test`): four assert each label is the button's exact accessible name, and one asserts the marker is still in the DOM and still `aria-hidden`, so a "fix" that dropped the span fails. All five fail before the change and pass after.
+- **Same defect class as the decorative ✓ in STAR fields, three entries above.** Purely decorative glyphs inside an interactive element need `aria-hidden`; the general rule is `docs/design/ACCESSIBILITY.md`. Not fixed here: `CommandPalette.tsx` renders result-type emoji (💼🏢🕐✨📄) inside four button/option rows with the same omission — filed separately rather than widened into this change.
+
 ### Fixed — The applications filter panel went stale on a shortcut and silently dropped filters (2026-08-27)
 
 `/applications` had two writers for one piece of filter state. `ApplicationsList` owns `filters`; `SavedFilterShortcuts` writes it through `onApplyFilter`, and `FilterPanel` writes it through `onFilterChange`. `FilterPanel` also copied the `activeFilters` prop into four `useState`s, whose initialisers run on first mount only — so once the panel was open, every shortcut write was invisible to it (WIC-1612).

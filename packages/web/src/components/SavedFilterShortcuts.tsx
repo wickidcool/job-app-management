@@ -177,7 +177,14 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
               onClick={() => handleApplyShortcut(shortcut)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 text-primary-700 rounded-md text-sm font-medium hover:bg-primary-100 transition-colors border border-primary-200"
             >
-              {shortcut.isPredefined && <span className="text-xs">✨</span>}
+              {/* Decorative only — `isPredefined` is already conveyed by the absence of the
+                  delete control. Without aria-hidden the emoji joins the button's accessible
+                  name and is announced before every label (WIC-1846). */}
+              {shortcut.isPredefined && (
+                <span className="text-xs" aria-hidden="true">
+                  ✨
+                </span>
+              )}
               {shortcut.name}
             </button>
             {!shortcut.isPredefined && (
