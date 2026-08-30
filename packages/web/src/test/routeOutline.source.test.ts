@@ -8,6 +8,7 @@ import protectedRouteSource from '../components/ProtectedRoute.tsx?raw';
 import resumeVariantCardSource from '../components/ResumeVariantCard.tsx?raw';
 import savedFilterShortcutsSource from '../components/SavedFilterShortcuts.tsx?raw';
 import topNavigationSource from '../components/TopNavigation.tsx?raw';
+import wizardContainerSource from '../components/wizard/WizardContainer.tsx?raw';
 import loginSource from '../pages/Login.tsx?raw';
 import projectDetailSource from '../pages/ProjectDetail.tsx?raw';
 import projectsListSource from '../pages/ProjectsList.tsx?raw';
@@ -63,12 +64,19 @@ const H3 = /<h3[\s>]/g;
  * This matters more here than the arithmetic suggests: the heading now lives behind a
  * dialog, which is *user* state, so the render sweep (which varies only data state) never
  * opens it. For that one heading this source guard is the only coverage there is.
+ *
+ * `asChild` is the exception, and it is not a detail: it makes Radix render the *child*
+ * instead of its own `<h2>`. `WizardContainer` uses exactly that to be both the dialog
+ * title and its route's `<h1>`. So a bare `Dialog.Title` counts as a level-2 heading and
+ * an `asChild` one contributes nothing of its own — the child is already counted by the
+ * literal-tag pass, and counting both would double it.
  */
 const H2_LITERAL = /<h2[\s>]/g;
-const DIALOG_TITLE = /<Dialog\.Title[\s>]/g;
+const DIALOG_TITLE_ANY = /<Dialog\.Title[\s>]/g;
+const DIALOG_TITLE_BARE = /<Dialog\.Title(?![^>]*\basChild\b)[\s>]/g;
 
 function countH2(source: string): number {
-  return count(source, H2_LITERAL) + count(source, DIALOG_TITLE);
+  return count(source, H2_LITERAL) + count(source, DIALOG_TITLE_BARE);
 }
 
 describe('countH2 treats Dialog.Title as an h2 because Radix renders one (measured)', () => {
@@ -81,42 +89,55 @@ describe('countH2 treats Dialog.Title as an h2 because Radix renders one (measur
    * `createElement` rather than JSX because this is a `.ts` file — deliberately, so the
    * source guards stay a fast pure-string check with no renderer in the common path.
    */
-  it('renders an h2 with no asChild', async () => {
+  async function renderTitle(asChild: boolean) {
     const { createElement: h } = await import('react');
     const { render, screen } = await import('@testing-library/react');
     const Dialog = await import('@radix-ui/react-dialog');
+
+    const title = asChild
+      ? h(Dialog.Title, { asChild: true }, h('h1', null, 'Wizard title'))
+      : h(Dialog.Title, null, 'Wizard title');
 
     render(
       h(
         Dialog.Root,
         { open: true },
-        h(
-          Dialog.Portal,
-          null,
-          h(
-            Dialog.Content,
-            { 'aria-describedby': undefined },
-            h(Dialog.Title, null, 'Create New Project')
-          )
-        )
+        h(Dialog.Portal, null, h(Dialog.Content, { 'aria-describedby': undefined }, title))
       )
     );
 
-    expect(screen.getByText('Create New Project').tagName).toBe('H2');
+    return screen.getByText('Wizard title');
+  }
+
+  it('a bare Dialog.Title renders an h2 — so countH2 counts it', async () => {
+    expect((await renderTitle(false)).tagName).toBe('H2');
   });
 
-  it('the guarded files use Dialog.Title without asChild, which would change the element', () => {
-    // `asChild` makes Radix render the child instead, so the h2 assumption would not hold.
-    // Only ProjectsList among the guarded files uses Dialog.Title at all.
-    const withDialogTitle = [['ProjectsList.tsx', projectsListSource]] as const;
+  it('an asChild Dialog.Title renders the child, and still labels the dialog', async () => {
+    // Both halves matter. The element is why `WizardContainer` can own its route's h1;
+    // the labelling is why using `asChild` to get there is not a downgrade — Radix passes
+    // its generated id to the child, so the dialog keeps its accessible name.
+    const el = await renderTitle(true);
 
-    for (const [name, source] of withDialogTitle) {
-      const stripped = stripComments(source);
-      expect(count(stripped, DIALOG_TITLE), `${name}: expected one Dialog.Title`).toBe(1);
+    expect(el.tagName).toBe('H1');
+    expect(el.id, 'Radix did not pass its title id to the child').toBeTruthy();
+    expect(el.closest('[role="dialog"]')?.getAttribute('aria-labelledby')).toBe(el.id);
+  });
+
+  it('every Dialog.Title in a guarded file is classified, and none is miscounted', () => {
+    // The two regexes must partition: bare ones count as an h2, asChild ones do not.
+    const cases: Array<[string, string, number, number]> = [
+      // name, source, total Dialog.Title, of which bare (counted as h2)
+      ['ProjectsList.tsx', projectsListSource, 1, 1],
+      ['WizardContainer.tsx', wizardContainerSource, 1, 0],
+    ];
+
+    for (const [name, source, total, bare] of cases) {
+      expect(count(source, DIALOG_TITLE_ANY), `${name}: Dialog.Title count moved`).toBe(total);
       expect(
-        /<Dialog\.Title[^>]*\basChild\b/.test(stripped),
-        `${name}: Dialog.Title gained asChild — it may no longer render an h2`
-      ).toBe(false);
+        count(source, DIALOG_TITLE_BARE),
+        `${name}: a Dialog.Title gained or lost asChild — its rendered level changed`
+      ).toBe(bare);
     }
   });
 });
@@ -244,6 +265,23 @@ describe('each fix is owned by the file that should own it', () => {
       note: 'the sole body of /catalog, so it owns the h1; its cards are h2',
     },
     {
+      // The other "component is the page body" case, and the one that arrived by merge
+      // rather than by this PR: WIC-1141 (#97) turned this file's `h1` into a bare
+      // `Dialog.Title`, costing /projects/new/dialogue its only level-1 heading on all
+      // four branches. `DialogueCapture` is the sole call site and emits no heading, so
+      // the h1 belongs here. Restored via `Dialog.Title asChild`, which is why `h2` pins
+      // at 0 — the title contributes the child `h1`, not a level-2 heading of its own.
+      //
+      // The surviving `h3` is correct: it renders inside a `WizardStep`, which emits the
+      // `h2`, so the outline reads h1 -> h2 -> h3. Same shape as ReportsClosedLoop.
+      name: 'WizardContainer.tsx',
+      source: wizardContainerSource,
+      h1: 1,
+      h2: 0,
+      h3: 1,
+      note: 'the wizard/dialog title as the route h1; its h3 sits under WizardStep’s h2',
+    },
+    {
       name: 'ProjectsList.tsx',
       source: projectsListSource,
       h1: 1,
@@ -341,16 +379,18 @@ describe('each fix is owned by the file that should own it', () => {
     //   - a guard deleted (or skipped) => `executed` is short => red here;
     //   - an entry added without its counts being real => it reds in its own guard above.
     //
-    // The size pin is the third: WIC-1675 changed exactly ten production files, and every
-    // one of them must appear. A future fix that lands without a guard has to edit this
-    // number, which is the visible edit the old check failed to force.
+    // The size pin is the third: WIC-1675 changes eleven production files — the ten it
+    // fixed directly, plus `WizardContainer.tsx`, whose h1 this branch restored after
+    // WIC-1141 (#97) removed it on main. Every one of them must appear. A future fix that
+    // lands without a guard has to edit this number, which is the visible edit the old
+    // check failed to force.
     expect(executed.length, 'a guard was deleted or skipped').toBe(guards.length);
     expect([...executed].sort(), 'the guards that ran are not the table').toEqual(
       guards.map((g) => g.name).sort()
     );
     expect(
       new Set(executed).size,
-      'the table must cover all ten files WIC-1675 changed, each exactly once'
-    ).toBe(10);
+      'the table must cover all eleven files WIC-1675 changed, each exactly once'
+    ).toBe(11);
   });
 });
