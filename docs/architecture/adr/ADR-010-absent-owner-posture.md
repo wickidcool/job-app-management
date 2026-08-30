@@ -407,6 +407,66 @@ can be written again, which is exactly what `catalog.service.ts:741`'s `userId: 
 does. Five of `catalog.service.ts`'s nine sites key on `catalogDiffs.id`. This should be its own
 card; it is not fixed by this ADR.
 
+### The guard must not reject its own remediation (WIC-1853)
+
+The Backend Developer measured, and I reproduced at head `00036f1`, that the guard **failed CI on
+the very fix this ADR points people at**. Appending WIC-1601's verbatim `ownerScope` helper —
+
+```ts
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+```
+
+— to any service lacking one exits `1`. Two independent causes, both in the guard, neither in the
+code under test:
+
+1. **`[COND]`** read only `node.condition` and never `whenFalse`, so fail-**closed**
+   `: isNull(t.userId)` and fail-**open** `: idTerm` — opposite postures — produced an identical
+   finding.
+2. **`[SIG]`** flagged the helper's `userId?: string` parameter, which the helper *must* have,
+   because representing absence is its entire job.
+
+`[SIG]` headroom was **0 in all 14 baselined service files**, so there was nowhere the remediation
+could land for free. A guard that blocks the burndown it exists to drive is worse than no guard: it
+converts the ADR into a dead letter and teaches everyone to ignore the check. Fixed by recognising
+the fail-closed scope helper **by shape** rather than by coordinate.
+
+**One narrowing beyond what was proposed.** Testing only that the false branch *calls* `isNull` is
+too loose — `userId ? eq(t.userId, userId) : isNull(t.archivedAt)` drops the owner term for a
+predicate on an unrelated column, which is fail-**open**, and a callee-only test exempts it
+(case G). The shipped check also requires the `isNull` **argument** to be an owner column.
+
+Every case below was run for real at head `00036f1`, three of them negative controls, so the
+narrowing is specific to owner-column `isNull` false branches and does not blind `[COND]`:
+
+| case | scenario | want | got |
+|---|---|---|---|
+| A | patched guard, clean head, frozen baseline | 0 | **0** — 139 remain, 18 fixed |
+| B | verbatim `ownerScope` adoption in a service lacking one | 0 | **0** |
+| C | fail-**open** ternary helper (`: undefined`) | 1 | **1** |
+| D | inline fail-open ternary at a call site | 1 | **1** |
+| G | `isNull` on a **non-owner** column | 1 | **1** (proposed form: **0** ❌) |
+
+The exemption covers exactly three helpers — `interviewPrep:56`, `resume-variant:82`,
+`personal-info:33` — taking the count 144 → 139. The baseline file is **byte-unchanged**, so the
+`#209 → #220 → #227` merge order is undisturbed.
+
+**This exemption is an AC-3-bounded concession, and the ADR should say so plainly.** `isNull` is
+genuinely zero-rows only on the 7 backfilled NOT NULL tables. On the 14 nullable ones it matches
+real rows, so it *narrows* rather than matching zero rows, and is not yet AC-T0-clean. The AST
+cannot see column nullability, so the exemption is a **syntactic proxy**, justified because the
+shape it admits is always strictly safer than the defect it replaces — dropping the owner term
+selects every tenant, `isNull` selects at most the unowned one. Closing the remaining gap is AC-3's
+job (choose the predicate per column) and AC-4's (assert the query), not this guard's. Recording it
+here so nobody later reads a green guard as proof of AC-T0 on a nullable table.
+
+This is the **third** measured imprecision in this guard, and they now bracket it on both sides:
+it counts safe branches (here), it is blind to branchless violations (the `extraction.service.ts`
+false green below), and it over-reported regressions (fixed alongside — a tripped key printed every
+site sharing it, so the repro's 2 new sites rendered as 13; the message now carries `N of M in this
+key are new`). **A green run of this guard is evidence about AC-T0 branch shapes and nothing else.**
+
 ### AC-4 — assert the query, not the status code
 
 A not-found guard and an ownership guard return the same status, so a response-code assertion
@@ -422,8 +482,9 @@ they must therefore be run, not merely compiled, to have any force.
 
 - `personal-info.service.ts:34` — `userId ? eq(...) : isNull(personalInfo.userId)` is deliberate
   and correct: `personal_info.user_id` really is nullable and single-user local rows really do
-  carry NULL (`0014:44-48`). It is allowlisted in the guard **by file and line with a stated
-  reason**, and the guard reports zero findings for it.
+  carry NULL (`0014:44-48`). It is exempted in the guard **by shape** — see "The guard must not
+  reject its own remediation" below — and the guard reports zero findings for it. *(Until WIC-1853
+  it was allowlisted by file and line; that entry has been deleted as redundant.)*
 - `onboarding.service.ts` — the owner is required by every signature already. The guard reports
   zero findings. This service is the model for what D2 produces everywhere else.
 

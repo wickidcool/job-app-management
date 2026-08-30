@@ -66,12 +66,17 @@ const OWNER_COLUMNS = new Set(['userId', 'ownerId']);
 /** Raw SQL spellings of the same, for `sql` template predicates. */
 const OWNER_SQL_COLUMNS = [/\buser_id\b/, /\bowner_id\b/];
 
-/** Sites that are fail-closed on purpose. Each needs a reason and a test. */
-const ALLOWLIST = new Map([
-  // personal_info.user_id is nullable and single-user local rows really do carry
-  // NULL, so `isNull` is the correct owner-absent predicate here (0014:44-48).
-  ['src/services/personal-info.service.ts:34', 'deliberate fail-closed isNull (0014:44-48)'],
-]);
+/**
+ * Sites that are fail-closed on purpose. Each needs a reason and a test.
+ *
+ * Deliberately empty. Its one entry -- personal-info.service.ts:34, the
+ * `userFilter` fail-closed isNull (0014:44-48) -- is now recognised by *shape*
+ * via scopeHelperOwner(), which is strictly better: this map is keyed by line
+ * number while the baseline below is deliberately line-agnostic, so an entry
+ * here silently stops matching the moment anything above the site shifts.
+ * Prefer teaching the checks a shape over pinning a coordinate. (WIC-1853)
+ */
+const ALLOWLIST = new Map([]);
 
 function walkFiles(dir) {
   const out = [];
@@ -408,6 +413,72 @@ function ownerIdentIn(expr, depth = 0) {
   return null;
 }
 
+/**
+ * A *fail-closed owner scope helper*: a function whose body is just
+ *   `return userId ? eq(t.userId, userId) : isNull(t.userId);`
+ *
+ * Absence here selects the genuinely-unowned rows instead of dropping the owner
+ * term, so it is the remediation this guard exists to drive people toward
+ * (WIC-1601's `ownerScope`) -- not the defect. Both checks must exempt it:
+ * [COND] would flag the ternary, and [SIG] would flag the `userId?` parameter
+ * that the helper needs in order to represent absence at all. Flagging either
+ * makes the guard reject its own recommended fix, which is what it did before
+ * WIC-1853: adopting the verbatim helper in any service that lacked one failed
+ * CI, and SIG headroom was 0 in all 14 baselined service files.
+ *
+ * Precedent: ALLOWLIST already conceded this shape for
+ * personal-info.service.ts:34 -- but by line number, which silently stops
+ * matching when the file shifts. This recognises it by shape instead, so the
+ * line-keyed entry is no longer needed.
+ *
+ * SCOPE LIMIT (AC-3). `isNull(user_id)` is genuinely fail-closed only where
+ * migration 0017 rewrote pre-existing NULLs to the all-zero sentinel. On the
+ * still-nullable tables -- applications, status_history, resumes,
+ * resume_exports, cover_letters, outreach_messages, personal_info -- `IS NULL`
+ * matches real rows, so it denies-and-narrows rather than matching zero rows.
+ * This exemption is a *syntactic* proxy: the AST cannot see column nullability.
+ * It is the right call because dropping the owner term entirely selects every
+ * tenant while `isNull` selects at most the unowned one, so the shape is always
+ * strictly safer than the defect it replaces -- but on a nullable table it is
+ * not yet AC-T0-clean, and AC-3/AC-4 remain the checks that close that gap.
+ */
+function ownerColumnRef(arg) {
+  // `t.userId` / `personalInfo.userId` -- the owner column of some table.
+  return (
+    arg &&
+    ts.isPropertyAccessExpression(arg) &&
+    ts.isIdentifier(arg.name) &&
+    OWNER_NAMES.has(arg.name.text)
+  );
+}
+
+function failClosedOwnerTernary(expr) {
+  if (!expr || !ts.isConditionalExpression(expr)) return null;
+  if (!ts.isIdentifier(expr.condition) || !OWNER_NAMES.has(expr.condition.text)) return null;
+  const f = expr.whenFalse;
+  // Must be `isNull(<something>.userId)`. Checking the *argument* matters:
+  // `userId ? eq(t.userId, userId) : isNull(t.deletedAt)` is fail-OPEN -- it
+  // drops the owner term for a predicate on an unrelated column -- and an
+  // `isNull`-callee-only test would have exempted it.
+  const isOwnerIsNull =
+    ts.isCallExpression(f) &&
+    ts.isIdentifier(f.expression) &&
+    f.expression.text === 'isNull' &&
+    f.arguments.length === 1 &&
+    ownerColumnRef(f.arguments[0]);
+  return isOwnerIsNull ? expr.condition.text : null;
+}
+
+/** The function is a scope helper iff its whole body is one such return. */
+function scopeHelperOwner(node) {
+  const body = node.body;
+  if (!body) return null;
+  if (!ts.isBlock(body)) return failClosedOwnerTernary(body);
+  const stmts = body.statements.filter((st) => !ts.isEmptyStatement(st));
+  if (stmts.length !== 1 || !ts.isReturnStatement(stmts[0])) return null;
+  return failClosedOwnerTernary(stmts[0].expression);
+}
+
 const findings = [];
 const stats = {
   ownerTables: OWNER_TABLES.size,
@@ -437,7 +508,7 @@ for (const scanDir of SCAN_DIRS) {
     const report = (node, check, detail) => {
       const line = lineOf(node);
       if (ALLOWLIST.has(`${rel}:${line}`)) return;
-      const site = `${check} ${node.getStart(src)}`;
+      const site = `${check}\u0000${node.getStart(src)}`;
       if (emitted.has(site)) return;
       emitted.add(site);
       findings.push({ file: rel, line, check, detail });
@@ -451,9 +522,14 @@ for (const scanDir of SCAN_DIRS) {
         ts.isArrowFunction(node) ||
         ts.isFunctionExpression(node)
       ) {
+        const helperOwner = scopeHelperOwner(node);
         for (const p of node.parameters) {
           if (ts.isIdentifier(p.name)) {
             if (OWNER_NAMES.has(p.name.text) && ownerMayBeAbsent(p, aliases)) {
+              // A fail-closed owner scope helper needs an optional owner in
+              // order to represent absence at all -- flagging it makes the
+              // guard reject its own recommended fix (WIC-1853 / WIC-1858).
+              if (p.name.text === helperOwner) continue;
               report(p, 'SIG', `owner parameter '${p.name.text}' is optional or nullable`);
             }
           } else if (ts.isObjectBindingPattern(p.name)) {
@@ -485,7 +561,10 @@ for (const scanDir of SCAN_DIRS) {
         const ident = ownerIdentIn(expr);
         if (ident) report(ident, 'COND', `'${ident.text}' branched on in ${where}`);
       };
-      if (ts.isConditionalExpression(node)) flagIfOwner(node.condition, 'a ternary test');
+      // A fail-closed `userId ? eq(t.userId, userId) : isNull(t.userId)` is the
+      // target posture, not a finding (WIC-1853 / WIC-1858).
+      if (ts.isConditionalExpression(node) && !failClosedOwnerTernary(node))
+        flagIfOwner(node.condition, 'a ternary test');
       if (ts.isIfStatement(node)) {
         // fail-closed early exit on an absent owner is the target posture, not a finding
         const failClosed =
@@ -628,13 +707,23 @@ try {
 }
 
 const current = tally(findings);
+// A tripped key prints *every* site sharing it, because the key is deliberately
+// line-agnostic and cannot say which physical site is the new one. So carry the
+// arithmetic: a key going 3 -> 4 is one new site among four candidates, not four
+// new violations. Without this the report reads far worse than the regression is
+// (13 sites printed for a 2-site regression, measured in WIC-1853's repro).
 const regressions = [];
+let addedTotal = 0;
+let trippedKeys = 0;
 for (const [k, count] of current) {
   const allowed = baseline.get(k) ?? 0;
-  if (count > allowed) {
+  const added = count - allowed;
+  if (added > 0) {
+    addedTotal += added;
+    trippedKeys += 1;
     const [file, check, detail] = k.split('\u0000');
     for (const f of findings) {
-      if (keyOf(f) === k) regressions.push({ file, check, detail, line: f.line });
+      if (keyOf(f) === k) regressions.push({ file, check, detail, line: f.line, added, count });
     }
   }
 }
@@ -661,9 +750,12 @@ if (regressions.length === 0) {
 }
 
 console.error(
-  `audit-owner-predicates: ${regressions.length} NEW site(s) allow an absent owner (AC-T0).\n` +
+  `audit-owner-predicates: ${addedTotal} NEW site(s) allow an absent owner (AC-T0),\n` +
+    `across ${regressions.length} candidate site(s) in ${trippedKeys} tripped key(s).\n` +
     `An authenticated request with no resolved owner must match zero rows.\n` +
-    `Require the owner (userId: string) instead of branching on its absence.\n`
+    `Require the owner (userId: string) instead of branching on its absence.\n` +
+    `A fail-closed 'userId ? eq(t.userId, userId) : isNull(t.userId)' scope helper\n` +
+    `is exempt by shape -- see the note above failClosedOwnerTernary().\n`
 );
 let lastFile = null;
 for (const f of regressions.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)) {
@@ -671,7 +763,8 @@ for (const f of regressions.sort((a, b) => a.file.localeCompare(b.file) || a.lin
     console.error(`  ${f.file}`);
     lastFile = f.file;
   }
-  console.error(`    :${String(f.line).padStart(4)}  [${f.check}]  ${f.detail}`);
+  const share = f.count > f.added ? `  (${f.added} of ${f.count} in this key are new)` : '';
+  console.error(`    :${String(f.line).padStart(4)}  [${f.check}]  ${f.detail}${share}`);
 }
 console.error(`\n  ${findings.length} total site(s), ${baseline.size} baselined key(s).`);
 process.exit(1);
