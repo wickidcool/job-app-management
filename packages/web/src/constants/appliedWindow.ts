@@ -23,11 +23,20 @@
  * ### Why relabel rather than re-window
  *
  * Making the count calendar-week-to-date would contradict **AC-N10**, which
- * defines the metric as the last seven days regardless of status, and would put
- * the week metric out of step with its 30-day sibling (`appliedThisMonth`), whose
- * label is already required to name a rolling window. Relabelling keeps one rule
- * for both. If week-to-date is ever judged the better product answer, AC-N10 has
- * to be amended first — `appliedWindow.test.ts` fails loudly if the API's window
+ * defines the metric as the last seven days regardless of status. That is the
+ * whole reason, and it stands on its own: AC-N10 governs this metric directly,
+ * so the relabel needs no appeal to consistency with a neighbouring window.
+ *
+ * It deliberately does not rest on the `appliedThisMonth` sibling, which cannot
+ * carry that argument. That field is `oneMonthAgo.setMonth(getMonth() - 1)`, so
+ * it measures 28 to 31 days rather than a flat 30 — 2026-03-31 looks back 28
+ * days, 2026-02-28 looks back 31 — and it has no label to be consistent with,
+ * because its only non-type occurrence in `packages/web/src` is the zeroed
+ * pre-fetch fallback in `Dashboard.tsx`. It reaches no surface, so AC-N12 does
+ * not currently reach it either.
+ *
+ * If week-to-date is ever judged the better product answer, AC-N10 has to be
+ * amended first — `appliedWindow.test.ts` fails loudly if the API's window
  * silently becomes a calendar one, so that decision cannot be made by accident.
  *
  * ### Why the day count lives here and not in the copy
