@@ -1,3 +1,4 @@
+import * as Dialog from '@radix-ui/react-dialog';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -169,5 +170,137 @@ describe('CommandPalette — result rows announce their type as a word, not a gl
     expect(within(dialog).getByText('No results found')).toBeInTheDocument();
     const decoration = dialog.querySelector('[aria-hidden="true"]');
     expect(decoration).toHaveTextContent('🔍');
+  });
+});
+
+/**
+ * Regression cover for WIC-1851.
+ *
+ * `Dialog.Content` rendered with no `Dialog.Title` and no `Dialog.Description`, so the
+ * palette opened as an unnamed "dialog" — a screen reader announced the role and nothing
+ * else, on the surface a keyboard-first user reaches most often. WCAG 2.1 AA, SC 4.1.2.
+ *
+ * Sibling of the WIC-1850 suite above and deliberately separate from it: that one is about
+ * the accessible name of each result *row*, this one about the name of the *container*.
+ *
+ * Neither `Dialog.Title` nor `Dialog.Description` may take an `id` prop. Radix's warnings
+ * resolve `context.titleId` / `context.descriptionId` through `getElementById`
+ * (@radix-ui/react-dialog 1.1.15, `dist/index.mjs:295` and `:308`), so an overridden id
+ * leaves that lookup empty and the console warning fires against correct markup. The
+ * console guard below is what pins that, which is why it asserts on the message text rather
+ * than merely on the accessible name.
+ */
+const DIALOG_NAME = 'Quick search';
+const DIALOG_DESCRIPTION =
+  'Type to search applications, companies, and statuses. Use the up and down arrow keys ' +
+  'to move between results, and Enter to open one.';
+
+/** Both Radix warnings, verbatim enough to match and loose enough to survive a reword. */
+const RADIX_TITLE_WARNING = /requires a `DialogTitle`/;
+const RADIX_DESCRIPTION_WARNING = /Missing `Description` or `aria-describedby=\{undefined\}`/;
+
+function spyOnConsole() {
+  // `restoreMocks: true` in vitest.config.ts puts these back after every test.
+  return {
+    error: vi.spyOn(console, 'error').mockImplementation(() => {}),
+    warn: vi.spyOn(console, 'warn').mockImplementation(() => {}),
+  };
+}
+
+/**
+ * The first argument of each recorded call, stringified.
+ *
+ * Structurally typed rather than `ReturnType<typeof vi.spyOn>`: that alias leaves the spy's
+ * generics unresolved, so `mock.calls` degrades to an implicit `any` and `tsc -b` fails the
+ * build under `noImplicitAny` while vitest itself runs perfectly happily.
+ */
+const calls = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c) => String(c[0]));
+
+describe('CommandPalette — the dialog announces what it is (WIC-1851)', () => {
+  it('gives the dialog an exact accessible name and description', () => {
+    const dialog = renderPalette();
+
+    // Exact, not substring, for the same reason the row assertions above are exact: a
+    // substring matcher passes for a name that has picked up the search field, the footer
+    // or a result title, which is the failure mode `aria-labelledby` makes easy.
+    expect(dialog).toHaveAccessibleName(DIALOG_NAME);
+    expect(dialog).toHaveAccessibleDescription(DIALOG_DESCRIPTION);
+  });
+
+  it('keeps both of them out of the visual design', () => {
+    const dialog = renderPalette();
+
+    // The palette's whole visual design is that it appears with nothing above the search
+    // field, so the title has to be `sr-only`. Guarding it here means a later "let's show
+    // the title" change has to be a deliberate one.
+    expect(within(dialog).getByText(DIALOG_NAME)).toHaveClass('sr-only');
+    expect(within(dialog).getByText(DIALOG_DESCRIPTION)).toHaveClass('sr-only');
+  });
+
+  it('emits neither Radix accessibility warning on mount', () => {
+    const spies = spyOnConsole();
+
+    renderPalette();
+
+    expect(calls(spies.error).filter((m) => RADIX_TITLE_WARNING.test(m))).toEqual([]);
+    expect(calls(spies.warn).filter((m) => RADIX_DESCRIPTION_WARNING.test(m))).toEqual([]);
+  });
+
+  it('positive control: an unnamed Radix dialog does still emit both warnings', () => {
+    // Without this the test above is not evidence of anything — it would pass just as
+    // happily against a Radix version that had stopped warning, or a broken spy. It also
+    // pins the id-override trap: swap `Dialog.Title` here for one with an `id` prop and
+    // this control keeps firing while the markup looks correct.
+    const spies = spyOnConsole();
+
+    render(
+      <Dialog.Root open>
+        <Dialog.Portal>
+          <Dialog.Content>unnamed</Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    );
+
+    expect(calls(spies.error).some((m) => RADIX_TITLE_WARNING.test(m))).toBe(true);
+    expect(calls(spies.warn).some((m) => RADIX_DESCRIPTION_WARNING.test(m))).toBe(true);
+  });
+});
+
+describe('CommandPalette — the footer key hints are spoken as key names (WIC-1851)', () => {
+  /**
+   * Asserts both halves on the same element, for the WIC-1850 reason: a fix that deleted the
+   * glyph passes a text-only check, and a fix that dropped the `sr-only` name passes a
+   * glyph-only one. `↑↓` and `↵` are the instruction, not decoration — without them the
+   * footer reads "to navigate … to select" — so `aria-hidden` alone would be a removal.
+   */
+  function expectKeyHint(scope: HTMLElement, glyph: string, spokenName: string) {
+    const decoration = within(scope).getByText(glyph);
+    expect(decoration, `${glyph} is announced by its Unicode name`).toHaveAttribute(
+      'aria-hidden',
+      'true'
+    );
+
+    const spoken = within(scope).getByText(spokenName);
+    expect(spoken).toHaveClass('sr-only');
+
+    // Same `<kbd>`, so the pair cannot drift apart into two unrelated hints.
+    const key = decoration.closest('kbd');
+    expect(key, `${glyph} is not inside a <kbd>`).not.toBeNull();
+    expect(spoken.closest('kbd')).toBe(key);
+  }
+
+  it('replaces the arrow and return glyphs with the keys they mean', () => {
+    const dialog = renderPalette();
+
+    // ↵ is "downwards arrow with corner leftwards" to a screen reader, which is not a key
+    // any listener can go and find.
+    expectKeyHint(dialog, '↑↓', 'Up and down arrow keys');
+    expectKeyHint(dialog, '↵', 'Enter');
+  });
+
+  it('leaves the ESC hint alone, because it already spells its key', () => {
+    // The control case for the rule: this `<kbd>` needs no treatment, and a blanket sweep
+    // over every `<kbd>` in the file would have given it a redundant one.
+    expect(within(renderPalette()).getByText('ESC')).not.toHaveAttribute('aria-hidden');
   });
 });
