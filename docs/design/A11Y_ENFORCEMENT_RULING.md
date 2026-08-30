@@ -189,6 +189,22 @@ call it from route-level render tests. Runs under the existing `npm run test`.
 
 This list may only shrink. Remediation is tracked by **WIC-1589**.
 
+> **Progress, 2026-08-30 (WIC-1589, slice 1 of 3).** The app-source count is **47 → 27,
+> 22 files → 16, 8 rules → 6.** Two rules reached zero and are back at `error`:
+> **`label-has-associated-control` (19 → 0)** and **`no-redundant-roles` (1 → 0)**.
+> `--max-warnings` is `27`.
+>
+> The table below is **not** updated — it is the frozen `743cfeb` record this ruling was
+> decided on, and rewriting it would destroy the thing §7 tells you it is. The live
+> per-file map is `A11Y_BASELINE` in `packages/web/src/test/jsxA11yBaseline.test.ts`,
+> which is asserted equal to a fresh lint run in both directions. **That file is the
+> source of record; this table is history.**
+>
+> Still open: the 20 interaction findings (`click-events-have-key-events` 9,
+> `no-static-element-interactions` 6, `no-noninteractive-element-interactions` 5) plus
+> `no-autofocus` 5, `no-noninteractive-tabindex` 1 and
+> `no-noninteractive-element-to-interactive-role` 1.
+
 | file | n | rules |
 | --- | ---: | --- |
 | `src/components/ApplicationCard.tsx` | 3 | no-noninteractive-element-interactions, no-redundant-roles, no-noninteractive-tabindex |

@@ -33,8 +33,21 @@ export function OutreachNew() {
         </div>
 
         <div className="mb-6 bg-white border rounded-lg p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-3">Select Platform</label>
-          <div className="flex gap-4">
+          {/*
+            "Select Platform" names the radio GROUP, not any one radio, so it is not a
+            <label> — a <label> must point at a single control. The group carries the name.
+          */}
+          <span
+            id="outreach-new-platform-label"
+            className="block text-sm font-medium text-gray-700 mb-3"
+          >
+            Select Platform
+          </span>
+          <div
+            className="flex gap-4"
+            role="radiogroup"
+            aria-labelledby="outreach-new-platform-label"
+          >
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"

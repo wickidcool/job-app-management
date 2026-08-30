@@ -134,8 +134,17 @@ export function OutreachComposer({
 
         {/* Platform Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Platform</label>
-          <div className="flex gap-3">
+          {/*
+            "Platform" names the radio GROUP, not any one radio, so it is not a <label> —
+            a <label> must point at a single control. The group carries the name instead.
+          */}
+          <span
+            id="outreach-platform-label"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Platform
+          </span>
+          <div className="flex gap-3" role="radiogroup" aria-labelledby="outreach-platform-label">
             {(['linkedin', 'email'] as OutreachPlatform[]).map((p) => (
               <label
                 key={p}
@@ -158,8 +167,14 @@ export function OutreachComposer({
           <h2 className="font-semibold text-gray-900">Context</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Company</label>
+              <label
+                htmlFor="outreach-company"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
+                Company
+              </label>
               <input
+                id="outreach-company"
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -167,8 +182,14 @@ export function OutreachComposer({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+              <label
+                htmlFor="outreach-role"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
+                Role
+              </label>
               <input
+                id="outreach-role"
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -176,8 +197,14 @@ export function OutreachComposer({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Contact</label>
+              <label
+                htmlFor="outreach-contact"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
+                Contact
+              </label>
               <input
+                id="outreach-contact"
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -224,8 +251,14 @@ export function OutreachComposer({
         {/* Subject (Email only) */}
         {body && limits.hasSubject && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Subject Line</label>
+            <label
+              htmlFor="outreach-subject"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              Subject Line
+            </label>
             <input
+              id="outreach-subject"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
