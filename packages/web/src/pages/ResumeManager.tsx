@@ -132,7 +132,7 @@ export function ResumeManager() {
                     {resume.mimeType === 'application/pdf' ? '📄' : '📝'}
                   </div>
                   <div className="min-w-0">
-                    <h3 className="font-medium text-neutral-900 truncate">{resume.fileName}</h3>
+                    <h2 className="font-medium text-neutral-900 truncate">{resume.fileName}</h2>
                     <p className="text-sm text-neutral-500">
                       {formatFileSize(resume.fileSize)} • Uploaded {formatDate(resume.uploadedAt)}
                     </p>
