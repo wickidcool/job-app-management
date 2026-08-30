@@ -1,0 +1,87 @@
+# WIC-1622 — One-shot audit: cross-tenant interview_preps rows
+#
+# Runs the diagnostic query from WIC-1622 against production to determine
+# whether any interview_preps rows have a user_id that differs from their
+# application's user_id (the cross-tenant lockout scenario).
+#
+# This workflow is dispatch-only and reads no data beyond the audit query.
+# Delete this file after the results are recorded on WIC-1622.
+
+name: WIC-1622 interview_preps cross-tenant audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit (production)
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+      SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+      SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
+
+    steps:
+      - name: Build connection string
+        id: conn
+        run: |
+          set -euo pipefail
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+          if [ -n "${SUPABASE_DATABASE_PASSWORD:-}" ]; then
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "${SUPABASE_DATABASE_URL:-}" == postgresql://* ]]; then
+            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            echo "::error::No usable credentials"
+            exit 1
+          fi
+          echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_ENV"
+          echo "Project: ${PROJECT_REF} @ ${PREFIX}-${REGION}.pooler.supabase.com:6543"
+
+      - name: Install psql
+        run: sudo apt-get install -y postgresql-client 2>/dev/null
+
+      - name: Run cross-tenant audit query
+        run: |
+          set -euo pipefail
+
+          echo "=== AC-1: Count cross-tenant rows (IS DISTINCT FROM) ==="
+          psql "$DATABASE_URL" --no-psqlrc --quiet -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT
+            COUNT(*) FILTER (WHERE p.user_id IS DISTINCT FROM a.user_id)                   AS total_mismatch,
+            COUNT(*) FILTER (WHERE p.user_id IS NULL AND a.user_id IS NOT NULL)            AS prep_null_app_known,
+            COUNT(*) FILTER (WHERE p.user_id IS NOT NULL AND a.user_id IS NULL)            AS prep_known_app_null,
+            COUNT(*) FILTER (WHERE p.user_id IS NOT NULL AND a.user_id IS NOT NULL
+                             AND p.user_id <> a.user_id)                                   AS genuine_mismatch
+          FROM interview_preps p
+          JOIN applications a ON a.id = p.application_id;
+          SQL
+
+          echo ""
+          echo "=== Full detail for any mismatch rows ==="
+          psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT
+            p.id          AS prep_id,
+            p.user_id     AS prep_owner,
+            a.user_id     AS app_owner,
+            p.application_id,
+            p.created_at
+          FROM interview_preps p
+          JOIN applications a ON a.id = p.application_id
+          WHERE p.user_id IS DISTINCT FROM a.user_id
+          ORDER BY p.created_at;
+          SQL
+
+          echo ""
+          echo "=== Total interview_preps rows in production ==="
+          psql "$DATABASE_URL" --no-psqlrc --quiet -v ON_ERROR_STOP=1 \
+            -c "SELECT COUNT(*) AS total_interview_preps FROM interview_preps;"
