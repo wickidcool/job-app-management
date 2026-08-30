@@ -140,7 +140,11 @@ async function openPanelThenApplyShortcut(user: ReturnType<typeof userEvent.setu
   // initialisers read the fresh value and the bug would not reproduce.
   await user.click(screen.getByRole('button', { name: 'Show filters' }));
   await screen.findByRole('checkbox', { name: STATUS_CHECKBOX_LABELS.interview });
-  await user.click(screen.getByRole('button', { name: FILTER_SHORTCUT_LABELS.interviewing }));
+  // Substring, not exact: the shortcut buttons prefix a decorative ✨ that is not
+  // aria-hidden, so the accessible name is "✨Interviewing" (tracked separately).
+  await user.click(
+    screen.getByRole('button', { name: new RegExp(FILTER_SHORTCUT_LABELS.interviewing) })
+  );
 }
 
 describe('/applications filter panel, driven by the real page (WIC-1612)', () => {
