@@ -104,6 +104,28 @@ describe('entropy heuristics', () => {
     expect(looksHighEntropy('Xk9Qm2Zr7Lp0Ab5Cd8Ef3Gh6Ij1Kl4Mn')).toBe(true);
   });
 
+  // Regression: WIC-1265. The exact branch name that broke the 18-PR merge queue.
+  it('does NOT flag kebab-case branch names or slugs (WIC-1265)', () => {
+    expect(looksHighEntropy('wic1184-deshout-quickref-wireframes')).toBe(false);
+    expect(looksHighEntropy('feature-branch-with-long-descriptive-name-1234')).toBe(false);
+    expect(looksHighEntropy('docs-wic1184-some-very-long-branch-name-slug')).toBe(false);
+  });
+
+  it('does NOT run generic entropy on comment lines (WIC-1265)', () => {
+    // YAML comment containing a long kebab branch name — must not produce a finding.
+    const yamlComment = '#      docs/wic1184-deshout-quickref-wireframes) has no workflow to load.';
+    expect(scanText('skip-ci-sweeper.yml', yamlComment, { enableEntropy: true })).toEqual([]);
+
+    // TS/JS line comment — same expectation.
+    const jsComment = '// wic1184-deshout-quickref-wireframes is the branch name here';
+    expect(scanText('some-file.ts', jsComment, { enableEntropy: true })).toEqual([]);
+
+    // Real credential in a YAML comment MUST still be caught by named patterns.
+    const realKey = `# key: ${SK_ANT}`;
+    const findings = scanText('config.yml', realKey, { enableEntropy: true });
+    expect(findings.map((f) => f.pattern)).toContain('anthropic-api-key');
+  });
+
   it('only runs generic entropy scanning when enabled', () => {
     const line = 'opaque = "Xk9Qm2Zr7Lp0Ab5Cd8Ef3Gh6Ij1Kl4Mn"';
     expect(scanText('src/foo.ts', line, { enableEntropy: false })).toEqual([]);
