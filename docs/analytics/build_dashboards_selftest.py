@@ -177,6 +177,12 @@ class InjectHogql(unittest.TestCase):
                 # Two `FROM events` scans, so two injected predicates, one per SELECT.
                 self.assertEqual(uncommented(out).count("AND NOT ("), 2)
                 self.assertIn(f"{op.split()[0]} ", uncommented(out))
+                # Each SELECT keeps its own wrapped WHERE body. Without the `_WHERE_END`
+                # widening the set operator fails to terminate the first WHERE, the second
+                # SELECT is swallowed into its parens, and only one `WHERE (` survives -- the
+                # `AND NOT (` count and `balanced()` both stay green (two defects cancel), so
+                # this is the assertion that actually pins the widening (WIC-1845 review).
+                self.assertEqual(out.count("WHERE ("), 2)
                 self.assertTrue(balanced(out))
 
     def test_parens_and_apostrophes_inside_literals_do_not_desync(self):
@@ -414,6 +420,13 @@ class ConsolePackRoute2(unittest.TestCase):
     def test_exclude_synthetic_refuses_writing_into_docs_analytics(self):
         with self.assertRaises(SystemExit):
             self._run(["--exclude-synthetic", "--out-dir", HERE])
+
+    def test_exclude_synthetic_refuses_a_subdirectory_of_docs_analytics(self):
+        # `docs/analytics/subdir` is still inside the tree the runbook promises a filtered
+        # pack can never land in; refusing only the exact dir would let one be committed a
+        # level down (WIC-1845 review).
+        with self.assertRaises(SystemExit):
+            self._run(["--exclude-synthetic", "--out-dir", os.path.join(HERE, "subdir")])
 
     def test_committed_templates_json_is_unfiltered(self):
         # The artifact a human imports is committed UNFILTERED on purpose: it proves it was

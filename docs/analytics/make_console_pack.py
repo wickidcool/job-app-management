@@ -129,10 +129,13 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
 
     out_dir = os.path.abspath(args.out_dir) if args.out_dir else HERE
-    if args.exclude_synthetic and out_dir == HERE:
+    # Refuse HERE *and any subdirectory of it* -- `docs/analytics/subdir` is still "inside
+    # docs/analytics/", the tree the runbook promises a filtered pack can never land in.
+    if args.exclude_synthetic and (out_dir == HERE or out_dir.startswith(HERE + os.sep)):
         parser.error(
-            "--exclude-synthetic needs --out-dir pointing somewhere other than "
-            f"{HERE}.\nA filtered pack embeds the registry as it stands today, so "
+            "--exclude-synthetic needs --out-dir pointing outside "
+            f"{HERE} (subdirectories of it are refused too).\nA filtered pack embeds the "
+            "registry as it stands today, so "
             "committing it would ship a snapshot that goes stale the next time a probe "
             "fires -- the WIC-1389/WIC-1392 transcription bug, one layer down. Generate "
             "it outside the repo, use it, throw it away."
