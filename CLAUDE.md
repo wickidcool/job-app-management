@@ -178,8 +178,10 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
   last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
   most common of the three by a wide margin and has a one-line prevention: **write your inserted
-  block so it both begins and ends with a blank line** (measured below — the trailing one is the one
-  that does the work). **Do not treat the weld as cosmetic** — it is the precondition for the fourth
+  block so it both begins and ends with a blank line** — *both*, because the two merges your entry
+  undergoes consume opposite edges, and because for two PRs on a shared base no per-branch
+  arrangement is safe in every merge order (both measured below). **Do not treat the weld as
+  cosmetic** — it is the precondition for the fourth
   mode; see "A weld you commit is a misfile you have armed for whoever branches off you next".
 - **One side moved a block, the other edited inside it.** The two do not line up as one diff3 region,
   so union keeps the relocated copy *and* the edited copy — a whole `### ` entry, duplicated. Note
@@ -464,7 +466,8 @@ it — the exact outcome the pre-merge re-measure exists to prevent, and the fir
 failed because the accused set had grown from one branch to eleven, and re-checking eleven by hand
 is work that quietly gets skipped. **Re-run the same command that produced the roster** — it is one
 sweep, not eleven checks — and let the diff in the roster be the answer. The two dropouts are also
-the good news in this section: the trailing-blank remedy is being adopted and it works in practice.
+the good news in this section: the blank-line discipline is being adopted and it works in practice,
+on a single branch merging its own base in. (Which edge, and when that is not enough, is below.)
 
 **Do not restrict this sweep to `main`-based PRs.** An earlier revision reported nine welders and
 asserted all were `main`-based, while a stacked PR was welding against its own base the whole time
@@ -480,14 +483,35 @@ The cause is that both sides insert at the same blank-line separator. The base h
 once; union emits both insertion blocks around it, the **first** block keeps the blank, and the
 **second** block's heading lands directly against the first block's last bullet.
 
-**⛔ Which blank you need follows from that, and it is the opposite of what this file said until
-2026-08-30.** The block that loses its separator is the one emitted *second*, and union emits
-ours-then-theirs — so in the real orientation, where your PR head is `ours`, **your block is emitted
-first and it is the blank at its *end* that gets consumed.** You need a **trailing** blank. The
-previous revision prescribed a *leading* blank and stated flatly that padding the end "does
-nothing"; that was measured with the sides swapped, and in the orientation that actually occurs it
-is exactly backwards. Re-tested 2026-08-30 at `main` = `30b61a2` over all 9 current welders by
-rebuilding each branch with an extra blank added to each inserted run:
+**⛔ The blank that gets eaten is the one at the join between the two competing insertions — which
+is a different edge of *your* block depending on which merge you are looking at.** Union emits
+ours-then-theirs, so the block emitted **first** loses the blank at its **end** and the block emitted
+**second** loses the blank at its **start**. Those are not two blanks. They are the same physical
+line in the merged file, named from the two sides of it.
+
+Every entry goes through two merges, and they point in opposite directions:
+
+| the merge | who is `ours` | the edge of your block at the join |
+|---|---|---|
+| **pre-push** — `git merge <base>` on your branch, to clear `CONFLICTING` | your PR head | its **trailing** edge |
+| **landing** — `main` or your base branch takes your PR | the base | its **leading** edge |
+
+Measured 2026-08-30 by running one pair of inputs both ways — PRs #188 (`fcc5e4e`) and #180
+(`c6cf108`), siblings on `fix/wic1478-dashboard-attention-aggregates` (`a18981e`), `main` at
+`a46c63a`. `main` merges #180 in: the weld lands on **#180's**
+heading, its leading blank consumed. #180's branch merges that same `main` in: the weld lands on
+**#188's** heading, and the blank that went is #180's *trailing* one. Same two files, opposite
+direction, opposite edge.
+
+**So pad both edges, and treat the old tie-break as retired.** A previous revision of this section
+said "if you only add one, add the trailing one." That is right for the pre-push merge and wrong for
+the landing merge — and it is the landing merge that publishes a weld to `main`, where it arms the
+misfile for every branch that subsequently merges `main` (next section). Of the two, the leading
+blank is the one with the larger blast radius. Add both, and stop choosing.
+
+The table below stands as measured, and what it measured was the **pre-push** merge only. Re-tested
+2026-08-30 at `main` = `30b61a2` over all 9 then-current welders by rebuilding each branch with an
+extra blank added to each inserted run:
 
 | variant | welders remaining, of 9 |
 |---|---|
@@ -498,15 +522,71 @@ rebuilding each branch with an extra blank added to each inserted run:
 
 Confirmed with a real merge rather than a simulation: PR #92 rebuilt each way and actually merged
 with `git merge origin/main` in a scratch worktree welds with the leading blank and **does not weld
-with the trailing one**. Keep doing both — the leading blank costs nothing, and the two known
-benign-looking arrangements are cheap insurance against the next orientation surprise — but if you
-only add one, **add the trailing one.**
+with the trailing one**.
 
 **One of the nine resists the remedy: #149 still welds with a trailing blank, and with both.** So
 a blank-line discipline is a very good default, not a guarantee; the simulation is still the thing
 that answers the question for your branch. **And it is a prevention, not a repair** — it stops a
 weld being created, it does nothing about one already committed, and once a committed weld reaches a
 merge base you share with someone the damage is no longer yours to undo (next section).
+
+#### Two PRs on a shared base: the remedy is order-dependent, and it does not compose
+
+Everything above treats the blank as something you can get right on your own branch. For **sibling
+PRs stacked on the same base** that is not true, and the failure is not a corner case — it is the
+arrangement the advice above produces if both authors follow it.
+
+When two siblings insert at the same seam, their entries land adjacent to each other on `main`, so
+the contested join is *between the two of them*. The edge that needs padding therefore belongs to
+whichever sibling merges **second** — and merge order is not under either author's control.
+
+Measured 2026-08-30, `main` = `a46c63a`. PRs #188 (`test/wic1574-…`, `fcc5e4e`) and #180
+(`fix/wic1497-…`, `c6cf108`), siblings on `fix/wic1478-…` (`a18981e`). Every figure is the weld
+count on the simulated post-merge `main`, from
+a real `git merge` in a scratch worktree with the union driver active. Control: **all ten input refs
+are individually weld-free**, and so is `main`, so every weld below is introduced by the merge.
+
+| extra blank added | order 160, 188, 180 | order 160, 180, 188 |
+|---|---|---|
+| none | 1 | 1 |
+| leading, on #188 | 1 | **0** |
+| leading, on #180 | **0** | 1 |
+| leading, on both | 1 | 1 |
+| trailing, on #188 | **0** | 1 |
+| trailing, on #180 | 1 | **0** |
+| trailing, on both | 1 | 1 |
+| **both edges, on #188 only** | **0** | **0** |
+| **both edges, on #180 only** | **0** | **0** |
+| **both edges, on both** | 1 | 1 |
+
+Three things follow, and the third is the one that matters:
+
+- **Every single-edge remedy is order-dependent.** Each works in exactly one of the two orders and
+  welds in the other. Since the weld always lands on the heading of whichever sibling merges second,
+  and neither author schedules that, no single-edge choice is safe.
+- **Padding both edges of exactly one sibling is clean in both orders** — the only arrangement here
+  that is. This is why the standing advice is *both* edges, not a tie-break between them.
+- **Padding both edges of both siblings welds in both orders, exactly as badly as padding neither.**
+  So the obvious move — every author applies the documented remedy to their own branch — is
+  precisely the arrangement that fails.
+
+That last row means **the remedy is not composable, and you cannot reason about your edge one branch
+at a time.** The blanks are real lines that travel with their blocks, so adding one at an
+*uncontested* seam changes how diff3 aligns the contested one. With a leading blank on both
+siblings the merged file ends up carrying a visible stray double blank above the first entry and
+still welding at the join below it: the padding moved to a seam nobody was competing for, and the
+one that was contested was eaten anyway.
+
+**So for siblings on a shared base, prevention is not something either author can apply
+unilaterally.** Two honest options: coordinate, so that exactly one of the two pads both edges and
+the other leaves its block alone; or accept that the check on the merge *result* is the only
+control. Prefer the second — it does not require the two authors to be awake at the same time.
+
+**Whoever merges the second of two siblings owns running that check,** in the merge commit, before
+pushing. That is the first moment the two blocks are adjacent, so it is the first moment the weld
+either exists or does not, and it is the last moment before it becomes a committed weld in a merge
+base other branches will inherit. Neither PR page shows it, both branch tips report clean, and
+nothing in CI runs the check today (WIC-1792).
 
 **Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
 Resolved to content anchors, the 9 welds sit on four seams: three onto
