@@ -69,7 +69,12 @@ export interface DateRangeFilter {
  * date back and requiring it to equal the input is self-checking: only a string that
  * really is one calendar day survives, and there is no pattern to drift. It rejects
  * `2026-13-45` and `2026-02-30` (which a regex accepts), `20260301` and `2026-3-1`
- * (wrong shape), and any prose containing a date.
+ * (wrong shape), and text trailing the day (`2026-03-01 was the day`).
+ *
+ * The round trip covers the **first ten characters only**. What follows them is checked
+ * just for a `T` separator, so `2026-03-01Thursday` reads as 1 Mar 2026 rather than
+ * being rejected. Deliberate: the time part is discarded regardless, so the day is still
+ * right, and fail-soft is the point for a value that reaches us from `localStorage`.
  *
  * A full ISO timestamp is accepted and reduced to its **date part**, so it is read as a
  * local calendar day like every other bound rather than as the UTC instant `parseISO`
@@ -83,8 +88,13 @@ function readBound(day: string | undefined): Date | null {
   const trimmed = day.trim();
   const dayPart = trimmed.slice(0, 10);
   const rest = trimmed.slice(10);
-  // Anything after the day may only be a time, never trailing junk that happens to sit
-  // behind ten valid-looking characters.
+  // The round trip below only ever sees the first ten characters, so this rejects a
+  // string whose day is followed by something that is not a time separator —
+  // `2026-03-01x`, `2026-03-01 was the day`. It is a separator check, not a time
+  // parser: `2026-03-01T`, `2026-03-01Tzzzzz` and `2026-03-01Thursday` all pass here
+  // and read as 1 Mar 2026. That is deliberate — the time is discarded either way, so
+  // the day is still correct, and this is the fail-soft path for a corrupt
+  // `localStorage` bound. Do not read it as validating what follows the `T`.
   if (rest !== '' && !rest.startsWith('T')) return null;
 
   const parsed = parseISO(dayPart);

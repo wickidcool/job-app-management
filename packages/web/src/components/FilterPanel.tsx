@@ -118,8 +118,12 @@ export function FilterPanel({
   const hasDateRange = Boolean(dateStart || dateEnd);
 
   // A range with neither end set is written back as `undefined`, not as `{}`, so
-  // "no date filter" has exactly one representation. `hasActiveFilters`, the chip row
-  // and `filterByDateRange` all then agree without each re-deriving emptiness.
+  // "no date filter" has exactly one representation on the wire and in `localStorage`.
+  // This is hygiene, not a load-bearing gate: every consumer re-derives emptiness for
+  // itself anyway (`?? ''` here, `?.start ||` in `SavedFilterShortcuts`,
+  // `isEmptyDateRange` in `filterByDateRange`), so all three stay correct against a `{}`
+  // this never emits. Confirmed by mutation — making it always emit an object changes no
+  // test result (WIC-1613 review, M11). Keep it; do not add a consumer that trusts it.
   const writeDateRange = (next: DateRangeFilter) => {
     const start = next.start || undefined;
     const end = next.end || undefined;

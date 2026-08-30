@@ -149,6 +149,15 @@ describe('reading a bound is self-checking, not a pattern match (WIC-1613)', () 
     // What `JSON.stringify` makes of a `Date` — the shape a shortcut saved against the
     // old `{ start: Date; end: Date }` type would carry.
     ['a full ISO timestamp, reduced to its date part', '2026-03-01T00:00:00.000Z'],
+    // The documented limit of the guard, pinned so the comment on `readBound` is
+    // checkable rather than prose (WIC-1613 review, note 3). Only the first ten
+    // characters round-trip; past them this is a `T`-separator check and NOT a time
+    // parser, so these read as 1 Mar 2026 rather than being rejected. That is the
+    // intended fail-soft for a corrupt `localStorage` bound — the time is discarded
+    // either way, so the day is still right. Contrast `'2026-03-01x'` below, which has
+    // no `T` and IS rejected: that pair is the whole boundary.
+    ['a bare `T` separator with no time after it', '2026-03-01T'],
+    ['junk behind a `T`, which the guard does not inspect', '2026-03-01Thursday'],
   ] as const;
 
   const READS_AS_NOTHING = [

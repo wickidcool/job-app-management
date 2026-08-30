@@ -494,6 +494,13 @@ and never specified — and is now written down. (WIC-1613 exists because `dateR
 in the third category: declared, spelled the way the requirement spells it, and wired to
 nothing. A field listed in this block is a promise, so this block only lists what is real.)
 
+Striking the salary fields is a **statement of fact, not yet a ruling** — nobody has
+decided whether salary filtering is wanted. **WIC-1731** carries that decision, so the
+gap is tracked rather than silently absent; deleting an unbuilt clause without recording
+why is how `dateRange` came to read as delivered for four months. Note that salary,
+unlike date, is not named in any accepted US- clause: US-6.3 asks for "status, company,
+date".
+
 ### UI Elements
 
 | Element     | Type                      | Behavior                                                                  |
@@ -515,6 +522,20 @@ inclusive local calendar days.
 The presets are shorthand for the two inputs, not a separate filter — each writes the
 same `dateRange`, and either end stays editable afterwards. Presets alone cannot satisfy
 US-6.3, which asks for filtering by date, not by three enumerated windows.
+
+**The presets are calendar-anchored, and deliberately differ from the Dashboard's
+rolling stats.** "This Week" is `startOfWeek(now)` — the current Sunday-start calendar
+week — and "This Month" is month-to-date. The Dashboard's `appliedThisWeek` /
+`appliedThisMonth` (`dashboard.service.ts`) are *rolling*: `now - 7 days` and
+`setMonth(getMonth() - 1)`. So the two can disagree sharply — on a Sunday, "This Week"
+spans one day
+and `appliedThisWeek` spans seven. This is the same US-6.3 acceptance row naming both
+"filter by ... date" and "applied this week", so the divergence is written down here
+rather than left for each layer to rediscover (the WIC-1515/WIC-1516 shape). A filter
+bound is a boundary the user *picks and can see*, so it should land where they expect a
+week to start; a headline stat is a trailing measure, where a rolling window is the
+honest one. ("Last 3 Months" is `subMonths(now, 3)` and is rolling, which is what its
+name says.) If these are ever unified, change both and update this paragraph.
 
 ### Active Filter Chips
 
@@ -805,7 +826,7 @@ here rather than merely tidy.
   cosmetic, and (its §3) the constraint on how `/cover-letters/new`'s missing `<h1>` must be
   fixed so that this prop does not become unearned again.
 - **A prop in this class can be un-earned from below, not only from above** (WIC-1598). The
-  criterion is where the heading lands _relative to its hosts_, so **demoting the headings around a
+  criterion is where the heading lands *relative to its hosts*, so **demoting the headings around a
   component collapses the prop exactly as promoting the component's own heading does** — both leave
   every call site passing the same level. This is not hypothetical: a `/cover-letters/new` heading
   sweep specified in `ROUTE_HEADING_OUTLINE.md` §4 would have flattened `CoverLetterPreview` to one
@@ -817,7 +838,7 @@ here rather than merely tidy.
     ruling that earned it.** A prop deleted as fallout from an unrelated sweep loses the reasoning
     with it, and the next person re-derives the same design question from scratch. The source guard
     (`CoverLetterPreview.test.tsx` → `is asked for h3 by CoverLetterGenerator and h2 by
-CoverLetterDetail`) exists to force that conversation rather than to forbid the change — note
+    CoverLetterDetail`) exists to force that conversation rather than to forbid the change — note
     that it reads the literal levels, so a structural argument about nesting will not satisfy it.
 
 #### Kanban headings (WIC-1563)
