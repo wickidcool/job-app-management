@@ -107,6 +107,16 @@ jobs:
       - name: Audit ConfirmationModal focus restore
         run: python3 docs/design/confirmation-modal-focus-audit.py
 
+      # WIC-1664: build_dashboards.py rewrites HogQL by string index to inject the
+      # synthetic-traffic exclusion, and that fails silently — it emits plausible SQL
+      # whose predicate does not actually bind, and the tile still renders, just against
+      # probe residue. `apply_exclusion` only aborts on *zero* filtered sites, so a
+      # rewrite that reports one site and filters nothing ships green. The live half of
+      # the check needs a PostHog key (`build_dashboards.py --dry-run`); this half needs
+      # no credential, so it runs on every PR.
+      - name: Analytics synthetic-exclusion self-test
+        run: python3 docs/analytics/build_dashboards_selftest.py
+
       # ADR-010 / AC-T0 (WIC-1600): an authenticated request with no resolved
       # owner must match zero rows. 48 predicates reached `main` doing the
       # opposite, in three different syntactic shapes, because nothing executed
