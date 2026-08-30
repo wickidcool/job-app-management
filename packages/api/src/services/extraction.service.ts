@@ -808,6 +808,14 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
     changes,
     pendingReview,
     status: shouldAutoApply ? 'approved' : 'pending',
+    // `status` answers "were the changes applied?" and nothing else. Whether an
+    // ambiguity is still outstanding is a separate question, and on the resume
+    // auto-apply path the two diverge: the changes ARE applied and an ambiguity IS
+    // open. Recording it here is what makes the item reachable — the default
+    // `GET /api/catalog/diffs` returns `pending OR openReviewCount > 0`, so an
+    // auto-applied diff carrying items is listed, and one carrying none is not
+    // (WIC-1428, AC-1/AC-3).
+    openReviewCount: pendingReview.length,
     expiresAt: shouldAutoApply ? null : expiresAt,
     resolvedAt: shouldAutoApply ? now : null,
   });
