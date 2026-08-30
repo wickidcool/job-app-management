@@ -445,6 +445,43 @@ check on it. A claim about someone else's branch is exactly as perishable as a b
 lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
 the file. Check the shape of the `+` run in `git diff`, not whether the file "looks" spaced.
 
+**Do not run Prettier over `CHANGELOG.md`, and do not widen the format glob to reach it — the
+formatter deletes the pad you just added.** `format` and `format:check` are scoped to
+`packages/**/*.{ts,tsx,css,md}`, so the root changelog sits outside every gate the repo has; a
+Prettier editor plugin on format-on-save ignores that glob entirely, which is the realistic way this
+happens to you. Measured 2026-08-30 with the pinned Prettier 3.8.3, `--parser markdown` over the
+whole file at `main` = `e3533d7`: the reformat removes **10 blank lines, and every one of them sits
+immediately above a `### ` heading** — eight entry seams, which is exactly the leading padding the
+paragraph above prescribes. The count moves with the file; the ratio is the durable part.
+Prettier collapses any run of blank lines to one and cannot tell a separator from a pad, so widening
+the glob would strip the remedy from eight entries in one commit and re-arm the weld on each. The
+two conventions are in direct conflict, the padding wins, and the changelog stays out of the
+formatter's scope on purpose.
+
+**Never escape a backtick inside a code span — CommonMark ignores the escape, and the mis-parse is
+silent and total.** The escape does not stop the backtick from closing the span, so the span ends
+early and every code span in the rest of the paragraph inverts: prose renders as code and the code
+fragments render as prose. Measured on the WIC-1377 entry, which carried
+`` sql`…` `` written the escaped way: **all 8** code spans in that paragraph were prose, and its
+`**parameter list**` reached the rendered page as literal asterisks. Prettier then faithfully
+re-serialises that inverted tree, and because a code span needs no surrounding whitespace the reflow
+**eats word-boundary spaces**, while exiting 0 and reporting success. Use the padded double-backtick
+form, which round-trips through Prettier unchanged (WIC-1732):
+
+```markdown
+wrong:  `sql\`${companyCatalog.id} = ANY(${sourceIds})\``
+right:  `` sql`${companyCatalog.id} = ANY(${sourceIds})` ``
+
+what the wrong form costs on the next reformat, silently, in prose nobody edited:
+  ... interpolated into a `sql`template as a comma-separated ...
+  ... `($1, $2)`is a row constructor and `= ANY(...)`requires an array ...
+```
+
+The two padding spaces just inside the doubled delimiters are load-bearing: CommonMark strips one
+leading and one trailing space from a code span, and without them the span's own trailing backtick
+runs into the closing delimiter. Render-check any paragraph that mixes code spans with literal
+backticks — this class is invisible in the source and shows up only in the parsed output.
+
 Re-measured 2026-08-30 at `main` = `30b61a2`, across the 86 open PRs, of which **82** have a
 `CHANGELOG.md` differing from their true base, each simulated in the real orientation with the
 content-addressed three-input control: **9 will weld a `### ` heading onto the previous entry's last
