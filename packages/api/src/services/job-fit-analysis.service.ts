@@ -15,8 +15,10 @@
 // from the table.
 //
 // Note that this file is deliberately dependency-light (`AppError` only). The
-// four services that call it must not acquire a transitive dependency on
-// `job-fit.service.ts`, which pulls in the LLM client, `node:dns` and config.
+// three service modules that call it — cover-letter, resume-variant and
+// interviewPrep, five call sites between them — must not acquire a transitive
+// dependency on `job-fit.service.ts`, which pulls in the LLM client, `node:dns`
+// and config.
 import { AppError } from '../types/index.js';
 
 /**
