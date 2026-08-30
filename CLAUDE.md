@@ -71,8 +71,8 @@ npm run dev                # Frontend dev server (Vite, :5173)
 npm run dev:worker         # API as a Worker via `wrangler dev` (top-level config: assets + R2, no Hyperdrive)
 npm run dev:api            # API on Node.js via tsx (:3000) — faster iteration
 
-npm run build              # Build all packages — this is the type check CI enforces
-npm run typecheck          # tsc -b web + api --noEmit — a different, weaker check (see below)
+npm run build              # Build all packages — the type check that actually gates a PR
+npm run typecheck          # tsc -b web + api --noEmit — CI runs this too, but it is weaker (see below)
 npm run lint               # Lint all packages
 npm run test               # Unit tests (Vitest)
 npm run test:e2e           # Playwright E2E tests
@@ -81,9 +81,9 @@ npm run db:migrate         # Run migrations (reads DATABASE_URL)
 npm run db:push            # Push schema directly (dev only)
 ```
 
-### `npm run typecheck` is not the check CI runs
+### `npm run typecheck` goes green on code CI rejects
 
-`npm run typecheck` and `npm run build` disagree, and neither is a superset of the other. Measured on `7a9ee29` — the exact commit CI rejected — with both build caches cleared first: `npm run typecheck` exits **0**, `npm run build` exits **2**. So reproduce CI with the build:
+`npm run typecheck` and `npm run build` disagree, and **`npm run build` is the stronger of the two: it rejects code that `npm run typecheck` accepts.** Measured on `7a9ee29` — the exact commit CI rejected — with both build caches cleared first: `npm run typecheck` exits **0**, `npm run build` exits **2**. CI runs *both*, so the weak check going green tells you nothing. Reproduce CI with the build:
 
 ```bash
 rm -rf packages/*/node_modules/.tmp   # the tsbuildinfo files; CI never has one
