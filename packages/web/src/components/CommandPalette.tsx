@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useApplications } from '../hooks/useApplications';
+import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import { RECENT_SEARCHES_KEY } from '../services/appStorage';
 
 interface CommandPaletteProps {
@@ -23,18 +24,28 @@ const MAX_RECENT_SEARCHES = 5;
 const SUGGESTED_FILTERS = [
   {
     id: 'interviews',
-    title: 'Interviews This Week',
+    title: FILTER_SHORTCUT_LABELS.interviewing,
     path: '/applications?status=interview,phone_screen',
     icon: '🤝',
   },
-  { id: 'needs-followup', title: 'Needs Follow-up', path: '/reports/stale', icon: '⏰' },
+  {
+    id: 'needs-followup',
+    title: FILTER_SHORTCUT_LABELS.needsFollowUp,
+    path: '/reports/stale',
+    icon: '⏰',
+  },
   {
     id: 'recently-applied',
-    title: 'Recently Applied',
+    title: FILTER_SHORTCUT_LABELS.applied,
     path: '/applications?status=applied',
     icon: '📤',
   },
-  { id: 'offers', title: 'Active Offers', path: '/applications?status=offer', icon: '🎉' },
+  {
+    id: 'offers',
+    title: FILTER_SHORTCUT_LABELS.activeOffers,
+    path: '/applications?status=offer',
+    icon: '🎉',
+  },
 ];
 
 // localStorage helpers

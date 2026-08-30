@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { FilterOptions } from './FilterPanel';
 import type { ApplicationStatus } from '../types/application';
+import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import { SAVED_FILTERS_KEY } from '../services/appStorage';
 
 interface SavedFilterShortcutsProps {
@@ -18,7 +19,7 @@ interface FilterShortcut {
 const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
   {
     id: 'needs-followup',
-    name: 'Needs Follow-up',
+    name: FILTER_SHORTCUT_LABELS.needsFollowUp,
     filters: {
       status: ['saved', 'applied', 'phone_screen'] as ApplicationStatus[],
     },
@@ -26,7 +27,7 @@ const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
   },
   {
     id: 'interviews-this-week',
-    name: 'Interviews This Week',
+    name: FILTER_SHORTCUT_LABELS.interviewing,
     filters: {
       status: ['interview', 'phone_screen'] as ApplicationStatus[],
     },
@@ -34,7 +35,7 @@ const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
   },
   {
     id: 'recently-applied',
-    name: 'Recently Applied',
+    name: FILTER_SHORTCUT_LABELS.applied,
     filters: {
       status: ['applied'] as ApplicationStatus[],
     },
@@ -42,7 +43,7 @@ const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
   },
   {
     id: 'active-offers',
-    name: 'Active Offers',
+    name: FILTER_SHORTCUT_LABELS.activeOffers,
     filters: {
       status: ['offer'] as ApplicationStatus[],
     },
