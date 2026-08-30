@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link, useNavigate } from 'react-router-dom';
+import { Announcer } from '../components/Announcer';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { EmptyState } from '../components/EmptyState';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
+import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useDialogFocusRestore } from '../hooks/useDialogFocusRestore';
 
 export function ProjectsList() {
@@ -21,6 +23,21 @@ export function ProjectsList() {
   // The Project Name input carries `autoFocus`, so Radix never dispatches
   // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
   const focusRestore = useDialogFocusRestore({ fallbackRef: headerCreateRef });
+  // Focus restore and outcome announcement are two halves of the same
+  // requirement, and the fallback above is exactly what makes the second half
+  // load-bearing: on the create-success path focus lands on the *header*
+  // "Create Project" button, which is not the control the user activated. A
+  // screen-reader user would otherwise hear only "Create Project, button" —
+  // no confirmation that the project exists, and no account of why focus moved.
+  const { message: announcement, announce, clear: clearAnnouncement } = useAnnouncer();
+
+  // Emptying the region as the dialog opens keeps the previous outcome from
+  // lingering in the accessibility tree while the user works on the next one.
+  // Emptying is itself silent, so this announces nothing.
+  const handleOpenCreate = () => {
+    clearAnnouncement();
+    setShowCreateModal(true);
+  };
 
   // Shared by the Cancel button, Escape, and outside-click, so every dismissal
   // path clears the draft rather than only the button.
@@ -33,14 +50,18 @@ export function ProjectsList() {
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
 
+    // Captured before the reset below clears it.
+    const createdName = newProjectName.trim();
+
     try {
       await createProject.mutateAsync({
-        name: newProjectName.trim(),
+        name: createdName,
         description: newProjectDescription.trim() || undefined,
       });
       setShowCreateModal(false);
       setNewProjectName('');
       setNewProjectDescription('');
+      announce(`Project ${createdName} created.`);
     } catch (error) {
       console.error('Failed to create project:', error);
       alert('Failed to create project. Please try again.');
@@ -65,6 +86,15 @@ export function ProjectsList() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      {/*
+        Portalled to <body>, so its position in this tree is presentational only.
+        Mounted here rather than in the `isLoading` branch above deliberately: the
+        only announcement this page makes follows a create, which cannot happen
+        before the list has loaded, so the region is always in the accessibility
+        tree well ahead of its first update.
+      */}
+      <Announcer message={announcement} />
+
       <Breadcrumb
         trail={[
           { label: 'Dashboard', href: '/' },
@@ -88,7 +118,7 @@ export function ProjectsList() {
           </button>
           <button
             ref={headerCreateRef}
-            onClick={() => setShowCreateModal(true)}
+            onClick={handleOpenCreate}
             className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
             Create Project
@@ -99,7 +129,7 @@ export function ProjectsList() {
       {projects.length === 0 ? (
         <EmptyState
           variant="no-documents"
-          onAction={() => setShowCreateModal(true)}
+          onAction={handleOpenCreate}
           actionLabel="Create Your First Project"
         />
       ) : (
