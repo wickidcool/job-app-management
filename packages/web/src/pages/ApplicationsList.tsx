@@ -7,6 +7,8 @@ import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
 import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useDebounce } from '../hooks/useDebounce';
+import { filterByDateRange } from '../utils/dateRangeFilter';
 import { parseStatusParam } from '../constants/applicationStatus';
 import type { Application, ApplicationStatus } from '../types/application';
 
@@ -64,22 +66,30 @@ export function ApplicationsList() {
     }
   }
 
+  // `filters` updates on every keystroke so that `FilterPanel` can stay controlled (it
+  // holds no state of its own — see WIC-1612), so the debounce that used to live inside
+  // the panel lives here instead: between the committed filter state and the API, which
+  // is the only place that actually needed protecting from a request per character.
+  const debouncedSearch = useDebounce(filters.search, 300);
+
   // Convert FilterOptions to API filter format
   const apiFilters = useMemo(
     () => ({
       status: filters.status,
-      search: filters.search,
+      search: debouncedSearch,
       // API only supports single company partial match, not multiple exact matches
       // We'll handle multiple companies via client-side filtering
       company: undefined,
     }),
-    [filters.status, filters.search]
+    [filters.status, debouncedSearch]
   );
 
   const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
   const updateStatusMutation = useUpdateApplicationStatus();
 
-  // Client-side filtering for multiple companies and activeOnly (API doesn't support these)
+  // Client-side filtering for multiple companies, activeOnly and the date range — none
+  // of which `/applications` supports as a query parameter. Every row already carries
+  // `createdAt` and `appliedAt`, so the date window needs no API change (WIC-1613).
   const applications = useMemo(() => {
     let filtered = rawApplications;
 
@@ -91,8 +101,10 @@ export function ApplicationsList() {
       filtered = filtered.filter((app) => ACTIVE_STATUSES.includes(app.status));
     }
 
+    filtered = filterByDateRange(filtered, filters.dateRange);
+
     return filtered;
-  }, [rawApplications, filters.company, filters.activeOnly]);
+  }, [rawApplications, filters.company, filters.activeOnly, filters.dateRange]);
 
   // Pipeline stats for the summary bar
   const pipelineStats = useMemo(() => calculatePipelineStats(rawApplications), [rawApplications]);

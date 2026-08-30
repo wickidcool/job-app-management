@@ -162,6 +162,64 @@ All functionality must be accessible via keyboard alone. No mouse required.
 </form>
 ```
 
+#### Dialogs — every `Dialog.Content` needs a `Dialog.Title`, and the id must be Radix's own
+
+A dialog with no title has **no accessible name at all**: a screen reader announces "dialog"
+and stops, so the user has no idea what just took their focus. SC 4.1.2. It is the cheapest
+a11y defect in the codebase to create, because nothing about the rendered page looks wrong.
+
+Radix does say so, on every mount, in the console:
+
+```
+`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+```
+
+So the rule is: **render `Dialog.Title` and `Dialog.Description`, and let Radix assign both
+ids.** Where the design has no room for a visible title — `CommandPalette` opens with nothing
+above its search field — make the title `sr-only` rather than omitting it.
+
+```tsx
+<Dialog.Content>
+  <Dialog.Title className="sr-only">Quick search</Dialog.Title>
+  <Dialog.Description className="sr-only">
+    Type to search applications, companies, and statuses. Use the up and down arrow keys to
+    move between results, and Enter to open one.
+  </Dialog.Description>
+```
+
+**⛔ Do not pass your own `id` to either one, and do not hand-write `aria-describedby` on
+`Dialog.Content`.** The warnings resolve `context.titleId` / `context.descriptionId` through
+`getElementById` (`@radix-ui/react-dialog` 1.1.15, `dist/index.mjs:295` and `:308`), so an
+overridden id leaves that lookup empty and **the warning fires against markup that is
+actually correct** — which trains everyone to ignore it.
+
+`ApplicationForm.tsx` was the worked example of this: genuinely named and described, and
+warning on every mount for no reason but the id override. Fixed in WIC-1854 — as of that
+commit all three `Dialog.Content` call sites in `packages/web/src` (`ApplicationForm`,
+`CommandPalette`, `ApplicationNew`) render a `Dialog.Title` and let Radix assign both ids,
+so any of them is safe to copy. Re-sweep with `grep -rn 'Dialog.Content' packages/web/src`
+rather than trusting that count; it was 3 when written.
+
+Reusing existing visible copy as the description, via `aria-describedby` pointed at a node
+already on screen, is the textbook move and was tried on `CommandPalette` and rejected: the
+node in question was the keyboard-hint footer, which is written to be *glanced at* and reads
+as a stutter aloud. Prefer it when the visible text is a sentence; write a `sr-only`
+description when it is a row of hints.
+
+**Verification.** Assert the **exact** accessible name and description, and in the same file
+spy on `console.error` / `console.warn` and assert neither Radix message fires — with a
+positive control that mounts a deliberately unnamed dialog, or the guard passes just as
+happily against a broken spy. See `packages/web/src/components/CommandPalette.test.tsx`
+(WIC-1851) and `ApplicationForm.test.tsx` (WIC-1854).
+
+**The console guard is not redundant with the name assertions — for the id-override defect it
+is the only thing that catches it.** Measured on WIC-1854: against the pre-fix component the
+accessible name and description assertions **passed**, because the markup really was correct;
+only the console guard and an assertion that `aria-describedby` resolves to Radix's *generated*
+id failed. So write both, and prefer asserting the id is the generated one over asserting the
+attribute merely exists.
+
 ### Live Regions
 
 Use ARIA live regions to announce dynamic changes without moving focus.
@@ -375,6 +433,74 @@ Status must be communicated through:
   Saved
 </span>
 ```
+
+### An Emoji Is Not the Sole Indicator Either — Check Before You `aria-hidden` It
+
+The rule above has a mirror image that is easy to get wrong, because the wrong fix looks
+exactly like the right one. A bare emoji inside an interactive element joins that element's
+**accessible name**, so the glyph's Unicode name is announced in front of the label —
+"sparkles Interviewing, button", "briefcase Senior Engineer, button". The reflex is
+`aria-hidden="true"`, and on a decoration that is correct and complete.
+
+**But `aria-hidden` on a glyph that is the only carrier of a distinction is not a fix — it is
+a silent removal.** It converts a noisy announcement into a missing one, which is worse:
+nothing in the rendered output looks different, and no test that only asserts the label
+catches it. Before hiding a glyph, name the distinction it draws and find where else that
+distinction lives:
+
+| the glyph distinguishes | conveyed elsewhere non-visually? | correct fix |
+| --- | --- | --- |
+| nothing — it repeats adjacent text | yes, by that text | `aria-hidden` alone |
+| a state with another non-visual signal | yes, by that signal | `aria-hidden` alone |
+| a category with no other signal | **no** | `aria-hidden` **plus** an `sr-only` label |
+
+Both branches are live in this repo and the pair is the worked example:
+
+- **`SavedFilterShortcuts`** (WIC-1846) — the ✨ marks `isPredefined`, which is already
+  conveyed by the absence of a delete control next to the button. Decorative. `aria-hidden`
+  alone.
+- **`CommandPalette`** (WIC-1850) — the 💼 / 🏢 / 🕐 / ✨ mark the *result type*, and nothing
+  else does. The background colour is purely visual, and `subtitle` carries no type at all
+  for two of the four types. So the glyph is hidden **and** replaced:
+
+  ```tsx
+  <div aria-hidden="true" className="...">{getResultIcon(result)}</div>
+  <span className="sr-only">{getResultTypeLabel(result)}:</span>
+  ```
+
+  announcing "Application: Senior Engineer Acme Corp" rather than either the glyph's name or
+  a bare title. Emit both halves from **one** shared component, not repeated per call site —
+  `CommandPalette` renders result rows at four sites, and split across four the two halves
+  can drift apart one site at a time.
+
+**There is a third row the table above does not cover: a glyph that is not a signal about
+the content but *is* the content.** A `<kbd>` holding `↑↓` or `↵` is the whole instruction —
+delete it and the sentence reads "to navigate … to select" — so neither `aria-hidden` alone
+nor "it's decorative" applies. Bare, it is announced by Unicode name, and `↵` is **"downwards
+arrow with corner leftwards"**, which is not a key anyone can go and press. Take the same
+hidden-plus-`sr-only` shape, and put the *key's name* in the replacement, not a description
+of the arrow (WIC-1851):
+
+```tsx
+<kbd className="…">
+  <span aria-hidden="true">↵</span>
+  <span className="sr-only">Enter</span>
+</kbd>
+```
+
+Do not sweep this over every `<kbd>` in a file. The `ESC` hint in the same footer already
+spells its key in letters and needs no treatment; giving it one is noise, and the sweep is
+how it gets one.
+
+**Verification.** Assert the **exact** accessible name — `toHaveAccessibleName('…')` or an
+exact `getByRole` name — and in the same test assert the decoration is *still rendered* and
+*still hidden*. Each half alone admits the regression the other catches: a substring matcher
+passes with the emoji still in the name, and a name-only assertion passes for a "fix" that
+deleted the glyph and took the sighted user's signal with it. See
+`packages/web/src/components/CommandPalette.test.tsx`.
+
+Nothing enforces this automatically. `jsx-a11y` cannot: whether a glyph is decorative is a
+fact about the *rest of the row*, not about the element the rule sees.
 
 ---
 
