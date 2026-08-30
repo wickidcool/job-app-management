@@ -183,6 +183,30 @@ interface ErrorResponse {
 }
 ```
 
+### Malformed request bodies
+
+**A body that is not valid JSON is a `400`, on every write endpoint.** The response is the
+standard error envelope with code `VALIDATION_ERROR` and the exact message
+`Request body is not valid JSON`:
+
+```json
+{
+  "error": { "code": "VALIDATION_ERROR", "message": "Request body is not valid JSON" }
+}
+```
+
+Three things worth knowing, all measured rather than assumed (WIC-1524):
+
+- **An empty body takes the same path.** `Content-Length: 0` is not valid JSON, so it is the
+  same `400`, not a `200` treating the body as `{}`.
+- **`Content-Type` is not enforced on read.** A body is parsed whether or not the header says
+  `application/json`; omitting it does not change the status either way.
+- **This is a separate guard from schema validation.** Valid JSON of the wrong *shape* is
+  rejected by Zod and carries the route's own code and a `details` payload (`INVALID_EMAIL`,
+  `VALIDATION_ERROR` with `details.fieldErrors`, …). Only a JSON *parse* failure produces the
+  message above, and it never carries `details`. Clients that branch on the error can rely on
+  that distinction.
+
 **Example**:
 
 ```json
@@ -3766,10 +3790,10 @@ are both absent the middleware waves requests through with `userId = null` (see
 routes refuse rather than operate on an anonymous null user. Unlike most of the API,
 they are not usable in the single-user local mode without a token.
 
-**A malformed JSON body on `/progress` returns `500 INTERNAL_ERROR`, not `400`.** The
-route parses the body before Zod sees it, and the resulting `SyntaxError` is not an
-`AppError`, so it falls through to the generic handler. Verified against the shipped
-app; treat the `500` as a known rough edge rather than a contract guarantee.
+**A malformed JSON body on `/progress` returns `400 VALIDATION_ERROR`**, like every other
+write endpoint — see [Malformed request bodies](#malformed-request-bodies). This used to be
+a `500` and was documented here as a known rough edge; WIC-1524 fixed it across all 34 body
+reads, so it is now a contract guarantee rather than a caveat.
 
 **Known drift from the WIC-238 plan document.** Two differences between the accepted
 spec and what shipped, recorded here so they are not re-derived as defects:
