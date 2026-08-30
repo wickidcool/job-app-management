@@ -9,8 +9,8 @@ import packageJsonRaw from '../../package.json?raw';
  * nothing in the repo enforcing it. Layer 1 is the plugin; this file is the part that
  * makes adopting it *enforcement* rather than a gesture.
  *
- * 24 of the 34 `recommended` rules are `error` on this tree, so `npm run lint` already
- * fails CI on a new violation of any of them. 8 are `warn` (see `BASELINED_RULES` in
+ * 24 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
+ * CI on a new violation of any of them. 8 are `warn` (see `BASELINED_RULES` in
  * `eslint.config.js`) purely so that adopting the plugin did not require fixing 47
  * pre-existing defects in the same change, and 2 are deliberately `off` (see
  * `PROMOTED_RULES` for the measured cost of each).
@@ -20,6 +20,13 @@ import packageJsonRaw from '../../package.json?raw';
  * `recommended` ships 3 of its 34 entries `off`, so the surface was 23, and the wrong
  * figure sat in four files at once with nothing able to contradict it. A count that only
  * exists in a comment is precisely the unenforced claim this card was filed about.
+ *
+ * The config extends `flatConfigs.strict`, and NONE of those counts can tell you so —
+ * `strict` and `recommended` resolve to the same 34 entries and the same 24/8/2 histogram
+ * once `PROMOTED_RULES` restores `anchor-ambiguous-text`, which `strict` drops entirely.
+ * They also produce identical findings on this tree (47, over the same files, rules, lines
+ * and columns). The whole difference is in rule OPTIONS, so that is what the last test
+ * asserts; without it, a silent revert to `recommended` passes every assertion here.
  *
  * A downgrade-to-warn with no counter-pressure is how an allowlist becomes a permanent
  * tree-wide hole, so the baseline is pinned in BOTH directions and per file:
@@ -216,7 +223,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // `src/pages/**` with the baseline and `--max-warnings` lowered to match is fully green
     // on 8 of 148 files without this line, and fails here with it.
     //
-    // 148 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
+    // 151 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);
 
     // Equality, deliberately. `toBeLessThanOrEqual` on a total would let a regression
@@ -303,5 +310,56 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
       .map((rule) => `jsx-a11y/${rule}`)
       .sort();
     expect(named(1)).toEqual(baselinedRules);
+  }, 60_000);
+
+  it('is extended from `strict`, and closes the expression-value hole `recommended` leaves open', async () => {
+    // Nothing above this line can tell `strict` from `recommended` (ADR-011 §4.2).
+    //
+    // The two configs are 33 entries `{error: 31, off: 2}` and 34 `{error: 31, off: 3}`,
+    // and they differ on 7 rules — but 6 of those differences are in rule OPTIONS, and the
+    // 7th is that `anchor-ambiguous-text` is absent from `strict` altogether while
+    // `recommended` ships it `off`. PROMOTED_RULES restores it, so BOTH configs resolve to
+    // 34 entries at 24/8/2, over the same 2 `off` names. They also produce byte-identical
+    // findings on this tree: 47, matching on file + rule + line + column + severity.
+    //
+    // So every count in the test above is satisfied by either ruleset, and a revert of the
+    // `extends` entry would pass the whole suite while quietly restoring the hole below.
+    // Options are the only observable difference; this is the assertion that sees them.
+    const eslint = new ESLint({ cwd: webRoot });
+    const config = await eslint.calculateConfigForFile(`${webRoot}/src/App.tsx`);
+    const optionsOf = (rule: string) => {
+      const entry = (config.rules ?? {})[`jsx-a11y/${rule}`];
+      return Array.isArray(entry) ? entry.slice(1) : [];
+    };
+
+    // `allowExpressionValues: true` suppresses these two rules whenever `role` is a JSX
+    // expression rather than a literal — i.e. exactly where a static check is least able to
+    // reason and most needs to complain. `recommended` sets it on both; `strict` sets
+    // neither. Asserted as "no option object at all" rather than as `!== true`, so a future
+    // upstream default that re-introduces it under another spelling still fails.
+    expect(optionsOf('no-static-element-interactions')).toEqual([]);
+    expect(optionsOf('no-noninteractive-tabindex')).toEqual([]);
+
+    // A severity-only override (`'warn'` in BASELINED_RULES) replaces the severity and
+    // KEEPS the extended config's options, which is why the tightening reaches these two
+    // even though both are baselined. If flat config ever stopped merging that way, the
+    // assertions above would read as `strict` on a config that had lost its options
+    // entirely — so pin a rule that is NOT baselined and whose options are non-empty under
+    // both. `strict` adds `progressbar` and `slider` to the tabbable set.
+    const tabbable = (optionsOf('interactive-supports-focus')[0] as { tabbable?: string[] })
+      ?.tabbable;
+    expect(tabbable).toContain('progressbar');
+    expect(tabbable).toContain('slider');
+
+    // And the behaviour, not just the config that is supposed to produce it. Under
+    // `recommended` this snippet emits NOTHING; a new instance of it would land in the tree
+    // with no warning and no diff to argue with. Under `strict` it is a finding, which —
+    // because `no-noninteractive-tabindex` is baselined at `warn` — makes it a 48th warning
+    // and fails `npm run lint` against the `--max-warnings` ceiling.
+    const [result] = await eslint.lintText(
+      "const role = 'button';\nexport const Bad = () => <div role={role} tabIndex={0} />;\n",
+      { filePath: `${webRoot}/src/__strict_control__.tsx` }
+    );
+    expect(result.messages.map((m) => m.ruleId)).toContain('jsx-a11y/no-noninteractive-tabindex');
   }, 60_000);
 });
