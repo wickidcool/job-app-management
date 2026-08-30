@@ -6,7 +6,8 @@ import { _resetJwksCache } from '../src/middleware/auth.js';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
-vi.mock('../src/services/onboarding.service.js', () => ({
+vi.mock('../src/services/onboarding.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/onboarding.service.js')>()),
   getOnboardingStatus: vi.fn(),
   initializeOnboardingStatus: vi.fn(),
   updateOnboardingProgress: vi.fn(),

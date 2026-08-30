@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
-vi.mock('../src/services/extraction.service.js', () => ({
+vi.mock('../src/services/extraction.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/extraction.service.js')>()),
   processCatalogChange: vi.fn().mockResolvedValue(undefined),
 }));
 
