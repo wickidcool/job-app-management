@@ -42,7 +42,8 @@ function stubDb() {
   };
   const tx = {
     insert: () => ({
-      values: () => Object.assign(Promise.resolve([row]), { returning: () => Promise.resolve([row]) }),
+      values: () =>
+        Object.assign(Promise.resolve([row]), { returning: () => Promise.resolve([row]) }),
     }),
   };
   const db = { transaction: async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx) };
