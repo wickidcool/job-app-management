@@ -228,6 +228,17 @@ The three merge services read their source rows with a raw template, `sql\`${com
 - **Ordering constraint, called out because getting it wrong is worse than today.** Removing the write and the button without the guard takes the user from "a button that lies" to "silent total loss". The guard must land with or after the removal.
 - **Documentation only. No code, no tests, no behaviour change** — the ruling is stated, the implementation is tracked separately.
 
+
+### Fixed — catalog extraction wrote a null owner into five NOT NULL columns, and silently ingested nothing (2026-08-30)
+
+`extraction.service.ts` inserted `userId: userId ?? null` into `company_catalog`, `tech_stack_tags`, `job_fit_tags`, `quantified_bullets` and `recurring_themes` — the five tables migration `0017_enforce_userid_not_null.sql` (`:29`–`:34`) had made `user_id NOT NULL`. `processCatalogChange` resolves `userId` to `undefined` whenever `event.metadata.userId` is not a string, so the auto-apply transaction aborted on a `23502`, and `flush()` swallowed it into a `console.error` (WIC-1617).
+
+- **Executed, not reasoned about.** The five inserts were run against the real migration set under PGlite: all five die on `null value in column "user_id" … violates not-null constraint`. The `catalog_diffs` write in the same function succeeded, because 0017 backfills that column but deliberately leaves it nullable — so the failure is specific to the constrained columns, not to the harness.
+- **The owner was being dropped one line after it was used.** `application.service.ts` called `enqueueChange('application', id, …)` with no metadata at all, while writing that same `userId` into `status_history` directly above. Both call sites now pass `{ userId }`, the shape `resume.service.ts` and `catalog.service.ts` already used. This ran ownerless for authenticated callers too, so application-triggered catalog ingest had stopped entirely — silently, since `flush()` logs and moves on.
+- **`applyChangeToDb` now requires `userId: string`** rather than accepting `string | null | undefined`. That makes it a compile-time gate: removing the caller's guard fails `tsc` with `TS2345` at the call site, which was verified by removing it.
+- **An ownerless event declines to auto-apply instead of writing rows nobody could read.** An anonymous caller scopes to `user_id IS NULL`, which 0017 also made select the empty set, so those rows were unreachable even when the insert was legal. The diff is still recorded, as `pending` rather than `approved`, so the changes survive for an owned caller to apply, and a warning names the missing field.
+- **Tests are paired against a positive control.** "No insert happened" passes vacuously when the fixture produces no changes, so every ownerless assertion has an owned counterpart on the same fixture proving all five tables are really reached. 4 of the 6 new `extraction.owner` tests fail against the previous code, and both `application.change-owner` tests do; the 2 that stay green are the controls, by design.
+
 ### Fixed — the merge-tenancy test helper asserted the SQL shape this branch had just removed (2026-08-27)
 
 This branch declared `fix/wic1373-catalog-tag-patch-tenancy` as its base but did not contain it (`git merge-base --is-ancestor` fails), so its CI never compiled the two changes together. Merging the real base in surfaced 6 failures that neither PR could see alone, and that GitHub reported as `mergeable: true / clean` throughout — a textual merge, not a semantic one (WIC-1605).

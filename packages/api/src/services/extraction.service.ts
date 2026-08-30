@@ -19,13 +19,22 @@ import { getConfig } from '../config.js';
 import { parseResumeText, extractExperienceEntries } from './resume.service.js';
 import { validateTechStackCategory, validateJobFitCategory } from '../types/index.js';
 
+/**
+ * Every table this function inserts into has `user_id NOT NULL` as of migration
+ * 0017 (`company_catalog`, `tech_stack_tags`, `job_fit_tags`,
+ * `quantified_bullets`, `recurring_themes`). So `userId` is required, not
+ * optional: passing an absent owner used to render as `user_id => NULL` and
+ * abort the enclosing transaction on a 23502, which `flush()` then swallowed
+ * into a console.error. The caller decides what to do when there is no owner —
+ * see `shouldAutoApply` in `processCatalogChange`.
+ */
 async function applyChangeToDb(
   tx: any,
   change: DiffChange,
   diffId: string,
   triggerSource: string,
   triggerId: string,
-  userId?: string | null
+  userId: string
 ): Promise<void> {
   const data = change.data as Record<string, any>;
   const now = new Date();
@@ -37,7 +46,7 @@ async function applyChangeToDb(
           .insert(companyCatalog)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             name: data.name,
             normalizedName: data.normalizedName,
             firstSeenAt: new Date(data.firstSeenAt),
@@ -66,7 +75,7 @@ async function applyChangeToDb(
           .insert(techStackTags)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateTechStackCategory(data.category),
@@ -94,7 +103,7 @@ async function applyChangeToDb(
           .insert(jobFitTags)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateJobFitCategory(data.category),
@@ -119,7 +128,7 @@ async function applyChangeToDb(
       if (change.action === 'create') {
         await tx.insert(quantifiedBullets).values({
           id: data.id,
-          userId: userId ?? null,
+          userId,
           sourceType: data.sourceType,
           sourceId: data.sourceId,
           rawText: data.rawText,
@@ -142,7 +151,7 @@ async function applyChangeToDb(
           .insert(recurringThemes)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             themeSlug: data.themeSlug,
             displayName: data.displayName,
             occurrenceCount: data.occurrenceCount ?? 1,
@@ -169,7 +178,7 @@ async function applyChangeToDb(
 
   await tx.insert(catalogChangeLog).values({
     id: ulid(),
-    userId: userId ?? null,
+    userId,
     entityType: change.entity,
     entityId: String(data.id ?? data.tagSlug ?? data.themeSlug),
     action: change.action as any,
@@ -769,9 +778,23 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   );
   // Resume uploads always auto-apply (companies from resumes are intentional).
   // Application changes require review when new companies are detected (potential duplicates/typos).
+  //
+  // An ownerless event can never auto-apply: migration 0017 made `user_id` NOT
+  // NULL on all five tables applyChangeToDb writes, so the insert aborted the
+  // transaction, and flush() swallowed the 23502 into a console.error. Nothing
+  // is lost by declining — an anonymous reader scopes to `user_id IS NULL`,
+  // which 0017 also made select the empty set, so the rows would have been
+  // unreadable even if they had landed. The diff is still recorded, as pending
+  // rather than approved, so the changes survive for an owned caller to apply.
   const shouldAutoApply =
     changes.length > 0 &&
+    userId !== undefined &&
     (event.sourceType === 'resume' || (pendingReview.length === 0 && !hasNewCompany));
+  if (changes.length > 0 && userId === undefined) {
+    console.warn(
+      `[extraction] ${event.sourceType}=${event.sourceId}: ${changes.length} catalog changes not auto-applied — the event carries no owner (event.metadata.userId)`
+    );
+  }
   const summary =
     changes.length === 0
       ? 'No changes detected'
