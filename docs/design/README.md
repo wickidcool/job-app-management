@@ -198,6 +198,18 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 ---
 
+### 11. [Saved Filter Shortcut Naming](./SAVED_FILTER_SHORTCUT_NAMING.md)
+**Purpose:** WIC-1775 ruling on what a filter shortcut's label may claim.
+
+**Key Requirements:**
+- A shortcut label names what the filter **selects**, never a time window it does not apply
+- `Interviews This Week` → `Interviewing`; `Recently Applied` → `Applied`, on both surfaces
+- Labels live in one constant (`constants/filterShortcuts.ts`); a time word in any of them fails a test
+- A shortcut whose destination ignores its filter must be **wired up**, not just renamed —
+  `/applications?status=` was read by nothing until this ruling
+
+---
+
 ## Quick Start for Frontend Developer
 
 ### 1. Read Documents in This Order
