@@ -192,9 +192,14 @@ above its search field — make the title `sr-only` rather than omitting it.
 `Dialog.Content`.** The warnings resolve `context.titleId` / `context.descriptionId` through
 `getElementById` (`@radix-ui/react-dialog` 1.1.15, `dist/index.mjs:295` and `:308`), so an
 overridden id leaves that lookup empty and **the warning fires against markup that is
-actually correct** — which trains everyone to ignore it. `ApplicationForm.tsx:227` does
-override the id; its dialog is genuinely named and described, and it warns anyway. Copy the
-wiring from `CommandPalette.tsx`, not from there.
+actually correct** — which trains everyone to ignore it.
+
+`ApplicationForm.tsx` was the worked example of this: genuinely named and described, and
+warning on every mount for no reason but the id override. Fixed in WIC-1854 — as of that
+commit all three `Dialog.Content` call sites in `packages/web/src` (`ApplicationForm`,
+`CommandPalette`, `ApplicationNew`) render a `Dialog.Title` and let Radix assign both ids,
+so any of them is safe to copy. Re-sweep with `grep -rn 'Dialog.Content' packages/web/src`
+rather than trusting that count; it was 3 when written.
 
 Reusing existing visible copy as the description, via `aria-describedby` pointed at a node
 already on screen, is the textbook move and was tried on `CommandPalette` and rejected: the
@@ -206,7 +211,14 @@ description when it is a row of hints.
 spy on `console.error` / `console.warn` and assert neither Radix message fires — with a
 positive control that mounts a deliberately unnamed dialog, or the guard passes just as
 happily against a broken spy. See `packages/web/src/components/CommandPalette.test.tsx`
-(WIC-1851).
+(WIC-1851) and `ApplicationForm.test.tsx` (WIC-1854).
+
+**The console guard is not redundant with the name assertions — for the id-override defect it
+is the only thing that catches it.** Measured on WIC-1854: against the pre-fix component the
+accessible name and description assertions **passed**, because the markup really was correct;
+only the console guard and an assertion that `aria-describedby` resolves to Radix's *generated*
+id failed. So write both, and prefer asserting the id is the generated one over asserting the
+attribute merely exists.
 
 ### Live Regions
 
