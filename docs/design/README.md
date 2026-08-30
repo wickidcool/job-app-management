@@ -181,6 +181,35 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 ---
 
+### 10. [Dialogue Capture Wizard](./DIALOGUE_CAPTURE_WIZARD.md)
+**Purpose:** The UC-1 / UC-1a / UC-1b wizard at `/projects/new/dialogue` — flow, wireframes, component specs.
+
+> **Read the ruling section at the top first.** Most of this document predates any implementation,
+> and one of its "Requirements Decisions" carried a ✅ for a feature that was never built. WIC-1621
+> **drops draft persistence** — no `.draft` store, no autosave, no "Save Draft" button — and
+> replaces it with a confirm-on-discard guard. The affected passages are struck in place, not
+> deleted, so old links still land on something that explains itself.
+
+**Key Requirements:**
+- No draft persistence and no draft affordance; nothing is written to disk (WIC-1621)
+- Discarding via `Escape`, the header close button, or navigating away must confirm when dirty
+- Confirm copy must state plainly that nothing was saved — users saw "Save Draft" for months
+- The confirm is a nested dialog inside the wizard dialog; `MODAL_FOCUS_MANAGEMENT_SPEC.md` applies
+
+---
+
+### 11. [Saved Filter Shortcut Naming](./SAVED_FILTER_SHORTCUT_NAMING.md)
+**Purpose:** WIC-1775 ruling on what a filter shortcut's label may claim.
+
+**Key Requirements:**
+- A shortcut label names what the filter **selects**, never a time window it does not apply
+- `Interviews This Week` → `Interviewing`; `Recently Applied` → `Applied`, on both surfaces
+- Labels live in one constant (`constants/filterShortcuts.ts`); a time word in any of them fails a test
+- A shortcut whose destination ignores its filter must be **wired up**, not just renamed —
+  `/applications?status=` was read by nothing until this ruling
+
+---
+
 ## Quick Start for Frontend Developer
 
 ### 1. Read Documents in This Order

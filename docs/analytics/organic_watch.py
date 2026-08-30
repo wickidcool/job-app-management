@@ -825,7 +825,13 @@ def main():
                 "WIC-1024 hold while prod is degraded. `resume_upload_completed` sits "
                 "after the DB writes and cannot fire, so completion/timing insights and "
                 "the C1-C3 person_id tiles would render empty or 100%-failure. Report "
-                "the traffic, but keep the dashboard build held on WIC-1473."
+                "the traffic, but keep the dashboard build held on WIC-1473.\n"
+                "Expect this candidate to be resume_upload_started or "
+                "resume_upload_validation_failed -- they are the only 2 of 9 events "
+                "that can arrive while prod is degraded. A candidate bearing any OTHER "
+                "event name during an outage is anomalous and deserves scrutiny before "
+                "adjudication. Per-event split: "
+                "docs/analytics/event-reachability-matrix.md"
             )
         print(
             "\nThese events failed every synthetic fingerprint AND are absent from "
@@ -862,10 +868,15 @@ def main():
     print(f"COLLECTOR HEALTH: {health_line}")
     if health_state != "ok":
         print(
-            "NOTE: the client capture leg is independent of the Worker DB, so 0 organic "
-            "still means 0 arrivals -- but prod is broken for anyone who does arrive "
-            "and signs in. Treat 0 organic as a demand reading taken under an outage, "
-            "not as clean demand evidence. Unblock owner: WIC-1473 (board decision)."
+            "NOTE: only 2 of the 9 taxonomy events are outage-immune -- "
+            "resume_upload_started and resume_upload_validation_failed, which fire in "
+            "the browser straight to PostHog with no Worker in the path. 5 are "
+            "outage-blocked and 1 (export_viewed) is dead code, so THIS ZERO IS A "
+            "DEMAND READING FOR 2 EVENTS AND A RESTATEMENT OF THE OUTAGE FOR THE REST. "
+            "The detector still works -- a real first user trips those 2 -- but do not "
+            "quote 0 organic as clean demand evidence. Per-event split with call sites: "
+            "docs/analytics/event-reachability-matrix.md. "
+            "Unblock owner: WIC-1473 (board decision)."
         )
     return 0
 
