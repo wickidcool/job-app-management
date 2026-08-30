@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../types/env.js';
 import * as personalInfoService from '../services/personal-info.service.js';
+import { readJsonBody } from '../lib/request.js';
 
 const urlSchema = z.string().url().max(500).nullable().optional();
 
@@ -31,7 +32,7 @@ export const personalInfoRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .patch('/personal-info', async (c) => {
-    const body = updatePersonalInfoSchema.safeParse(await c.req.json());
+    const body = updatePersonalInfoSchema.safeParse(await readJsonBody(c));
     if (!body.success) {
       const firstError = body.error.errors[0];
       if (firstError?.path.some((p) => ['email'].includes(String(p)))) {
