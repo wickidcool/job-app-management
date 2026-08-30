@@ -15,6 +15,7 @@ import {
   type SectionBulletSelection,
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import {
   ResumeVariantDTO,
   ResumeVariantSummaryDTO,
@@ -208,7 +209,10 @@ export async function generateResumeVariant(
 }> {
   const hasJdText = !!input.jobDescriptionText;
   const hasJdUrl = !!input.jobDescriptionUrl;
-  const hasAnalysis = !!input.jobFitAnalysisId;
+  // See generateCoverLetter: resolved before every other guard, so an
+  // unresolvable id cannot satisfy JOB_CONTEXT_REQUIRED or waive
+  // TARGET_INFO_REQUIRED below (WIC-1818 AC-5a).
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
     throw new ResumeVariantError(
@@ -348,11 +352,18 @@ export async function generateResumeVariant(
   const sectionEmphasis = input.sectionEmphasis ?? 'balanced';
   const atsOptimized = input.atsOptimized ?? true;
 
+  // The third arm was `Job fit analysis ID: ${input.jobFitAnalysisId}` — a
+  // caller-controlled id standing in for the job description. Unreachable today
+  // and fails closed; AC-5b puts the stored analysis here.
+  if (!hasJdText && !hasJdUrl) {
+    throw new ResumeVariantError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+    );
+  }
   const jdContext = hasJdText
     ? input.jobDescriptionText!
-    : hasJdUrl
-      ? `Job posting URL: ${input.jobDescriptionUrl}`
-      : `Job fit analysis ID: ${input.jobFitAnalysisId}`;
+    : `Job posting URL: ${input.jobDescriptionUrl}`;
 
   const keywords = hasJdText ? extractKeywords(input.jobDescriptionText!) : [];
 
@@ -877,7 +888,11 @@ export async function suggestBullets(
 }> {
   const hasJdText = !!input.jobDescriptionText;
   const hasJdUrl = !!input.jobDescriptionUrl;
-  const hasAnalysis = !!input.jobFitAnalysisId;
+  // Site the WIC-1818 card does not enumerate. The id satisfied
+  // JOB_CONTEXT_REQUIRED here, so `{"jobFitAnalysisId":"x"}` alone reached the
+  // catalog and returned bullet suggestions scored against no job context at
+  // all (`keywords` is `[]` without `jobDescriptionText`).
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
     throw new ResumeVariantError(

@@ -20,6 +20,7 @@ import {
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { AppError, NotFoundError } from '../types/index.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 
 // ── Tenancy ───────────────────────────────────────────────────────────────────
 
@@ -428,6 +429,12 @@ export async function generateInterviewPrep(
   catalogEntriesUsed: number;
   warnings: Array<{ code: string; message: string }>;
 }> {
+  // Resolved at the top, ahead of the application read: a malformed field in
+  // the request is a boundary rejection, and doing it here also keeps the
+  // NO_FIT_ANALYSIS decision below tied to a resolved row rather than to a
+  // non-empty string (WIC-1818 AC-5a/AC-5c).
+  const analysis = await resolveJobFitAnalysis(input.jobFitAnalysisId, userId);
+
   const db = getDb();
 
   const [app] = await db
@@ -491,7 +498,10 @@ export async function generateInterviewPrep(
       message: 'Fewer than 5 STAR entries in catalog',
     });
   }
-  if (!input.jobFitAnalysisId) {
+  // Was `if (!input.jobFitAnalysisId)`, so any non-empty string silenced a
+  // warning about the quality of the output while nothing ever read an
+  // analysis. Keyed on the resolved row now (WIC-1818 AC-5c).
+  if (!analysis) {
     warnings.push({
       code: 'NO_FIT_ANALYSIS',
       message: 'Generated without job fit analysis (gaps may be incomplete)',
@@ -524,7 +534,9 @@ export async function generateInterviewPrep(
     id: prepId,
     userId: userId ?? null,
     applicationId: input.applicationId,
-    jobFitAnalysisId: input.jobFitAnalysisId ?? null,
+    // The resolved analysis, never the raw request field — an id that does not
+    // resolve must not reach the column (WIC-1818 AC-5a).
+    jobFitAnalysisId: analysis?.id ?? null,
     interviewType,
     timeAvailable,
     focusAreas,

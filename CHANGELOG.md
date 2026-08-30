@@ -294,7 +294,18 @@ This branch declared `fix/wic1373-catalog-tag-patch-tenancy` as its base but did
 - **The helper now accepts both legal renderings**, because the target and the sources are built by different operators: `eq(t.id, targetId)` → `= $1`, `inArray(t.id, sourceIds)` → `in ($1, $2)`. Both stay table-qualified, so the wrong-column check that stops `eq(t.normalizedName, targetId)` from passing is unchanged.
 - **Widening the match did not cost detection power**, which was measured rather than assumed: dropping the id term from the source predicate (the tenancy-only mutation the helper exists to catch) still fails 5 tests, and re-keying the target read on `normalizedName` still fails 1, against a green unmutated baseline.
 
-### Security — catalog tag updates and diff generation are scoped to the calling user (2026-08-26)
+
+### Security — an unresolvable `jobFitAnalysisId` is rejected instead of becoming the job context (2026-08-30)
+
+`jobFitAnalysisId` was accepted on five generation entry points as `z.string().optional()`, with no format check and no existence check. No job fit analysis is ever persisted — there is no `job_fit_analyses` table and `AnalyzeJobFitResponse` carries no `id` — so the field could never be dereferenced. It was not inert, though: it satisfied `JOB_CONTEXT_REQUIRED`, waived `TARGET_INFO_REQUIRED`, was interpolated into the model prompt as the entire job description (`` `Job Fit Analysis ID: ${input.jobFitAnalysisId}` ``), and was written to the generated row's `job_fit_analysis_id` column.
+
+- **Every value is now rejected `422 JOB_FIT_ANALYSIS_NOT_FOUND`, before the model spend and before the write.** Until the table lands (WIC-1652 AC-1) nothing can resolve, so rejecting outright is the honest interim answer — which is what makes ADR-012 AC-5a severable from the table. Resolution is confined to one function, `resolveJobFitAnalysis`, so AC-5b changes that function alone.
+- **Five sites, not the three the card enumerated.** `POST /cover-letters/outreach` and `POST /resume-variants/suggest-bullets` also let the id satisfy `JOB_CONTEXT_REQUIRED`; found by grepping the operation rather than the cited files. Before the fix all five *resolved successfully* on a junk id — the reproduction returned a cover letter addressed to "the company" for "this role".
+- **`NO_FIT_ANALYSIS` is keyed on a resolved row, not a non-empty string.** Any junk id used to silence the "gaps may be incomplete" warning while nothing ever read an analysis.
+- **An empty string is a supplied id that does not resolve, not an absent one.** Every shipped site tested the field with `!!` / `!`, so `''` read as "not supplied" and fell through to the other guards.
+- **Non-breaking in practice, and that was measured rather than assumed.** No id can exist: the analyze response has no `id`, and nothing in the SPA ever sets the `fitAnalysisId` / `jobFitAnalysisId` query parameter that the two components read — `JobFitAnalysis.tsx` navigates to `/cover-letters/new` carrying `jobDescriptionText`, not an id. The field was reachable only by a hand-crafted request.
+- **The interpolation sites fail closed rather than being left unreachable-but-live**, so a future AC-5b that forgets one prompts with no job context instead of with an id.
+
 
 The same authorization miss as the merge fix below, on three more services in the same file, found while fixing it and held back to keep that diff at its filed scope. `updateJobFitTag` and `updateTechStackTag` both declared `userId?: string` and never referenced it, and `generateDiff` took it and dropped it twice over (WIC-1373).
 
