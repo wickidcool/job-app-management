@@ -216,6 +216,18 @@ The three merge services read their source rows with a raw template, `sql\`${com
 - **`docs/design/README.md` was itself part of the problem** and now indexes `ROUTE_HEADING_OUTLINE.md`, `ROUTE_TITLE_CONVENTION.md` and `COVER_LETTER_PANE_LABELLING.md`, none of which the index listed.
 - **No behaviour changed.** This is documentation only; every route still ships the same static title, and nothing in CI checks otherwise.
 
+
+### Docs — the dialogue wizard's draft persistence is ruled out, and the ✅ that said it shipped was false (2026-08-30)
+
+`DIALOGUE_CAPTURE_WIZARD.md` specified `.draft` files in `data/projects/`, autosave every 30 seconds, a recovery prompt on re-open and a clear-on-cancel path — and its "Requirements Decisions" item 3 marked draft persistence **✅**, i.e. delivered. None of it was ever built. WIC-1621 rules the feature out rather than building it, and strikes the passages in place so old links still land on something that explains itself.
+
+- **What actually ships is one `localStorage.setItem`** in `DialogueCapture.tsx:47`, with **no read path** — `git grep dialogue-wizard-draft` returns exactly one hit tree-wide, the write. There is no `removeItem` either, so the store survives logout and accumulates per variant. "Save Draft" is a control that lies: it promises restoration, returns no feedback, and restores nothing.
+- **The 30-second autosave fires unconditionally.** Its guard is `Object.keys(data).length > 0` and `data` is seeded with three keys, so the condition is vacuous. Measured by rendering the real route in jsdom and advancing 30s with zero user input: it writes `{"data":{"accomplishments":[],"jobFit":[],"techStack":[]},...}`. Project content goes to disk on a timer the user never started.
+- **The replacement was already specified and also unbuilt.** This document's own keyboard section reads *"Escape: Cancel wizard (with confirmation)"*; there is no `Escape` handler and no `confirm()` in `WizardContainer.tsx`. The ruling extends that one line to all three discard paths — `Escape`, the header close button, and in-app navigation away — with confirm copy that says plainly that nothing was saved.
+- **It reuses `ConfirmationModal`,** whose existing props take the copy directly, rather than a new dialog or `window.confirm`. Noted rather than glossed: that component currently declares no `role="dialog"`, no focus trap and no `restoreFocusTo`, and the repo's own `confirmation-modal-focus-audit.py` reports §5.3 unenforced pending WIC-1181 — so the guard must not be described as focus-managed until that lands.
+- **Ordering constraint, called out because getting it wrong is worse than today.** Removing the write and the button without the guard takes the user from "a button that lies" to "silent total loss". The guard must land with or after the removal.
+- **Documentation only. No code, no tests, no behaviour change** — the ruling is stated, the implementation is tracked separately.
+
 ### Fixed — the merge-tenancy test helper asserted the SQL shape this branch had just removed (2026-08-27)
 
 This branch declared `fix/wic1373-catalog-tag-patch-tenancy` as its base but did not contain it (`git merge-base --is-ancestor` fails), so its CI never compiled the two changes together. Merging the real base in surfaced 6 failures that neither PR could see alone, and that GitHub reported as `mergeable: true / clean` throughout — a textual merge, not a semantic one (WIC-1605).

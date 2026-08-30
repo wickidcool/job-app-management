@@ -181,6 +181,23 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 ---
 
+### 10. [Dialogue Capture Wizard](./DIALOGUE_CAPTURE_WIZARD.md)
+**Purpose:** The UC-1 / UC-1a / UC-1b wizard at `/projects/new/dialogue` — flow, wireframes, component specs.
+
+> **Read the ruling section at the top first.** Most of this document predates any implementation,
+> and one of its "Requirements Decisions" carried a ✅ for a feature that was never built. WIC-1621
+> **drops draft persistence** — no `.draft` store, no autosave, no "Save Draft" button — and
+> replaces it with a confirm-on-discard guard. The affected passages are struck in place, not
+> deleted, so old links still land on something that explains itself.
+
+**Key Requirements:**
+- No draft persistence and no draft affordance; nothing is written to disk (WIC-1621)
+- Discarding via `Escape`, the header close button, or navigating away must confirm when dirty
+- Confirm copy must state plainly that nothing was saved — users saw "Save Draft" for months
+- The confirm is a nested dialog inside the wizard dialog; `MODAL_FOCUS_MANAGEMENT_SPEC.md` applies
+
+---
+
 ## Quick Start for Frontend Developer
 
 ### 1. Read Documents in This Order
