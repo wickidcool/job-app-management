@@ -19,6 +19,13 @@ against the live project -- HogQL tables and the native FunnelsQuery/RetentionQu
 insights alike -- so it proves the payloads before anything is written.
 The real run additionally needs `insight:read`, `insight:write`, `dashboard:read`,
 `dashboard:write` on project 551963.
+
+Synthetic traffic is excluded by default (WIC-1664). The committed payloads are
+deliberately unfiltered -- they were authored against a project holding nothing but
+probes, and counting those probes is how each one proved it ran -- so the exclusion
+predicate is derived from `probe-registry.json` and applied here, at build time, to
+whatever the registry says is synthetic *today*. `--dry-run` validates the filtered
+queries, so what it proves is what gets written.
 """
 
 from __future__ import annotations
@@ -30,6 +37,10 @@ import sys
 from pathlib import Path
 
 import requests
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import synthetic_exclusion as sx  # noqa: E402  (path shim above must run first)
 
 HOST = os.environ.get("POSTHOG_HOST", "https://us.posthog.com").rstrip("/")
 PROJECT_ID = os.environ.get("POSTHOG_PROJECT_ID", "551963")
@@ -179,6 +190,13 @@ def main() -> int:
         action="store_true",
         help="validate payloads and re-execute every query node; write nothing",
     )
+    parser.add_argument(
+        "--no-exclude-synthetic",
+        dest="exclude_synthetic",
+        action="store_false",
+        help="build the payloads verbatim, counting registered probe traffic as product "
+             "usage. Only correct for reproducing the original pre-organic validation run.",
+    )
     args = parser.parse_args()
 
     api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
@@ -194,6 +212,22 @@ def main() -> int:
           f"({len(payloads)} enabled, {len(gated)} gated)")
     for p in gated:
         print(f"GATED {p['_key']:<32} {p.get('_gated_on', 'no reason recorded')}")
+
+    if args.exclude_synthetic:
+        # Fatal on failure, by design: a build that fell back to the raw payloads would
+        # create 17 tiles that look identical to correct ones and silently count probes.
+        try:
+            predicate, registry_path, problems = sx.load_predicate()
+            payloads = [sx.filtered_payload(p, predicate) for p in payloads]
+            gated = [sx.filtered_payload(p, predicate) for p in gated]
+        except sx.ExclusionError as exc:
+            fail(f"synthetic-traffic exclusion failed: {exc}")
+        for problem in problems:
+            print(f"WARN  {problem}")
+        print(f"OK    synthetic exclusion applied to {len(payloads) + len(gated)} payloads "
+              f"from {os.path.relpath(registry_path)}")
+    else:
+        print("WARN  --no-exclude-synthetic: probe traffic will be counted as product usage")
 
     ph = PostHog(api_key)
     preflight(ph, need_write=not args.dry_run)

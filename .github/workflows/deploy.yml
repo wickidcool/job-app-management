@@ -73,6 +73,18 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      # WIC-1664: all three dashboard build routes derive their synthetic-traffic
+      # exclusion from probe-registry.json via synthetic_exclusion.py, which rewrites
+      # HogQL by string index. That is code which fails plausibly rather than loudly — a
+      # misplaced parenthesis still yields something that reads like SQL, and a tile that
+      # silently counts probe residue looks exactly like a correct one. This is the
+      # offline half of the suite (no credential, ~0.1s); the live half is
+      # `build_dashboards.py --dry-run`, which needs a PostHog key and cannot run here.
+      # It also asserts insight-payloads.json stays UNfiltered — a committed predicate
+      # would be a registry snapshot that goes stale the next time a probe fires.
+      - name: Verify synthetic-exclusion rewriter
+        run: python3 docs/analytics/synthetic_exclusion_selftest.py
+
       # WIC-1195: the wireframes drifted out of sync with the components they
       # describe four times (WIC-1127, -1184, -1187, -1205), each time caught by
       # a reader rather than a check. This fails the build on a new unmarked

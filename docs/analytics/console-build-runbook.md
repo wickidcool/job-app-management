@@ -102,24 +102,40 @@ synthetic events on purpose, to prove the query ran. **On build day that is no l
 want**, because by definition you are building because organic traffic arrived, and the probes
 are still in there permanently._
 
-Every known synthetic actor is recorded in `docs/analytics/probe-registry.json`. Print the
-current exclusion predicate with:
+Every known synthetic actor is recorded in `docs/analytics/probe-registry.json`, and since WIC-1664
+the predicate is derived from it at **build time** rather than pasted in by hand.
+
+**Route 1 needs nothing from you.** `build_dashboards.py` reads the registry and filters
+every payload before it writes, so an API build excludes probe traffic by default
+(`--no-exclude-synthetic` opts out). `--dry-run` executes the filtered queries, so what it
+proves green is what gets created.
+
+**For Routes 2 and 3, regenerate this pack with the predicate already applied.** One
+command, and both `dashboard-templates.json` and all 17 queries below come out filtered:
+
+```bash
+python3 docs/analytics/make_console_pack.py --exclude-synthetic --out-dir /tmp/console-pack
+```
+
+Then import or paste from `/tmp/console-pack/` rather than from this directory. The output
+is deliberately written outside the repo — it is a snapshot of the registry, correct for one
+console session, and committing it would reintroduce exactly the staleness this replaced.
+
+**Fallback, if you cannot run Python.** Print the current predicate:
 
 ```bash
 python3 docs/analytics/organic_watch.py --audit     # prints SYNTHETIC_PREDICATE
 ```
 
-Then add one line to **every** query below, immediately after its existing `WHERE`:
+and add one line to **every** query below, immediately after its existing `WHERE`:
 
 ```sql
   AND NOT ( <paste SYNTHETIC_PREDICATE here> )
 ```
 
-That covers **Route 3**. **Routes 1 and 2 carry no exclusion at all** — they build from
-`insight-payloads.json` / `dashboard-templates.json`, which are deliberately unfiltered (the
-queries were authored to prove they ran against probe data). After an API build or a JSON
-import, open each of the 17 tiles and add the same `AND NOT (...)` line, or the panels will
-read probe residue as product usage.
+Watch the two tiles that read `events` only inside a subquery (**C1**, **C3**) — the line
+belongs on the inner `WHERE`, not the outer one. This is precisely the transcription step
+the generator removes; use it if you can.
 
 Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source
 of record. If a probe fires between now and build day, the regenerated predicate covers it and a

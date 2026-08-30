@@ -16,12 +16,19 @@ queries, which carry no SQL -- those two keep their pasteable form under `_hogql
 single source of truth for all three routes. `resolve_hogql()` prefers the inline form and falls
 back to the variant; anything with neither aborts the run before a byte is written.
 """
+import argparse
 import json
 import os
+import sys
 import textwrap
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+sys.path.insert(0, HERE)
+
+import synthetic_exclusion as sx  # noqa: E402  (path shim above must run first)
+
 PROJECT = "551963"
 HOST = "https://us.posthog.com"
 
@@ -227,12 +234,61 @@ def day_one_paragraph(reg, lifetime, synthetic, organic):
             "i.e. probe residue.")
 
 
-def main():
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Generate the zero-scope console build pack from insight-payloads.json.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Default (no flags) regenerates the committed pack, which is deliberately\n"
+            "UNFILTERED and is what CI diffs. Pass --exclude-synthetic --out-dir DIR on\n"
+            "build day to get a copy with the probe-registry predicate already applied."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-synthetic",
+        action="store_true",
+        help="apply the probe-registry.json exclusion predicate to every query (WIC-1664)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        metavar="DIR",
+        help="write the pack here instead of next to this script; required with "
+             "--exclude-synthetic",
+    )
+    args = parser.parse_args(argv)
+
+    out_dir = os.path.abspath(args.out_dir) if args.out_dir else HERE
+    if args.exclude_synthetic and out_dir == HERE:
+        parser.error(
+            "--exclude-synthetic needs --out-dir pointing somewhere other than "
+            f"{HERE}.\nA filtered pack embeds the registry as it stands today, so "
+            "committing it would ship a snapshot that goes stale the next time a probe "
+            "fires -- the WIC-1389/WIC-1392 transcription bug, one layer down. Generate "
+            "it outside the repo, use it, throw it away."
+        )
+    args.out_dir = out_dir
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
+
     with open(os.path.join(HERE, "insight-payloads.json"), encoding="utf-8") as fh:
         all_payloads = json.load(fh)
     # Mirrors build_dashboards.py: `_enabled: false` entries are authored and validated
     # but deliberately not built yet, so all three routes agree on which tiles exist.
     payloads = [p for p in all_payloads if p.get("_enabled", True)]
+    if args.exclude_synthetic:
+        # Fatal on failure: a pack that quietly fell back to the raw payloads would look
+        # exactly like a filtered one and would count probes as product usage.
+        try:
+            predicate, registry_path, problems = sx.load_predicate()
+            payloads = [sx.filtered_payload(p, predicate) for p in payloads]
+        except sx.ExclusionError as exc:
+            raise SystemExit(f"refusing to generate: synthetic exclusion failed -- {exc}")
+        for problem in problems:
+            print(f"WARN  {problem}")
+        print(f"applying synthetic exclusion from {os.path.relpath(registry_path)}")
     resolved = resolve_all(payloads)
     reg = load_registry()
     lifetime = reg["lifetime_event_count_at_verification"]
@@ -349,38 +405,68 @@ def main():
     w("")
     w("---")
     w("")
-    w("## Before you paste anything: exclude synthetic traffic (MANDATORY)")
-    w("")
-    w("_Added 2026-08-26 (WIC-1389 / WIC-1392). The 17 queries below were authored when "
-      f"{PROJECT} held")
-    w("nothing but probes, so they deliberately carry **no** exclusion — every tile counted the")
-    w("synthetic events on purpose, to prove the query ran. **On build day that is no longer what you")
-    w("want**, because by definition you are building because organic traffic arrived, and the probes")
-    w("are still in there permanently._")
-    w("")
-    w(f"Every known synthetic actor is recorded in `docs/analytics/{REGISTRY}`. Print the")
-    w("current exclusion predicate with:")
-    w("")
-    w("```bash")
-    w("python3 docs/analytics/organic_watch.py --audit     # prints SYNTHETIC_PREDICATE")
-    w("```")
-    w("")
-    w("Then add one line to **every** query below, immediately after its existing `WHERE`:")
-    w("")
-    w("```sql")
-    w("  AND NOT ( <paste SYNTHETIC_PREDICATE here> )")
-    w("```")
-    w("")
-    w("That covers **Route 3**. **Routes 1 and 2 carry no exclusion at all** — they build from")
-    w("`insight-payloads.json` / `dashboard-templates.json`, which are deliberately unfiltered (the")
-    w("queries were authored to prove they ran against probe data). After an API build or a JSON")
-    w("import, open each of the 17 tiles and add the same `AND NOT (...)` line, or the panels will")
-    w("read probe residue as product usage.")
-    w("")
-    w("Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source")
-    w("of record. If a probe fires between now and build day, the regenerated predicate covers it and a")
-    w("hand-copied one does not.")
-    w("")
+    if args.exclude_synthetic:
+        w("## Synthetic traffic is already excluded from this pack")
+        w("")
+        w(f"_Generated with `--exclude-synthetic` from `docs/analytics/{REGISTRY}` as it stood at")
+        w(f"{reg['last_verified']}. Every query below — and every tile in the")
+        w("`dashboard-templates.json` beside it — already carries the `NOT (...)` predicate. Paste")
+        w("them exactly as they are; adding the predicate again is harmless but means you are")
+        w("hand-transcribing actor ids, which is the thing this pack exists to avoid._")
+        w("")
+        w("**This pack is disposable.** It embeds the registry as of the moment it was generated, so")
+        w("it is correct for one console session and stale the next time a probe fires. Do not commit")
+        w("it, and regenerate rather than reuse.")
+        w("")
+    else:
+        w("## Before you paste anything: exclude synthetic traffic (MANDATORY)")
+        w("")
+        w("_Added 2026-08-26 (WIC-1389 / WIC-1392). The 17 queries below were authored when "
+          f"{PROJECT} held")
+        w("nothing but probes, so they deliberately carry **no** exclusion — every tile counted the")
+        w("synthetic events on purpose, to prove the query ran. **On build day that is no longer what you")
+        w("want**, because by definition you are building because organic traffic arrived, and the probes")
+        w("are still in there permanently._")
+        w("")
+        w(f"Every known synthetic actor is recorded in `docs/analytics/{REGISTRY}`, and since WIC-1664")
+        w("the predicate is derived from it at **build time** rather than pasted in by hand.")
+        w("")
+        w("**Route 1 needs nothing from you.** `build_dashboards.py` reads the registry and filters")
+        w("every payload before it writes, so an API build excludes probe traffic by default")
+        w("(`--no-exclude-synthetic` opts out). `--dry-run` executes the filtered queries, so what it")
+        w("proves green is what gets created.")
+        w("")
+        w("**For Routes 2 and 3, regenerate this pack with the predicate already applied.** One")
+        w("command, and both `dashboard-templates.json` and all 17 queries below come out filtered:")
+        w("")
+        w("```bash")
+        w("python3 docs/analytics/make_console_pack.py --exclude-synthetic --out-dir /tmp/console-pack")
+        w("```")
+        w("")
+        w("Then import or paste from `/tmp/console-pack/` rather than from this directory. The output")
+        w("is deliberately written outside the repo — it is a snapshot of the registry, correct for one")
+        w("console session, and committing it would reintroduce exactly the staleness this replaced.")
+        w("")
+        w("**Fallback, if you cannot run Python.** Print the current predicate:")
+        w("")
+        w("```bash")
+        w("python3 docs/analytics/organic_watch.py --audit     # prints SYNTHETIC_PREDICATE")
+        w("```")
+        w("")
+        w("and add one line to **every** query below, immediately after its existing `WHERE`:")
+        w("")
+        w("```sql")
+        w("  AND NOT ( <paste SYNTHETIC_PREDICATE here> )")
+        w("```")
+        w("")
+        w("Watch the two tiles that read `events` only inside a subquery (**C1**, **C3**) — the line")
+        w("belongs on the inner `WHERE`, not the outer one. This is precisely the transcription step")
+        w("the generator removes; use it if you can.")
+        w("")
+        w("Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source")
+        w("of record. If a probe fires between now and build day, the regenerated predicate covers it and a")
+        w("hand-copied one does not.")
+        w("")
     w("### Two funnel-reading corrections (from DevOps, WIC-1389)")
     w("")
     w("Both will produce wrong panels if ignored, and neither is visible from the query text:")
@@ -462,12 +548,13 @@ def main():
 
     # Both artifacts are fully built before either is written, so a failure above can
     # never leave a half-regenerated pack on disk.
-    out_json = os.path.join(HERE, "dashboard-templates.json")
+    os.makedirs(args.out_dir, exist_ok=True)
+    out_json = os.path.join(args.out_dir, "dashboard-templates.json")
     with open(out_json, "w", encoding="utf-8") as fh:
         json.dump(templates, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
 
-    out_md = os.path.join(HERE, "console-build-runbook.md")
+    out_md = os.path.join(args.out_dir, "console-build-runbook.md")
     with open(out_md, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
 
@@ -476,6 +563,12 @@ def main():
         print(f"  {name}: {n} tiles")
     print(f"wrote {out_json}")
     print(f"wrote {out_md}")
+    if args.exclude_synthetic:
+        # No Prettier note here: a filtered pack is a throwaway artifact for one console
+        # session, not a committed file, so there is nothing for a format check to diff.
+        print("\nSynthetic traffic is already excluded in both files above. Do not commit "
+              "them —\nthey embed the registry as of today.")
+        return
     # Both artifacts are Prettier-formatted in the repo, and this script does not emit
     # Prettier's exact style (short-array collapsing, md table padding). Without this the
     # regenerated pack diffs cosmetically against the committed one and CI format-checks fail.
