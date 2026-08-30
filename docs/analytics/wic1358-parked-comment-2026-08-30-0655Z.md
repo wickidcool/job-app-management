@@ -5,7 +5,8 @@ cross_issue_influence_run_context_required` twice — once plain, once with the 
 `X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID` header, which the error message itself recommends. The run
 scratch dir is named `paperclip-run-unassigned-*`, which is the reliable advance tell for this
 403: the run carries no issue binding, so every write counts as cross-issue. Same failure mode and
-same parking convention as `wic1358-parked-comment-2026-08-27-0040Z.md` and `-0345Z.md`.
+same parking convention as `wic1358-parked-comment-2026-08-27-0040Z.md` and
+`wic1358-parked-comment-2026-08-27-0345Z.md`.
 
 Two consecutive failures of the same control-plane write, so no further retries this heartbeat.
 The substantive work product is PR #255 and `event-reachability-matrix.md`; this file preserves
