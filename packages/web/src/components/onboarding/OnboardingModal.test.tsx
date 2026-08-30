@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
@@ -51,12 +51,20 @@ function LocationProbe() {
   return <div data-testid="location">{useLocation().pathname}</div>;
 }
 
+// WIC-1795. The entry must not be any of the paths a control navigates *to*. It used
+// to be '/', which is where "Go to Dashboard" goes, so that test asserted the location
+// still held its own starting value and passed identically whether the shortcut
+// navigated or did nothing at all. Starting somewhere the modal never navigates to
+// makes every destination below an observable transition, and makes the two
+// "stayed put" assertions mean what they say.
+const ENTRY = '/onboarding';
+
 function renderModal() {
   // MemoryRouter is load-bearing now: PR #82 (WIC-1032) landed, so the step-6
   // shortcuts — and step 5's primary CTA — navigate via useNavigate(), which throws
   // outside a router.
   return render(
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={[ENTRY]}>
       {/* Host wrapper so "renders nothing" can assert on the modal alone — the
           LocationProbe is a test fixture and is deliberately outside it. */}
       <div data-testid="modal-host">
@@ -65,6 +73,22 @@ function renderModal() {
       <LocationProbe />
     </MemoryRouter>
   );
+}
+
+// WIC-1795. handleFinishAndGo() calls navigate(to) in the continuation *after* an
+// awaited completeOnboarding(), so the router commit lands on a later tick than the
+// click. userEvent.click's act() flush does not guarantee both have settled, and a
+// synchronous read of the probe therefore raced the router — 2 of 6 full-suite runs
+// failed on the untouched base, always with `expected '<entry>' to be '<dest>'`, while
+// the file passed 9/9 in isolation. Await the transition instead of assuming it.
+//
+// Exact equality, not toHaveTextContent: that matcher is a substring match, so
+// '/applications' would be satisfied by '/applications/new' and the step-5 CTA test
+// would stop distinguishing the two destinations.
+async function expectNavigatedTo(pathname: string) {
+  await waitFor(() => {
+    expect(screen.getByTestId('location').textContent).toBe(pathname);
+  });
 }
 
 describe('OnboardingModal — completion step', () => {
@@ -106,7 +130,7 @@ describe('OnboardingModal — completion step', () => {
 
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
     // "/" and not "/dashboard": the Dashboard is mounted at the index route.
-    expect(screen.getByTestId('location').textContent).toBe('/');
+    await expectNavigatedTo('/');
   });
 
   it('finishes onboarding before the "View Applications" shortcut navigates', async () => {
@@ -116,7 +140,7 @@ describe('OnboardingModal — completion step', () => {
     await userEvent.click(screen.getByRole('button', { name: /view applications/i }));
 
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('location').textContent).toBe('/applications');
+    await expectNavigatedTo('/applications');
   });
 });
 
@@ -131,7 +155,7 @@ describe('OnboardingModal — step 5 "create first application"', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
 
-    expect(screen.getByTestId('location').textContent).toBe('/applications/new');
+    await expectNavigatedTo('/applications/new');
     // Must complete first, or the provider re-fetches an untouched status and
     // reopens the modal on top of the form the user was just sent to.
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
@@ -144,6 +168,10 @@ describe('OnboardingModal — step 5 "create first application"', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
 
+    // Anchor the "not called" read to after the handler's async continuation has
+    // landed. Without this the assertion could pass simply because nothing had run
+    // yet, which is the same race WIC-1795 fixed above wearing a negative sign.
+    await expectNavigatedTo('/applications/new');
     expect(nextStep).not.toHaveBeenCalled();
   });
 
@@ -166,7 +194,12 @@ describe('OnboardingModal — step 5 "create first application"', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /next step/i }));
 
+    // nextStep firing is the positive signal that the handler ran to completion, so
+    // the location read below is not merely observing a click that has not landed yet.
+    // Asserting the entry path — which is not a destination any control navigates to —
+    // is what makes "did not navigate" falsifiable; waiting on an unchanged value
+    // would prove nothing.
     expect(nextStep).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('location').textContent).toBe('/');
+    expect(screen.getByTestId('location').textContent).toBe(ENTRY);
   });
 });

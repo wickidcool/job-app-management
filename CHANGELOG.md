@@ -255,6 +255,17 @@ The three merge services read their source rows with a raw template, `sql\`${com
 - **No behaviour changed.** This is documentation only; every route still ships the same static title, and nothing in CI checks otherwise.
 
 
+
+### Fixed — the onboarding modal's router tests raced the navigation they were asserting (2026-08-30)
+
+`OnboardingModal.test.tsx` failed roughly one full-suite run in four on `main`, always as `expected '/' to be '/applications'` or `'/applications/new'`, and always only under full-suite load — it passed 9/9 in isolation, which is why it went unnoticed. Test-only change; `OnboardingModal.tsx` is untouched.
+
+- **It was a real race, not infrastructure.** `handleFinishAndGo()` calls `navigate(to)` in the continuation *after* an awaited `completeOnboarding()`, so the router commit lands a tick later than the click. `userEvent.click`'s `act()` flush does not guarantee both have settled, so a synchronous `screen.getByTestId('location').textContent` read could observe the pre-navigation path. The three location assertions now `await waitFor(...)` the transition instead of assuming it.
+- **Exact equality, not `toHaveTextContent`.** That matcher is a substring match, so `'/applications'` is satisfied by `'/applications/new'` and the step-5 CTA test would stop distinguishing the two destinations.
+- **The "Go to Dashboard" test was passing for the wrong reason and could not have failed.** It asserted the location was `'/'` — which was also the `MemoryRouter`'s `initialEntries` — so it held whether the shortcut navigated or did nothing at all. Deleting `navigate(to)` from the component left it green. The entry is now `/onboarding`, a path no control navigates to, which makes all three destinations observable transitions and makes the two "stayed put" assertions falsifiable. Under that same deletion the file now fails 4 tests where `main` failed 2.
+- **Two negative assertions were anchored.** `does not merely advance the wizard` and `advances without creating anything` read a "did not happen" fact; both now wait for a positive signal first (the navigation, or `nextStep`), so they cannot pass merely because nothing has run yet.
+- **Verified:** 10 consecutive full-suite `npx vitest run` in `packages/web`, 103/103 each. Separately, 5 runs under saturation of all 4 cores are green, where the unfixed file fails 4 of 5 under the identical load.
+
 ### Docs — the dialogue wizard's draft persistence is ruled out, and the ✅ that said it shipped was false (2026-08-30)
 
 `DIALOGUE_CAPTURE_WIZARD.md` specified `.draft` files in `data/projects/`, autosave every 30 seconds, a recovery prompt on re-open and a clear-on-cancel path — and its "Requirements Decisions" item 3 marked draft persistence **✅**, i.e. delivered. None of it was ever built. WIC-1621 rules the feature out rather than building it, and strikes the passages in place so old links still land on something that explains itself.
