@@ -57,13 +57,22 @@ export const PAGE_NAMES: CursorNames = { param: 'page', responseField: 'nextPage
  * `isSafeInteger` still catches the remaining case: a digit string too large
  * to survive `Number` intact.
  *
- * Rejecting rather than falling back to page one is the deliberate choice, and
- * it holds even for the catalog endpoints, whose encoding
- * `docs/architecture/API_CONTRACTS.md` publishes rather than calling opaque: a
- * hand-crafted cursor that *is* a base64url non-negative offset still works,
- * so the only requests this turns into a `400` are ones no correct client can
- * send. Serving page one instead would both hide the caller's bug and invite
- * an endless pagination loop.
+ * Rejecting rather than falling back to page one is the deliberate choice.
+ * Cursors are opaque and server-issued on every list endpoint, and
+ * `docs/architecture/API_CONTRACTS.md` § Pagination says so outright — "a
+ * cursor this API did not issue is not a supported input: it may return an
+ * error rather than a page of results" — so the only requests this turns into
+ * a `400` are ones no correct client can send. Serving page one instead would
+ * both hide the caller's bug and invite an endless pagination loop.
+ *
+ * This paragraph used to argue the other way round: the catalog `Diffs` row
+ * published the encoding, so a hand-crafted base64url offset counted as a
+ * legitimate input that still works. PR #120 (`172802b`) deleted that row's
+ * encoding, which strengthens the conclusion rather than weakening it — a
+ * hand-crafted cursor is now not a supported input at all (WIC-1567). The
+ * claim above deliberately rests on § Pagination's blanket statement rather
+ * than on a count of parameter rows: the row count tracks how many endpoints
+ * are documented and moves whenever one is added.
  *
  * @param names What this endpoint calls its cursor, so the message points at
  *   something the caller can actually find. Both halves are stated because
