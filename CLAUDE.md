@@ -257,8 +257,66 @@ branch or inherited from its base.
 The distinction decides the fix, so it is not bookkeeping:
 
 - **Union introduced it** → resolve the merge properly (per bullet, or delete the strict subset).
-- **Already in the branch file** → the merge is innocent; edit the entry on the branch. Re-merging
-  `main` will not help, and the raw-file hit is unconditional — it ships whatever the merge does.
+- **Already in the branch file** → the merge is innocent, so the fix belongs to the branch — *if
+  there is a fix owed at all.* Run the self-heal test below before you write anyone's name down.
+  Most hits in this class repair themselves.
+
+### Before accusing a branch, ask whether `main` already fixes it
+
+A previous revision of this section said that when a hit is already committed on the branch,
+"re-merging `main` will not help." That is wrong, and wrong in the direction that manufactures false
+accusations. Measured 2026-08-30 across the ten open PRs still carrying the WIC-1319 retracted
+fit-tier claim — `main` carries zero, PR #204 deleted it — **nine of the ten repair themselves the
+next time `main` is merged in.** Exactly one does not.
+
+The discriminator is a single question: **is the offending text in `git merge-base origin/main
+<branch>`?**
+
+- **Present in the merge base** → the branch is a *passenger*. `main`'s correction is a deletion
+  relative to a shared ancestor, so it is a one-sided change: the three-way merge applies it cleanly
+  and the union driver is never consulted for that region. The stale text is absent from the merge
+  result whether or not the author ever merges `main` themselves. **Do not file a card, do not edit
+  the branch, do not name it in an entry.**
+- **Absent from the merge base** → the branch *owns* the text. `main`'s deletion has nothing to
+  attach to, so there is no correction to propagate and merging `main` forward will never remove it.
+  Only a hand edit on the branch fixes it.
+
+Owning it is what a *committed* union result looks like. On PR #117 the duplicate arrived inside
+merge commit `508289b` (`fix/wic1309-fit-tier-blurbs` merged into `copy/wic1318-fit-tier-blurbs`) at
+a moment when the source branch still held the retracted wording. That source branch has since been
+corrected and now measures clean — but #117 committed the driver's output, converting a transient
+merge artifact into a branch-side addition. **The union driver's damage becomes permanent at the
+instant it is committed**, which is the practical reason to run the pre-push simulation instead of
+trusting a clean `git merge`.
+
+```bash
+Q='would have appeared directly above a match count of 20/20'   # the offending text
+for ref in refs/remotes/pr/146 refs/remotes/pr/117; do
+  MB=$(git merge-base origin/main "$ref")
+  printf '%-22s mergebase=%s branch=%s\n' "${ref#refs/remotes/}" \
+    "$(git show "$MB":CHANGELOG.md          | grep -c "$Q")" \
+    "$(git show "$ref":CHANGELOG.md         | grep -c "$Q")"
+done
+# mergebase=1 → passenger, self-heals.   mergebase=0 branch=1 → owner, needs a hand edit.
+```
+
+**Run the self-heal test against `origin/main`, not against the PR's true base** — the opposite of
+the union simulation above, and for a different reason: the simulation asks *what will this merge
+produce*, so it needs the base the merge actually uses; the self-heal test asks *where does the
+correction live*, and the correction lives on `main`. A stacked PR whose immediate base still carries
+the stale text is not thereby an owner. #191 and #123 both show the duplicate in a union against
+their own bases, and both are passengers against `main`.
+
+Confirm with the round trip rather than the counts alone — merge `main` into the branch, then merge
+that result into `main`, and run the checks on the output. On #146 the final file has zero
+occurrences and the detector is clean; on #117 it retains the retracted claim and both `SAME-ENTRY`
+bullet pairs.
+
+The cost of not having this test was real. The affected set filed on 2026-08-29 named PRs #146 and
+#160: #146 is a passenger, and #160's branch (`494d49d`) now measures zero occurrences outright.
+Neither was ever actionable. Today's sweep finds the text on ten branches and exactly one of them —
+#117, already tracked under WIC-1677 and blocked — is work anybody owes. **A hit tells you the text
+is present; only the merge base tells you whether it is a problem.**
 
 Baselining against `main` instead of the PR's own base gets this backwards. Against `main`, PR #117
 appeared to introduce three duplicate bullets; against its own base *and* its own head it introduces
