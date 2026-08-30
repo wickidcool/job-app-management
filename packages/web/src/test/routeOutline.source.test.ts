@@ -244,7 +244,9 @@ describe('each fix is owned by the file that should own it', () => {
    */
   const executed: string[] = [];
 
-  it.each(guards)('$name pins h1=$h1 h2=$h2 h3=$h3 — $note', ({ name, source, h1, h2, h3 }) => {
+  // Title carries no counts on purpose: vitest renders a 0 as `+0`, which reads as a
+  // delta. The pinned values live in the table and in each assertion's message.
+  it.each(guards)('$name — $note', ({ name, source, h1, h2, h3 }) => {
     executed.push(name);
 
     expect(count(source, H1), `${name}: this file must emit exactly ${h1} h1`).toBe(h1);
