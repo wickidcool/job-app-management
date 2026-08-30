@@ -8,6 +8,14 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Fixed — `main` was red: a `[skip ci]` docs commit landed a citation the doc-reference audit rejects (2026-08-30)
+
+`f07b9f6` added `docs/analytics/wic1473-parked-comment-2026-08-30-1740Z.md`, whose §1 cited the ADR-007 workers-subrequest-budget ADR as a backticked repo path. That document exists only on PR #148's branch and has never landed in `main`, so `doc-reference-audit.py` failed with `1 dangling reference(s) across 251 checked` — and that audit runs inside `Lint & Test`, a required check.
+
+The breakage landed unseen because the commit carried `[skip ci]`. The `Skip-CI vs runtime code` guard cleared it correctly — the commit touches no runtime code — but the doc-reference audit gates **only** documentation, so a docs-only commit is exactly the change that can break it and exactly the change permitted to skip the CI that would catch it. Every branch that subsequently merged `main` up inherited a red `Lint & Test` through no fault of its own; this was observed on PRs #141, #159, #161 and #256 within minutes of their bases being refreshed.
+
+The citation is rewritten to name the ADR in prose and state plainly that it is not in `main` — which is what the audit's own failure message prescribes ("or remove the citation"), and more accurate than the original, since the path it gave could not be opened. No other `ADR-007` mention in `docs/` is affected: the three in `dashboard-spec.md`, `metrics-baseline.md` and `organic_watch.py` cite it as "ADR-007 §4", a form the audit deliberately does not match (WIC-1867).
+
 ### Decided — salary filtering is dropped, with the reason recorded (2026-08-30)
 
 COMPONENT_SPECS §6 specified a salary range slider (min $0k, max $500k, step $10k) and `salaryMin`/`salaryMax` on `FilterOptions`. None of it was ever built. WIC-1613 struck the fields as a statement of fact but deliberately left the *decision* open, because deleting an unbuilt clause without recording why is precisely how `dateRange` read as delivered for four months. This is that decision (WIC-1731, stacked on WIC-1613). No behaviour changes; salary is still captured on the form and shown on the card, detail and reports views.
