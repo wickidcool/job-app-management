@@ -126,6 +126,22 @@ WIC-1655, a residual of WIC-1628. `MODAL_FOCUS_MANAGEMENT_SPEC.md` landed one fi
 - **CI cannot catch this class, and the checklist now says so.** `doc-reference-audit.py` gates *citations* — it proves a referenced document exists, not that a claim inside one is true, so a false `[x]` passes it cleanly. The counts above are pinned to `0e5d97a` and explicitly deferred to **WIC-1483** (`eslint-plugin-jsx-a11y` in the existing `lint-and-test` job), which makes boxes 2 and 4 machine-checkable; when it lands the hand counts should be deleted, not updated.
 - **No PR number was written into either document.** WIC-1628's finding was that `(shipped, PR #97)` rotted the moment it was typed; the flip is cited to the commit it was measured at. The modal spec's §0 row, §9 and §10 bullet are struck rather than deleted, since each asserted this was still outstanding.
 
+### Fixed — `listObjectKeys` returned nothing on the S3 path, silently disabling three project behaviours (2026-08-30)
+
+`packages/api/src/services/storage.service.ts` implemented `listObjectKeys` only for the Cloudflare Workers R2 binding. Every other function in that module already had an S3 fallback via `@aws-sdk/client-s3`, but this one ended in a bare `return []`. On any S3-configured deployment without the Workers binding — which is how the Node path runs — it therefore reported an empty bucket while `isStorageAvailable()` reported true, so callers could not tell "no files" from "never looked".
+
+- **An existing project file could be overwritten without a conflict.** `createProjectFile` uses the key list as an existence check and throws `ConflictError` when it is non-empty. It was never non-empty, so the check never fired.
+- **`deleteProject` orphaned every object it was meant to remove.** It listed the project prefix and passed the result to `deleteObjects`; an empty list deleted nothing while the database row went away regardless.
+- **Every project reported a file count of 0** through `listProjects`, `getProject` and `getProjectBySlug`, and `listProjectFiles` returned an empty list.
+- **The Workers branch also under-reported.** It took a single `list({ limit: 1000 })` with no cursor loop, so a project holding more than 1000 objects was truncated on that path too — under-counting and under-deleting rather than returning nothing.
+
+`listObjectKeys` now has an `isR2Configured()` branch built on `ListObjectsV2Command` with continuation-token pagination, and the Workers branch loops on its cursor. A truncated page that comes back without a cursor or token terminates the loop rather than spinning. A failed list now propagates instead of being caught, because an empty result is indistinguishable from success to every caller — the defect being fixed here is exactly that confusion.
+
+`deleteObjects` batches at 1000 keys on both paths. That is a consequence of the pagination fix, not an independent change: R2's batch delete rejects more than 1000 keys per call, so a prefix that previously truncated at 1000 would now have handed it more than it accepts.
+
+Covered by `packages/api/test/storage.list-keys.test.ts`, which stubs the S3 client's `send` to reach the branch a Workers-binding fake cannot. Reverting `listObjectKeys` to its previous body fails 8 of its 13 cases; the 5 that survive are the negative controls (unconfigured storage returns `[]`, the loop terminates without a cursor) and the `deleteObjects` batching cases.
+
+
 ### Fixed — the changelog anchor rule had become the collision it was written to prevent (2026-08-29)
 
 `CLAUDE.md`'s "Changelog conventions" told every contributor to place new `[Unreleased]` entries below the current top `### ` entry. That advice works only while few people follow it: "below the top entry" is itself a fixed position, so as adoption grew it became a second shared anchor. The section's own reasoning — that a lower anchor resolves to a different line per branch point — assumes PRs are cut from different commits, which is often not the case here.
