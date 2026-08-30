@@ -142,6 +142,62 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 ---
 
+### 7. [Route Heading Outline](./ROUTE_HEADING_OUTLINE.md)
+**Purpose:** Decide which element names a route, so a page and the component filling it stop rendering the same string twice.
+
+**Contents:**
+- The ruling: the page `<h1>` names the route; a component never emits its host page's `<h1>`
+- Per-route outcome table for the routes that duplicated their heading
+- The rule for new routes, and why the heading is not a prop
+- Why a literal-collision scan is not a heading-collision scan
+
+**Key Requirements:**
+- Exactly one `<h1>` per route, in the page, naming the route
+- No heading-level skips; sections start at `<h2>` because the page `<h1>` is their parent
+- Changing a route's `<h1>` requires updating ROUTE_TITLE_CONVENTION.md §5 in the same PR
+
+---
+
+### 8. [Route Title Convention](./ROUTE_TITLE_CONVENTION.md)
+**Purpose:** Give every route its own `document.title`, so tabs, history and bookmarks stop naming every screen identically (WCAG 2.4.2).
+
+**Contents:**
+- The `<Page> — Careerpin` pattern, taken from the already-shipping marketing site
+- Mechanism: route-table `title` field + a `useDocumentTitle()` hook for the six dynamic routes
+- The full per-route title table, measured against the tree
+- Which `<h1>` the title mirrors when a modal renders one too
+- Four pre-existing heading defects found during the audit, filed separately
+
+**Key Requirements:**
+- The title mirrors the route's `<h1>` verbatim — read the string from source, never retype it
+- Product name and separator live in exactly one module
+- Opening a modal never changes the title
+- Consumes ROUTE_HEADING_OUTLINE.md; its table is downstream of that document
+
+---
+
+### 9. [Cover Letter Pane Labelling](./COVER_LETTER_PANE_LABELLING.md)
+**Purpose:** Settle how the cover-letter editor and preview panes are labelled, and at what heading level (WIC-1569).
+
+---
+
+### 10. [Dialogue Capture Wizard](./DIALOGUE_CAPTURE_WIZARD.md)
+**Purpose:** The UC-1 / UC-1a / UC-1b wizard at `/projects/new/dialogue` — flow, wireframes, component specs.
+
+> **Read the ruling section at the top first.** Most of this document predates any implementation,
+> and one of its "Requirements Decisions" carried a ✅ for a feature that was never built. WIC-1621
+> **drops draft persistence** — no `.draft` store, no autosave, no "Save Draft" button — and
+> replaces it with a confirm-on-discard guard. The affected passages are struck in place, not
+> deleted, so old links still land on something that explains itself.
+
+**Key Requirements:**
+- No draft persistence and no draft affordance; nothing is written to disk (WIC-1621)
+- Discarding via `Escape`, the header close button, or navigating away must confirm when dirty
+- Confirm copy must state plainly that nothing was saved — users saw "Save Draft" for months
+- The confirm is a nested dialog inside the wizard dialog; `MODAL_FOCUS_MANAGEMENT_SPEC.md` applies
+
+---
+
 ## Quick Start for Frontend Developer
 
 ### 1. Read Documents in This Order
