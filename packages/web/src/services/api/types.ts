@@ -137,7 +137,12 @@ export interface APIConfig {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /** Submissions in the last 7 days, regardless of current status. */
   appliedThisWeek: number;
+  /**
+   * Submissions in the last **30 days** — a rolling window, not calendar
+   * month-to-date. Label it "last 30 days" if you bind it to a surface.
+   */
   appliedThisMonth: number;
   responseRate: number;
 }

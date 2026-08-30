@@ -559,6 +559,14 @@ GET /dashboard
 
 Returns aggregated statistics for the authenticated user.
 
+`appliedThisWeek` and `appliedThisMonth` count the **act of applying** — every
+application whose `appliedAt` falls inside a rolling 7- or 30-day window,
+whatever its current status. Advancing an application to `phone_screen` (or
+even to `rejected`) therefore never decreases either number. `appliedThisMonth`
+is a fixed **30 days**, not calendar month-to-date; a surface that renders it
+must label it "last 30 days". Definitions and the two ways they have previously
+been got wrong: `docs/architecture/DATA_MODEL.md`, "Window metric definitions".
+
 **Response**: `200 OK`
 
 ```typescript
@@ -566,8 +574,8 @@ interface DashboardResponse {
   stats: {
     total: number;
     byStatus: Record<ApplicationStatus, number>;
-    appliedThisWeek: number;
-    appliedThisMonth: number;
+    appliedThisWeek: number;  // submissions in the last 7 days, any status
+    appliedThisMonth: number; // submissions in the last 30 days, any status
     responseRate: number;     // 0-1, percentage of applications with response
   };
   recentActivity: ActivityItem[];

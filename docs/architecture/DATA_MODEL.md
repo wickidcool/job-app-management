@@ -219,11 +219,45 @@ export interface StatusHistoryEntry {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /**
+   * Applications whose `appliedAt` falls in the last 7 days, **regardless of
+   * current status**. This counts the act of applying, so advancing an
+   * application never decreases it. Surfaces may label it "Applied This Week".
+   */
   appliedThisWeek: number;
+  /**
+   * Applications whose `appliedAt` falls in the last **30 days** — a fixed
+   * rolling window, not calendar month-to-date. Any surface that renders this
+   * must say "last 30 days" rather than "this month".
+   */
   appliedThisMonth: number;
   responseRate: number;
 }
 ```
+
+### Window metric definitions (WIC-1515)
+
+`appliedThisWeek` and `appliedThisMonth` count **submissions**, keyed on
+`appliedAt`, and are deliberately blind to `status`:
+
+| | Window | Predicate |
+|---|---|---|
+| `appliedThisWeek` | rolling 7 days | `applied_at >= now() - 7d` |
+| `appliedThisMonth` | rolling 30 days | `applied_at >= now() - 30d` |
+
+Two rules follow, and both have already been violated once:
+
+1. **Never add a `status` term.** `appliedAt` survives a status transition, so a
+   `status = 'applied'` filter makes the metric *fall* when an application
+   progresses — the opposite of what a submission count means, and a direct
+   penalty for the outcome the product exists to produce.
+2. **Never derive the cutoff with `setMonth`.** `setMonth(getMonth() - 1)`
+   overflows short months: read on March 31 it yields March 3 (a 28-day
+   window), and read on January 31 it yields December 31 (a 31-day window).
+   Subtract a fixed span instead.
+
+Rows that were never submitted need no special handling — their `applied_at` is
+NULL, and `NULL >= $1` is UNKNOWN, which `WHERE` does not treat as a match.
 
 ## Status Transition Rules
 
@@ -330,19 +364,20 @@ async function getDashboardStats(): Promise<DashboardStats> {
     .from(applications)
     .groupBy(applications.status);
   
-  // Applied this week
-  const oneWeekAgo = new Date();
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  // Applied this week — a rolling 7 days, counting the ACT of applying.
+  //
+  // The predicate is `applied_at` inside the window and nothing else. Do NOT
+  // add `eq(applications.status, 'applied')`: `applied_at` is preserved across
+  // status transitions, so filtering on current status makes the count fall
+  // when an application advances (3 submissions become "2 applied this week"
+  // the moment one reaches `phone_screen`). Rows never submitted carry a NULL
+  // `applied_at` and fall out of the window on their own. See WIC-1515.
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   
   const [weekStats] = await db
     .select({ count: count() })
     .from(applications)
-    .where(
-      and(
-        eq(applications.status, 'applied'),
-        gte(applications.appliedAt, oneWeekAgo)
-      )
-    );
+    .where(gte(applications.appliedAt, oneWeekAgo));
   
   // Build response
   const byStatus = Object.fromEntries(
@@ -360,7 +395,11 @@ async function getDashboardStats(): Promise<DashboardStats> {
     total,
     byStatus,
     appliedThisWeek: weekStats?.count || 0,
-    appliedThisMonth: 0, // Similar query for month
+    // Same query over a rolling 30 days. Derive the cutoff by subtracting a
+    // fixed span, never with `setMonth(getMonth() - 1)` — that overflows short
+    // months and silently varies the window between 28 and 31 days depending on
+    // the day it is read (WIC-1515).
+    appliedThisMonth: monthStats?.count || 0,
     responseRate: applied > 0 ? responded / applied : 0,
   };
 }
