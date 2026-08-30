@@ -140,11 +140,22 @@ describe('suggestBullets tenancy (UC-6)', () => {
     //    fail-closed, but kept an owner-absent branch inside `bulletOwnerScope`
     //    — a helper whose entire purpose is to centralise scoping. Every new
     //    call site inherited the fallback, which is what WIC-1638 measured.
+    //  - WIC-1638 then made the owner required and dropped the branch.
     //
-    // `bulletOwnerScope` now takes `userId: string` and emits an unconditional
-    // equality; absence is rejected once at the route edge by `requireOwner`.
-    // This asserts the predicate itself still fails closed on the path that
-    // should be unreachable, rather than trusting the compiler to prove it is.
+    // WIC-1764 reconciled that against WIC-1601, which landed on `main` first
+    // and deleted `bulletOwnerScope` in favour of a generic
+    // `ownerScope(table, userId?)` shared across `resume_variants`, `resumes`
+    // and `tech_stack_tags` as well. The fallback cannot be dropped there: those
+    // columns are nullable, ten entry points still take `userId?: string`, and
+    // `IS NULL` is what keeps the ADR-003 local-dev anonymous path working.
+    //
+    // So the required-owner guarantee moved to the two places that can carry it
+    // for this table — `requireOwner` at the route edge (401 OWNER_REQUIRED) and
+    // `userId: string` on `suggestBullets` — and the predicate keeps the
+    // fallback. Both shapes fail closed here regardless: `quantifiedBullets.userId`
+    // is `.notNull()` since `0017`, so `IS NULL` selects the empty set exactly as
+    // `= NULL` did. This still exercises the predicate directly rather than
+    // trusting the compiler, and still kills the drop-the-term mutant.
     const stub = stubCatalog([
       bulletRow({ id: '01HZ_BUL_ORPHAN', userId: ORPHAN_OWNER }),
       bulletRow({ id: '01HZ_BUL_THEIRS', userId: OTHER }),
@@ -160,8 +171,7 @@ describe('suggestBullets tenancy (UC-6)', () => {
     // owner rather than degraded to a bare match. Dropping the term — the mutant
     // this test exists to kill — would return both rows.
     const { sql, params } = render(stub.catalogClauses()[1]);
-    expect(sql).toContain('"quantified_bullets"."user_id" = $');
-    expect(params).toContain(undefined);
+    expect(sql).toContain('"quantified_bullets"."user_id" is null');
     expect(params).not.toContain(ORPHAN_OWNER);
     expect(params).not.toContain(OTHER);
     expect(result.suggestions).toEqual([]);

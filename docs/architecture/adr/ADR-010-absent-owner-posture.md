@@ -309,11 +309,31 @@ with tenancy work in general. That is what makes a signature-level guard the rig
 
 Two further measurements from the same sweep:
 
-- **Gross, not net.** Comparing the full keyed finding sets at `d84da39` (138) and `293ba46` (157):
-  19 added, **0 removed**. The count has never once gone down.
+- **Gross, not net — through `293ba46`.** Comparing the full keyed finding sets at `d84da39` (138)
+  and `293ba46` (157): 19 added, **0 removed**.
 - **It only moves on service-layer merges.** 157 has held flat from `5e2956b` (08-27) through
   `293ba46` (08-29) across three intervening merges — all docs-only. The baseline is not drifting
   noise; it is a step function keyed to exports.
+
+> **Correction, measured 2026-08-30 on `origin/main` `614ad91`: the count has now gone down, and
+> the "never once gone down" claim above is withdrawn.** Re-running this guard against `614ad91`
+> scores **144**, not 157 — a drop of 13, arising entirely in two files:
+> `resume-variant.service.ts` 17 → 10 and `interviewPrep.service.ts` 15 → 9. Every other file is
+> unchanged to the site. The cause is **WIC-1601** (`1a2a100`, `34d61b5`), which scoped the reads on
+> every table those two services touch and then deleted `bulletOwnerScope` in favour of a single
+> generic helper.
+>
+> **Two things this does and does not mean, because the drop is not 13 fixed sites.** The
+> replacement helper is
+> `function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string)` returning
+> `userId ? eq(table.userId, userId) : isNull(table.userId)` — it is **fail-closed**, and it is now
+> called at 27 sites across the two files. So part of the drop is a genuine posture improvement, and
+> part is **consolidation**: collapsing two helpers into one retires `[SIG]` and `[COND]` findings
+> without changing any caller's behaviour. The step-function-keyed-to-exports mechanism above still
+> holds; what is now falsified is only the monotonicity. Read the number as *the count of
+> owner-absent branches*, which is what it has always literally been — never as a safety score.
+> This also supersedes the "4 `isNull` branches in total" figure measured on `293ba46` in the
+> Context section: the fail-closed shape is now the **majority** shape in these two files.
 
 The new sites are new exported functions written in the exact shape this ADR exists to prohibit:
 
@@ -406,6 +426,60 @@ they must therefore be run, not merely compiled, to have any force.
   reason**, and the guard reports zero findings for it.
 - `onboarding.service.ts` — the owner is required by every signature already. The guard reports
   zero findings. This service is the model for what D2 produces everywhere else.
+
+### AC-T0 is deliberately **not** widened, and this guard measures AC-T0 only
+
+This question has now been raised four separate times as a suspected requirements gap (WIC-1672
+Finding 2, WIC-1623, the Code Reviewer's 2026-08-29 review comment, and WIC-1756). It is recorded
+here so it stops recurring. The Business Analyst's ruling on WIC-1756 is **adopted**; the
+verification below is independent and adds a measurement the ruling argued for structurally.
+
+**The premise is true and is not a gap.** Ten predicates in the service layer carry no owner term at
+all — they are not owner-*optional*, they are owner-*absent*, so they satisfy AC-T0 vacuously.
+Re-derived independently at `origin/main` `614ad91` across all 20 service files; the cohort is
+exactly these ten, and every one is already **not met** under an accepted criterion with an owning
+card:
+
+| sites                                                       | already bound by | card     |
+| ----------------------------------------------------------- | ---------------- | -------- |
+| `extraction.service.ts:59,87,114,164` — UPDATEs             | AC-T2 (WIC-101)  | WIC-1404 |
+| `extraction.service.ts:553,599` — create-vs-update SELECTs  | AC-T3 (WIC-101)  | WIC-1406 |
+| `project.service.ts:464,512,548` — UPDATEs                  | AC-T2 (WIC-94)   | WIC-1433 |
+| `project.service.ts:597` — `getOrCreateProjectBySlug`       | AC-T3 (WIC-94)   | WIC-1434 |
+
+Coverage is 10/10, so widening AC-T0 would restate a property AC-T1..AC-T3 already assert, and split
+one requirement across two clauses whose **enforcement points differ**: AC-T0 is discharged at the
+**entry point** (D1's 401 makes an ownerless request unrepresentable); AC-T1..AC-T3 are discharged
+at the **predicate**. A site can satisfy either and violate the other. PR #141 is the worked
+example — it had to make `applyChangeToDb`'s `userId` non-optional (D2) *and* separately add
+`eq(<table>.userId, userId)` to six predicates. Neither edit implies the other.
+
+**Measured consequence for the burndown metric — a false green.** Because this guard's two checks
+are `[SIG]` (an optional/nullable owner parameter) and `[COND]` (an owner term inside a
+conditional), a *branchless* ownerless predicate matches neither: it enters neither numerator nor
+denominator, and its file need not appear in the table at all. Counterfactual run on `614ad91`,
+changing **only** the AC-T0 signature in `extraction.service.ts` (`userId?: string | null` →
+`userId: string`) and touching no predicate:
+
+| tree                                        | guard output                                                  | `extraction.service.ts` entries | ownerless predicates still present |
+| ------------------------------------------- | ------------------------------------------------------------- | ------------------------------- | ---------------------------------- |
+| `614ad91` clean                             | 144 sites                                                     | 1 (the `[SIG]`)                 | 6                                  |
+| `614ad91` + signature fix only              | `no new owner-absent branches … 1 fixed since baseline`, exit 0 | **0**                           | **6**                              |
+
+The file scores zero, drops out of the burndown table entirely, and the guard reports *progress* —
+while all six cross-tenant predicates remain byte-unchanged. **A green branch-count is therefore not
+evidence for AC-T1..AC-T3.** Combined with the fail-closed over-count corrected above, this guard is
+imprecise in both directions: it counts branches that are safe, and cannot see violations that have
+no branch.
+
+This is a scope statement, not a defect in the guard — AC-T0 is what it was built to enforce, and it
+does that. Two obligations follow:
+
+1. **Any burndown quoted against these specs must name the clause it measures.** "157/144 sites" is
+   an AC-T0 figure. It is not a tenancy-safety score and must not be reported as one.
+2. **The predicate-level counterpart is the `[NOWNER]` check** (WIC-1672, PR #227), which detects
+   exactly the branchless shape this one cannot. The two are complementary and neither substitutes
+   for the other.
 
 ### Costs and risks
 
