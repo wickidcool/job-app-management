@@ -207,7 +207,14 @@ function spyOnConsole() {
   };
 }
 
-const calls = (spy: ReturnType<typeof vi.spyOn>) => spy.mock.calls.map((c) => String(c[0]));
+/**
+ * The first argument of each recorded call, stringified.
+ *
+ * Structurally typed rather than `ReturnType<typeof vi.spyOn>`: that alias leaves the spy's
+ * generics unresolved, so `mock.calls` degrades to an implicit `any` and `tsc -b` fails the
+ * build under `noImplicitAny` while vitest itself runs perfectly happily.
+ */
+const calls = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c) => String(c[0]));
 
 describe('CommandPalette — the dialog announces what it is (WIC-1851)', () => {
   it('gives the dialog an exact accessible name and description', () => {
