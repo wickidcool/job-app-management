@@ -177,8 +177,10 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
 - **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
   last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
-  most common of the three by a wide margin and has a one-line prevention: see
-  "Start your entry with a blank line" below.
+  most common of the three by a wide margin and has a one-line prevention: **write your inserted
+  block so it both begins and ends with a blank line** (measured below — the trailing one is the one
+  that does the work). **Do not treat the weld as cosmetic** — it is the precondition for the fourth
+  mode; see "A weld you commit is a misfile you have armed for whoever branches off you next".
 - **One side moved a block, the other edited inside it.** The two do not line up as one diff3 region,
   so union keeps the relocated copy *and* the edited copy — a whole `### ` entry, duplicated. Note
   what this means: **moving a block is the documented fix for the ordering defect, so the remedy for
@@ -441,12 +443,25 @@ check on it. A claim about someone else's branch is exactly as perishable as a b
 lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
 the file. Check the shape of the `+` run in `git diff`, not whether the file "looks" spaced.
 
-Measured 2026-08-30 across the 81 open PRs, of which **78** have a `CHANGELOG.md` differing from
-their true base, each simulated in the real orientation with the content-addressed three-input
-control: **11 will weld a `### ` heading onto the previous entry's last bullet** — #92, #93, #118,
-#123, #149, #165, #171, #179, #208, #211, #248, all currently `main`-based (#211 and #248 weld two
-headings each, so 13 welds across 11 PRs). The weld remains far the most common failure mode queued
-to land. Run in the wrong orientation the same sweep reports 10, silently dropping #149.
+Re-measured 2026-08-30 09:4xZ at `main` = `30b61a2`, across the 83 open PRs, of which **80** have a
+`CHANGELOG.md` differing from their true base, each simulated in the real orientation with the
+content-addressed three-input control: **9 will weld a `### ` heading onto the previous entry's last
+bullet** — #92 `78ac9f8`, #93 `8ca23e5`, #118 `aaf4b75`, #123 `24f4f5e`, #149 `8d68c7f`, #165
+`309d97c`, #171 `a0e370c`, #179 `70c7652`, #208 `b4b87c6`, one weld each, all currently `main`-based.
+The weld remains far the most common failure mode queued to land. Run in the wrong orientation the
+same sweep reports one fewer, silently dropping #149.
+
+**Quote every accused PR at a head SHA, and re-run the sweep — not a spot check — immediately before
+you merge.** The revision that shipped this paragraph named **11** PRs including #211 and #248, and
+both had already been repaired by the DevOps Engineer (`f4df7af` 08:13Z, `cb8e641` 08:16Z, each
+commit message reading *"repair two union-driver welds"*) **before that PR was even opened** at
+08:19Z, let alone merged at 09:29Z. So this file shipped a stale accusation with a green check on
+it — the exact outcome the pre-merge re-measure exists to prevent, and the first time it has reached
+`main` rather than being caught in draft. The discipline did not fail because it was forgotten; it
+failed because the accused set had grown from one branch to eleven, and re-checking eleven by hand
+is work that quietly gets skipped. **Re-run the same command that produced the roster** — it is one
+sweep, not eleven checks — and let the diff in the roster be the answer. The two dropouts are also
+the good news in this section: the trailing-blank remedy is being adopted and it works in practice.
 
 **Do not restrict this sweep to `main`-based PRs.** An earlier revision reported nine welders and
 asserted all were `main`-based, while a stacked PR was welding against its own base the whole time
@@ -468,13 +483,13 @@ ours-then-theirs — so in the real orientation, where your PR head is `ours`, *
 first and it is the blank at its *end* that gets consumed.** You need a **trailing** blank. The
 previous revision prescribed a *leading* blank and stated flatly that padding the end "does
 nothing"; that was measured with the sides swapped, and in the orientation that actually occurs it
-is exactly backwards. Re-tested over all 11 welders by rebuilding each branch with an extra blank
-added to each inserted run:
+is exactly backwards. Re-tested 2026-08-30 at `main` = `30b61a2` over all 9 current welders by
+rebuilding each branch with an extra blank added to each inserted run:
 
-| variant | welders remaining, of 11 |
+| variant | welders remaining, of 9 |
 |---|---|
-| as-is | **11** |
-| extra **leading** blank | **11** — no effect |
+| as-is | **9** |
+| extra **leading** blank | **9** — no effect |
 | extra **trailing** blank | **1** |
 | both | **1** |
 
@@ -484,14 +499,16 @@ with the trailing one**. Keep doing both — the leading blank costs nothing, an
 benign-looking arrangements are cheap insurance against the next orientation surprise — but if you
 only add one, **add the trailing one.**
 
-**One of the eleven resists the remedy: #149 still welds with a trailing blank, and with both.** So
+**One of the nine resists the remedy: #149 still welds with a trailing blank, and with both.** So
 a blank-line discipline is a very good default, not a guarantee; the simulation is still the thing
-that answers the question for your branch.
+that answers the question for your branch. **And it is a prevention, not a repair** — it stops a
+weld being created, it does nothing about one already committed, and once a committed weld reaches a
+merge base you share with someone the damage is no longer yours to undo (next section).
 
 **Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
-Resolved to content anchors, the 13 welds sit on four seams: five onto
-`### Fixed — onboarding no longer opens over an established user's dashboard…` (#123 #149 #165 #211
-#248), five onto `### Fixed — The organic-traffic watcher…` (#171 #179 #208 #211 #248), two onto
+Resolved to content anchors, the 9 welds sit on four seams: three onto
+`### Fixed — onboarding no longer opens over an established user's dashboard…` (#123 #149 #165),
+three onto `### Fixed — The organic-traffic watcher…` (#171 #179 #208), two onto
 `### Fixed — three of ONBOARDING_FLOW.md's eight Must-Have…` (#92 #93), and one onto
 `### Documentation — The four remaining UC-5 report endpoints…` (#118 alone). But the single most
 contended anchor in the file — the PRs stacked at the top of `[Unreleased]` — welds **zero** times.
@@ -501,6 +518,53 @@ blank-terminated, differ only in how diff3 happened to align the *other* side's 
 So the anchor command answers "will GitHub call this CONFLICTING"; only the union simulation
 answers "will the driver corrupt the result". Different questions, and their answers disagree.
 Run the simulation.
+
+### A weld you commit is a misfile you have armed for whoever branches off you next
+
+The weld reads like a formatting nit — one missing blank line, nothing lost. It is not. A `### `
+heading welded to the previous entry's last bullet is **inside that bullet's diff3 region**, so the
+next ordinary edit to that bullet drags the heading along with it, and union files the edited copy
+under whichever entry it lands after. The weld does not corrupt anything by itself; it converts the
+*next* routine change into the fourth failure mode above.
+
+Watched end to end on live branches, 2026-08-30, all four steps inside two hours:
+
+1. **07:25Z** — a routine `git merge origin/main` on `fix/wic1478-dashboard-attention-aggregates`
+   welds `### Fixed — onboarding no longer opens…` onto the previous entry's last bullet. The driver
+   reports success. The weld is **committed** in the merge commit `2f3efb8`. Every commit on that
+   branch before it carries zero welds, so the merge is unambiguously where it came from.
+2. That commit becomes the **merge base shared with two stacked children**, PRs #188 and #180.
+3. **08:18Z** — #188's author notices the weld and repairs it *on their own branch* (`19543ab`,
+   "restore the blank line before the onboarding entry"). This buys them nothing.
+4. **09:33Z** — the parent edits that welded bullet, a one-line change extending it (`05bb701`).
+   Both children's merges now file the **corrected** copy under a foreign heading while the
+   superseded copy keeps the right home — and under **two different** foreign headings, `### Tests —
+   The Dashboard attention aggregates…` in #188 and `### Fixed — moving a kanban card…` in #180,
+   which is on its own enough to prove the merge invented the placement rather than inheriting it.
+
+One push, two corrupted children, neither of whose authors did anything wrong. The counterfactuals
+are what make it actionable — same three inputs, only the welds removed:
+
+| base branch's `CHANGELOG.md` | #180 | #188 |
+|---|---|---|
+| as-is | MISFILED | MISFILED |
+| weld repaired **today**, on the parent | **MISFILED** — no help | **MISFILED** — no help |
+| weld never committed (merge base clean too) | clean | clean |
+
+**So the repair window closes when the weld enters a merge base you share.** Fixing it on the parent
+afterwards is just another edit in the contested region; it cannot reach back into the base the
+children branched from. This retires the reassurance an earlier revision of this file offered about
+the weld backlog — that each welder "self-resolves once its author adopts the convention". Adopting
+the convention late does not undo what is already committed, and it does nothing at all for anything
+already stacked on you.
+
+Two concrete rules follow:
+
+- **Never commit a weld.** Run the check above after *every* `merge main` that touches
+  `CHANGELOG.md`, not just before a push, and repair it in that same commit. A weld caught before it
+  is committed costs one blank line; the same weld caught two hours later cost two PRs.
+- **If you own a branch other PRs are stacked on, you are a shared surface.** Check the seam before
+  you push a `CHANGELOG.md` edit, and tell your children when you have touched an entry near one.
 
 ### Before accusing a branch, ask whether `main` already fixes it
 
