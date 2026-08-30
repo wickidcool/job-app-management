@@ -2,6 +2,11 @@
 
 **Status:** Proposed — the code-level half is implemented; the infrastructure half needs a board decision (see _Open decision_).
 **Date:** 2026-08-26
+**Revised:** 2026-08-30 (WIC-1755) — root cause corrected. The earlier "IPv6-only
+`db.<ref>.supabase.co`" diagnosis and the "repoint `DATABASE_URL`" remedy are
+**withdrawn**; the host is derivable from CI, prod dials the IPv4 pooler, and the
+database is provably up. Withdrawn claims are marked in place rather than deleted,
+so the reasoning that produced them stays auditable.
 **Context:** Production outage diagnosed in WIC-1386 / WIC-1387.
 
 ## Context
@@ -103,9 +108,22 @@ INTERNAL_ERROR` indistinguishable from a broken query.
 
 **The outage itself.** The connect fails because prod has no `HYPERDRIVE`
 binding — `wrangler.jsonc` declares one only under `env.preview` — so prod dials
-`DATABASE_URL` directly, and `db.<ref>.supabase.co` resolves IPv6-only, which
-Workers cannot reach. This ADR makes that failure fast, bounded and legible. It
-does not make the database reachable.
+`DATABASE_URL` directly and the Worker cannot complete that connect. This ADR
+makes that failure fast, bounded and legible. It does not restore the data path.
+
+**Correction (2026-08-30).** An earlier revision of this section blamed
+`db.<ref>.supabase.co` resolving IPv6-only. **That claim is withdrawn: it is true
+about a host production does not dial.** Prod dials the *transaction pooler*,
+which is IPv4-only and reachable. See _Open decision_ for the derivation and the
+measurements. The distinction matters because it moves the fault from "the
+database is unreachable" to "the **Worker** cannot reach it" — a different
+remediation set.
+
+- `aws-1-us-west-2.pooler.supabase.com` (what prod dials) → **3 A records**
+  (34.215.156.231, 44.225.139.66, 44.252.246.120), **0 AAAA**. TCP 6543
+  connect from a general-purpose host: **0.03s**.
+- `db.fnmuvgnkxdeupprcyvdt.supabase.co` (what the withdrawn claim blamed) →
+  **0 A**, 1 AAAA. Real, IPv6-only, and not on production's path.
 
 ## Monitoring note
 
@@ -134,56 +152,145 @@ to get wrong.
 
 ## Open decision
 
-**Still live as of 2026-08-27T00:53Z — roughly 20 hours continuous.**
-Re-measured this heartbeat, both origins, byte-identical to the 2026-08-26T12:51Z
-reading:
+**Still live as of 2026-08-30T04:4xZ — roughly 4 days continuous** (first
+measured 2026-08-26T12:51Z). Re-measured this heartbeat, byte-identical to every
+prior reading:
 
 ```
-GET https://app.careerpin.app/health           -> 503  (4.5s)
-GET https://jobtrail.al-23f.workers.dev/health  -> 503  (4.1s)
+GET https://jobtrail.al-23f.workers.dev/health  -> 503  (4.04s, 4.37s)
 {"status":"degraded","hyperdrive":false,
  "db":"Too many subrequests by single Worker invocation. …"}
 ```
 
-The signature has not drifted in 20 hours of sampling, which rules out a
-transient and is consistent with a host that is simply unreachable rather than
-overloaded.
+The signature has not drifted across four days of sampling. That rules out a
+transient — and note it also argues *against* simple unreachability: a
+reachability problem against a healthy three-address pool would be expected to
+vary. A perfectly deterministic failure points at something structural in the
+connect itself.
 
 `GET /api/applications` still returns a clean `401`, so the Worker is routing and
 only the data path is down. `hyperdrive:false` confirms prod takes the
 `DATABASE_URL` branch (`db/client.ts:19`), which on `main` still passes no `max`
 — i.e. the pool of 10 described above is what production is running right now.
 
-**Unresolved conflict — read before choosing option 1.** PR #156 (merged to
-`main` 2026-08-26T12:39Z) now documents production as connecting to *"the
-Supabase transaction pooler (port 6543) using the `DATABASE_URL` secret."* If
-that is accurate, option 1 is a **no-op** and choosing it would spend a
-production deploy without restoring service. #156 verified that prod resolves to
-the `DATABASE_URL` branch — which is not in dispute — but the *host that secret
-names* is not readable from the repository or the CF API, so that half of the
-claim is inference, not measurement. It is contradicted by the observed
-behaviour: a reachable IPv4 pooler would not fail in `connect`.
+### Settled 2026-08-30: the host is derivable, and PR #156 was right
 
-**Therefore the host must be confirmed from the console before either option is
-actioned.** This is a human-only step; no agent can read the secret.
+**A previous revision of this section said the host `DATABASE_URL` names "is not
+readable from the repository or the CF API" and that it "must be confirmed from
+the console… no agent can read the secret." Both statements are false and are
+withdrawn.** The secret is not hand-set: **CI constructs it on every deploy**, so
+it is fully derivable from committed code plus readable Actions *variables*
+(variables are readable via the API; only *secrets* are not). The error was
+reading `db/client.ts`, which *consumes* the value, and never reading the
+workflow that *builds* it.
 
-Two ways to make prod reachable, for the board:
+Derivation, all from `origin/main`:
 
-1. **Repoint `DATABASE_URL` at the IPv4 pooler**
-   (`aws-1-us-east-2.pooler.supabase.com`) rather than `db.<ref>.supabase.co`.
-   Cheapest, and sufficient *only if the secret does not already name that host*
-   — see the conflict above. `DATABASE_URL` is `secret_text` and unreadable via
-   the CF API, so someone with console access must confirm which host it
-   currently names before this option is chosen.
-2. **Give prod a Hyperdrive binding, as preview has.** Hyperdrive terminates the
+| input | source | value |
+|---|---|---|
+| `PROJECT_REF` | `vars.SUPABASE_URL` | `fnmuvgnkxdeupprcyvdt` |
+| `PREFIX` | `vars.SUPABASE_POOLER_PREFIX` | `aws-1` |
+| `REGION` | `vars.SUPABASE_POOLER_REGION` | **`us-west-2`** |
+| branch taken | `secrets.SUPABASE_DATABASE_PASSWORD` **is set** | `deploy.yml:739` primary |
+
+`deploy.yml:743` therefore builds, and `:751` exports to the deploy step:
+
+```
+postgresql://postgres.fnmuvgnkxdeupprcyvdt:***@aws-1-us-west-2.pooler.supabase.com:6543/postgres
+```
+
+Both branches force port 6543, so "pooler on 6543" holds regardless of which
+fires. The production deploy step is even named
+`Prepare DATABASE_URL (transaction pooler port 6543)` (`deploy.yml:729`).
+**PR #156's claim that prod connects to the transaction pooler was correct**; the
+earlier framing of #156 as "contradicting" this ADR is withdrawn — it corrected
+it.
+
+**Consequence: "repoint `DATABASE_URL` at the pooler" is a proven no-op and has
+been removed as an option.** Prod already dials the pooler. The removed option
+also named `aws-1-us-east-2.pooler.supabase.com` — the **wrong region**; it
+matches neither the configured `us-west-2` nor the workflow's own `us-east-1`
+default. Do not reintroduce it.
+
+### The database is up — this is a Workers-egress fault
+
+Independent of the Worker, the same credentials against the same pooler succeed:
+
+- **`Deploy` run `33292619733`, head `614ad919`, success 2026-08-30T04:29:57Z.**
+  Step 7 `Credential preflight (authenticated)` success; step 8
+  **`Run database migrations` success**; step 12 deploy success. That step runs
+  `db:migrate` + `db:rls` + `db:rls:verify` against the prod pooler and carries
+  **no `if:` gate** (`deploy.yml:679`) — so prod Postgres accepted DDL and grants.
+- `supabase-keepalive.yml` (byte-identical URL construction) logged
+  `SELECT 1 returned: 1` against production at 2026-08-28T18:40:36Z, 54h into
+  the outage.
+- ~10 minutes after that successful deploy, prod `/health` was still
+  **503 / `hyperdrive:false` / "Too many subrequests"**, unchanged.
+
+Two conclusions the board should treat as established:
+
+1. **"The database is down" is refuted.** The unreachable leg is Worker → Postgres
+   and nothing else. The Supabase project is also **not paused** (the
+   WIC-1283/WIC-1344 failure mode is excluded by the keepalive evidence).
+2. **A redeploy is not a remedy — demonstrated twice.** The Worker was freshly
+   redeployed in the 04:29:57Z run (and previously at `cfbd3a6f`, 08-29T23:39Z)
+   and the signature did not move.
+
+Corroborating the egress framing: preview Workers, which **do** have a Hyperdrive
+binding, reach Postgres and return `password authentication failed for user
+"postgres"` in ~0.7–1.9s. That error is **server-generated**, so it cannot be
+received without a completed TCP connect and Postgres startup handshake. The
+Hyperdrive path completes; the direct path never does. *Caveat, stated so nobody
+over-reads it:* preview's Hyperdrive points at the shared **dev** database, so
+that A/B varies the binding **and** the target DB, and the bare `postgres`
+username shows the probe proves the *path* completes — it says nothing about
+whether prod's credentials would authenticate through Hyperdrive.
+
+### Candidate mechanism (hypothesis — not established)
+
+Flagged explicitly as **unverified inference**, because it is actionable and
+cheap to falsify, not because it is settled:
+
+The pooler presents a **private** CA chain (`CN = *.pooler.supabase.com` ←
+`Supabase Intermediate 2021 CA` ← `Supabase Root 2021 CA`; `openssl` returns
+verify code 19). `Supabase Root 2021 CA` is not in the WebPKI trust store.
+`db/client.ts` passes `ssl: 'require'` on the prod path only, which in
+postgres-js 3.4.9 sets `rejectUnauthorized: false` and calls `tls.connect`. If
+the Workers TLS stack validates against a public trust store and honours neither
+`rejectUnauthorized: false` nor a custom `ca`, the handshake fails, postgres-js
+reconnects with **no attempt ceiling**, and each dial spends a subrequest until
+the budget is exhausted — which is the observed signature. This would also
+explain why GitHub Actions (Node, which *does* honour `rejectUnauthorized:false`)
+connects fine, and why the failure is perfectly deterministic.
+
+**Falsification test, which merging this PR performs for free:** deploy and read
+root `GET /health`. A `CERT_*` / `SELF_SIGNED_CERT_IN_CHAIN` /
+`unable to verify the first certificate` string supports it; `ECONNREFUSED` /
+`ETIMEDOUT` / `ENOTFOUND` refutes it and this paragraph should be deleted.
+Note the discriminator is the **`db` field**, not the HTTP status: `/health`
+returns 503 both before and after this change, so accept recovery only on
+`db == "ok"`.
+
+### The decision left for the board
+
+1. **Give prod a Hyperdrive binding, as preview has.** Hyperdrive terminates the
    connection outside the invocation, so the per-request connect disappears
    entirely and the failure mode above becomes unreachable rather than merely
-   bounded. This is the durable fix and makes prod match the path preview
-   already proves works.
+   bounded. It is both the durable fix and the only remaining option that
+   targets the identified fault. **Scope note:** PR #219 rewrote `README.md`,
+   `packages/api/README.md` and `.dev.vars.example` to state that production has
+   no Hyperdrive binding, so the implementing PR owes a same-PR sweep of those
+   three files or it reintroduces the docs drift #219 existed to fix.
+2. **Do nothing further and accept bounded degradation.** This ADR's code half
+   already converts the outage from opaque 500s into an honest, fast 503. That
+   is not a restoration of service.
 
-Recommendation: **do (1) to restore service and (2) to keep it restored.** The
-divergence between prod and preview database paths is itself the root cause —
-preview was never exposed to this because Hyperdrive removed the connect.
+Recommendation: **(1).** The divergence between the prod and preview database
+paths is itself the root cause — preview was never exposed to this because
+Hyperdrive removed the in-Worker connect.
 
-Either is a production deploy and requires board approval per the deployment
-directive.
+This is a production deploy and requires board approval per the deployment
+directive. Deploy-lane health is measurable and currently good: the last 10
+`Deploy` runs on `main` are **8 success / 2 failure**, and both failures died at
+step 7 `Credential preflight`, which aborts *before* migrations touch the
+database.
