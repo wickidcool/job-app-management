@@ -494,12 +494,39 @@ and never specified — and is now written down. (WIC-1613 exists because `dateR
 in the third category: declared, spelled the way the requirement spells it, and wired to
 nothing. A field listed in this block is a promise, so this block only lists what is real.)
 
-Striking the salary fields is a **statement of fact, not yet a ruling** — nobody has
-decided whether salary filtering is wanted. **WIC-1731** carries that decision, so the
-gap is tracked rather than silently absent; deleting an unbuilt clause without recording
-why is how `dateRange` came to read as delivered for four months. Note that salary,
-unlike date, is not named in any accepted US- clause: US-6.3 asks for "status, company,
-date".
+**Ruling (WIC-1731): salary filtering is dropped, and this is why.** Striking the salary
+fields above was a statement of fact; this paragraph is the decision that fact was
+waiting on, so the clause is closed rather than silently absent — deleting an unbuilt
+clause without recording why is how `dateRange` came to read as delivered for four
+months.
+
+Salary is stored as **free text**, not as a number. `salary_range` is a nullable `TEXT`
+column (`DATA_MODEL.md:74`), surfaced as `salaryRange?: string` — "Optional, 1-50 chars"
+(`API_CONTRACTS.md:408`) — and captured by a plain text input on the application form.
+The repository's own fixtures already spell it three different ways (`$140k - $180k`,
+`$150k-180k`, `$180k-220k`), and nothing constrains a user to any of them: hourly rates,
+currencies, single values and "DOE" are all equally valid today. `salaryMin` / `salaryMax`
+were the **only** numeric salary in the entire codebase; nothing produced them.
+
+So the specified control — a range slider, min $0k, max $500k, step $10k — could not be
+built as written without first inventing a parser, and then answering a question nobody
+has asked: what a numeric bound should do with a row it cannot parse. Any bound would
+**hide** those rows, which for a sparsely and inconsistently populated optional field
+means silently hiding much of the user's own data. That is a worse outcome than not
+offering the filter.
+
+Salary is also not owed. Unlike date, it is not named in any accepted US- clause —
+US-6.3 asks for "Filter by status, company, date" (`WIC-15.plan.md:48`) — so dropping it
+gives up nothing that was promised.
+
+**If salary filtering is ever wanted**, it is a data-model change first, not a UI change:
+give `Application` structured numeric bounds (and a currency and a period) at capture
+time, then respecify this control against them. Re-opening it as a filter-panel task
+would reproduce exactly the fossil this section exists to prevent. Full evidence:
+[`SALARY_FILTER_RULING_WIC1731.md`](./SALARY_FILTER_RULING_WIC1731.md).
+
+This ruling covers filtering *only*. Salary remains captured on the application form and
+displayed on the card, detail and reports views; none of that is affected.
 
 ### UI Elements
 
@@ -548,9 +575,23 @@ Applied Filters:  [Status: Applied ✕]  [Company: TechCo ✕]  [Clear All]
 
 ### Accessibility
 
-- **Focus Order:** Search → Status → Company → Date → Salary
+- **Focus Order:** Search → Active Only → Status → Company → Date (presets, then From,
+  then To) → Clear All → filter chips.
+  Transcribed from the rendered DOM order in `FilterPanel.tsx`, not from the order the
+  UI Elements table happens to list. The panel sets no `tabindex`, so DOM order *is*
+  focus order; note that **Active Only sits second, directly after Search** — it is not
+  last despite being the newest control.
 - **Screen Reader:** Announces filter count changes
-- **Keyboard:** Space/Enter to toggle checkboxes
+- **Keyboard:** Space/Enter to toggle checkboxes. Active Only is a `role="switch"` with
+  `aria-checked`, reached in sequence and toggled the same way — it is a control, not a
+  chip. The Clear All button and the chip row appear only while a filter is active, so
+  the tail of the order is conditional.
+
+> This line is part of the same promise as the UI Elements table above: it must name the
+> controls that exist, in the order they are actually reached. It named **Salary** — a
+> control this panel never had — until WIC-1731, and omitted **Active Only**, which
+> shipped without being written down. Any change to the control set or to render order
+> changes this line too.
 
 ---
 

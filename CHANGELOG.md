@@ -8,6 +8,18 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Decided — salary filtering is dropped, with the reason recorded (2026-08-30)
+
+COMPONENT_SPECS §6 specified a salary range slider (min $0k, max $500k, step $10k) and `salaryMin`/`salaryMax` on `FilterOptions`. None of it was ever built. WIC-1613 struck the fields as a statement of fact but deliberately left the *decision* open, because deleting an unbuilt clause without recording why is precisely how `dateRange` read as delivered for four months. This is that decision (WIC-1731, stacked on WIC-1613). No behaviour changes; salary is still captured on the form and shown on the card, detail and reports views.
+
+- **The specified control needed a number, and salary is free text.** `salary_range` is a nullable `TEXT` column (`DATA_MODEL.md:74`), typed `salaryRange?: string` — "Optional, 1-50 chars" (`API_CONTRACTS.md:408`) — and captured by a plain text input. `salaryMin`/`salaryMax` were the **only** numeric salary anywhere in the repository, with no producer and no consumer.
+- **The format is already inconsistent in our own fixtures**, before any user touches it: `'$140k - $180k'`, `'$150k-180k'`, `'$180k-220k'`. Hourly rates, other currencies, single figures and "DOE" are all equally valid against `string`.
+- **Nobody had answered what a numeric bound does with a row it cannot parse, and both answers are bad.** Excluding them silently hides an unknown share of the user's own applications — on an *optional* field, unparseable and unfilled are the common cases, not the edge ones — and a job seeker cannot tell it happened. Including them makes "$0k–$50k" return rows that plainly do not match. A control drawn without that answer was drawn, not designed.
+- **Nothing promised it.** US-6.3 reads "Filter by status, company, **date**" (`WIC-15.plan.md:48`); salary is absent. That is the substantive difference from `dateRange`, which *was* owed and missing — so that one got built and this one gets struck. Revisiting it is a data-model change first (structured numeric bounds, currency, period), not a filter-panel task.
+- **§6's focus order was still promising the deleted control.** It read `Search → Status → Company → Date → Salary` — naming a control the same spec had just removed, and omitting **Active Only**, the `role="switch"` toggle shipped alongside the date filter. It is now transcribed from the rendered DOM order, where Active Only sits **second, directly after Search**, not last. Prose corrections that miss the neighbouring representation are how a spec keeps a stale promise after the obvious edit lands.
+
+Full evidence: `docs/design/SALARY_FILTER_RULING_WIC1731.md`.
+
 ### Added — US-6.3's "filter by date", which had a type and nothing else (2026-08-29)
 
 `FilterOptions.dateRange` was declared in `FilterPanel.tsx` as `{ start: Date; end: Date }` and referenced **nowhere else in `packages/web/src`**. No control wrote it and no list read it, so filtering `/applications` by date was impossible — while the clause read as delivered to anything checking whether the requirement's vocabulary appears in the source. US-6.3 is P0 (MVP) and had been accepted for four months (WIC-1613, stacked on WIC-1612).
