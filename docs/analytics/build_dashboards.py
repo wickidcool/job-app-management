@@ -180,12 +180,26 @@ def _sql_tokens(sql: str):
     the token sits in, so a ")" reports the depth of the scope it closes. String literals
     are skipped whole -- an event name like 'resume_upload_completed' must never be read
     as a keyword.
+
+    Comments are skipped whole for the same reason (WIC-1664). A `)` inside `/* ... */`
+    used to decrement `depth`, which desyncs every scope after it and lands the injected
+    predicate *inside* the comment -- where it is silently discarded while this function
+    still reports a filtered site. That is the silent-unfiltered-tile outcome the whole
+    mechanism exists to prevent, so comments are masked rather than parsed.
     """
     depth = 0
     i = 0
     n = len(sql)
     while i < n:
         char = sql[i]
+        if sql.startswith("--", i):
+            newline = sql.find("\n", i)
+            i = n if newline == -1 else newline
+            continue
+        if sql.startswith("/*", i):
+            close = sql.find("*/", i + 2)
+            i = n if close == -1 else close + 2
+            continue
         if char in "'\"":
             quote = char
             i += 1
@@ -271,7 +285,10 @@ def inject_hogql(sql: str, predicate: str) -> tuple[str, int]:
         condition = sql[cond_start:cond_end].strip()
         if not condition:
             fail("empty WHERE condition while injecting the synthetic exclusion")
-        edits.append((cond_start, cond_end, f" ({condition})\n  AND NOT ({predicate})\n"))
+        # The closing paren goes on its own line, not straight after `condition`. A WHERE
+        # body ending in a `-- ...` comment would otherwise swallow it, leaving the paren
+        # commented out and the SQL unbalanced (WIC-1664).
+        edits.append((cond_start, cond_end, f" (\n{condition}\n)\n  AND NOT ({predicate})\n"))
 
     for start, end, text in reversed(edits):  # right-to-left keeps earlier offsets valid
         sql = sql[:start] + text + sql[end:]
