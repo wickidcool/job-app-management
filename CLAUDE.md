@@ -198,9 +198,9 @@ for n, l in enumerate(L, 1):
     if s.startswith('### '):
         cur = (n, s); head[norm(s)[:55]].append(n)
     if s.startswith('- ') and len(s) > 60: bul[norm(s)[:70]].append((n, cur))
-sep = [n + 1 for n, l in enumerate(L) if l.startswith('### ') and n and L[n - 1].strip()]
+sep = {norm(l)[:55]: n + 1 for n, l in enumerate(L) if l.startswith('### ') and n and L[n - 1].strip()}
 print('duplicate headings:', {k: v for k, v in head.items() if len(v) > 1} or 'none')
-print('headings missing a preceding blank line (line nos):', sep or 'none')
+print('welded headings (normalised text -> line no):', sep or 'none')
 for k, v in bul.items():
     if len(v) < 2: continue
     hs = [h for _, h in v]
@@ -283,6 +283,17 @@ touching `CHANGELOG.md`, each simulated against its true base: the raw union out
 of which only **20** were introduced by the merge; the other **16** were already committed on the
 branch or inherited from its base.
 
+**Subtract by content, never by line number — `ours`, `theirs` and `union` are three different
+coordinate systems.** This is the same error as the anchor tally (above), and it survived in the
+weld control until 2026-08-30. Measured over the open PRs that day: subtracting *line numbers*
+reports **17** PRs welding, subtracting *normalised heading text* reports **10**. All 7 extra are
+false — the weld already sat on the branch and the merge merely shifted it down the file. PR #95's
+weld is line 511 in `theirs.md` and line 600 in `union.md`; PR #117's is on **both** parents (169
+and 78) and lands at 172; PR #168 carries the same **7** welds in `ours.md` and `union.md`, offset
+by nine lines, and a line-number control blames the merge for every one of them. That is why the
+check above prints normalised heading text as its key and the line number only as a locator: key on
+the text, and the subtraction is merge-base independent.
+
 The distinction decides the fix, so it is not bookkeeping:
 
 - **Union introduced it** → resolve the merge properly (per bullet, or delete the strict subset).
@@ -297,13 +308,20 @@ lines in `git diff` starts with a blank and ends with a blank, on top of the sep
 the file. Your entry then reads with two blank lines above it on the branch. That looks redundant
 and is not: the second one is what survives the union.
 
-Measured 2026-08-30 over all 74 open PRs whose `CHANGELOG.md` differs from their true base, each
-simulated with the three-input control: **9 will weld a `### ` heading onto the previous entry's
-last bullet, and 0 will introduce a duplicate bullet or heading.** The weld is not one failure mode
-among three — right now it is the *only* one queued. All nine are `main`-based: #92, #93, #160,
-#165, #171, #179, #208, #211, #213.
+Measured 2026-08-30 across the 78 open PRs, of which **65** have a `CHANGELOG.md` differing from
+their true base, each simulated with the content-addressed three-input control: **10 will weld a
+`### ` heading onto the previous entry's last bullet, and 0 will introduce a duplicate bullet or
+heading.** The weld is not one failure mode among three — right now it is the *only* one queued.
+Nine are `main`-based (#92, #93, #160, #165, #171, #179, #208, #211, #213) and **one is stacked**:
+#123, on `fix/wic1312-shared-cursor-guard`.
 
-**Every one of those nine branch files is individually weld-free, and so is `main`.** The defect
+**Do not restrict this sweep to `main`-based PRs.** An earlier revision of this section reported
+nine welders and asserted all of them were `main`-based. #123 was welding then too — its three
+simulation inputs are commits dated 2026-08-26 and have not moved since, so the result is a
+deterministic function of unchanged data — and it was simply outside the population that got
+measured. A stacked PR welds against *its own base branch* exactly as readily.
+
+**Every one of those ten branch files is individually weld-free, and so is `main`.** The defect
 exists only in the merge result, which is why nothing on the PR page shows it and why the pre-push
 simulation is the only thing that can.
 
@@ -311,14 +329,15 @@ The cause is that both sides insert at the same blank-line separator. The base h
 once; union emits both insertion blocks around it, the first block gets the blank, and the second
 block's heading lands directly against the first block's last bullet.
 
-The remedy was tested against all nine, by rebuilding each branch with an extra blank line added to
-each inserted run and re-running the simulation:
+The remedy was tested against all ten, by rebuilding each branch with an extra blank line added to
+each inserted run and re-running the simulation. Every one of the ten behaves identically, the
+stacked #123 included:
 
-| variant | welds across the 9 |
+| variant | welds across the 10 |
 |---|---|
-| as-is | **9** |
+| as-is | **10** |
 | extra **leading** blank | **0** |
-| extra **trailing** blank | **9** — no effect |
+| extra **trailing** blank | **10** — no effect |
 | both | **0** |
 
 **The obvious instinct is the wrong one.** Padding the *end* of your entry changes nothing; the
@@ -327,10 +346,13 @@ trailing one merely relocates the weld onto the following entry's heading. Leadi
 blank, both.
 
 **Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
-Resolved to content anchors, all nine welders do sit on a *shared* seam, and on only three of them:
-five PRs before `### Docs — Two heading rulings…` (#171 #179 #208 #211 #213), two before
-`### Fixed — Every match and gap row…` (#160 #165), two before `### Added — restoreFocusTo…`
-(#92 #93). But the single most contended anchor in the file — eight PRs stacked at the top of
+Resolved to content anchors, the ten welders sit on four seams, and nine of them share one: five
+weld onto `### Fixed — The organic-traffic watcher…` (#171 #179 #208 #211 #213), two onto
+`### Fixed — three of ONBOARDING_FLOW.md's eight Must-Have…` (#92 #93), two onto
+`### Security — catalog tag updates and diff generation…` (#160 #165) — and **#123 welds onto
+`### Security — App-host transport hardening` entirely alone**, which is the other half of why a
+shared-anchor heuristic would have missed it. But the single most contended anchor in the file —
+eight PRs stacked at the top of
 `[Unreleased]` — welds **zero** times. Two structurally identical insertions, both placed after an
 existing blank and both blank-terminated, differ only in how diff3 happened to align the *other*
 side's competing insertion.
