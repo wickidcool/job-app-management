@@ -43,8 +43,8 @@ predicate from `probe-registry.json` on every run and injects it into all 17 que
 in memory — including the native funnel and retention tiles, which carry no SQL to edit. You
 do not paste anything, and a probe registered after today is excluded by the next build with
 no code change. It is fail-closed: a tile it cannot filter aborts the build rather than
-shipping unfiltered. Confirm with the `OK  synthetic exclusion derived from …` line in
-`--dry-run` output.
+shipping unfiltered. Confirm it ran: `--dry-run` prints a `synthetic exclusion derived from`
+line naming the registry it read and the number of filter sites it applied.
 
 **If you are declining Route 1 on security grounds, that is a reasonable call** — a write-scoped
 key is a standing capability. Routes 2 and 3 exist so that decision does not also block the
