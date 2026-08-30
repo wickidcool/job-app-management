@@ -183,6 +183,31 @@ export interface ListResumesResponse {
 }
 
 /**
+ * A single `resume_exports` row, as returned by `GET /resumes/:id/exports`.
+ *
+ * Deliberately narrower than the `ResumeExport` the UI renders: the table stores
+ * no display name, no file size and no experience ids, so those are derived or
+ * left undefined by `transformAPIResumeExport` rather than faked. `metadata` is
+ * `{ sections, charCount }` today — `charCount` counts characters of the *source*
+ * resume text, so it is NOT a file size and must not be rendered as one.
+ */
+export interface APIResumeExport {
+  id: string;
+  resumeId: string;
+  exportType: string;
+  filePath: string;
+  generatedAt: string; // ISO 8601
+  metadata?: Record<string, unknown> | null;
+}
+
+/**
+ * List resume exports response
+ */
+export interface ListResumeExportsResponse {
+  exports: APIResumeExport[];
+}
+
+/**
  * Cover Letter Types
  */
 
