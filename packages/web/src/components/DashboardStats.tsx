@@ -1,3 +1,5 @@
+import { APPLIED_WINDOW_LABEL } from '../constants/appliedWindow';
+
 export interface DashboardStatsProps {
   stats: {
     total: number;
@@ -22,7 +24,8 @@ export function DashboardStats({ stats, loading = false }: DashboardStatsProps) 
     },
     {
       value: stats.appliedThisWeek,
-      label: 'This Week',
+      // Rolling window, not the current calendar week — see constants/appliedWindow.ts.
+      label: APPLIED_WINDOW_LABEL,
       formatValue: (val: number) => val.toString(),
     },
     {
