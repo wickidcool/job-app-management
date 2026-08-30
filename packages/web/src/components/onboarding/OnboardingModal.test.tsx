@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
@@ -51,12 +51,26 @@ function LocationProbe() {
   return <div data-testid="location">{useLocation().pathname}</div>;
 }
 
+// The step-6 shortcuts and step 5's CTA all go through handleFinishAndGo(), which
+// is `await completeOnboarding(); navigate(to)` fired from onClick as a floating
+// promise. userEvent.click() therefore returns while the navigation is still one
+// microtask away, and asserting the path synchronously is a race — it failed on
+// roughly 1 run in 4 (WIC-1795). Poll instead of sampling once.
+async function expectPath(path: string) {
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(path));
+}
+
+// Where the router starts. Deliberately *not* one of the paths any shortcut
+// navigates to — "Go to Dashboard" targets '/', so starting there would make its
+// assertion pass whether the click navigated or did nothing at all.
+const START_PATH = '/onboarding';
+
 function renderModal() {
   // MemoryRouter is load-bearing now: PR #82 (WIC-1032) landed, so the step-6
   // shortcuts — and step 5's primary CTA — navigate via useNavigate(), which throws
   // outside a router.
   return render(
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={[START_PATH]}>
       {/* Host wrapper so "renders nothing" can assert on the modal alone — the
           LocationProbe is a test fixture and is deliberately outside it. */}
       <div data-testid="modal-host">
@@ -106,7 +120,8 @@ describe('OnboardingModal — completion step', () => {
 
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
     // "/" and not "/dashboard": the Dashboard is mounted at the index route.
-    expect(screen.getByTestId('location').textContent).toBe('/');
+    // Distinguishable from "never navigated" only because START_PATH is not "/".
+    await expectPath('/');
   });
 
   it('finishes onboarding before the "View Applications" shortcut navigates', async () => {
@@ -116,7 +131,7 @@ describe('OnboardingModal — completion step', () => {
     await userEvent.click(screen.getByRole('button', { name: /view applications/i }));
 
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('location').textContent).toBe('/applications');
+    await expectPath('/applications');
   });
 });
 
@@ -131,7 +146,7 @@ describe('OnboardingModal — step 5 "create first application"', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
 
-    expect(screen.getByTestId('location').textContent).toBe('/applications/new');
+    await expectPath('/applications/new');
     // Must complete first, or the provider re-fetches an untouched status and
     // reopens the modal on top of the form the user was just sent to.
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
@@ -167,6 +182,8 @@ describe('OnboardingModal — step 5 "create first application"', () => {
     await userEvent.click(screen.getByRole('button', { name: /next step/i }));
 
     expect(nextStep).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('location').textContent).toBe('/');
+    // Asserts the absence of navigation, so it stays a single synchronous sample:
+    // waitFor would pass on the first poll no matter what the click did.
+    expect(screen.getByTestId('location').textContent).toBe(START_PATH);
   });
 });
