@@ -198,7 +198,14 @@ def _sql_tokens(sql: str):
             continue
         if sql.startswith("/*", i):
             close = sql.find("*/", i + 2)
-            i = n if close == -1 else close + 2
+            # An unterminated block comment is never valid input, and swallowing it to
+            # end-of-string reproduces the silent-unfilter signature: the WHERE body reads
+            # to EOF, the predicate lands inside the never-closed comment, and the emitted
+            # SQL is unbalanced but inject_hogql still reports one filtered site. Fail
+            # closed rather than emit a wrong-but-plausible tile (WIC-1844).
+            if close == -1:
+                fail("unterminated block comment (`/*` with no `*/`) in a query being filtered")
+            i = close + 2
             continue
         if char in "'\"":
             quote = char
@@ -274,6 +281,7 @@ def inject_hogql(sql: str, predicate: str) -> tuple[str, int]:
 
         cond_start = tokens[where][1]
         cond_end = len(sql)
+        cond_tokens = 0
         for j in range(where + 1, len(tokens)):
             js, _je, jtoken, jdepth = tokens[j]
             if jtoken == ")" and jdepth == depth:
@@ -282,9 +290,15 @@ def inject_hogql(sql: str, predicate: str) -> tuple[str, int]:
             if jdepth == depth and jtoken in _WHERE_END:
                 cond_end = js
                 break
+            cond_tokens += 1
         condition = sql[cond_start:cond_end].strip()
-        if not condition:
-            fail("empty WHERE condition while injecting the synthetic exclusion")
+        # `condition` is the raw substring, so a body that is only a comment (`WHERE
+        # -- all`) is a non-empty string yet carries no real tokens -- it would wrap to
+        # `WHERE ()`, empty parens and invalid SQL. Masking comments is exactly what
+        # `_sql_tokens` already did, so count what it yielded rather than trusting the
+        # substring's truthiness, which the old `if not condition` guard did (WIC-1844).
+        if not condition or cond_tokens == 0:
+            fail("empty WHERE condition (only whitespace or comments) while injecting the synthetic exclusion")
         # The closing paren goes on its own line, not straight after `condition`. A WHERE
         # body ending in a `-- ...` comment would otherwise swallow it, leaving the paren
         # commented out and the SQL unbalanced (WIC-1664).
