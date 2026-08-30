@@ -799,9 +799,26 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
+  // An ownerless diff row is unreachable, not "saved for later". `listDiffs`,
+  // `getDiff` and `applyDiff` all scope with `eq(catalogDiffs.userId, caller)`,
+  // and NULL equals nothing — so the user whose upload produced this diff could
+  // never see it. The only reader that could is one passing no `userId` at all,
+  // which applies no owner predicate: the fail-open path, not a feature.
+  // Writing the row anyway is what undid 0017's backfill at runtime (WIC-1604),
+  // and as of 0021 `catalog_diffs.user_id` is NOT NULL, so it would now abort
+  // the request on a 23502 instead of failing quietly. Decline the write and
+  // say why. (WIC-1617 separately stops an ownerless event from auto-applying;
+  // this is the last site that still laundered an absent owner into a row.)
+  if (userId === undefined) {
+    console.warn(
+      `[extraction] ${event.sourceType}=${event.sourceId}: discarding ${changes.length} catalog changes and ${pendingReview.length} review items — the event carries no owner (event.metadata.userId), and a diff with no owner is readable by nobody`
+    );
+    return;
+  }
+
   await db.insert(catalogDiffs).values({
     id: diffId,
-    userId: userId ?? null,
+    userId,
     triggerSource,
     triggerId: event.sourceId,
     summary,

@@ -15,7 +15,9 @@
  * Neither is retyped here; retyping would grade the copy.
  *
  * The DDL mirrors `db/schema.ts` at migration 0019, and its asymmetry is load
- * bearing: `catalog_diffs.user_id` is nullable (0017 step 2 omits the table) and
+ * bearing: `catalog_diffs.user_id` is nullable at that point (0017 step 2 omits
+ * the table — an omission WIC-1604 closes in 0021, which runs *after* this
+ * backfill precisely so the owners recovered here survive it) and
  * so are `resumes.user_id` and `applications.user_id` (0011 added them, nothing
  * has tightened them since). All three `id` columns are `text`, which is why the
  * migration's joins carry no cast — `TD_TYPE_MISMATCH` below fails loudly if any
@@ -66,6 +68,7 @@ CREATE TABLE catalog_diffs (
   changes        jsonb NOT NULL DEFAULT '[]'::jsonb,
   pending_review jsonb NOT NULL DEFAULT '[]'::jsonb,
   status         diff_status NOT NULL DEFAULT 'pending',
+  -- (0021 constrains user_id; this DDL is the pre-0021 world 0020 runs in)
   created_at     timestamptz NOT NULL DEFAULT now()
 );`;
 

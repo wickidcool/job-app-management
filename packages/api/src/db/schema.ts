@@ -319,7 +319,11 @@ export const catalogChangeLog = pgTable('catalog_change_log', {
 
 export const catalogDiffs = pgTable('catalog_diffs', {
   id: text('id').primaryKey(),
-  userId: uuid('user_id'),
+  // NOT NULL as of 0021. Migration 0017 backfilled this column (step 1) but was
+  // the one table of the seven left out of `SET NOT NULL` (step 2), so the type
+  // said "nullable" while every reader scoped with `eq(user_id, caller)` — a
+  // predicate no NULL row can satisfy (WIC-1604).
+  userId: uuid('user_id').notNull(),
   triggerSource: text('trigger_source').notNull(),
   triggerId: text('trigger_id').notNull(),
   summary: text('summary').notNull(),
