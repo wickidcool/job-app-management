@@ -38,6 +38,14 @@ Still the cheapest option if you are willing to scope the existing key.
 Then comment on WIC-1024. Acceptance check is one line — `python3 docs/analytics/build_dashboards.py --dry-run` prints
 `OK  scopes present (read+write)` instead of exiting `2`. The build itself is an idempotent loop.
 
+**Route 1 applies the synthetic exclusion for you** (WIC-1667). The builder derives the
+predicate from `probe-registry.json` on every run and injects it into all 17 queries
+in memory — including the native funnel and retention tiles, which carry no SQL to edit. You
+do not paste anything, and a probe registered after today is excluded by the next build with
+no code change. It is fail-closed: a tile it cannot filter aborts the build rather than
+shipping unfiltered. Confirm it ran: `--dry-run` prints a `synthetic exclusion derived from`
+line naming the registry it read and the number of filter sites it applied.
+
 **If you are declining Route 1 on security grounds, that is a reasonable call** — a write-scoped
 key is a standing capability. Routes 2 and 3 exist so that decision does not also block the
 deliverable. Say so on WIC-1024 and take Route 2.
@@ -51,6 +59,13 @@ deliverable. Say so on WIC-1024 and take Route 2.
 2. Choose the **import / paste JSON** option in that modal.
 3. Paste the **first array element** of `dashboard-templates.json` (Dashboard A). Create.
 4. Repeat for elements 2 (Dashboard B) and 3 (Dashboard C).
+
+> **Route 2 carries NO synthetic exclusion, and that is deliberate.** The committed JSON is
+> unfiltered on purpose: baking today's registry into an artifact a human imports would ship a
+> snapshot that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription
+> bug one layer down, in the file that is hardest to notice. So an imported dashboard counts
+> probe residue as product usage until you apply the exclusion by hand, exactly as Route 3
+> does. See **Before you paste anything** below; it applies to Routes 2 and 3 alike.
 
 > **Caveat, stated honestly:** I cannot exercise the console to confirm the exact wording or
 > presence of the JSON-import affordance on your PostHog version — my key is 403 on every
@@ -91,6 +106,57 @@ lands on an empty insight, just paste the SQL from the section below it.
 | C1  | C1 — Return Upload Rate (30d)             | Dashboard C — Retention & Repeat Usage | [open](https://us.posthog.com/project/551963/insights/new#q=%7B%22kind%22%3A%22DataTableNode%22%2C%22source%22%3A%7B%22kind%22%3A%22HogQLQuery%22%2C%22query%22%3A%22SELECT%5Cn%20%20count%28%29%20AS%20uploaders_30d%2C%5Cn%20%20countIf%28uploads%20%3E%3D%202%29%20AS%20returning_uploaders%2C%5Cn%20%20round%28100.0%20%2A%20countIf%28uploads%20%3E%3D%202%29%20%2F%20nullIf%28count%28%29%2C%200%29%2C%202%29%20AS%20return_upload_rate_pct%5CnFROM%20%28%5Cn%20%20SELECT%20person_id%2C%20count%28%29%20AS%20uploads%5Cn%20%20FROM%20events%5Cn%20%20WHERE%20event%20%3D%20%27resume_upload_completed%27%20AND%20timestamp%20%3E%20now%28%29%20-%20INTERVAL%2030%20DAY%5Cn%20%20GROUP%20BY%20person_id%5Cn%29%22%7D%7D)                                                                                                                                                                                                                                                                                                                  |
 | C2  | C2 — Uploads per Active User (weekly)     | Dashboard C — Retention & Repeat Usage | [open](https://us.posthog.com/project/551963/insights/new#q=%7B%22kind%22%3A%22DataTableNode%22%2C%22source%22%3A%7B%22kind%22%3A%22HogQLQuery%22%2C%22query%22%3A%22SELECT%5Cn%20%20count%28%29%20AS%20total_completed%2C%5Cn%20%20uniq%28person_id%29%20AS%20active_users%2C%5Cn%20%20round%28count%28%29%20%2F%20nullIf%28uniq%28person_id%29%2C%200%29%2C%202%29%20AS%20uploads_per_active_user%5CnFROM%20events%5CnWHERE%20event%20%3D%20%27resume_upload_completed%27%20AND%20timestamp%20%3E%20now%28%29%20-%20INTERVAL%207%20DAY%22%7D%7D)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | C3  | C3 — New vs Returning Uploaders           | Dashboard C — Retention & Repeat Usage | [open](https://us.posthog.com/project/551963/insights/new#q=%7B%22kind%22%3A%22DataTableNode%22%2C%22source%22%3A%7B%22kind%22%3A%22HogQLQuery%22%2C%22query%22%3A%22SELECT%5Cn%20%20multiIf%28first_upload%20%3E%3D%20now%28%29%20-%20INTERVAL%207%20DAY%2C%20%27new%27%2C%20%27returning%27%29%20AS%20cohort%2C%5Cn%20%20count%28%29%20AS%20uploaders%5CnFROM%20%28%5Cn%20%20SELECT%20person_id%2C%20min%28timestamp%29%20AS%20first_upload%5Cn%20%20FROM%20events%5Cn%20%20WHERE%20event%20%3D%20%27resume_upload_completed%27%5Cn%20%20GROUP%20BY%20person_id%5Cn%29%5CnGROUP%20BY%20cohort%5CnORDER%20BY%20cohort%22%7D%7D)                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+---
+
+## Before you paste anything: exclude synthetic traffic (MANDATORY for Routes 2 and 3)
+
+_Added 2026-08-26 (WIC-1389 / WIC-1392); scoped to Routes 2 and 3 on 2026-08-30 (WIC-1667),
+when Route 1 started doing this itself. The 17 queries below were authored when 551963 held
+nothing but probes, so they deliberately carry **no** exclusion — every tile counted the
+synthetic events on purpose, to prove the query ran. **On build day that is no longer what you
+want**, because by definition you are building because organic traffic arrived, and the probes
+are still in there permanently._
+
+Every known synthetic actor is recorded in `docs/analytics/probe-registry.json`. Print the
+current exclusion predicate with:
+
+```bash
+python3 docs/analytics/organic_watch.py --audit     # prints SYNTHETIC_PREDICATE
+```
+
+Then add one line to **every** query below, immediately after its existing `WHERE`:
+
+```sql
+  AND NOT ( <paste SYNTHETIC_PREDICATE here> )
+```
+
+Watch the two queries whose only `FROM events` sits inside a subquery (**C1**'s pasteable
+form and **C3**): the line belongs on the _inner_ `WHERE`, next to the `FROM events` it
+filters, not on the outer query — which in both cases has no `WHERE` of its own.
+
+Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source
+of record. If a probe fires between now and build day, the regenerated predicate covers it and a
+hand-copied one does not.
+
+### Two funnel-reading corrections (from DevOps, WIC-1389)
+
+Both will produce wrong panels if ignored, and neither is visible from the query text:
+
+1. **Never read `resume_upload_failed` as the failure count** (affects **A9**, and any failure
+   rate derived from it). `track()` delivers over `fetch()`, and a `fetch` is a subrequest — so
+   during a subrequest-exhaustion outage (WIC-1386) the failure capture is itself dropped
+   (WIC-1387). A failure panel therefore reads **0 during a total outage**, which is
+   indistinguishable from perfect health, and it is _most_ wrong exactly when you need it most.
+   Derive failures from `resume_upload_submitted` with **no matching terminal event** in the
+   session, and treat A9 as a breakdown of the failures you already know about, not a count.
+
+2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**
+   WIC-996 emitted all three upload legs 0.3 s apart including `completed` _and_ `failed` for one
+   session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling
+   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of
+   the 6 lifetime events, both terminal events and both `submitted` are probes. Any funnel
+   conversion you compute today is an artefact. Exclude first, then read.
 
 ---
 
@@ -348,8 +414,14 @@ ORDER BY cohort
 
 ## What these dashboards will show on day one
 
-**Mostly zeros, and that is correct.** PostHog project `551963` holds 5 lifetime events, all synthetic
-(3 from the WIC-996 server smoke test, 2 QA probes). Zero organic traffic has ever reached it.
+**Mostly zeros, and that is correct.** PostHog project `551963` holds **6 lifetime events, all
+synthetic** (3 from the WIC-996 server smoke test, 2 QA probes, and — since 2026-08-26 — 1 from the
+WIC-967 end-to-end probe). Zero organic traffic has ever reached it. All 6 are itemised in
+`docs/analytics/probe-registry.json`; apply the exclusion and every tile reads **0**, which is
+the honest day-one picture. The counts described in the next paragraph are what you see _without_
+the exclusion, i.e. probe residue — so they are what Routes 2 and 3 show until you paste the
+predicate in, and what Route 1 never shows at all.
+
 Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the
 app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the
 client transport is broken — WIC-1012 proved the client capture leg round-trips.
@@ -362,3 +434,21 @@ and do not re-file the missing `$pageview` — there is no autocapture by design
 Re-check **C1-C3** once real multi-session traffic exists — they key on `person_id` and the
 identity graph (WIC-822 server attribution + WIC-825 client `identify()` alias) is correct in
 principle but unproven against organic users.
+
+**"Empty now, fills in later" is not true of every empty tile.** Before reading any zero as a
+traffic reading, check the event's class in **`docs/analytics/event-reachability-matrix.md`**,
+which classifies all 9 taxonomy events by whether their call site can execute at all. Three
+classes, three different meanings for the same `0`:
+
+- **outage-immune** (`resume_upload_started`, `resume_upload_validation_failed`) — fire from the
+  browser straight to PostHog with no Worker in the path. A zero here really is a demand reading.
+- **outage-blocked** (`resume_upload_cta_clicked`, `resume_manager_viewed`,
+  `resume_exports_link_clicked`, `resume_upload_submitted`/`_completed`/`_failed`) — gated behind
+  a DB-backed fetch that currently 500s. A zero here restates the outage and says nothing about
+  demand. These fill in only after prod recovers, **not** merely when traffic arrives.
+- **unreachable** (`export_viewed`) — dead code, so **B1 never fills in at any traffic level**
+  until WIC-1707 lands. B1's zero is structural; no amount of traffic moves it.
+
+The trap in that list is `resume_manager_viewed`: it reads like a plain page-view event, but its
+effect guard is `!isLoading && !error`, so a failed resume-list fetch suppresses it. Classify by
+call site, not by event name.
