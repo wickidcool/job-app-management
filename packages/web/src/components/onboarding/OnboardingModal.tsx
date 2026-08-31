@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useOnboarding } from '../../contexts/OnboardingContext';
@@ -7,6 +7,7 @@ import { OnboardingStep } from './OnboardingStep';
 import { ResumeUploadZone } from './ResumeUploadZone';
 import { PersonalInfoForm } from '../PersonalInfoForm';
 import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalInfo';
+import { useCreateApplication } from '../../hooks/useApplications';
 import type { Resume } from '../../services/api';
 import type { UpdatePersonalInfoRequest } from '../../services/api/types';
 import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
@@ -38,11 +39,28 @@ export function OnboardingModal() {
   const [uploadedResume, setUploadedResume] = useState<Resume | null>(null);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
   const [personalInfoCompleted, setPersonalInfoCompleted] = useState(false);
+  const [showResumeSkipConfirm, setShowResumeSkipConfirm] = useState(false);
+  const [showFirstApplicationForm, setShowFirstApplicationForm] = useState(false);
+  const [firstApplicationCompany, setFirstApplicationCompany] = useState('');
+  const [firstApplicationJobTitle, setFirstApplicationJobTitle] = useState('');
+  const [firstApplicationUrl, setFirstApplicationUrl] = useState('');
+  const [firstApplicationError, setFirstApplicationError] = useState<string | null>(null);
+  const createApplication = useCreateApplication();
+
+  // Two decisions that outlive a render and must not be re-derived from state, because
+  // both guard against a *second* write that state alone cannot distinguish from a first.
+  //
+  // `resumeSkipConfirmed` — the resume step's outcome once the user confirms the warning.
+  // `firstApplicationCreated` — that the application already exists on the server, so a
+  // retry of the step's progress write is a retry and not a second create.
+  const resumeSkipConfirmedRef = useRef(false);
+  const firstApplicationCreatedRef = useRef(false);
 
   const { data: personalInfoData } = usePersonalInfo();
   const updatePersonalInfo = useUpdatePersonalInfo();
   const outerFocusRestore = useDialogFocusRestore();
   const dismissFocusRestore = useDialogFocusRestore();
+  const resumeSkipFocusRestore = useDialogFocusRestore();
 
   // WIC-1382 (D-9): an effect here used to write `onboarding_progress` to
   // localStorage on every step change. Nothing ever read it back — resumption is
@@ -72,6 +90,15 @@ export function OnboardingModal() {
 
   const handleResumeUploadSuccess = async (resume: Resume) => {
     setUploadedResume(resume);
+    // ResumeUploadZone has no AbortController and no mount guard, and this modal stays
+    // mounted while the skip warning is open — so an upload started before the warning
+    // still resolves here, into a live parent. If the user has already confirmed the
+    // skip, the step's outcome is settled: writing `resumeStepCompleted` now would put
+    // both flags true on the same row and advance a second time, stepping silently over
+    // step 4. The resume itself is kept — it exists on the server either way.
+    if (resumeSkipConfirmedRef.current) {
+      return;
+    }
     await updateProgress({
       resumeStepCompleted: true,
       resumeStepSkipped: false,
@@ -135,6 +162,115 @@ export function OnboardingModal() {
       personalInfoStepSkipped: true,
       personalInfoStepCompleted: false,
     });
+    nextStep();
+  };
+
+  // WIC-1383 (D-6) — AC-5: "Skip for now" on the resume step must warn about reduced
+  // functionality and only proceed once confirmed. `handleSkipResume` above is now the
+  // *confirmed* path; the button opens the dialog instead of calling it. Cancelling has
+  // to leave the step completely untouched — no `resumeStepSkipped` write, no advance —
+  // because that flag feeds the spec's Skip Rate by Step metric, and a warning the user
+  // backed out of is not a skip.
+  const handleRequestSkipResume = () => {
+    setShowResumeSkipConfirm(true);
+  };
+
+  const handleCancelSkipResume = () => {
+    setShowResumeSkipConfirm(false);
+  };
+
+  const handleConfirmSkipResume = async () => {
+    setShowResumeSkipConfirm(false);
+    // The other half of the same race: an upload that landed while the warning was open
+    // has already recorded the step as completed and advanced. Skipping on top of that
+    // would contradict the flag it just wrote and discard a resume the user did provide.
+    if (uploadedResume) {
+      return;
+    }
+    resumeSkipConfirmedRef.current = true;
+    await handleSkipResume();
+  };
+
+  // WIC-1383 (D-8) — AC-7/AC-8: step 5 used to be a stub. Both of its buttons called
+  // handleCompleteStep(5) under a "this would open the application form modal" comment,
+  // so `applicationStepCompleted` and `applicationStepSkipped` had no writer anywhere in
+  // the client and were permanently false for every user — the two success metrics that
+  // read them ("Skip Rate by Step", "First Application Time") reported a step nobody had
+  // ever reached. Rather than a second modal on top of this one, the quick-add renders
+  // inline: AC-7 only asks for company + job title, and the URL the accepted spec lists
+  // as optional.
+  const handleShowFirstApplicationForm = () => {
+    setFirstApplicationError(null);
+    setShowFirstApplicationForm(true);
+  };
+
+  const handleCreateFirstApplication = async () => {
+    const company = firstApplicationCompany.trim();
+    const jobTitle = firstApplicationJobTitle.trim();
+
+    if (!company || !jobTitle) {
+      setFirstApplicationError('Company and job title are both required.');
+      return;
+    }
+
+    setFirstApplicationError(null);
+
+    if (!firstApplicationCreatedRef.current) {
+      try {
+        await createApplication.mutateAsync({
+          company,
+          jobTitle,
+          url: firstApplicationUrl.trim() || undefined,
+          status: 'saved',
+        });
+      } catch (error) {
+        console.error('Failed to create first application:', error);
+        setFirstApplicationError("We couldn't save that application. Please try again.");
+        return;
+      }
+      firstApplicationCreatedRef.current = true;
+    }
+
+    // Only after the application actually exists. Writing the flag first would report a
+    // completed step for a user who has no application.
+    //
+    // `updateProgress` re-throws (OnboardingContext). Left outside a try, a progress write
+    // that failed after a successful create showed nothing at all: no alert, no advance,
+    // and the only affordance left on screen was the button that had just created the
+    // application — so retrying created a second one, silently. The guard above makes the
+    // retry a retry of the write alone.
+    try {
+      await updateProgress({
+        applicationStepCompleted: true,
+        applicationStepSkipped: false,
+      });
+    } catch (error) {
+      console.error('Failed to record the first application step:', error);
+      setFirstApplicationError(
+        "Your application was saved, but we couldn't finish this step. Try again — we won't create a second one."
+      );
+      return;
+    }
+    nextStep();
+  };
+
+  // The footer "Next Step" is the only way to decline this step (WIC-1715 ruling, and
+  // WIC-1689's single-body-control rule before it): the body renders one control in each
+  // state — [Create Application Now] before disclosure, [Save Application] after. Before
+  // WIC-1383 the footer wrote neither flag, which is the hole this defect was filed for.
+  const handleSkipFirstApplication = async () => {
+    // Same failure mode as the create path: an unguarded `updateProgress` here would
+    // reject into nothing, leaving the user on a step whose button appears inert.
+    try {
+      await updateProgress({
+        applicationStepSkipped: true,
+        applicationStepCompleted: false,
+      });
+    } catch (error) {
+      console.error('Failed to record the first application skip:', error);
+      setFirstApplicationError("We couldn't save that just now. Please try again.");
+      return;
+    }
     nextStep();
   };
 
@@ -319,7 +455,7 @@ export function OnboardingModal() {
                   />
                   <button
                     type="button"
-                    onClick={handleSkipResume}
+                    onClick={handleRequestSkipResume}
                     className="mt-4 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 hover:underline"
                   >
                     Skip for now
@@ -374,29 +510,120 @@ export function OnboardingModal() {
                 title="Ready to Add Your First Application?"
                 description="You can create your first application now, or explore the app and add one later."
                 canProceed={true}
-                onNext={() => handleCompleteStep(5)}
+                onNext={() => void handleSkipFirstApplication()}
                 onBack={previousStep}
               >
+                {/* WIC-1689 routed this step out to "/applications/new" on the grounds
+                    that creating inline would mean a form inside a dialog with no focus
+                    trap. Both halves of that reasoning are now gone: WIC-1141 made this
+                    component a Radix Dialog that does trap focus (MODAL_FOCUS_MANAGEMENT_SPEC.md
+                    §2), and WIC-1141's own note deferred the create-inline question to
+                    WIC-1383. This is that call — the quick-add renders inline, so the
+                    step can write `applicationStepCompleted` itself instead of routing
+                    away and leaving both of its flags without a writer. */}
                 <div className="mx-auto max-w-md space-y-4">
-                  {/* Sends the user to the real create form at "/applications/new"
-                      (App.tsx) rather than opening one inside this dialog.
-                      handleFinishAndGo, not navigate: leaving mid-wizard without
-                      completing first means the provider re-fetches an untouched status
-                      and reopens the modal on top of the form. Same reason step 6's
-                      shortcuts use it.
-                      WIC-1689 additionally justified routing out by this dialog having
-                      no focus trap. That half of the reasoning no longer holds — this
-                      component is now a Radix Dialog (WIC-1141) and does trap focus, per
-                      MODAL_FOCUS_MANAGEMENT_SPEC.md §2. Routing out is kept as the
-                      shipped behaviour regardless; whether step 5 should instead create
-                      inline is WIC-1383's call, not this merge's. */}
-                  <button
-                    type="button"
-                    className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                    onClick={() => void handleFinishAndGo('/applications/new')}
-                  >
-                    Create Application Now
-                  </button>
+                  {showFirstApplicationForm ? (
+                    <form
+                      className="space-y-4 text-left"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleCreateFirstApplication();
+                      }}
+                    >
+                      <div>
+                        <label
+                          htmlFor="first-application-company"
+                          className="block text-sm font-medium text-neutral-700"
+                        >
+                          Company <span className="text-error-700">*</span>
+                        </label>
+                        <input
+                          id="first-application-company"
+                          name="company"
+                          type="text"
+                          required
+                          value={firstApplicationCompany}
+                          onChange={(event) => setFirstApplicationCompany(event.target.value)}
+                          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="first-application-job-title"
+                          className="block text-sm font-medium text-neutral-700"
+                        >
+                          Job title <span className="text-error-700">*</span>
+                        </label>
+                        <input
+                          id="first-application-job-title"
+                          name="jobTitle"
+                          type="text"
+                          required
+                          value={firstApplicationJobTitle}
+                          onChange={(event) => setFirstApplicationJobTitle(event.target.value)}
+                          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="first-application-url"
+                          className="block text-sm font-medium text-neutral-700"
+                        >
+                          Job posting URL <span className="text-neutral-400">(optional)</span>
+                        </label>
+                        <input
+                          id="first-application-url"
+                          name="url"
+                          type="url"
+                          value={firstApplicationUrl}
+                          onChange={(event) => setFirstApplicationUrl(event.target.value)}
+                          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                      </div>
+
+                      {firstApplicationError && (
+                        <p
+                          role="alert"
+                          className="rounded-md border border-error-100 bg-error-50 p-3 text-sm text-error-700"
+                        >
+                          {firstApplicationError}
+                        </p>
+                      )}
+
+                      <p className="text-sm text-neutral-500">
+                        We'll save this as <span className="font-medium">Saved</span> so you can
+                        move it along the board once you apply.
+                      </p>
+
+                      <button
+                        type="submit"
+                        disabled={createApplication.isPending}
+                        className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500"
+                      >
+                        {createApplication.isPending ? 'Saving…' : 'Save Application'}
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      {firstApplicationError && (
+                        <p
+                          role="alert"
+                          className="rounded-md border border-error-100 bg-error-50 p-3 text-sm text-error-700"
+                        >
+                          {firstApplicationError}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                        onClick={handleShowFirstApplicationForm}
+                      >
+                        Create Application Now
+                      </button>
+                    </>
+                  )}
                 </div>
               </OnboardingStep>
             )}
@@ -529,6 +756,61 @@ export function OnboardingModal() {
                     className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
                   >
                     Save &amp; Exit
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+
+          {/* Resume-skip warning (WIC-1383 / AC-5) — copy that names what is lost.
+            Nested for the same reason as the dismiss confirmation above, and for a
+            reason specific to this dialog: the resume step keeps live state on the
+            parent (`uploadedResume`, and an upload that may still be in flight), so
+            the parent must stay mounted while the warning is open. WIC-1383 originally
+            wrote this as an early `return` that replaced the whole modal, which is a
+            shape WIC-1141 removed — an unmanaged dialog has no focus trap, no Escape
+            and no focus restore. Radix supplies all three here.
+            Measured caveat, so nobody reads more into this than is true: with the
+            warning open, jsdom reports *two* exposed dialogs — the panel behind it is
+            not `aria-hidden`. That is not specific to this dialog; the dismiss
+            confirmation above behaves identically, so it is a property of the nesting
+            WIC-1141 introduced. Tracked separately rather than fixed here. */}
+          <Dialog.Root
+            open={showResumeSkipConfirm}
+            onOpenChange={(next) => {
+              if (!next) handleCancelSkipResume();
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 z-[1400] bg-black/50" />
+              <Dialog.Content
+                className="fixed left-1/2 top-1/2 z-[1400] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl"
+                {...resumeSkipFocusRestore}
+              >
+                <Dialog.Title className="text-lg font-semibold text-neutral-900">
+                  Continue without a resume?
+                </Dialog.Title>
+                <Dialog.Description className="mt-2 text-sm text-neutral-600">
+                  Your resume is what we read your experience from. Without one, tailored resume
+                  variants, cover letter drafting and job-fit scoring stay unavailable, and
+                  applications have to be filled in by hand. You can upload it any time from the
+                  Resumes page.
+                </Dialog.Description>
+                <div className="mt-6 flex gap-3">
+                  <Dialog.Close asChild>
+                    <button
+                      type="button"
+                      className="flex-1 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                    >
+                      Go Back
+                    </button>
+                  </Dialog.Close>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmSkipResume()}
+                    className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                  >
+                    Skip Anyway
                   </button>
                 </div>
               </Dialog.Content>

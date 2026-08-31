@@ -7,6 +7,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { OnboardingModal } from './OnboardingModal';
 import { MAX_RESUME_SIZE_BYTES } from '../../constants/upload';
 import { useOnboarding } from '../../contexts/OnboardingContext';
+import { useCreateApplication } from '../../hooks/useApplications';
 import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalInfo';
 import { resumeService } from '../../services/api';
 import type { OnboardingProgress, Resume } from '../../services/api';
@@ -17,6 +18,11 @@ import type { OnboardingProgress, Resume } from '../../services/api';
 // one click, no database.
 vi.mock('../../contexts/OnboardingContext');
 vi.mock('../../hooks/usePersonalInfo');
+// Step 5's quick-add (WIC-1383) put a second react-query hook at the top of the
+// component. It is unconditional, so it runs on every step — without this mock these
+// completion-step tests fail with "No QueryClient set". Step-5 behaviour itself is
+// covered in OnboardingModal.step-actions.test.tsx.
+vi.mock('../../hooks/useApplications');
 vi.mock('../../services/api', () => ({
   resumeService: { upload: vi.fn() },
 }));
@@ -48,6 +54,10 @@ function mockOnboarding(overrides: Partial<OnboardingContextValue> = {}) {
   vi.mocked(useUpdatePersonalInfo).mockReturnValue({
     mutateAsync: vi.fn().mockResolvedValue(undefined),
   } as unknown as ReturnType<typeof useUpdatePersonalInfo>);
+  vi.mocked(useCreateApplication).mockReturnValue({
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    isPending: false,
+  } as unknown as ReturnType<typeof useCreateApplication>);
 
   return { completeOnboarding };
 }
@@ -147,16 +157,22 @@ describe('OnboardingModal — completion step', () => {
 // created nothing, which is indistinguishable from success at the UI level on the
 // first-run flow's terminal call to action.
 describe('OnboardingModal — step 5 "create first application"', () => {
-  it('sends the primary CTA to the real create form', async () => {
+  // Rewritten under the WIC-1715 ruling (f28d559), which struck the route-out this test
+  // was written for: the CTA now reveals an inline quick-add in this same dialog, so the
+  // user reaches the completion step instead of leaving the flow at its terminal step.
+  // `completeOnboarding` is asserted alongside the path because the route-out's real cost
+  // was that it ran completeOnboarding() *before* navigating — a one-way door out of
+  // onboarding for anyone who thought better of the full form.
+  it('reveals the inline quick-add rather than leaving the flow for the create form', async () => {
     const { completeOnboarding } = mockOnboarding({ currentStep: 5 });
     renderModal();
 
     await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
 
-    await expectPath('/applications/new');
-    // Must complete first, or the provider re-fetches an untouched status and
-    // reopens the modal on top of the form the user was just sent to.
-    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText(/company/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/job title/i)).toBeInTheDocument();
+    expect(screen.getByTestId('location').textContent).toBe(START_PATH);
+    expect(completeOnboarding).not.toHaveBeenCalled();
   });
 
   it('does not merely advance the wizard when the primary CTA is pressed', async () => {
@@ -394,17 +410,22 @@ describe('OnboardingModal — completed and skipped are mutually exclusive (WIC-
     });
   });
 
-  // The same hole in reverse, which the report notes on the resume step: the success
-  // handler always cleared its counterpart but the skip handler never did, so upload
-  // -> Back -> Skip left both true.
-  it('leaves exactly one resume flag true after upload -> back -> skip', async () => {
+  // Originally pinned that upload -> Back -> Skip left both flags true, because the
+  // success handler cleared its counterpart but the skip handler never did (fixed
+  // alongside the rest of D-5). WIC-1383's confirm-to-skip flow (AC-5) closes the
+  // scenario a level earlier: `handleConfirmSkipResume` no-ops once a resume is
+  // already uploaded, specifically so confirming "Skip Anyway" on top of a completed
+  // upload cannot contradict the flag that upload already wrote. So the bug this test
+  // was written for is now unreachable rather than merely fixed — asserted here as
+  // "skip changes nothing once uploaded", the stronger guarantee that subsumes it.
+  it('a confirmed skip changes nothing once the resume step is already completed', async () => {
     vi.mocked(resumeService.upload).mockResolvedValue({
       id: 'resume-1',
       fileName: 'resume.pdf',
       fileSize: 2048,
     } as Resume);
 
-    const { flags } = mockStatefulOnboarding(3);
+    const { flags, patches } = mockStatefulOnboarding(3);
     render(
       <MemoryRouter>
         <OnboardingModal />
@@ -418,12 +439,17 @@ describe('OnboardingModal — completed and skipped are mutually exclusive (WIC-
       sizedFile('resume.pdf', 'application/pdf', 2048)
     );
     await waitFor(() => expect(flags.resumeStepCompleted).toBe(true));
+    expect(flags.resumeStepSkipped).toBe(false);
 
-    // Step 4 (App Overview) -> back to step 3, then skip.
+    // Step 4 (App Overview) -> back to step 3, then skip. AC-5 (WIC-1383) gates the
+    // skip behind a confirmation dialog naming what is lost.
     await userEvent.click(await screen.findByRole('button', { name: /back/i }));
     await userEvent.click(await screen.findByRole('button', { name: /skip for now/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /skip anyway/i }));
 
-    await waitFor(() => expect(flags.resumeStepSkipped).toBe(true));
-    expect(flags.resumeStepCompleted).toBe(false);
+    // The guard fires: no second patch, and the flags the upload wrote hold exactly.
+    expect(patches).toHaveLength(1);
+    expect(flags.resumeStepCompleted).toBe(true);
+    expect(flags.resumeStepSkipped).toBe(false);
   });
 });
