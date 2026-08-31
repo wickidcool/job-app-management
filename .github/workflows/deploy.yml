@@ -97,6 +97,43 @@ jobs:
           npx prettier --write docs/analytics/dashboard-templates.json docs/analytics/console-build-runbook.md
           git diff --exit-code docs/analytics/dashboard-templates.json docs/analytics/console-build-runbook.md
 
+      # WIC-1582: ROUTE_TITLE_CONVENTION.md §5 is a copy of strings that live in
+      # source, and it spent eight days outside the repo drifting — a heading moved
+      # file, the 404's copy changed, and a route was added with no row. All three
+      # were found by a careful reader. This fails the build on the next one, and in
+      # particular on a new <Route> added without a title row.
+      - name: Audit route title table
+        run: python3 docs/design/route-title-table-audit.py
+
+      # WIC-1626: the other half of WIC-1582. Three design docs cited sibling
+      # specifications by filename that existed only in an agent's private
+      # workspace, so an implementer told to obey "NOTFOUND_PAGE_DESIGN_SPEC.md
+      # §1, D2" could not open it — the constraint did not really exist. A fourth
+      # dangling reference turned up in docs/analytics on this script's first run.
+      # This fails the build on the next citation of a document nobody can read.
+      - name: Audit design-doc references
+        run: python3 docs/design/doc-reference-audit.py
+
+      # WIC-1670: `ConfirmationModal`'s `restoreFocusTo` prop is optional — correctly,
+      # since a cancel-only dialog whose trigger survives must not be forced to name a
+      # fallback. But that means a call site whose confirm action destroys its own
+      # trigger reintroduces WIC-1181 with no type error, no lint error and no failing
+      # test, and the author cannot catch it by inspection because the failure is an
+      # ordering race. This makes every call site declare: pass the prop, or say in a
+      # `focus-restore-exempt` comment why the trigger survives.
+      - name: Audit ConfirmationModal focus restore
+        run: python3 docs/design/confirmation-modal-focus-audit.py
+
+      # WIC-1664: build_dashboards.py rewrites HogQL by string index to inject the
+      # synthetic-traffic exclusion, and that fails silently — it emits plausible SQL
+      # whose predicate does not actually bind, and the tile still renders, just against
+      # probe residue. `apply_exclusion` only aborts on *zero* filtered sites, so a
+      # rewrite that reports one site and filters nothing ships green. The live half of
+      # the check needs a PostHog key (`build_dashboards.py --dry-run`); this half needs
+      # no credential, so it runs on every PR.
+      - name: Analytics synthetic-exclusion self-test
+        run: python3 docs/analytics/build_dashboards_selftest.py
+
       - name: Run tests
         run: npm run test
 
