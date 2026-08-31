@@ -7,7 +7,9 @@ import type { FitTier } from '../services/api/reportsService';
  * The tiers that carry an actual verdict, best first. `unscored` and
  * `not_analyzed` are deliberately absent — they are states of the analysis, not
  * judgements about the job, and get their own row above rather than a tile that
- * invites comparison against a real fit level.
+ * invites comparison against a real fit level. That decision is now stated in
+ * `VerdictTier` below, where the compiler holds both ends of it: these two may
+ * not take a tile, and every other tier must.
  *
  * Each blurb states a **necessary** condition of its tier — never a sufficient
  * one. `computeRecommendation` is a four-way cascade over three variables (match
@@ -61,13 +63,7 @@ import type { FitTier } from '../services/api/reportsService';
  * input, so a blurb that stops being true fails the API suite. Reword freely —
  * update the paired predicate in that file when you do.
  */
-const VERDICT_TIERS: ReadonlyArray<{
-  tier: Extract<FitTier, 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit'>;
-  blurb: string;
-  container: string;
-  heading: string;
-  body: string;
-}> = [
+const VERDICT_TIERS = [
   {
     tier: 'strong_fit',
     blurb: '80%+ of required skills, with at most one critical gap',
@@ -96,7 +92,87 @@ const VERDICT_TIERS: ReadonlyArray<{
     heading: 'text-neutral-900',
     body: 'text-neutral-700',
   },
-];
+] as const satisfies ReadonlyArray<{
+  tier: VerdictTier;
+  blurb: string;
+  container: string;
+  heading: string;
+  body: string;
+}>;
+
+/**
+ * Every verdict tier must have a tile. An unrendered tier is not a cosmetic
+ * gap: the API returns it in `groups` and counts it in `summary.byTier`, so a
+ * tier with no tile is a set of applications silently missing from a report
+ * that claims to cover the pipeline.
+ *
+ * This is the web-side twin of `_FIT_TIER_ORDER_IS_EXHAUSTIVE` in
+ * `packages/api/src/services/reports.service.ts`, and it exists because
+ * `VERDICT_TIERS` alone could not carry the claim. Its old annotation was
+ * `Extract<FitTier, 'strong_fit' | ...>` — a *filter*, so deleting a tier
+ * narrowed it and errored, but **adding** one was simply not selected and
+ * compiled clean (WIC-1310). A subset assertion where an exhaustiveness
+ * assertion was wanted.
+ *
+ * Both halves matter. `VerdictTier` is derived by exclusion rather than by
+ * listing four names, so a new `Recommendation` member joins it automatically
+ * and lands here as an error.
+ *
+ * **Do not give `VERDICT_TIERS` an explicit type annotation.** This check reads
+ * `typeof VERDICT_TIERS`, so it only sees the entry literals while that type is
+ * *inferred*. An annotation replaces the inferred type, widening every entry's
+ * `tier` to the whole union — `UntiledVerdictTier` becomes `never`, the check
+ * passes vacuously, and the build stays clean. `satisfies` constrains the shape
+ * without replacing the inferred type; that is why it is used here instead.
+ *
+ * Measured, adding a fifth `Recommendation` member (WIC-1337): `satisfies`
+ * alone catches it, `as const satisfies` catches it, and an annotation misses
+ * it *even with `as const satisfies` still present*. So `as const` is not the
+ * load-bearing part — it only makes the array readonly. The annotation is the
+ * hazard, and it is a plausible one: a lint preference, a "be explicit" review
+ * note, or an IDE quick-fix all produce it. Because that failure is silent,
+ * `_VERDICT_TIERS_KEEPS_ENTRY_LITERALS` below makes it loud.
+ */
+type VerdictTier = Exclude<FitTier, 'unscored' | 'not_analyzed'>;
+
+type UntiledVerdictTier = Exclude<VerdictTier, (typeof VERDICT_TIERS)[number]['tier']>;
+
+const _VERDICT_TIERS_IS_EXHAUSTIVE: [UntiledVerdictTier] extends [never]
+  ? true
+  : ['VERDICT_TIERS has no tile for:', UntiledVerdictTier] = true;
+void _VERDICT_TIERS_IS_EXHAUSTIVE;
+
+/**
+ * Guards the guard: the exhaustiveness check above is only meaningful while
+ * `typeof VERDICT_TIERS` preserves each entry's literal `tier`.
+ *
+ * `WidenedEntryTier` distributes over the entry union and keeps only entries
+ * whose `tier` is the *whole* `VerdictTier` union rather than one name. An
+ * annotation widens every entry at once, so it leaves every member behind and
+ * the guard fires; with the type inferred, each entry carries a single literal
+ * and every member collapses to `never`. Written without naming `'strong_fit'`
+ * so that reordering or renaming tiles does not touch it.
+ *
+ * It distributes over `[number]` rather than testing `[0]` deliberately.
+ * `(typeof VERDICT_TIERS)[0]` means "entry zero" only while the type is a
+ * *tuple*; drop `as const` and the array is no longer a tuple, so `[0]` yields
+ * the union of all four entries and its `tier` is the whole union — identical
+ * to annotation-widening, and the guard would fail a tree that is in fact
+ * still sound. That false positive was real and is measured in WIC-1361.
+ */
+type WidenedEntryTier<T> = T extends { tier: infer U }
+  ? [VerdictTier] extends [U]
+    ? T
+    : never
+  : never;
+
+const _VERDICT_TIERS_KEEPS_ENTRY_LITERALS: [
+  WidenedEntryTier<(typeof VERDICT_TIERS)[number]>,
+] extends [never]
+  ? true
+  : ['VERDICT_TIERS has an explicit type annotation; the exhaustiveness check above is vacuous'] =
+  true;
+void _VERDICT_TIERS_KEEPS_ENTRY_LITERALS;
 
 /**
  * Carries the one thing the tiles cannot say about themselves: the tiers are
