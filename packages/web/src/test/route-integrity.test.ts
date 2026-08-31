@@ -1,0 +1,195 @@
+import { describe, expect, it } from 'vitest';
+import { matchRoutes } from 'react-router-dom';
+
+import appSource from '../App.tsx?raw';
+
+/**
+ * A static audit of in-app navigation: every internal path the UI can send a user to
+ * must be matched by a concrete route in App.tsx.
+ *
+ * This exists because WIC-1032 shipped a "Go to Dashboard" button pointing at
+ * `/dashboard`, which no route matched — the user landed on an empty content area.
+ * Nothing in the type system or the linter can see that; only a run-time click could,
+ * and clicking it in Playwright costs a dev server, an API and a database. Reading the
+ * source and matching it against the route table costs nothing and runs in Lint & Test.
+ */
+
+// Link targets that are known-dead today. Each entry must name the ticket that owns
+// removing it. The audit fails on any dead link NOT in this list, so the list is a
+// baseline, not an escape hatch.
+//
+// It is EMPTY, and that is the intended steady state. WIC-1213 emptied it when PRs #82
+// and #87 merged: all four original entries had gone dead at once, in two different
+// ways — `/dashboard` and `/resumes/${resume.id}/exports` became genuinely routed, and
+// the `/applications/${id}/prep/practice` and `/resume-manager` link sites were deleted
+// outright. A dead entry is not merely untidy: it keeps suppressing its target forever,
+// so re-breaking that exact link is undetectable. Dropping the parameterized exports
+// route from App.tsx was measured green against the whole web suite while its entry was
+// still here, and red the moment it went.
+//
+// The original comment here argued against a staleness check, on the grounds that it
+// would start failing on main the moment an owning PR merged. That is precisely the
+// signal wanted — it fires on the ticket that can act on it, in the close-out window,
+// which is the only time the entry is cheap to remove. `has no stale entries` below is
+// that check.
+const KNOWN_DEAD_LINKS: Record<string, string> = {};
+
+/**
+ * Every `path` declared on a `<Route>` in App.tsx.
+ *
+ * Catch-all patterns (`*`, `/*`) are dropped on purpose. They match every path by
+ * definition, so leaving them in would make this audit vacuously pass — which is
+ * exactly what would happen once the WIC-1036 catch-all 404 route lands.
+ */
+function declaredRoutePaths(source: string): string[] {
+  const paths = source
+    .split('<Route')
+    .slice(1)
+    .map((chunk) => /\bpath="([^"]+)"/.exec(chunk)?.[1])
+    .filter((path): path is string => Boolean(path));
+
+  return [...new Set(paths)].filter((path) => path !== '*' && path !== '/*');
+}
+
+/** Where a link target was written, for a failure message that points at the file. */
+interface LinkSite {
+  file: string;
+  raw: string;
+  path: string;
+}
+
+/**
+ * Every shape a navigation target is authored in, in this codebase:
+ *
+ *  1. `to="/x"` / `href="/x"`            — plain JSX string attribute
+ *  2. ``to={`/x/${id}`}`` / `href={'/x'}` — JSX expression attribute
+ *  3. `path: '/x'`, `link: '/x'`, `actionPath: '/x'`, `href: '/x'`, `to:`, `url:`
+ *                                        — the nav-config, breadcrumb-trail and
+ *                                          command-palette object shapes, which are
+ *                                          then spread onto `to={item.path}` etc.
+ *  4. `navigate('/x')`                   — programmatic router navigation
+ *  5. `window.location.href = '/x'`      — full-page navigation
+ *
+ * Only literals are visible here. A target computed at runtime (`navigate(returnTo)`)
+ * is out of reach of a static audit; those are covered by the object-literal shapes in
+ * (3) wherever the value originates from a nav config, which is the case throughout
+ * this app today.
+ */
+const LINK_PATTERNS: RegExp[] = [
+  /\b(?:to|href)="(\/[^"]*)"/g,
+  /\b(?:to|href)=\{\s*['"`](\/[^'"`]*)['"`]\s*\}/g,
+  /\b(?:to|href|url|link|[A-Za-z]*[Pp]ath)\s*:\s*['"`](\/[^'"`]*)['"`]/g,
+  /\bnavigate\(\s*['"`](\/[^'"`]*)['"`]/g,
+  /\blocation\.(?:href\s*=|assign\(|replace\()\s*['"`](\/[^'"`]*)['"`]/g,
+];
+
+/**
+ * Reduce an authored link target to a concrete pathname that `matchRoutes` can test:
+ * drop the query string and hash, then substitute a stand-in segment for every
+ * `${...}` interpolation so `/applications/${id}` becomes `/applications/x`.
+ */
+function toConcretePathname(raw: string): string {
+  return raw
+    .split(/[?#]/)[0]
+    .replace(/\$\{[^}]*\}/g, 'x')
+    .replace(/\/$/, '') // trailing slash, except on the root path
+    .replace(/^$/, '/');
+}
+
+function collectLinkSites(sources: Record<string, string>): LinkSite[] {
+  const sites: LinkSite[] = [];
+
+  for (const [file, source] of Object.entries(sources)) {
+    for (const pattern of LINK_PATTERNS) {
+      for (const match of source.matchAll(pattern)) {
+        const raw = match[1];
+        sites.push({ file, raw, path: toConcretePathname(raw) });
+      }
+    }
+  }
+
+  return sites;
+}
+
+// Every source file in the app, minus the tests themselves — this file lists dead paths
+// in KNOWN_DEAD_LINKS and would otherwise flag its own documentation.
+const sources = import.meta.glob('../**/*.{ts,tsx}', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+
+const appSources = Object.fromEntries(
+  Object.entries(sources).filter(
+    ([file]) => !file.includes('/test/') && !/\.(test|spec)\.tsx?$/.test(file)
+  )
+);
+
+const routePaths = declaredRoutePaths(appSource);
+const routes = routePaths.map((path) => ({ path }));
+const linkSites = collectLinkSites(appSources);
+
+describe('in-app navigation targets', () => {
+  // Guards against the extraction above silently breaking — a regex that stops matching
+  // would otherwise turn the real assertion into a green no-op.
+  it('extracts a plausible route table from App.tsx', () => {
+    expect(routePaths.length).toBeGreaterThan(20);
+    expect(routePaths).toContain('/');
+    expect(routePaths).toContain('/applications');
+  });
+
+  it('extracts link targets from across the app', () => {
+    expect(linkSites.length).toBeGreaterThan(20);
+    expect(Object.keys(appSources).length).toBeGreaterThan(20);
+  });
+
+  // The failure mode this audit is most exposed to is becoming vacuous: a catch-all
+  // route left in the match set makes every path "reachable" and the assertion below
+  // can never fail again. This proves the matcher still says no to something.
+  it('is capable of failing — an unrouted path matches nothing', () => {
+    expect(matchRoutes(routes, '/definitely-not-a-route')).toBeNull();
+  });
+
+  // An allowlist with no staleness check degrades into permanent tree-wide holes: the
+  // entry outlives the defect and then suppresses the *next* break of the same link.
+  // An entry earns its place only while BOTH halves hold — the link site still exists,
+  // and it still matches no route. Either half failing means the owning ticket landed.
+  //
+  // What this does NOT close, measured: re-adding an entry at the same time as breaking
+  // its target is still green, because such an entry is accurately live. That case is a
+  // deliberate two-step act, and the only thing standing against it is the rule above
+  // that every entry names the ticket that owns removing it. The hole this closes is the
+  // passive one — an entry going dead on its own and nobody noticing.
+  it('has no stale entries in KNOWN_DEAD_LINKS', () => {
+    const stale = Object.keys(KNOWN_DEAD_LINKS).flatMap((raw) => {
+      const sites = linkSites.filter((site) => site.raw === raw);
+      if (sites.length === 0) return [`${raw} — no link site authors this target any more`];
+      if (matchRoutes(routes, sites[0].path) !== null)
+        return [`${raw} — now matches a route in App.tsx`];
+      return [];
+    });
+
+    expect(
+      stale,
+      `These KNOWN_DEAD_LINKS entries are dead and must be deleted:\n` +
+        `${stale.map((s) => `  ${s}`).join('\n')}\n\n` +
+        `Leaving them in re-permits the exact link their own ticket fixed.`
+    ).toEqual([]);
+  });
+
+  it('has no link pointing at a path App.tsx does not route', () => {
+    const dead = linkSites.filter(
+      (site) =>
+        !Object.hasOwn(KNOWN_DEAD_LINKS, site.raw) && matchRoutes(routes, site.path) === null
+    );
+
+    const report = dead.map((site) => `  ${site.raw}  (${site.file})`).join('\n');
+
+    expect(
+      dead,
+      `These link targets match no route in App.tsx:\n${report}\n\n` +
+        `Add the missing <Route>, fix the link, or — if it is a known defect owned by ` +
+        `another ticket — add it to KNOWN_DEAD_LINKS with that ticket's number.`
+    ).toEqual([]);
+  });
+});

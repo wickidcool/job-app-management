@@ -31,6 +31,23 @@ name: Skip-CI Sweeper
 # enumerates open PRs itself rather than reacting to one, it re-states a verdict
 # for every open PR on every pass with no push needed.
 #
+# WHY ALSO event-triggered (WIC-1558): `skip-ci-sweep` is the ONLY required
+# status context on `main`, so a fresh PR head is unmergeable until the sweep
+# next publishes its status. Measured 2026-08-26: the `*/15` cron was actually
+# delivering ~1/hr with multi-hour gaps (GitHub throttles frequent crons under
+# scheduling congestion), so heads sat `pending` for hours and the gate was
+# being hand-cranked — 37 `workflow_dispatch` in 22h. Adding `pull_request_target`
+# publishes the status on the very event that creates the need, turning the cron
+# back into the backstop it was designed to be. `pull_request_target` runs the
+# workflow from the BASE branch tip with a base-repo token and — critically —
+# this job still has NO actions/checkout and NO run: step, so it never executes
+# PR head code even from a fork. It only reads the changed-file list and head
+# commit message over the API, exactly as under schedule. The security property
+# the SECURITY note below describes is unchanged. The schedule remains as the
+# backstop for the two cases the event cannot cover: PRs already open before this
+# merged (edge triggers do not retro-fire) and PRs whose base branch predates the
+# file (`pull_request_target` loads the workflow from the base tip).
+#
 # It publishes a COMMIT STATUS (not a check run) so that the context below can
 # be named as a required status check in a repository ruleset. That is the part
 # that makes the whole thing fail-closed: a required check that has not yet
@@ -42,10 +59,17 @@ name: Skip-CI Sweeper
 # and head commit message over the API only.
 
 on:
+  # Edge-trigger: publish the required status the moment a PR head appears or
+  # changes, so it never sits `pending` waiting for the next cron pass. NO
+  # checkout / NO run: step here, so `pull_request_target` (which grants a
+  # base-repo token) executes no PR head code — see the header SECURITY note.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   schedule:
-    # Every 15 minutes. GitHub may delay scheduled runs under load; the ruleset
-    # is what holds the gate shut in the meantime, so lateness costs visibility,
-    # never enforcement.
+    # Backstop only (WIC-1558): base-branch drift and PRs opened before this
+    # merged, which the edge trigger cannot retro-fire. GitHub may delay or drop
+    # frequent scheduled runs under load; the ruleset holds the gate shut in the
+    # meantime, so lateness costs visibility, never enforcement.
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
@@ -56,7 +80,13 @@ permissions:
 
 concurrency:
   group: skip-ci-sweeper
-  cancel-in-progress: false
+  # Coalesce (WIC-1558): every pass re-evaluates the FULL open-PR set from live
+  # API state, so a newer run wholly subsumes an older one — cancelling an
+  # in-flight pass loses nothing, the successor re-states every verdict. This
+  # keeps the new per-PR-event trigger from building a queue as deep as the open
+  # PR count under a push burst. Fail-closed is preserved: any head a cancelled
+  # run had not yet reached simply stays `pending` until the successor posts it.
+  cancel-in-progress: true
 
 jobs:
   sweep:
