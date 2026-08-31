@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 
 import { OnboardingModal } from './OnboardingModal';
 import { useOnboarding } from '../../contexts/OnboardingContext';
@@ -45,13 +45,38 @@ function mockOnboarding(overrides: Partial<OnboardingContextValue> = {}) {
   return { completeOnboarding };
 }
 
+// Reports the router's current path so a test can assert where a control actually
+// went, rather than only that it was clicked.
+function LocationProbe() {
+  return <div data-testid="location">{useLocation().pathname}</div>;
+}
+
+// The step-6 shortcuts and step 5's CTA all go through handleFinishAndGo(), which
+// is `await completeOnboarding(); navigate(to)` fired from onClick as a floating
+// promise. userEvent.click() therefore returns while the navigation is still one
+// microtask away, and asserting the path synchronously is a race — it failed on
+// roughly 1 run in 4 (WIC-1795). Poll instead of sampling once.
+async function expectPath(path: string) {
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(path));
+}
+
+// Where the router starts. Deliberately *not* one of the paths any shortcut
+// navigates to — "Go to Dashboard" targets '/', so starting there would make its
+// assertion pass whether the click navigated or did nothing at all.
+const START_PATH = '/onboarding';
+
 function renderModal() {
-  // MemoryRouter is not required by the current step-6 markup, which navigates with
-  // plain anchors. It is here because the WIC-1032 fix (PR #82) switches those to
-  // useNavigate(), which throws outside a router.
+  // MemoryRouter is load-bearing now: PR #82 (WIC-1032) landed, so the step-6
+  // shortcuts — and step 5's primary CTA — navigate via useNavigate(), which throws
+  // outside a router.
   return render(
-    <MemoryRouter>
-      <OnboardingModal />
+    <MemoryRouter initialEntries={[START_PATH]}>
+      {/* Host wrapper so "renders nothing" can assert on the modal alone — the
+          LocationProbe is a test fixture and is deliberately outside it. */}
+      <div data-testid="modal-host">
+        <OnboardingModal />
+      </div>
+      <LocationProbe />
     </MemoryRouter>
   );
 }
@@ -59,9 +84,9 @@ function renderModal() {
 describe('OnboardingModal — completion step', () => {
   it('renders nothing when onboarding is not being shown', () => {
     mockOnboarding({ showOnboarding: false });
-    const { container } = renderModal();
+    renderModal();
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByTestId('modal-host')).toBeEmptyDOMElement();
   });
 
   it('labels the footer action "Complete" on the last step', () => {
@@ -84,10 +109,81 @@ describe('OnboardingModal — completion step', () => {
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
   });
 
-  // Cannot be written green on main: step 6's "Go to Dashboard" / "View Applications"
-  // are still bare <a href> elements here, and the fix that routes them through
-  // completeOnboarding() + useNavigate() lives in PR #82 (WIC-1032). Un-skip these two
-  // as part of merging that PR — the harness above is everything they need.
-  it.todo('finishes onboarding before the "Go to Dashboard" shortcut navigates (PR #82)');
-  it.todo('finishes onboarding before the "View Applications" shortcut navigates (PR #82)');
+  // Previously two `it.todo`s parked on PR #82 (WIC-1032). That PR has landed — both
+  // shortcuts now go through handleFinishAndGo() — so they are written out here, as
+  // the note they replaced instructed.
+  it('finishes onboarding before the "Go to Dashboard" shortcut navigates', async () => {
+    const { completeOnboarding } = mockOnboarding();
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /go to dashboard/i }));
+
+    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+    // "/" and not "/dashboard": the Dashboard is mounted at the index route.
+    // Distinguishable from "never navigated" only because START_PATH is not "/".
+    await expectPath('/');
+  });
+
+  it('finishes onboarding before the "View Applications" shortcut navigates', async () => {
+    const { completeOnboarding } = mockOnboarding();
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /view applications/i }));
+
+    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+    await expectPath('/applications');
+  });
+});
+
+// WIC-1689. Step 5's primary CTA was `handleCompleteStep(5)` behind a
+// "This would open the application form modal" comment — it advanced the wizard and
+// created nothing, which is indistinguishable from success at the UI level on the
+// first-run flow's terminal call to action.
+describe('OnboardingModal — step 5 "create first application"', () => {
+  it('sends the primary CTA to the real create form', async () => {
+    const { completeOnboarding } = mockOnboarding({ currentStep: 5 });
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
+
+    await expectPath('/applications/new');
+    // Must complete first, or the provider re-fetches an untouched status and
+    // reopens the modal on top of the form the user was just sent to.
+    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not merely advance the wizard when the primary CTA is pressed', async () => {
+    const nextStep = vi.fn();
+    mockOnboarding({ currentStep: 5, nextStep });
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
+
+    expect(nextStep).not.toHaveBeenCalled();
+  });
+
+  // The step used to carry a second body button, "I'll Do This Later", whose handler
+  // was byte-identical to the footer's "Next Step". Two differently-labelled controls
+  // doing one thing is the defect, so the duplicate is gone and the footer is the
+  // single way to decline.
+  it('offers exactly one body control, with the footer as the only way to decline', () => {
+    mockOnboarding({ currentStep: 5 });
+    renderModal();
+
+    expect(screen.queryByRole('button', { name: /i'll do this later/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /next step/i })).toBeInTheDocument();
+  });
+
+  it('advances without creating anything when the footer is used to decline', async () => {
+    const nextStep = vi.fn();
+    mockOnboarding({ currentStep: 5, nextStep });
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /next step/i }));
+
+    expect(nextStep).toHaveBeenCalledTimes(1);
+    // Asserts the absence of navigation, so it stays a single synchronous sample:
+    // waitFor would pass on the first poll no matter what the click did.
+    expect(screen.getByTestId('location').textContent).toBe(START_PATH);
+  });
 });
