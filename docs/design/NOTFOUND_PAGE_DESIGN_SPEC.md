@@ -25,7 +25,7 @@
 | §1.1 D4 — icon `opacity-50`, wrapper `py-16` | **Still true** (`EmptyState.tsx:92`, `:94`). |
 | §2 copy | **Superseded by WIC-1052.** The shipped strings are in `NotFound.tsx`'s `COPY` block. |
 | §2 `document.title` addition | **Removed from the tree.** No file under `packages/web/src/` writes `document.title`. Now owned by `ROUTE_TITLE_CONVENTION.md`. |
-| §2.2 decision — remove the secondary "Go back" button and its `canGoBack` gate | **NOT IMPLEMENTED.** The button and the gate are still shipped. See §2.3 — this is the one live action item in this document. |
+| §2.2 decision — remove the secondary "Go back" button and its `canGoBack` gate | ~~**NOT IMPLEMENTED.** The button and the gate are still shipped. See §2.3 — this is the one live action item in this document.~~ **Shipped in `3a8b31a` (WIC-1107).** The button, the gate and the two inverted docstrings are gone; the two tests that pinned the gate now pin its absence. §2.3 is retained as the record of the eight-day divergence, since that divergence is WIC-1582's evidence. |
 | §5 drop-in implementation | **Superseded** by the shipped file. Kept only as the record of what was specified. |
 
 ---
@@ -175,9 +175,13 @@ Reason 1 settles it independently of both: even on the most generous reading, th
 is redundancy with a control the platform already provides, on the one screen where a single
 unambiguous next step is worth more than an extra option.
 
-### 2.3 §2.2 was never implemented — *new, WIC-1626* ⚠️
+### 2.3 §2.2 was never implemented — *new, WIC-1626* ⚠️ — **discharged in `3a8b31a` (WIC-1107)**
 
-**Measured at `a59b869`. This is the one live action item in this document.**
+**Measured at `a59b869`.** ~~This is the one live action item in this document.~~ Everything this
+section reports was still true at `a59b869` and is no longer true: `3a8b31a` removed the button, the
+`canGoBack` gate and both inverted docstrings, and re-pointed the two tests. The measurement is kept
+verbatim rather than deleted, because the eight-day gap between decision and implementation is the
+evidence WIC-1582 rests on, and a deleted finding cannot be audited.
 
 The §2.2 decision was recorded on 2026-08-19 and routed to Frontend Developer. It never shipped:
 
@@ -315,9 +319,9 @@ this port was commissioned to repair, and it applies to this table too.
 
 ## 10. Follow-ups
 
-- **The §2.3 divergence** — remove the "Go back" button, the `canGoBack` gate, the two tests that
+- ~~**The §2.3 divergence** — remove the "Go back" button, the `canGoBack` gate, the two tests that
   pin it, and correct the two inverted docstrings. Filed as a child of WIC-1626. Owner: Frontend
-  Developer.
+  Developer.~~ **Done in `3a8b31a` (WIC-1107).**
 - **D4** — `EmptyState`'s `opacity-50` / `py-16` are unchanged. Not a defect *in `EmptyState`*; noted
   only because it is the last of the four original reuse objections still standing.
 
