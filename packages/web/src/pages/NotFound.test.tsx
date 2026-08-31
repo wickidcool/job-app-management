@@ -28,8 +28,8 @@ function Landed() {
 /**
  * NotFound under a router, with a second route to navigate to.
  *
- * `initialEntries` with a single entry leaves `location.key === 'default'`, which is
- * how the page detects a cold deep-link — see the back-gating test below.
+ * The default `initialEntries` is a single unmatched path, so the page renders as it
+ * would on a cold deep-link; pass a longer list to exercise a different arrival.
  */
 function renderNotFound(initialEntries: string[] = ['/no-such-page']) {
   return render(
@@ -146,18 +146,35 @@ describe('NotFound', () => {
   });
 
   /**
-   * §2.1 — the spec rejects a secondary "Go back" outright; this branch ships it gated
-   * on having somewhere in-app to go back to. The gate is the part that must not
-   * regress: on a cold deep-link from outside the app, "back" would eject the user out
-   * of it entirely, which is the failure mode the spec's objection is really about.
+   * §7 item 6 / §2.1, as decided in WIC-1105 — no secondary "Go back", on any arrival.
+   *
+   * The version that shipped in WIC-1051 gated the button on `location.key`, which
+   * suppressed it only on a cold deep-link. That is why both arrival paths are pinned
+   * separately below: a guard that checked one of them would still pass against the
+   * exact gate this replaces.
+   *
+   * Each half also asserts the action row as a whole. "No second action" is worth
+   * nothing if the first one went missing too, and counting controls rather than
+   * querying for /go back/i means a reintroduced secondary action fails here whatever
+   * it ends up being called.
    */
-  it('hides "Go back" on a cold deep-link', () => {
+  function expectExactlyOneAction() {
+    expect(screen.queryByRole('button', { name: /go back/i })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+
+    const actions = screen.getAllByRole('link');
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toHaveAccessibleName(/back to dashboard/i);
+    expect(actions[0]).toHaveAttribute('href', '/');
+  }
+
+  it('offers no "Go back" on a cold deep-link', () => {
     renderNotFound();
 
-    expect(screen.queryByRole('button', { name: /go back/i })).not.toBeInTheDocument();
+    expectExactlyOneAction();
   });
 
-  it('offers "Go back" once there is an in-app history entry', async () => {
+  it('offers no "Go back" after an in-app navigation to a dead link either', async () => {
     const user = userEvent.setup();
 
     function GoNowhere() {
@@ -181,7 +198,7 @@ describe('NotFound', () => {
     await user.click(screen.getByRole('button', { name: 'Follow a dead link' }));
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/couldn't be found/i);
-    expect(screen.getByRole('button', { name: /go back/i })).toBeInTheDocument();
+    expectExactlyOneAction();
   });
 });
 
