@@ -1356,3 +1356,10 @@ New enum types: `job_fit_category`, `tech_stack_category`, `metric_type`, `impac
 - `docs/architecture/API_CONTRACTS.md` — Catalog endpoint reference with schemas and error codes
 - `docs/architecture/DATA_MODEL.md` — Catalog table definitions, enum values, wikilink resolution, and core-strength promotion rules
 - `docs/design/USER_FLOWS.md` — UC-2 user flows: browse catalog, diff review, ambiguity resolution, expiry, and curation
+
+### Fixed — `@wic/web` unit tests broke under Node 22+'s built-in `localStorage` (2026-08-31)
+
+Node ships its own global `localStorage`/`sessionStorage` (the `--experimental-webstorage` feature, on by default on some Node versions), and without a `--localstorage-file` path configured it wins over jsdom's `window.localStorage` while leaving every method `undefined` — reads and writes silently no-op rather than throwing. `OnboardingModal.test.tsx` was the one suite that actually exercises a write path (`localStorage.setItem` in a mount effect), so it failed with `TypeError: localStorage.setItem is not a function`; every other suite was silently unaffected because none of them touch storage. CI is unaffected — it pins Node 20, which predates this default — so this only reproduces on a contributor's local Node 22+.
+
+- **Fixed in `src/test/setup.ts`, not via a Node flag.** `NODE_OPTIONS=--no-experimental-webstorage` also fixes it, but that flag doesn't exist on Node 20 and NODE_OPTIONS rejects unrecognized flags outright, so baking it into `package.json`'s `test` script would have broken CI. The fix instead feature-detects a working `localStorage.setItem` and, only when it's missing, replaces `window`/`globalThis`'s `localStorage` and `sessionStorage` with a small in-memory `Storage` implementation. Node's own descriptor for these globals is `configurable: true`, so the replacement is a plain `Object.defineProperty`, no flag required.
+- **No-op everywhere the bug doesn't reproduce.** The detection means CI (Node 20) and any contributor on an older Node install take the `typeof …setItem === 'function'` early return and never touch the polyfill.
