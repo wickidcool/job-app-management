@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
+import { _resetConfig } from '../src/config.js';
+import { _resetJwksCache } from '../src/middleware/auth.js';
 
 vi.mock('../src/services/catalog.service.js', () => ({
   listDiffs: vi.fn(),
@@ -511,5 +514,422 @@ describe('Catalog Routes', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ [itemsKey]: [], nextCursor: 'MTA' });
     });
+  });
+
+  // ── POST /api/catalog/companies/merge ─────────────────────────────────────
+  //
+  // UC-2's first named integrity constraint: "no duplicate entries across
+  // companies". These cover the route contract; the merge arithmetic itself
+  // (summing applicationCount, union of aliases) is covered in
+  // catalog.service.test.ts, which can see the DB writes.
+
+  describe('POST /api/catalog/companies/merge', () => {
+    const mergedCompany = {
+      id: '01HZ_CO_001',
+      name: 'Acme Corp',
+      normalizedName: 'acme-corp',
+      aliases: ['Acme Corporation', 'ACME'],
+      firstSeen: '2026-04-01T00:00:00.000Z',
+      applicationCount: 5,
+      latestStatus: 'applied',
+      isDeleted: false,
+      version: 2,
+    };
+
+    it('merges sources into the target and returns the merged company', async () => {
+      vi.mocked(catalogService.mergeCompanies).mockResolvedValue({
+        mergedCompany,
+        mergedCount: 2,
+      });
+
+      const response = await app.request('/api/catalog/companies/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sourceCompanyIds: ['01HZ_CO_002', '01HZ_CO_003'],
+          targetCompanyId: '01HZ_CO_001',
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.mergedCount).toBe(2);
+      expect(body.mergedCompany.applicationCount).toBe(5);
+      expect(catalogService.mergeCompanies).toHaveBeenCalledWith(
+        ['01HZ_CO_002', '01HZ_CO_003'],
+        '01HZ_CO_001',
+        undefined
+      );
+    });
+
+    it('returns 400 when sourceCompanyIds is empty', async () => {
+      const response = await app.request('/api/catalog/companies/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceCompanyIds: [], targetCompanyId: '01HZ_CO_001' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(catalogService.mergeCompanies).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when targetCompanyId is missing', async () => {
+      const response = await app.request('/api/catalog/companies/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceCompanyIds: ['01HZ_CO_002'] }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(catalogService.mergeCompanies).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the merge target does not exist', async () => {
+      vi.mocked(catalogService.mergeCompanies).mockRejectedValue(new NotFoundError('Company'));
+
+      const response = await app.request('/api/catalog/companies/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sourceCompanyIds: ['01HZ_CO_002'],
+          targetCompanyId: 'nonexistent',
+        }),
+      });
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  // ── POST /api/catalog/tags/:type/merge ────────────────────────────────────
+  //
+  // UC-2's second named constraint: tag taxonomy consistency (the AI-ML vs
+  // ai-ml drift case). Merge is the remediation path for drift that already
+  // exists in the catalog.
+
+  describe('POST /api/catalog/tags/:type/merge', () => {
+    const mergedTag = { ...mockTag, mentionCount: 9, aliases: ['ai-ml'], version: 2 };
+
+    it('merges job-fit tags and returns the surviving tag', async () => {
+      vi.mocked(catalogService.mergeJobFitTags).mockResolvedValue({
+        mergedTag,
+        mergedCount: 1,
+      });
+
+      const response = await app.request('/api/catalog/tags/job-fit/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceTagIds: ['01HZ_TAG_002'], targetTagId: '01HZ_TAG_001' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).mergedCount).toBe(1);
+      expect(catalogService.mergeJobFitTags).toHaveBeenCalledWith(
+        ['01HZ_TAG_002'],
+        '01HZ_TAG_001',
+        undefined
+      );
+      expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
+    });
+
+    it('merges tech-stack tags and returns the surviving tag', async () => {
+      vi.mocked(catalogService.mergeTechStackTags).mockResolvedValue({
+        mergedTag,
+        mergedCount: 1,
+      });
+
+      // The spec's own example: a drifted `AI-ML` folded into canonical `ai-ml`.
+      const response = await app.request('/api/catalog/tags/tech-stack/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceTagIds: ['01HZ_TAG_AI_ML'], targetTagId: '01HZ_TAG_001' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(catalogService.mergeTechStackTags).toHaveBeenCalledWith(
+        ['01HZ_TAG_AI_ML'],
+        '01HZ_TAG_001',
+        undefined
+      );
+      expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for an unknown tag type', async () => {
+      const response = await app.request('/api/catalog/tags/unknown/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceTagIds: ['01HZ_TAG_002'], targetTagId: '01HZ_TAG_001' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.message).toBe('type must be job-fit or tech-stack');
+      expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
+      expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when sourceTagIds is empty', async () => {
+      const response = await app.request('/api/catalog/tags/job-fit/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceTagIds: [], targetTagId: '01HZ_TAG_001' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the merge target tag does not exist', async () => {
+      vi.mocked(catalogService.mergeJobFitTags).mockRejectedValue(new NotFoundError('JobFitTag'));
+
+      const response = await app.request('/api/catalog/tags/job-fit/merge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'nonexistent' }),
+      });
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  // ── POST /api/catalog/diffs/:id/resolve ───────────────────────────────────
+
+  describe('POST /api/catalog/diffs/:id/resolve', () => {
+    it('records a change decision and echoes the diff id', async () => {
+      vi.mocked(catalogService.resolveDiffItem).mockResolvedValue({
+        id: '01HZ_DIFF_001',
+        updated: true,
+      });
+
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ itemType: 'change', itemIndex: 0, decision: 'approve' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ id: '01HZ_DIFF_001', updated: true });
+      expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
+        '01HZ_DIFF_001',
+        { itemType: 'change', itemIndex: 0, decision: 'approve' },
+        undefined
+      );
+    });
+
+    it('forwards selectedOption for a review item', async () => {
+      vi.mocked(catalogService.resolveDiffItem).mockResolvedValue({
+        id: '01HZ_DIFF_001',
+        updated: true,
+      });
+
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemType: 'review',
+          itemIndex: 2,
+          decision: 'reject',
+          selectedOption: 'ai-ml',
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
+        '01HZ_DIFF_001',
+        { itemType: 'review', itemIndex: 2, decision: 'reject', selectedOption: 'ai-ml' },
+        undefined
+      );
+    });
+
+    it('returns 400 for a decision outside approve/reject', async () => {
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ itemType: 'change', itemIndex: 0, decision: 'maybe' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(catalogService.resolveDiffItem).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for an unknown itemType', async () => {
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ itemType: 'bullet', itemIndex: 0, decision: 'approve' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(catalogService.resolveDiffItem).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for a negative itemIndex', async () => {
+      const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ itemType: 'change', itemIndex: -1, decision: 'approve' }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(catalogService.resolveDiffItem).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the diff does not exist', async () => {
+      vi.mocked(catalogService.resolveDiffItem).mockRejectedValue(new NotFoundError('CatalogDiff'));
+
+      const response = await app.request('/api/catalog/diffs/nonexistent/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ itemType: 'change', itemIndex: 0, decision: 'approve' }),
+      });
+
+      expect(response.status).toBe(404);
+    });
+  });
+});
+
+// ── Merge routes under auth (WIC-1365) ──────────────────────────────────────
+//
+// The cases above run with SUPABASE_JWT_SECRET unset, so `userId` is null and
+// the third argument is `undefined` — right for the harness, but it reads as
+// "the user id is not part of the merge contract". It is: the merge services
+// scope every read and write by it. These pin the other half of the contract,
+// that the authenticated caller's `sub` is what reaches the service.
+
+const MERGE_JWT_SECRET = 'super-secret-jwt-key-for-testing-only-32-chars!!';
+const CALLER_SUB = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+
+describe('Catalog merge routes thread the authenticated user id', () => {
+  const originalEnv = process.env;
+  let app: ReturnType<typeof buildApp>;
+  let auth: Record<string, string>;
+
+  beforeEach(async () => {
+    process.env = { ...originalEnv, SUPABASE_JWT_SECRET: MERGE_JWT_SECRET };
+    _resetConfig();
+    _resetJwksCache();
+    vi.clearAllMocks();
+    app = buildApp();
+
+    const token = await new SignJWT({ sub: CALLER_SUB })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(MERGE_JWT_SECRET));
+    auth = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    _resetConfig();
+    _resetJwksCache();
+  });
+
+  it('passes the caller sub to mergeCompanies', async () => {
+    vi.mocked(catalogService.mergeCompanies).mockResolvedValue({
+      mergedCompany: {
+        id: '01HZ_CO_001',
+        name: 'Acme Corp',
+        normalizedName: 'acme-corp',
+        aliases: [],
+        firstSeen: '2026-04-01T00:00:00.000Z',
+        applicationCount: 5,
+        latestStatus: 'applied',
+        isDeleted: false,
+        version: 2,
+      },
+      mergedCount: 1,
+    });
+
+    const response = await app.request('/api/catalog/companies/merge', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        sourceCompanyIds: ['01HZ_CO_002'],
+        targetCompanyId: '01HZ_CO_001',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService.mergeCompanies).toHaveBeenCalledWith(
+      ['01HZ_CO_002'],
+      '01HZ_CO_001',
+      CALLER_SUB
+    );
+  });
+
+  it.each([
+    ['job-fit', 'mergeJobFitTags'],
+    ['tech-stack', 'mergeTechStackTags'],
+  ] as const)('passes the caller sub to %s merge', async (type, fn) => {
+    vi.mocked(catalogService[fn]).mockResolvedValue({
+      mergedTag: { ...mockTag, mentionCount: 9, aliases: ['ai-ml'], version: 2 },
+      mergedCount: 1,
+    });
+
+    const response = await app.request(`/api/catalog/tags/${type}/merge`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ sourceTagIds: ['01HZ_TAG_002'], targetTagId: '01HZ_TAG_001' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService[fn]).toHaveBeenCalledWith(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER_SUB);
+  });
+
+  // ── WIC-1373 ──────────────────────────────────────────────────────────────
+  // Same contract on the tag PATCH routes and generate-diff. These services
+  // also took `userId` and dropped it; pin that the caller's sub reaches them.
+
+  it.each([
+    ['job-fit', 'updateJobFitTag'],
+    ['tech-stack', 'updateTechStackTag'],
+  ] as const)('passes the caller sub to %s tag update', async (type, fn) => {
+    vi.mocked(catalogService[fn]).mockResolvedValue({ ...mockTag, displayName: 'Renamed' });
+
+    const response = await app.request(`/api/catalog/tags/${type}/01HZ_TAG_001`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ displayName: 'Renamed', version: 1 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService[fn]).toHaveBeenCalledWith(
+      '01HZ_TAG_001',
+      { displayName: 'Renamed', version: 1 },
+      CALLER_SUB
+    );
+  });
+
+  it('passes the caller sub to generateDiff', async () => {
+    vi.mocked(catalogService.generateDiff).mockResolvedValue(mockDiff);
+
+    const response = await app.request('/api/catalog/generate-diff', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ sourceType: 'resume', sourceId: '01HZ_RESUME_001' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(catalogService.generateDiff).toHaveBeenCalledWith(
+      'resume',
+      '01HZ_RESUME_001',
+      CALLER_SUB
+    );
+  });
+
+  it.each([
+    ['/api/catalog/companies/merge', { sourceCompanyIds: ['01HZ_CO_002'], targetCompanyId: 'x' }],
+    ['/api/catalog/tags/job-fit/merge', { sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'x' }],
+    ['/api/catalog/tags/tech-stack/merge', { sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'x' }],
+  ])('rejects %s with no bearer token before any merge runs', async (path, body) => {
+    const response = await app.request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(401);
+    expect(catalogService.mergeCompanies).not.toHaveBeenCalled();
+    expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
+    expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
   });
 });
