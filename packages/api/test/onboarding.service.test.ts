@@ -292,6 +292,19 @@ describe('shouldShowOnboarding', () => {
     expect(reads.map((r) => r.table)).toEqual(['onboarding_status', 'resumes', 'applications']);
   });
 
+  it('reads the status row scoped to the calling user', async () => {
+    // The probe assertions below skip past this first clause, and no row-count test can
+    // see it either — the double returns the queued status row whichever user_id the
+    // clause names. Left unpinned, a status read scoped to the wrong user is invisible.
+    const { reads } = stubDb({ onboarding_status: [statusRow()], resumes: [], applications: [] });
+    await shouldShowOnboarding(USER_ID);
+
+    expect(reads[0]).toEqual({
+      table: 'onboarding_status',
+      where: scopedToUser('onboarding_status'),
+    });
+  });
+
   it('scopes the probes by startedAt for a user who has engaged with the flow', async () => {
     // The read-sequence tests above pass with or without the bound, because the double
     // resolves a declared table's rows whatever the predicate says. This one reads the
