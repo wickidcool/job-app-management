@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
+import { _resetConfig } from '../src/config.js';
+import { _resetJwksCache } from '../src/middleware/auth.js';
 
 vi.mock('../src/services/catalog.service.js', () => ({
   listDiffs: vi.fn(),
@@ -89,7 +92,7 @@ describe('Catalog Routes', () => {
   // ── GET /api/catalog/diffs ──────────────────────────────────────────────────
 
   describe('GET /api/catalog/diffs', () => {
-    it('returns 200 with plain array of diffs', async () => {
+    it('returns 200 with the documented { diffs } envelope', async () => {
       vi.mocked(catalogService.listDiffs).mockResolvedValue({
         diffs: [mockDiff],
         nextCursor: undefined,
@@ -98,7 +101,7 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/diffs', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockDiff]);
+      expect(await response.json()).toEqual({ diffs: [mockDiff] });
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
         {
           status: undefined,
@@ -121,13 +124,13 @@ describe('Catalog Routes', () => {
       );
     });
 
-    it('returns empty array when no diffs exist', async () => {
+    it('returns an empty diffs array when no diffs exist', async () => {
       vi.mocked(catalogService.listDiffs).mockResolvedValue({ diffs: [], nextCursor: undefined });
 
       const response = await app.request('/api/catalog/diffs', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([]);
+      expect(await response.json()).toEqual({ diffs: [] });
     });
   });
 
@@ -281,7 +284,7 @@ describe('Catalog Routes', () => {
   // ── GET /api/catalog/companies ─────────────────────────────────────────────
 
   describe('GET /api/catalog/companies', () => {
-    it('returns 200 with plain array of companies', async () => {
+    it('returns 200 with the documented { companies } envelope', async () => {
       const mockCompany = {
         id: '01HZ_CO_001',
         name: 'Acme Corp',
@@ -301,14 +304,14 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/companies', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockCompany]);
+      expect(await response.json()).toEqual({ companies: [mockCompany] });
     });
   });
 
   // ── GET /api/catalog/tags/:type ────────────────────────────────────────────
 
   describe('GET /api/catalog/tags/tech-stack', () => {
-    it('returns 200 with plain array of tech stack tags', async () => {
+    it('returns 200 with the documented { tags } envelope', async () => {
       vi.mocked(catalogService.listTechStackTags).mockResolvedValue({
         tags: [mockTag],
         nextCursor: undefined,
@@ -317,12 +320,12 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/tags/tech-stack', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockTag]);
+      expect(await response.json()).toEqual({ tags: [mockTag] });
     });
   });
 
   describe('GET /api/catalog/tags/job-fit', () => {
-    it('returns 200 with plain array of job fit tags', async () => {
+    it('returns 200 with the documented { tags } envelope', async () => {
       vi.mocked(catalogService.listJobFitTags).mockResolvedValue({
         tags: [mockTag],
         nextCursor: undefined,
@@ -331,7 +334,7 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/tags/job-fit', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockTag]);
+      expect(await response.json()).toEqual({ tags: [mockTag] });
     });
   });
 
@@ -406,7 +409,7 @@ describe('Catalog Routes', () => {
   // ── GET /api/catalog/quantified-bullets ───────────────────────────────────
 
   describe('GET /api/catalog/quantified-bullets', () => {
-    it('returns 200 with plain array of bullets', async () => {
+    it('returns 200 with the documented { bullets } envelope', async () => {
       const mockBullet = {
         id: '01HZ_BULLET_001',
         sourceType: 'resume',
@@ -429,14 +432,14 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/quantified-bullets', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockBullet]);
+      expect(await response.json()).toEqual({ bullets: [mockBullet] });
     });
   });
 
   // ── GET /api/catalog/themes ────────────────────────────────────────────────
 
   describe('GET /api/catalog/themes', () => {
-    it('returns 200 with plain array of themes', async () => {
+    it('returns 200 with the documented { themes } envelope', async () => {
       const mockTheme = {
         id: '01HZ_THEME_001',
         themeSlug: 'team-leadership',
@@ -456,7 +459,60 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/themes', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockTheme]);
+      expect(await response.json()).toEqual({ themes: [mockTheme] });
+    });
+  });
+
+  // ── nextCursor propagation ─────────────────────────────────────────────────
+  //
+  // Every catalog list service computes a `nextCursor`; every one of these
+  // routes used to destructure the items out and drop it on the floor
+  // (WIC-1336). The envelope assertions above do not catch that on their own —
+  // a route returning `c.json({ diffs })` satisfies every one of them, because
+  // their fixtures all leave `nextCursor` undefined and `toEqual` treats an
+  // undefined property as absent. Each case here therefore mints a *defined*
+  // cursor and requires it to survive the trip through the route.
+  describe('nextCursor survives every catalog list route', () => {
+    const LIST_ROUTES = [
+      ['listDiffs', '/api/catalog/diffs', 'diffs'],
+      ['listCompanies', '/api/catalog/companies', 'companies'],
+      ['listJobFitTags', '/api/catalog/tags/job-fit', 'tags'],
+      ['listTechStackTags', '/api/catalog/tags/tech-stack', 'tags'],
+      ['listBullets', '/api/catalog/quantified-bullets', 'bullets'],
+      ['listThemes', '/api/catalog/themes', 'themes'],
+    ] as const;
+
+    // Guards the guard. `LIST_ROUTES` is hand-maintained, so on its own it can
+    // only claim to be exhaustive; this counts. A catalog list endpoint that
+    // lands without a row fails here rather than quietly shrinking the claim
+    // above — the failure mode that cost WIC-1335 a quarter of its coverage.
+    it('covers every catalog service function that mints a cursor', async () => {
+      const { readFile } = await import('node:fs/promises');
+      const source = await readFile(
+        new URL('../src/services/catalog.service.ts', import.meta.url),
+        'utf-8'
+      );
+
+      const minters = source
+        .split('export async function ')
+        .slice(1)
+        .filter((body) => body.includes('nextCursor'))
+        .map((body) => body.slice(0, body.indexOf('(')));
+
+      expect(new Set(minters)).toEqual(new Set(LIST_ROUTES.map(([fn]) => fn)));
+      expect(minters).toHaveLength(LIST_ROUTES.length);
+    });
+
+    it.each(LIST_ROUTES)('%s returns nextCursor at %s', async (fn, path, itemsKey) => {
+      vi.mocked(catalogService[fn]).mockResolvedValue({
+        [itemsKey]: [],
+        nextCursor: 'MTA',
+      } as never);
+
+      const response = await app.request(path, { method: 'GET' });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ [itemsKey]: [], nextCursor: 'MTA' });
     });
   });
 
@@ -727,5 +783,153 @@ describe('Catalog Routes', () => {
 
       expect(response.status).toBe(404);
     });
+  });
+});
+
+// ── Merge routes under auth (WIC-1365) ──────────────────────────────────────
+//
+// The cases above run with SUPABASE_JWT_SECRET unset, so `userId` is null and
+// the third argument is `undefined` — right for the harness, but it reads as
+// "the user id is not part of the merge contract". It is: the merge services
+// scope every read and write by it. These pin the other half of the contract,
+// that the authenticated caller's `sub` is what reaches the service.
+
+const MERGE_JWT_SECRET = 'super-secret-jwt-key-for-testing-only-32-chars!!';
+const CALLER_SUB = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+
+describe('Catalog merge routes thread the authenticated user id', () => {
+  const originalEnv = process.env;
+  let app: ReturnType<typeof buildApp>;
+  let auth: Record<string, string>;
+
+  beforeEach(async () => {
+    process.env = { ...originalEnv, SUPABASE_JWT_SECRET: MERGE_JWT_SECRET };
+    _resetConfig();
+    _resetJwksCache();
+    vi.clearAllMocks();
+    app = buildApp();
+
+    const token = await new SignJWT({ sub: CALLER_SUB })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(MERGE_JWT_SECRET));
+    auth = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    _resetConfig();
+    _resetJwksCache();
+  });
+
+  it('passes the caller sub to mergeCompanies', async () => {
+    vi.mocked(catalogService.mergeCompanies).mockResolvedValue({
+      mergedCompany: {
+        id: '01HZ_CO_001',
+        name: 'Acme Corp',
+        normalizedName: 'acme-corp',
+        aliases: [],
+        firstSeen: '2026-04-01T00:00:00.000Z',
+        applicationCount: 5,
+        latestStatus: 'applied',
+        isDeleted: false,
+        version: 2,
+      },
+      mergedCount: 1,
+    });
+
+    const response = await app.request('/api/catalog/companies/merge', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        sourceCompanyIds: ['01HZ_CO_002'],
+        targetCompanyId: '01HZ_CO_001',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService.mergeCompanies).toHaveBeenCalledWith(
+      ['01HZ_CO_002'],
+      '01HZ_CO_001',
+      CALLER_SUB
+    );
+  });
+
+  it.each([
+    ['job-fit', 'mergeJobFitTags'],
+    ['tech-stack', 'mergeTechStackTags'],
+  ] as const)('passes the caller sub to %s merge', async (type, fn) => {
+    vi.mocked(catalogService[fn]).mockResolvedValue({
+      mergedTag: { ...mockTag, mentionCount: 9, aliases: ['ai-ml'], version: 2 },
+      mergedCount: 1,
+    });
+
+    const response = await app.request(`/api/catalog/tags/${type}/merge`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ sourceTagIds: ['01HZ_TAG_002'], targetTagId: '01HZ_TAG_001' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService[fn]).toHaveBeenCalledWith(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER_SUB);
+  });
+
+  // ── WIC-1373 ──────────────────────────────────────────────────────────────
+  // Same contract on the tag PATCH routes and generate-diff. These services
+  // also took `userId` and dropped it; pin that the caller's sub reaches them.
+
+  it.each([
+    ['job-fit', 'updateJobFitTag'],
+    ['tech-stack', 'updateTechStackTag'],
+  ] as const)('passes the caller sub to %s tag update', async (type, fn) => {
+    vi.mocked(catalogService[fn]).mockResolvedValue({ ...mockTag, displayName: 'Renamed' });
+
+    const response = await app.request(`/api/catalog/tags/${type}/01HZ_TAG_001`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ displayName: 'Renamed', version: 1 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(catalogService[fn]).toHaveBeenCalledWith(
+      '01HZ_TAG_001',
+      { displayName: 'Renamed', version: 1 },
+      CALLER_SUB
+    );
+  });
+
+  it('passes the caller sub to generateDiff', async () => {
+    vi.mocked(catalogService.generateDiff).mockResolvedValue(mockDiff);
+
+    const response = await app.request('/api/catalog/generate-diff', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ sourceType: 'resume', sourceId: '01HZ_RESUME_001' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(catalogService.generateDiff).toHaveBeenCalledWith(
+      'resume',
+      '01HZ_RESUME_001',
+      CALLER_SUB
+    );
+  });
+
+  it.each([
+    ['/api/catalog/companies/merge', { sourceCompanyIds: ['01HZ_CO_002'], targetCompanyId: 'x' }],
+    ['/api/catalog/tags/job-fit/merge', { sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'x' }],
+    ['/api/catalog/tags/tech-stack/merge', { sourceTagIds: ['01HZ_TAG_002'], targetTagId: 'x' }],
+  ])('rejects %s with no bearer token before any merge runs', async (path, body) => {
+    const response = await app.request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(401);
+    expect(catalogService.mergeCompanies).not.toHaveBeenCalled();
+    expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
+    expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
   });
 });

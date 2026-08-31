@@ -64,7 +64,10 @@ export function createCatalogService(client: APIClient): CatalogService {
      * List all pending diffs
      */
     async listDiffs(): Promise<CatalogDiff[]> {
-      return client.get<CatalogDiff[]>('/catalog/diffs');
+      const response = await client.get<{ diffs: CatalogDiff[]; nextCursor?: string }>(
+        '/catalog/diffs'
+      );
+      return response.diffs;
     },
 
     /**
@@ -88,7 +91,11 @@ export function createCatalogService(client: APIClient): CatalogService {
       search?: string;
       sort?: string;
     }): Promise<CompanyCatalogEntry[]> {
-      return client.get<CompanyCatalogEntry[]>('/catalog/companies', params);
+      const response = await client.get<{
+        companies: CompanyCatalogEntry[];
+        nextCursor?: string;
+      }>('/catalog/companies', params);
+      return response.companies;
     },
 
     /**
@@ -99,7 +106,11 @@ export function createCatalogService(client: APIClient): CatalogService {
       search?: string;
       sort?: string;
     }): Promise<TechStackTag[]> {
-      return client.get<TechStackTag[]>('/catalog/tags/tech-stack', params);
+      const response = await client.get<{ tags: TechStackTag[]; nextCursor?: string }>(
+        '/catalog/tags/tech-stack',
+        params
+      );
+      return response.tags;
     },
 
     /**
@@ -110,7 +121,11 @@ export function createCatalogService(client: APIClient): CatalogService {
       search?: string;
       sort?: string;
     }): Promise<JobFitTag[]> {
-      return client.get<JobFitTag[]>('/catalog/tags/job-fit', params);
+      const response = await client.get<{ tags: JobFitTag[]; nextCursor?: string }>(
+        '/catalog/tags/job-fit',
+        params
+      );
+      return response.tags;
     },
 
     /**
@@ -121,7 +136,11 @@ export function createCatalogService(client: APIClient): CatalogService {
       search?: string;
       sort?: string;
     }): Promise<QuantifiedBullet[]> {
-      return client.get<QuantifiedBullet[]>('/catalog/quantified-bullets', params);
+      const response = await client.get<{ bullets: QuantifiedBullet[]; nextCursor?: string }>(
+        '/catalog/quantified-bullets',
+        params
+      );
+      return response.bullets;
     },
 
     /**

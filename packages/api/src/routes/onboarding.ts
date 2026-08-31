@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../types/env.js';
 import { AppError } from '../types/index.js';
 import * as onboardingService from '../services/onboarding.service.js';
+import { readJsonBody } from '../lib/request.js';
 
 const progressSchema = z.object({
   currentStep: z
@@ -47,7 +48,7 @@ export const onboardingRoutes = new Hono<AppEnv>()
       throw new AppError('UNAUTHORIZED', 'Authentication required', undefined, 401);
     }
 
-    const parsed = progressSchema.safeParse(await c.req.json());
+    const parsed = progressSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       throw new AppError('VALIDATION_ERROR', 'Invalid request body', parsed.error.flatten(), 400);
     }

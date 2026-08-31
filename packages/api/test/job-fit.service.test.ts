@@ -5,6 +5,7 @@ import {
   extractTechTerms,
   matchCatalogEntry,
   computeRecommendation,
+  computeSummary,
 } from '../src/services/job-fit.service.js';
 import type { FitMatchDTO, FitGapDTO } from '../src/types/index.js';
 import type { ParsedJD } from '../src/services/job-fit.service.js';
@@ -283,6 +284,116 @@ describe('computeRecommendation', () => {
     const aliasMatches = Array(4).fill(makeMatch('alias'));
     expect(computeRecommendation([...exactMatches, ...aliasMatches], [], 10, false)).toBe(
       'strong_fit'
+    );
+  });
+});
+
+// ── computeSummary ───────────────────────────────────────────────────────────
+//
+// WIC-1301. Every other surface that asserts these strings is a mocked fixture
+// (`packages/web/e2e/job-fit-analysis.spec.ts`, `packages/api/test/job-fit.
+// routes.test.ts`), so a fixture and the generator could disagree indefinitely
+// — which is exactly how the "Strong match" collision survived. These are the
+// only assertions that run the real function.
+
+describe('computeSummary', () => {
+  const match = (isRequired: boolean): FitMatchDTO => ({
+    type: 'tech_stack',
+    catalogEntry: 'react',
+    jdRequirement: 'React',
+    matchType: 'exact',
+    isRequired,
+  });
+
+  const gap = (
+    severity: 'critical' | 'moderate' | 'minor',
+    isRequired: boolean,
+    jdRequirement = 'aws'
+  ): FitGapDTO => ({ type: 'tech_stack', jdRequirement, isRequired, severity });
+
+  it('opens every rung with the same clause and never restates the verdict', () => {
+    // The fit level label above the summary is the only place the verdict is
+    // worded (WIC-1288). No summary may open with one — "Strong match — " did.
+    const rungs = ['strong_fit', 'moderate_fit', 'stretch', 'low_fit'] as const;
+    for (const rung of rungs) {
+      const summary = computeSummary(rung, [match(true)], [], [], 6);
+      expect(summary).toMatch(/^You match 1 of 6 required skills\./);
+    }
+  });
+
+  it('never uses "match" as a verdict noun — that noun belongs to the sections', () => {
+    // "Strong Matches (N)" classifies one skill; the summary counts skills.
+    // Same word, two axes, three lines apart is the WIC-1288 defect class.
+    const rungs = ['strong_fit', 'moderate_fit', 'stretch', 'low_fit'] as const;
+    for (const rung of rungs) {
+      expect(computeSummary(rung, [match(true)], [], [], 6)).not.toMatch(/\bStrong match\b/i);
+    }
+  });
+
+  it('gives strong_fit no trailing clause — the top rung has no caveat', () => {
+    expect(computeSummary('strong_fit', [match(true)], [], [], 6)).toBe(
+      'You match 1 of 6 required skills.'
+    );
+  });
+
+  it('orders the two middle rungs by their clauses, not by their labels alone', () => {
+    // "Possible fit" vs "Stretch" do not self-order; the clauses must.
+    expect(computeSummary('moderate_fit', [match(true)], [], [], 6)).toBe(
+      'You match 1 of 6 required skills. This role is within reach.'
+    );
+    expect(computeSummary('stretch', [match(true)], [], [], 6)).toBe(
+      'You match 1 of 6 required skills. This role may be a stretch.'
+    );
+  });
+
+  it('keeps low_fit advisory', () => {
+    expect(computeSummary('low_fit', [match(true)], [], [], 6)).toBe(
+      'You match 1 of 6 required skills. Consider building more experience before applying.'
+    );
+  });
+
+  it('does not claim coverage that the gap sentence then contradicts', () => {
+    // strong_fit admits one critical required gap (computeRecommendation), so a
+    // clause asserting the core requirements are covered would render directly
+    // above " Gap in aws." Clauses state stance, never a fact about the data.
+    const summary = computeSummary('strong_fit', [match(true)], [], [gap('critical', true)], 6);
+    expect(summary).toBe('You match 1 of 6 required skills. Gap in aws.');
+    expect(summary).not.toMatch(/cover|meet all|no gaps/i);
+  });
+
+  it('appends critical required gaps, pluralising and capping at two', () => {
+    const gaps = [
+      gap('critical', true, 'aws'),
+      gap('critical', true, 'kubernetes'),
+      gap('critical', true, 'terraform'),
+    ];
+    expect(computeSummary('moderate_fit', [match(true)], [], gaps, 6)).toBe(
+      'You match 1 of 6 required skills. This role is within reach. Gaps in aws, kubernetes and 1 more.'
+    );
+  });
+
+  it('ignores gaps that are not both critical and required', () => {
+    const gaps = [gap('critical', false), gap('moderate', true), gap('minor', true)];
+    expect(computeSummary('moderate_fit', [match(true)], [], gaps, 6)).toBe(
+      'You match 1 of 6 required skills. This role is within reach.'
+    );
+  });
+
+  it('counts required strong AND partial matches, excluding nice-to-haves', () => {
+    // This is the count that diverges from the "Strong Matches (N)" heading:
+    // two non-required strong matches make the heading read 3 while the summary
+    // reads "1 of 6". The summary's "required" qualifier is what disambiguates
+    // it, so the two must never be worded as the same quantity.
+    const strong = [match(true), match(false), match(false)];
+    const partial = [{ ...match(true), matchType: 'related' as const }];
+    expect(computeSummary('strong_fit', strong, partial, [], 6)).toBe(
+      'You match 2 of 6 required skills.'
+    );
+  });
+
+  it('explains itself when there is no recommendation to summarise', () => {
+    expect(computeSummary(null, [], [], [], 0)).toBe(
+      'Unable to compute fit score — no required skills found in the job description.'
     );
   });
 });
