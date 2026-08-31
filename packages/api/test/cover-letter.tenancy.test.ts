@@ -147,8 +147,20 @@ function makeFakeDb() {
             readLog.push({ table: name, clause, sql: q.sql, params: q.params });
           }
           const result = applyPredicate(source as any[], clause, name as any);
+          // `limit` returns a chainable rather than a bare promise because the
+          // list path is `.orderBy().limit().offset()` — a `limit` that resolved
+          // immediately made `listCoverLetters` unreachable from this file, which
+          // is exactly why its owner term went unpinned (WIC-1502).
           const thenable: any = {
-            limit: (n: number) => Promise.resolve(result.slice(0, n)),
+            limit: (n: number) => {
+              const capped = result.slice(0, n);
+              const after: any = {
+                offset: (o: number) => Promise.resolve(capped.slice(o)),
+                then: (res: any, rej: any) => Promise.resolve(capped).then(res, rej),
+              };
+              return after;
+            },
+            offset: (o: number) => Promise.resolve(result.slice(o)),
             orderBy: () => thenable,
             then: (res: any, rej: any) => Promise.resolve(result).then(res, rej),
           };
@@ -237,6 +249,7 @@ import {
   updateCoverLetter,
   deleteCoverLetter,
   exportCoverLetter,
+  listCoverLetters,
 } from '../src/services/cover-letter.service.js';
 import { CoverLetterError } from '../src/types/index.js';
 
@@ -442,13 +455,28 @@ describe('WIC-1437 defect 2 — outreach cover-letter lookup is scoped to the ca
 // One negative case each. All five now go red under `or`, which is what the
 // acceptance criterion on WIC-1502 asks for.
 //
-// Re-measured on the current head, widening the matrix to every owner-bearing
-// conjunction rather than the seven `and(id, owner)` reads alone. That adds
-// `:435`, `updateCoverLetter`'s `and(id, version, owner)` UPDATE predicate,
-// which is not an `and(id, owner)` read and so fell outside the earlier sweep —
-// the `deleteLog` assertion in the update test below is what pins it. Flipping
-// each site to `or` alone: :130 → 7 failed, :342 → 1, :435 → 1, :446 → 1,
-// :461 → 1, :481 → 1, :610 → 3, :715 → 1. Zero survivors across all eight.
+// Re-measured, widening the matrix to every owner-bearing conjunction rather
+// than the seven `and(id, owner)` reads alone. That adds `updateCoverLetter`'s
+// `and(id, version, owner)` UPDATE predicate, which is not an `and(id, owner)`
+// read and so fell outside the earlier sweep.
+//
+// **Both assertions in the update test detect it, independently.** An earlier
+// draft of this comment said the `deleteLog` assertion "is what pins it, not the
+// not-found assertion"; that is false on both halves, measured in both
+// directions. As shipped the red is the *not-found* assertion — under
+// `or(id, version, owner)` the UPDATE matches the victim row, so
+// `updateCoverLetter` returns a DTO instead of throwing and the `deleteLog` loop
+// three lines down is never reached (`expected {…} to be an instance of Error`).
+// Strip the two not-found assertions and keep the loop and it is *still* red
+// (`expected [ {…}, {…}, {…} ] to deeply equal []`), with a pristine-service
+// control on the stripped file staying green. Neither one carries this site alone.
+//
+// The `:130`/`:342`/`:435`/`:446`/`:461`/`:481`/`:610`/`:715` tally that used to
+// sit here is superseded — those line numbers predate the WIC-1482 commit that
+// shifted the service file, and the sweep behind them enumerated by the
+// `and(id, owner)` call *shape*, which misses a hoisted owner term (see the
+// `listCoverLetters` block below). The current per-site matrix, enumerated by
+// the owner *column*, lives in CHANGELOG.md under WIC-1437.
 
 describe('WIC-1502 — every id-addressed cover_letters read rejects a foreign id', () => {
   const VERSION = 1;
@@ -574,5 +602,61 @@ describe('WIC-1482 — an absent caller id scopes to IS NULL, not to the whole t
       expect(read.params).not.toContain(ATTACKER);
       expect(read.params).not.toContain(VICTIM);
     }
+  });
+});
+
+// ── The ninth owner-bearing site: listCoverLetters ────────────────────────────
+//
+// WIC-1502 re-measurement, head `0f3dcde`. Enumerating this file by the *owner
+// column* rather than by the `and(id, owner)` call shape turns up nine sites,
+// not the seven the card listed. Eight are id-addressed reads and all eight go
+// red under a lone `and`->`or` flip. The ninth survived with the full 715-test
+// suite green:
+//
+//   :388  conditions.push(eq(coverLetters.userId, userId))
+//   :411  conditions.length === 1 ? conditions[0] : and(...conditions)
+//
+// The owner term is *hoisted into an array*, so it matches no `and(id, owner)`
+// grep, and nothing reached it: `cover-letter.routes.test.ts` mocks the whole
+// service, and `pagination.test.ts` calls it with a cursor and no `userId`, so
+// `conditions` is empty and the `and(...)` is never built. The stub here could
+// not reach it either — the list path is `.orderBy().limit().offset()` and
+// `limit` used to resolve straight to a promise.
+//
+// The mutation only bites when a *second* condition is present, because
+// `conditions.length === 1` short-circuits past the `and`. So the case must
+// pass a filter alongside the identity, or it re-pins nothing.
+describe('WIC-1502 — listCoverLetters conjoins its owner term with the filters', () => {
+  it('a filtered list returns only the caller’s letters', async () => {
+    const { coverLetters: rows } = await listCoverLetters({ status: 'draft' }, ATTACKER);
+    const ids = rows.map((r) => r.id).sort();
+    // CL_ATTACKER and the legacy row are the attacker's; CL_VICTIM is not.
+    expect(ids).toEqual([CL_ATTACKER, CL_LEGACY].sort());
+    expect(ids).not.toContain(CL_VICTIM);
+  });
+
+  it('never returns another user’s letter content through the list path', async () => {
+    const { coverLetters: rows } = await listCoverLetters({ status: 'draft' }, ATTACKER);
+    expect(JSON.stringify(rows)).not.toContain(VICTIM_CL_CONTENT);
+  });
+
+  it('the filtered list read is structurally scoped to the caller', async () => {
+    await listCoverLetters({ status: 'draft' }, ATTACKER);
+    const reads = readLog.filter((r) => r.table === 'cover_letters');
+    // Fails loudly rather than vacuously if the read stopped happening.
+    expect(reads.length).toBeGreaterThan(0);
+    for (const read of reads) {
+      // Structure, not presence: `or(owner, status)` renders the same owner term
+      // as `and(owner, status)` and binds the same parameter. Only evaluating the
+      // real boolean tree against a foreign row tells them apart.
+      expect(applyPredicate(coverLetterRows as any[], read.clause, 'cover_letters')).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: CL_VICTIM })])
+      );
+    }
+  });
+
+  it('an unfiltered list is scoped too (the conditions.length === 1 branch)', async () => {
+    const { coverLetters: rows } = await listCoverLetters({}, ATTACKER);
+    expect(rows.map((r) => r.id)).not.toContain(CL_VICTIM);
   });
 });
