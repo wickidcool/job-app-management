@@ -8,11 +8,12 @@ import type { FitMatchDTO, FitGapDTO } from '../src/services/job-fit.service.js'
 /**
  * The by-fit-tier report's tiles print a one-line blurb under each tier name.
  * Those blurbs are a *claim about the scoring rule*, so they can be false — and
- * they were: WIC-1309 measured 81 of the 574 reachable scoring inputs in the
- * grid below landing in a tier whose blurb did not hold for them (the original
- * report's 32/252 was a coarser grid), because every blurb restated only the
+ * they were: 81 of the 574 reachable scoring inputs in the grid below land in
+ * a tier whose pre-WIC-1309 blurb did not hold for them (14.1%; the original
+ * report's 32/252 was a coarser grid), because those blurbs restated only the
  * match-percentage arm of `computeRecommendation`'s four-way cascade while the
- * cascade also branches on the critical-gap count and the seniority flag.
+ * cascade also branches on the critical-gap count and the seniority flag. All
+ * 81 were in `moderate_fit` (18) and `stretch` (63).
  *
  * The rule this file enforces: **each blurb must be a necessary condition of
  * its tier.** Not sufficient — a tile has no room to restate a whole cascade,
@@ -48,28 +49,42 @@ const TIER_CLAIMS: ReadonlyArray<{
 }> = [
   {
     tier: 'strong_fit',
-    blurb: '80%+ of required skills, at most one critical gap',
+    blurb: '80%+ of required skills, with at most one critical gap',
     holds: ({ matchPct, criticalGaps }) => matchPct >= 0.8 && criticalGaps <= 1,
   },
   {
     tier: 'moderate_fit',
-    blurb: '50%+ of required skills, up to three critical gaps, no seniority mismatch',
-    holds: ({ matchPct, criticalGaps, hasSeniorityMismatch }) =>
-      matchPct >= 0.5 && criticalGaps <= 3 && !hasSeniorityMismatch,
+    // Says nothing about critical gaps, though `criticalGaps <= 3` would also
+    // hold here. Three clauses is a spec line, not a tile, and the gap ladder is
+    // legible across the set without this one carrying it: `strong_fit` prints
+    // the ≤1 bound and `stretch` prints the >3 bound, which leaves 2–3 here.
+    blurb: '50%+ of required skills, with no seniority mismatch',
+    holds: ({ matchPct, hasSeniorityMismatch }) => matchPct >= 0.5 && !hasSeniorityMismatch,
   },
   {
     tier: 'stretch',
     // A disjunction, because the tier is one: it catches a middling match, a
     // good match with more critical gaps than the tier above tolerates, and any
     // seniority mismatch at all.
-    blurb: 'A partial skill match, too many critical gaps, or a seniority mismatch',
+    //
+    // The first disjunct is `< 0.5`, not the arm's own `>= 0.3`, because it has
+    // to describe the *only* way a match percentage alone lands you here — below
+    // the `moderate_fit` bar. At or above 50% you are in this tier for one of the
+    // other two reasons, never for the percentage. (Necessary: a stretch with
+    // >= 50% matched and <= 3 critical gaps would have been taken by
+    // `moderate_fit` unless the seniority flag is set.)
+    blurb: 'Under 50% of required skills, more than three critical gaps, or a seniority mismatch',
     holds: ({ matchPct, criticalGaps, hasSeniorityMismatch }) =>
-      matchPct >= 0.3 || criticalGaps > 3 || hasSeniorityMismatch,
+      matchPct < 0.5 || criticalGaps > 3 || hasSeniorityMismatch,
   },
   {
     tier: 'low_fit',
-    blurb: 'Under 30% of required skills, and no seniority mismatch',
-    holds: ({ matchPct, hasSeniorityMismatch }) => matchPct < 0.3 && !hasSeniorityMismatch,
+    // `!hasSeniorityMismatch` also holds, and stating it would make this blurb
+    // sufficient as well as necessary — which is what invites reading the four
+    // tiles as a decision procedure. `stretch` already tells the reader a
+    // seniority mismatch lands there instead.
+    blurb: 'Under 30% of required skills',
+    holds: ({ matchPct }) => matchPct < 0.3,
   },
 ];
 
