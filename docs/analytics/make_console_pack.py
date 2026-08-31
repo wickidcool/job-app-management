@@ -216,7 +216,8 @@ def day_one_paragraph(reg, lifetime, synthetic, organic):
                 f"the {synthetic} synthetic ones are itemised in "
                 f"`docs/analytics/{REGISTRY}`; apply the exclusion above and every tile "
                 "reads organic traffic only. Skip it and every tile reads those "
-                f"{synthetic} probes as product usage.")
+                f"{synthetic} probes as product usage — that is true of Routes 2 and 3; "
+                "Route 1 excludes them for you automatically (WIC-1667).")
     return (f"**Mostly zeros, and that is correct.** PostHog project `{PROJECT}` holds "
             f"**{synthetic} lifetime events, all synthetic** ({probe_breakdown(reg)}). "
             f"Zero organic traffic has ever reached it — last verified "
@@ -224,7 +225,8 @@ def day_one_paragraph(reg, lifetime, synthetic, organic):
             f"itemised in `docs/analytics/{REGISTRY}`; apply the exclusion above and "
             "every tile reads **0**, which is the honest day-one picture. The counts "
             "described in the next paragraph are what you see _without_ the exclusion, "
-            "i.e. probe residue.")
+            "i.e. probe residue — so they are what Routes 2 and 3 show until you paste "
+            "the predicate in, and what Route 1 never shows at all.")
 
 
 def main():
@@ -307,6 +309,15 @@ def main():
       "`python3 docs/analytics/build_dashboards.py --dry-run` prints")
     w("`OK  scopes present (read+write)` instead of exiting `2`. The build itself is an idempotent loop.")
     w("")
+    w("**Route 1 applies the synthetic exclusion for you** (WIC-1667). The builder derives the")
+    w("predicate from `probe-registry.json` on every run and injects it into all "
+      f"{len(resolved)} queries")
+    w("in memory — including the native funnel and retention tiles, which carry no SQL to edit. You")
+    w("do not paste anything, and a probe registered after today is excluded by the next build with")
+    w("no code change. It is fail-closed: a tile it cannot filter aborts the build rather than")
+    w("shipping unfiltered. Confirm it ran: `--dry-run` prints a `synthetic exclusion derived from`")
+    w("line naming the registry it read and the number of filter sites it applied.")
+    w("")
     w("**If you are declining Route 1 on security grounds, that is a reasonable call** — a write-scoped")
     w("key is a standing capability. Routes 2 and 3 exist so that decision does not also block the")
     w("deliverable. Say so on WIC-1024 and take Route 2.")
@@ -320,6 +331,13 @@ def main():
     w("2. Choose the **import / paste JSON** option in that modal.")
     w("3. Paste the **first array element** of `dashboard-templates.json` (Dashboard A). Create.")
     w("4. Repeat for elements 2 (Dashboard B) and 3 (Dashboard C).")
+    w("")
+    w("> **Route 2 carries NO synthetic exclusion, and that is deliberate.** The committed JSON is")
+    w("> unfiltered on purpose: baking today's registry into an artifact a human imports would ship a")
+    w("> snapshot that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription")
+    w("> bug one layer down, in the file that is hardest to notice. So an imported dashboard counts")
+    w("> probe residue as product usage until you apply the exclusion by hand, exactly as Route 3")
+    w("> does. See **Before you paste anything** below; it applies to Routes 2 and 3 alike.")
     w("")
     w("> **Caveat, stated honestly:** I cannot exercise the console to confirm the exact wording or")
     w("> presence of the JSON-import affordance on your PostHog version — my key is 403 on every")
@@ -349,10 +367,14 @@ def main():
     w("")
     w("---")
     w("")
-    w("## Before you paste anything: exclude synthetic traffic (MANDATORY)")
+    # Routes 2 and 3 only. Route 1 does this itself (WIC-1667), which is why the heading no
+    # longer claims to gate every route.
+    w("## Before you paste anything: exclude synthetic traffic (MANDATORY for Routes 2 and 3)")
     w("")
-    w("_Added 2026-08-26 (WIC-1389 / WIC-1392). The 17 queries below were authored when "
-      f"{PROJECT} held")
+    w("_Added 2026-08-26 (WIC-1389 / WIC-1392); scoped to Routes 2 and 3 on 2026-08-30 "
+      "(WIC-1667),")
+    w(f"when Route 1 started doing this itself. The {len(resolved)} queries below were authored "
+      "when " + PROJECT + " held")
     w("nothing but probes, so they deliberately carry **no** exclusion — every tile counted the")
     w("synthetic events on purpose, to prove the query ran. **On build day that is no longer what you")
     w("want**, because by definition you are building because organic traffic arrived, and the probes")
@@ -371,11 +393,9 @@ def main():
     w("  AND NOT ( <paste SYNTHETIC_PREDICATE here> )")
     w("```")
     w("")
-    w("That covers **Route 3**. **Routes 1 and 2 carry no exclusion at all** — they build from")
-    w("`insight-payloads.json` / `dashboard-templates.json`, which are deliberately unfiltered (the")
-    w("queries were authored to prove they ran against probe data). After an API build or a JSON")
-    w("import, open each of the 17 tiles and add the same `AND NOT (...)` line, or the panels will")
-    w("read probe residue as product usage.")
+    w("Watch the two queries whose only `FROM events` sits inside a subquery (**C1**'s pasteable")
+    w("form and **C3**): the line belongs on the _inner_ `WHERE`, next to the `FROM events` it")
+    w("filters, not on the outer query — which in both cases has no `WHERE` of its own.")
     w("")
     w("Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source")
     w("of record. If a probe fires between now and build day, the regenerated predicate covers it and a")
@@ -458,6 +478,24 @@ def main():
     w("Re-check **C1-C3** once real multi-session traffic exists — they key on `person_id` and the")
     w("identity graph (WIC-822 server attribution + WIC-825 client `identify()` alias) is correct in")
     w("principle but unproven against organic users.")
+    w("")
+    w('**"Empty now, fills in later" is not true of every empty tile.** Before reading any zero as a')
+    w("traffic reading, check the event's class in **`docs/analytics/event-reachability-matrix.md`**,")
+    w("which classifies all 9 taxonomy events by whether their call site can execute at all. Three")
+    w("classes, three different meanings for the same `0`:")
+    w("")
+    w("- **outage-immune** (`resume_upload_started`, `resume_upload_validation_failed`) — fire from the")
+    w("  browser straight to PostHog with no Worker in the path. A zero here really is a demand reading.")
+    w("- **outage-blocked** (`resume_upload_cta_clicked`, `resume_manager_viewed`,")
+    w("  `resume_exports_link_clicked`, `resume_upload_submitted`/`_completed`/`_failed`) — gated behind")
+    w("  a DB-backed fetch that currently 500s. A zero here restates the outage and says nothing about")
+    w("  demand. These fill in only after prod recovers, **not** merely when traffic arrives.")
+    w("- **unreachable** (`export_viewed`) — dead code, so **B1 never fills in at any traffic level**")
+    w("  until WIC-1707 lands. B1's zero is structural; no amount of traffic moves it.")
+    w("")
+    w("The trap in that list is `resume_manager_viewed`: it reads like a plain page-view event, but its")
+    w("effect guard is `!isLoading && !error`, so a failed resume-list fetch suppresses it. Classify by")
+    w("call site, not by event name.")
     w("")
 
     # Both artifacts are fully built before either is written, so a failure above can
