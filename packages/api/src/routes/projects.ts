@@ -13,6 +13,7 @@ import {
 } from '../services/project.service.js';
 import { AppError } from '../types/index.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 export const projectsRoutes = new Hono<AppEnv>()
   .get('/projects', async (c) => {
@@ -20,7 +21,7 @@ export const projectsRoutes = new Hono<AppEnv>()
     return c.json({ projects });
   })
   .post('/projects', async (c) => {
-    const { name, slug, description } = (await c.req.json()) as {
+    const { name, slug, description } = (await readJsonBody(c)) as {
       name: string;
       slug?: string;
       description?: string;
@@ -53,7 +54,7 @@ export const projectsRoutes = new Hono<AppEnv>()
     return c.json({ content });
   })
   .put('/projects/:projectId/files/:fileName', async (c) => {
-    const { content } = (await c.req.json()) as { content: string };
+    const { content } = (await readJsonBody(c)) as { content: string };
     if (typeof content !== 'string') {
       throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
     }
@@ -66,7 +67,7 @@ export const projectsRoutes = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   .post('/projects/:projectId/files', async (c) => {
-    const { fileName, content } = (await c.req.json()) as {
+    const { fileName, content } = (await readJsonBody(c)) as {
       fileName: string;
       content: string;
     };

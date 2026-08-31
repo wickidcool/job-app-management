@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useOnboarding } from '../../contexts/OnboardingContext';
 import { OnboardingProgressIndicator } from './OnboardingProgressIndicator';
 import { OnboardingStep } from './OnboardingStep';
@@ -8,6 +9,7 @@ import { PersonalInfoForm } from '../PersonalInfoForm';
 import { usePersonalInfo, useUpdatePersonalInfo } from '../../hooks/usePersonalInfo';
 import type { Resume } from '../../services/api';
 import type { UpdatePersonalInfoRequest } from '../../services/api/types';
+import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
 
 const STEP_LABELS = [
   'Welcome',
@@ -39,6 +41,8 @@ export function OnboardingModal() {
 
   const { data: personalInfoData } = usePersonalInfo();
   const updatePersonalInfo = useUpdatePersonalInfo();
+  const outerFocusRestore = useDialogFocusRestore();
+  const dismissFocusRestore = useDialogFocusRestore();
 
   // Auto-save progress to localStorage
   useEffect(() => {
@@ -130,382 +134,404 @@ export function OnboardingModal() {
     nextStep();
   };
 
-  // Dismiss confirmation modal
-  if (showDismissConfirm) {
-    return (
-      <div className="fixed inset-0 z-[1400] flex items-center justify-center bg-black/50 p-4">
-        <div
-          className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="dismiss-title"
-        >
-          <h3 id="dismiss-title" className="text-lg font-semibold text-neutral-900">
-            Save progress and exit?
-          </h3>
-          <p className="mt-2 text-sm text-neutral-600">
-            Your progress will be saved. You can continue the setup later from your dashboard.
-          </p>
-          <div className="mt-6 flex gap-3">
-            <button
-              type="button"
-              onClick={handleCancelDismiss}
-              className="flex-1 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmDismiss}
-              className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              Save & Exit
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/50 p-4">
-      <div
-        className="relative flex h-full w-full flex-col overflow-hidden rounded-lg bg-white shadow-2xl md:h-[90vh] md:max-w-4xl"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="onboarding-title"
-        aria-describedby="onboarding-description"
-      >
-        {/* Header */}
-        <div className="border-b border-neutral-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <OnboardingProgressIndicator
-              currentStep={currentStep}
-              totalSteps={totalSteps}
-              stepLabels={STEP_LABELS}
-              allowSkipAhead={false}
-            />
-            <button
-              type="button"
-              onClick={handleClose}
-              className="rounded-md p-2 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
-              aria-label="Close onboarding"
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
+    <Dialog.Root
+      open
+      onOpenChange={(next) => {
+        // Escape / outside-click go through the same confirm gate as the ✕.
+        if (!next) handleClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[1300] bg-black/50" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 z-[1300] flex h-[calc(100%-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg bg-white shadow-2xl md:h-[90vh] md:max-w-4xl"
+          // The name and description are the current step's own heading and
+          // blurb, rendered by `OnboardingStep`, so they change per step and
+          // cannot be a `Dialog.Title` here.
+          aria-labelledby="onboarding-title"
+          aria-describedby="onboarding-description"
+          {...outerFocusRestore}
+        >
+          {/* Header */}
+          <div className="border-b border-neutral-200 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <OnboardingProgressIndicator
+                currentStep={currentStep}
+                totalSteps={totalSteps}
+                stepLabels={STEP_LABELS}
+                allowSkipAhead={false}
+              />
+              <button
+                type="button"
+                onClick={handleClose}
+                className="rounded-md p-2 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="Close onboarding"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {/* Step 1: Welcome */}
-          {currentStep === 1 && (
-            <OnboardingStep
-              stepNumber={1}
-              totalSteps={totalSteps}
-              title="Welcome to Your Job Application Manager"
-              description="Let's get you set up in just a few minutes. We'll help you:"
-              canProceed={true}
-              onNext={() => handleCompleteStep(1)}
-            >
-              <div className="mx-auto max-w-md space-y-4 text-left">
-                <div className="flex items-start gap-3">
-                  <svg
-                    className="mt-1 h-6 w-6 flex-shrink-0 text-primary-600"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                  <div>
-                    <h4 className="font-medium text-neutral-900">Upload your resume</h4>
-                    <p className="text-sm text-neutral-600">
-                      We'll extract your experience to help with applications
-                    </p>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* Step 1: Welcome */}
+            {currentStep === 1 && (
+              <OnboardingStep
+                stepNumber={1}
+                totalSteps={totalSteps}
+                title="Welcome to Your Job Application Manager"
+                description="Let's get you set up in just a few minutes. We'll help you:"
+                canProceed={true}
+                onNext={() => handleCompleteStep(1)}
+              >
+                <div className="mx-auto max-w-md space-y-4 text-left">
+                  <div className="flex items-start gap-3">
+                    <svg
+                      className="mt-1 h-6 w-6 flex-shrink-0 text-primary-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                    <div>
+                      <h4 className="font-medium text-neutral-900">Upload your resume</h4>
+                      <p className="text-sm text-neutral-600">
+                        We'll extract your experience to help with applications
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <svg
+                      className="mt-1 h-6 w-6 flex-shrink-0 text-primary-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                      />
+                    </svg>
+                    <div>
+                      <h4 className="font-medium text-neutral-900">Learn the basics</h4>
+                      <p className="text-sm text-neutral-600">
+                        Quick tour of key features to track your job search
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <svg
+                      className="mt-1 h-6 w-6 flex-shrink-0 text-primary-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                      />
+                    </svg>
+                    <div>
+                      <h4 className="font-medium text-neutral-900">
+                        Create your first application
+                      </h4>
+                      <p className="text-sm text-neutral-600">
+                        Add your first job application to get started
+                      </p>
+                    </div>
                   </div>
                 </div>
+              </OnboardingStep>
+            )}
 
-                <div className="flex items-start gap-3">
-                  <svg
-                    className="mt-1 h-6 w-6 flex-shrink-0 text-primary-600"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                    />
-                  </svg>
-                  <div>
-                    <h4 className="font-medium text-neutral-900">Learn the basics</h4>
-                    <p className="text-sm text-neutral-600">
-                      Quick tour of key features to track your job search
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <svg
-                    className="mt-1 h-6 w-6 flex-shrink-0 text-primary-600"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                    />
-                  </svg>
-                  <div>
-                    <h4 className="font-medium text-neutral-900">Create your first application</h4>
-                    <p className="text-sm text-neutral-600">
-                      Add your first job application to get started
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </OnboardingStep>
-          )}
-
-          {/* Step 2: Personal Information */}
-          {currentStep === 2 && (
-            <OnboardingStep
-              stepNumber={2}
-              totalSteps={totalSteps}
-              title="Tell Us About Yourself"
-              description="Fill in your personal information. This will be used for resumes, cover letters, and applications."
-              canProceed={personalInfoCompleted || personalInfoData?.isComplete || false}
-              onNext={() => handleCompleteStep(2)}
-              onBack={previousStep}
-              formId="personal-info-form"
-            >
-              <div className="mx-auto max-w-2xl">
-                <PersonalInfoForm
-                  personalInfo={personalInfoData?.personalInfo}
-                  onSubmit={handlePersonalInfoSubmit}
-                  formId="personal-info-form"
-                  hideActions
-                />
-                <button
-                  type="button"
-                  onClick={handleSkipPersonalInfo}
-                  className="mt-4 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 hover:underline"
-                >
-                  Skip for now
-                </button>
-              </div>
-            </OnboardingStep>
-          )}
-
-          {/* Step 3: Upload Resume */}
-          {currentStep === 3 && (
-            <OnboardingStep
-              stepNumber={3}
-              totalSteps={totalSteps}
-              title="Upload Your Resume"
-              description="Your resume is the foundation of your profile. We'll extract your experience and achievements to help with applications later."
-              canProceed={!!uploadedResume}
-              onNext={() => handleCompleteStep(3)}
-              onBack={previousStep}
-              validationMessage={
-                !uploadedResume ? 'Please upload your resume to continue' : undefined
-              }
-            >
-              <div className="mx-auto max-w-lg">
-                <ResumeUploadZone
-                  onUploadSuccess={handleResumeUploadSuccess}
-                  onUploadError={handleResumeUploadError}
-                />
-                <button
-                  type="button"
-                  onClick={handleSkipResume}
-                  className="mt-4 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 hover:underline"
-                >
-                  Skip for now
-                </button>
-              </div>
-            </OnboardingStep>
-          )}
-
-          {/* Step 4: App Overview / Feature Tour */}
-          {currentStep === 4 && (
-            <OnboardingStep
-              stepNumber={4}
-              totalSteps={totalSteps}
-              title="Here's How It Works"
-              description="Track applications through every stage of your job search."
-              canProceed={true}
-              onNext={() => handleCompleteStep(4)}
-              onBack={previousStep}
-            >
-              <div className="mx-auto max-w-2xl space-y-6">
-                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
-                  <h4 className="mb-2 font-semibold text-neutral-900">Dashboard Stats</h4>
-                  <p className="text-sm text-neutral-600">
-                    See your progress at a glance with stats showing active applications, interview
-                    stages, and offers.
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
-                  <h4 className="mb-2 font-semibold text-neutral-900">Kanban Board</h4>
-                  <p className="text-sm text-neutral-600">
-                    Drag applications between stages: Saved → Applied → Phone Screen → Interview →
-                    Offer
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
-                  <h4 className="mb-2 font-semibold text-neutral-900">Manage Resumes</h4>
-                  <p className="text-sm text-neutral-600">
-                    Upload and manage your resumes. Create tailored versions for different roles.
-                  </p>
-                </div>
-              </div>
-            </OnboardingStep>
-          )}
-
-          {/* Step 5: Create First Application (Optional) */}
-          {currentStep === 5 && (
-            <OnboardingStep
-              stepNumber={5}
-              totalSteps={totalSteps}
-              title="Ready to Add Your First Application?"
-              description="You can create your first application now, or explore the app and add one later."
-              canProceed={true}
-              onNext={() => handleCompleteStep(5)}
-              onBack={previousStep}
-            >
-              <div className="mx-auto max-w-md space-y-4">
-                {/* Sends the user to the real create form at "/applications/new"
-                    (App.tsx) rather than opening one inside this dialog, which has no
-                    focus trap — see MODAL_FOCUS_MANAGEMENT_SPEC.md §2.
-                    handleFinishAndGo, not navigate: leaving mid-wizard without
-                    completing first means the provider re-fetches an untouched status
-                    and reopens the modal on top of the form. Same reason step 6's
-                    shortcuts use it. */}
-                <button
-                  type="button"
-                  className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-                  onClick={() => void handleFinishAndGo('/applications/new')}
-                >
-                  Create Application Now
-                </button>
-              </div>
-            </OnboardingStep>
-          )}
-
-          {/* Step 6: Completion */}
-          {currentStep === 6 && (
-            <OnboardingStep
-              stepNumber={6}
-              totalSteps={totalSteps}
-              title="You're All Set! 🎉"
-              description={
-                status?.resumeStepCompleted
-                  ? "Your resume is uploaded and you're ready to start tracking applications."
-                  : "You're ready to start tracking applications. You can upload your resume anytime from the Resumes page."
-              }
-              canProceed={true}
-              onNext={() => handleCompleteStep(6)}
-              onBack={previousStep}
-            >
-              <div className="mx-auto max-w-md space-y-6 text-left">
-                <div className="rounded-lg bg-success-50 p-4">
-                  <h4 className="mb-3 font-semibold text-success-900">Quick Tips:</h4>
-                  <ul className="space-y-2 text-sm text-success-800">
-                    <li className="flex items-start gap-2">
-                      <svg
-                        className="mt-0.5 h-5 w-5 flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      <span>Add applications as you apply to jobs</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <svg
-                        className="mt-0.5 h-5 w-5 flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      <span>Drag cards to update status as you progress</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <svg
-                        className="mt-0.5 h-5 w-5 flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      <span>Link cover letters and resumes to applications</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="flex gap-3">
-                  {/* Dashboard is mounted at "/" (App.tsx), not "/dashboard" — that path
-                      matches no route and renders an empty content area. */}
+            {/* Step 2: Personal Information */}
+            {currentStep === 2 && (
+              <OnboardingStep
+                stepNumber={2}
+                totalSteps={totalSteps}
+                title="Tell Us About Yourself"
+                description="Fill in your personal information. This will be used for resumes, cover letters, and applications."
+                canProceed={personalInfoCompleted || personalInfoData?.isComplete || false}
+                onNext={() => handleCompleteStep(2)}
+                onBack={previousStep}
+                formId="personal-info-form"
+              >
+                <div className="mx-auto max-w-2xl">
+                  <PersonalInfoForm
+                    personalInfo={personalInfoData?.personalInfo}
+                    onSubmit={handlePersonalInfoSubmit}
+                    formId="personal-info-form"
+                    hideActions
+                  />
                   <button
                     type="button"
-                    onClick={() => void handleFinishAndGo('/')}
-                    className="flex-1 rounded-md bg-primary-600 px-6 py-3 text-center text-sm font-medium text-white hover:bg-primary-700"
+                    onClick={handleSkipPersonalInfo}
+                    className="mt-4 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 hover:underline"
                   >
-                    Go to Dashboard
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleFinishAndGo('/applications')}
-                    className="flex-1 rounded-md border border-neutral-300 bg-white px-6 py-3 text-center text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-                  >
-                    View Applications
+                    Skip for now
                   </button>
                 </div>
-              </div>
-            </OnboardingStep>
-          )}
-        </div>
-      </div>
-    </div>
+              </OnboardingStep>
+            )}
+
+            {/* Step 3: Upload Resume */}
+            {currentStep === 3 && (
+              <OnboardingStep
+                stepNumber={3}
+                totalSteps={totalSteps}
+                title="Upload Your Resume"
+                description="Your resume is the foundation of your profile. We'll extract your experience and achievements to help with applications later."
+                canProceed={!!uploadedResume}
+                onNext={() => handleCompleteStep(3)}
+                onBack={previousStep}
+                validationMessage={
+                  !uploadedResume ? 'Please upload your resume to continue' : undefined
+                }
+              >
+                <div className="mx-auto max-w-lg">
+                  <ResumeUploadZone
+                    onUploadSuccess={handleResumeUploadSuccess}
+                    onUploadError={handleResumeUploadError}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSkipResume}
+                    className="mt-4 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 hover:underline"
+                  >
+                    Skip for now
+                  </button>
+                </div>
+              </OnboardingStep>
+            )}
+
+            {/* Step 4: App Overview / Feature Tour */}
+            {currentStep === 4 && (
+              <OnboardingStep
+                stepNumber={4}
+                totalSteps={totalSteps}
+                title="Here's How It Works"
+                description="Track applications through every stage of your job search."
+                canProceed={true}
+                onNext={() => handleCompleteStep(4)}
+                onBack={previousStep}
+              >
+                <div className="mx-auto max-w-2xl space-y-6">
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
+                    <h4 className="mb-2 font-semibold text-neutral-900">Dashboard Stats</h4>
+                    <p className="text-sm text-neutral-600">
+                      See your progress at a glance with stats showing active applications,
+                      interview stages, and offers.
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
+                    <h4 className="mb-2 font-semibold text-neutral-900">Kanban Board</h4>
+                    <p className="text-sm text-neutral-600">
+                      Drag applications between stages: Saved → Applied → Phone Screen → Interview →
+                      Offer
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-6">
+                    <h4 className="mb-2 font-semibold text-neutral-900">Manage Resumes</h4>
+                    <p className="text-sm text-neutral-600">
+                      Upload and manage your resumes. Create tailored versions for different roles.
+                    </p>
+                  </div>
+                </div>
+              </OnboardingStep>
+            )}
+
+            {/* Step 5: Create First Application (Optional) */}
+            {currentStep === 5 && (
+              <OnboardingStep
+                stepNumber={5}
+                totalSteps={totalSteps}
+                title="Ready to Add Your First Application?"
+                description="You can create your first application now, or explore the app and add one later."
+                canProceed={true}
+                onNext={() => handleCompleteStep(5)}
+                onBack={previousStep}
+              >
+                <div className="mx-auto max-w-md space-y-4">
+                  {/* Sends the user to the real create form at "/applications/new"
+                      (App.tsx) rather than opening one inside this dialog.
+                      handleFinishAndGo, not navigate: leaving mid-wizard without
+                      completing first means the provider re-fetches an untouched status
+                      and reopens the modal on top of the form. Same reason step 6's
+                      shortcuts use it.
+                      WIC-1689 additionally justified routing out by this dialog having
+                      no focus trap. That half of the reasoning no longer holds — this
+                      component is now a Radix Dialog (WIC-1141) and does trap focus, per
+                      MODAL_FOCUS_MANAGEMENT_SPEC.md §2. Routing out is kept as the
+                      shipped behaviour regardless; whether step 5 should instead create
+                      inline is WIC-1383's call, not this merge's. */}
+                  <button
+                    type="button"
+                    className="w-full rounded-md bg-primary-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                    onClick={() => void handleFinishAndGo('/applications/new')}
+                  >
+                    Create Application Now
+                  </button>
+                </div>
+              </OnboardingStep>
+            )}
+
+            {/* Step 6: Completion */}
+            {currentStep === 6 && (
+              <OnboardingStep
+                stepNumber={6}
+                totalSteps={totalSteps}
+                title="You're All Set! 🎉"
+                description={
+                  status?.resumeStepCompleted
+                    ? "Your resume is uploaded and you're ready to start tracking applications."
+                    : "You're ready to start tracking applications. You can upload your resume anytime from the Resumes page."
+                }
+                canProceed={true}
+                onNext={() => handleCompleteStep(6)}
+                onBack={previousStep}
+              >
+                <div className="mx-auto max-w-md space-y-6 text-left">
+                  <div className="rounded-lg bg-success-50 p-4">
+                    <h4 className="mb-3 font-semibold text-success-900">Quick Tips:</h4>
+                    <ul className="space-y-2 text-sm text-success-800">
+                      <li className="flex items-start gap-2">
+                        <svg
+                          className="mt-0.5 h-5 w-5 flex-shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span>Add applications as you apply to jobs</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <svg
+                          className="mt-0.5 h-5 w-5 flex-shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span>Drag cards to update status as you progress</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <svg
+                          className="mt-0.5 h-5 w-5 flex-shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span>Link cover letters and resumes to applications</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="flex gap-3">
+                    {/* Dashboard is mounted at "/" (App.tsx), not "/dashboard" — that path
+                        matches no route and renders an empty content area. */}
+                    <button
+                      type="button"
+                      onClick={() => void handleFinishAndGo('/')}
+                      className="flex-1 rounded-md bg-primary-600 px-6 py-3 text-center text-sm font-medium text-white hover:bg-primary-700"
+                    >
+                      Go to Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleFinishAndGo('/applications')}
+                      className="flex-1 rounded-md border border-neutral-300 bg-white px-6 py-3 text-center text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                    >
+                      View Applications
+                    </button>
+                  </div>
+                </div>
+              </OnboardingStep>
+            )}
+          </div>
+
+          {/* Dismiss confirmation — nested so Radix stacks the layers and returns
+            focus to this panel (not the page) when it closes. */}
+          <Dialog.Root
+            open={showDismissConfirm}
+            onOpenChange={(next) => {
+              if (!next) handleCancelDismiss();
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 z-[1400] bg-black/50" />
+              <Dialog.Content
+                className="fixed left-1/2 top-1/2 z-[1400] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl"
+                {...dismissFocusRestore}
+              >
+                <Dialog.Title className="text-lg font-semibold text-neutral-900">
+                  Save progress and exit?
+                </Dialog.Title>
+                <Dialog.Description className="mt-2 text-sm text-neutral-600">
+                  Your progress will be saved. You can continue the setup later from your dashboard.
+                </Dialog.Description>
+                <div className="mt-6 flex gap-3">
+                  <Dialog.Close asChild>
+                    <button
+                      type="button"
+                      className="flex-1 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                    >
+                      Cancel
+                    </button>
+                  </Dialog.Close>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDismiss}
+                    className="flex-1 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                  >
+                    Save &amp; Exit
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
