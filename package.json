@@ -18,6 +18,7 @@
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write \"packages/**/*.{ts,tsx,css,md}\"",
     "format:check": "prettier --check \"packages/**/*.{ts,tsx,css,md}\"",
+    "git:remerge": "bash scripts/remerge-open-prs.sh",
     "db:migrate": "npm run db:migrate --workspace=@wic/api",
     "db:push": "npm run db:push --workspace=@wic/api",
     "test:e2e": "playwright test",
