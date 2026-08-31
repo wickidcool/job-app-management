@@ -178,6 +178,9 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
   contradictory descriptions of one change, with no conflict ever shown (WIC-1561, fixed by #181).
   The kept copy can be the **superseded** one: in WIC-1597 a merged code-review correction was
   silently republished alongside the claim it retracted.
+  **A "revision" here can be purely cosmetic and still collide** — changing `*emphasis*` to
+  `_emphasis_` counts, because union grades edits by position, not by significance. See
+  "A cosmetic reformat is a semantic collision" below.
 - **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
   last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
@@ -642,6 +645,55 @@ blank-terminated, differ only in how diff3 happened to align the *other* side's 
 So the anchor command answers "will GitHub call this CONFLICTING"; only the union simulation
 answers "will the driver corrupt the result". Different questions, and their answers disagree.
 Run the simulation.
+
+### A cosmetic reformat is a semantic collision
+
+**Never reformat a `CHANGELOG.md` line you are not otherwise changing.** Every pre-existing line your
+branch rewrites — even if only `*emphasis*` → `_emphasis_`, even if it renders identically — becomes
+a collision candidate. Union compares positions, not meaning: if `main` also edits that line before
+you land, both copies survive, and the reader gets one bullet twice in two different states of truth.
+
+The damaging direction is the likely one. `main`'s edits to an *existing* entry are overwhelmingly
+**corrections**, because that is the only reason anyone goes back to a shipped entry. So the pairing
+is almost always your stale copy against `main`'s corrected copy — and union emits yours first,
+putting the retracted claim above its own retraction.
+
+Measured 2026-08-30, `main` at `3b0c0d3`, PR #209 head `fdd800d`: nine pre-existing lines rewritten
+with emphasis-only changes, one of which `main` had corrected four hours earlier in `70396b0`. The
+merge carried that bullet twice — the uncorrected copy first — and the union simulation was
+byte-identical to a real `git merge origin/main` in a scratch worktree, so that is what would have
+shipped. Filed as WIC-1884 and fixed the same day in `cdb1c24`, which reverted all nine; at head
+`2085803` the union introduces nothing.
+
+Across all 100 open PRs, **four** still carry emphasis-only rewrites of pre-existing lines — #299
+(91 lines), #261 (48), #249 (10), #226 (2), **151 lines total**, none of them colliding today. They
+are dormant purely because `main` has not touched those lines yet, and each converts the moment it
+does.
+
+⚠️ **Re-measure this roster immediately before you quote it anywhere.** #209 went from nine lines to
+zero in the interval between this section being drafted and the PR carrying it being merged. A
+roster of accused branches is the fastest-decaying thing in this file: quote every entry at a head
+SHA, and re-run the sweep — diffing the roster — right before you push.
+
+That the dormant ones are one edit from live is a controlled result, not an inference. Run it on any
+branch in the roster: take a line it only reformatted, synthesise a `main` that appends a correction
+to that line, and re-run the union — copies go **1 → 2**, while the negative control with `main`
+untouched stays at **1**. Measured on `fdd800d`, which still carried eight such lines at the time.
+
+**This is the second independent reason `format` and `format:check` stay scoped to `packages/**` and
+exclude root `CHANGELOG.md`** (the first is that prettier strips the blank line above every `### `
+heading, re-arming the weld on every entry at once — WIC-1732). The scoping is load-bearing. Do not
+widen it, and do not "tidy" the changelog as a drive-by.
+
+The fix on a branch that already did it is to **restore the original spelling on every line you only
+reformatted**, keeping whatever you genuinely add. Byte-identical lines give union nothing to
+resolve, which retires the latent cases too. Fixing it after the merge does not work: the corruption
+exists only in the merge result, so there is nothing to see on either branch until it has shipped.
+
+⚠️ **The byte-exact multiset conservation check cannot see this class.** The two copies are
+*different strings* — that is the whole point — so no line is lost and no line count changes. Only
+the normalised-prefix bullet check in the detector above catches it. This is the concrete case the
+prefix normalisation was worth paying for.
 
 ### A weld you commit is a misfile you have armed for whoever branches off you next
 
