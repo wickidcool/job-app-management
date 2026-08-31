@@ -13,12 +13,32 @@ import { test, expect, type Page } from '@playwright/test';
  *
  * Runs entirely on mocked API responses; no backend required.
  *
- * Note on the background-hiding test: do NOT assert `#root[aria-hidden=true]`. Radix hides
- * the background via the `aria-hidden` package, which deliberately exempts `[aria-live]`
- * elements and `<script>` (dist L131-133) — and exempting a node keeps its whole ancestor
- * chain. `EmptyState` carries `aria-live="polite"`, so on any page rendering it `#root`,
- * `main` and the empty state itself stay unhidden by design. Assert on the trigger's
- * reachability instead, which is the actual requirement.
+ * Note on the background-hiding test: it asserts the trigger's reachability *and*
+ * `#root[aria-hidden="true"]`. The redundancy is deliberate, not a workaround — the two
+ * catch different failures. Role queries prove the requirement (nothing behind the modal
+ * is reachable by the virtual cursor). `#root[aria-hidden]` proves the mechanism, and it
+ * is the only one of the two that catches a stray in-page `[aria-live]` node: that leaves
+ * `#root` unhidden while every *sibling* subtree still hides correctly, so the header
+ * trigger disappears from the a11y tree exactly as it should and reachability stays green.
+ * That silent shape is the WIC-1155 failure class, and `docs/design/ACCESSIBILITY.md`'s
+ * keyboard checklist asks for this assertion specifically against an **empty-list** state —
+ * which is what `setupProjectsList` builds.
+ *
+ * The mechanism, since it constrains where this assertion is valid: Radix hides the
+ * background via the `aria-hidden` package, which deliberately exempts `[aria-live]`
+ * elements and `<script>` (`dist/es2015/index.js` L131-133), and exempting a node keeps its
+ * whole ancestor chain. So `#root[aria-hidden]` only holds on a page that renders no
+ * in-page live region. Measured on `/projects` at this commit: 0 `[aria-live]` and 0
+ * `<script>` inside `#root`, dialog open or closed. `EmptyState` used to carry
+ * `aria-live="polite"` and did suppress the attribute app-wide; WIC-1155 (`6435d79`)
+ * removed it, and `EmptyState.tsx:71-74` now carries a comment explaining why it must not
+ * come back.
+ *
+ * Two traps if you extend this: assert on `#root`, not on `<main>` — `main` is hidden by
+ * being *inside* the hidden subtree and never gets an `aria-hidden` attribute of its own,
+ * so asserting on it fails in both worlds. And if a component-local live region is ever
+ * added to this page the `#root` assertion will go red; per ACCESSIBILITY.md that is the
+ * signal to assert on the specific background subtree instead, not a flake to retry.
  */
 
 const MOCK_USER = {
@@ -201,9 +221,18 @@ test.describe('ProjectsList — create project dialog', () => {
     const trigger = page.getByRole('button', { name: 'Create Project', exact: true });
     await expect(trigger).toHaveCount(1);
 
+    const root = page.locator('#root');
+    await expect(root).not.toHaveAttribute('aria-hidden', 'true');
+
     await openCreateDialogByKeyboard(page);
     await expect(trigger).toHaveCount(0);
     await expect(page.getByRole('navigation')).toHaveCount(0);
+
+    // The mechanism behind those two counts, and the half that reachability cannot see:
+    // an in-page [aria-live] node exempts its whole ancestor chain, so #root would stay
+    // unhidden while the sibling subtree holding `trigger` hid correctly anyway. See the
+    // file header; this is the WIC-1155 failure class and ACCESSIBILITY.md asks for it.
+    await expect(root).toHaveAttribute('aria-hidden', 'true');
 
     // The dialog is portalled to <body>, so it is never inside the hidden subtree.
     expect(await page.locator('#root [role="dialog"]').count()).toBe(0);
@@ -211,6 +240,7 @@ test.describe('ProjectsList — create project dialog', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(trigger).toHaveCount(1);
+    await expect(root).not.toHaveAttribute('aria-hidden', 'true');
   });
 
   test('create-success keeps focus on the page when the trigger unmounts', async ({ page }) => {

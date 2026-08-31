@@ -5,10 +5,17 @@ colour verdict), 2026-08-25 (WIC-1125 as-built), 2026-08-26 (shipped)
 **Ported into the repo and re-measured against `a59b869`:** 2026-08-27 (WIC-1626, part 2 of WIC-1582)
 
 > **Why this file exists.** `docs/design/DESIGN_SYSTEM.md` cites *"the fit-quality colour ramp still
-> open in `JOBFIT_CAPS_DECISION_WIC1122.md` §3a"* as the standing gate on adding a third colour
+> open in `JOBFIT_CAPS_DECISION_WIC1122.md` §3"* as the standing gate on adding a third colour
 > scale to the Job Fit Analysis screen. Until this port that citation pointed at a document living
-> only in the UI/UX agent's workspace. **§3 below preserves that anchor** — it is the one section of
-> this document that is still forward-looking rather than historical.
+> only in the UI/UX agent's workspace. **§3 below is that gate** — it is the one section of this
+> document that is still forward-looking rather than historical.
+>
+> **The anchor is `§3`, not `§3a` (Correction, 2026-08-30).** The port said it "preserves that
+> anchor" while numbering the section `## 3.` with a single subsection `### 3.1`; no `3a` has ever
+> existed in this file. Three places cited the label anyway — `DESIGN_SYSTEM.md` § Enforcement, the
+> paragraph above, and the WIC-1288 changelog entry that introduced the wording. The first two are
+> corrected; the changelog entry is a dated record and is left as written. If you arrived here
+> looking for `§3a`, you want **§3**, and the preconditions are in **§3.1**.
 >
 > **This is a port, not a transcript.** Re-measured against `a59b869`; corrections struck inline.
 
@@ -109,10 +116,21 @@ must be keyed on `NonNullable<Recommendation>`.
 
 ---
 
-## 3. Colour verdict — the standing gate *(WIC-1142, 2026-08-19 — STILL OPEN)*
+## 3. Colour verdict — the standing gate *(verdict recorded under WIC-1142, 2026-08-19)*
 
-> **This is the section `DESIGN_SYSTEM.md` cites.** Re-measured at `a59b869`: the verdict below
-> still describes the shipped tree, and the gate has not been cleared.
+> **This is the section `DESIGN_SYSTEM.md` cites.** Re-measured at `a59b869`, and again at `0534b99`
+> (2026-08-30): the verdict below still describes the shipped tree — the overall-fit value renders
+> `text-2xl font-bold text-neutral-900`, `JobFitAnalysis.tsx:155` — and the gate has not been
+> cleared.
+>
+> **The gate is open. The card is not (Correction, 2026-08-30).** This heading read
+> *"WIC-1142, 2026-08-19 — STILL OPEN"*. WIC-1142 closed `done` at **2026-08-19T13:06:02Z**, about
+> seven hours after the date in that parenthetical, and it closed by *delivering* this verdict:
+> its ask was to reconcile the contradictory WIC-1123 and WIC-1125 specs, and WIC-1123 was
+> cancelled 43 seconds later, exactly as it asked. So the card was never the thing holding the
+> gate — **§3.1's preconditions are**, and they are unmet. Read the status word off §3.1, not off
+> WIC-1142's board state: a reader who followed the old pointer found a closed card and could
+> reasonably conclude the gate had been cleared, which inverts this section's verdict.
 
 **Question:** should the overall fit value be colour-coded by `recommendation`? WIC-1123 proposed
 `strong_fit`→`text-success-700`, `moderate_fit`→`text-info-700`, `stretch`→`text-warning-700`,
@@ -146,7 +164,11 @@ A graded visual for the fit verdict is a legitimate want. The right instrument i
 result treatment designed on its own axis**, which means a `DESIGN_SYSTEM.md` entry — the same bar
 that sank the Overline badge in §1.1, and it should clear that bar the same way.
 
-**Two preconditions, and the second has since been raised:**
+**Three preconditions — the first is satisfied, the other two are not.** *(Correction, 2026-08-30:
+this read "Two preconditions, and the second has since been raised" while listing three items and
+closing "Until all three" eighteen lines later. Precondition 3 rests on the `fitLevel.ts` vocabulary
+guard, which shipped under WIC-1288 on 2026-08-26 — a week after this lead-in was written on
+2026-08-19 — so it was added later and the count was not updated with it.)*
 
 1. ~~The three-way severity-colour mismatch is reconciled first (WIC-1146).~~
    > **Satisfied for the Gaps card.** WIC-1146 shipped `constants/gapSeverity.ts` as the canonical

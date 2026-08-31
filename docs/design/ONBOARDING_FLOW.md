@@ -447,10 +447,10 @@ flowchart TD
     
     R --> S[Step 4: Create First App Prompt]
     S --> T{User Choice}
-    T -->|Create Now| U[Open Application Form]
-    T -->|Later| V[Step 5: Completion]
+    T -->|Create Now| U[Reveal inline quick-add form]
+    T -->|Footer: Next Step| V[Step 5: Completion]
     
-    U --> W[Fill Application Form]
+    U --> W[Fill company + job title]
     W --> X{Submit Success?}
     X -->|Yes| V
     X -->|No| Y[Show Error]
@@ -570,9 +570,87 @@ Track applications through every stage of your job search.
 **Description:**
 You can create your first application now, or explore the app and add one later.
 
-**Options:**
-- [Create Application Now] → Opens ApplicationForm modal
-- [I'll Do This Later] → Proceeds to Step 5
+**Options (ruled 2026-08-29, WIC-1715 — this is the target behaviour, see below):**
+- [Create Application Now] → reveals an **inline quick-add form** in this same dialog
+  (company\*, job title\*, job posting URL optional)
+- [Save Application] (form submit) → creates the application with status `Saved`, writes
+  `applicationStepCompleted: true`, **advances to Step 5: All Set!**
+- Footer [Next Step] → writes `applicationStepSkipped: true` and proceeds to Step 5 without
+  creating anything. This is the **only** way to decline; there is no second body button.
+
+> **Corrected 2026-08-29 (WIC-1689).** This block previously read
+> "[Create Application Now] → Opens ApplicationForm modal" and listed a second body
+> button, "[I'll Do This Later] → Proceeds to Step 5". Neither described the build:
+> the primary CTA's handler was `handleCompleteStep(5)` behind a "this would open the
+> application form modal" comment, so it created nothing and merely advanced the
+> wizard — the same outcome as the button beside it and as the footer, i.e. three
+> controls and one behaviour.
+>
+> ~~The CTA now sends the user to the real create route at `/applications/new`
+> (`App.tsx`) rather than opening a form inside this dialog, which has no focus trap
+> (`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2). It routes through `handleFinishAndGo`, so
+> onboarding is completed before the navigation — otherwise the provider re-fetches an
+> untouched status and reopens the modal on top of the form.~~ **Struck by the WIC-1715
+> ruling below** — the route-out is superseded by the inline quick-add. The rest of this
+> block stands: the diagnosis was right, and **the redundant "I'll Do This Later" button
+> stays removed**; the footer's [Next Step] was always the same action and remains the
+> way to decline.
+
+#### Ruling — 2026-08-29 (WIC-1715), UI/UX Developer
+
+`main` @ `eb40da8` (WIC-1689) and PR #146 (WIC-1383) shipped two mutually exclusive answers
+to this step. **PR #146's inline quick-add wins, under WIC-1689's single-body-control rule.**
+Concretely: build #146's form, but do *not* re-add its "I'll Do This Later" button.
+
+**Why the route-out loses.** It is not only that it fails accepted **AC-7** in all three
+clauses — *"application is created with status 'Saved' / And user proceeds to completion
+step"* — though it does: `handleFinishAndGo('/applications/new')` takes no fields, creates
+nothing, and **leaves** onboarding instead of proceeding to Step 5. Three UX costs are
+independent of the AC:
+
+1. **It inverts the reward.** Step 5 ("You're All Set! 🎉" + Quick Tips) is the flow's
+   payoff. The user who *declines* sees it; the user who does the most engaged thing
+   available is the only one who never does. That is backwards.
+2. **It is a one-way door with no warning.** `handleFinishAndGo` calls `completeOnboarding()`
+   *before* navigating, so a user who opens `/applications/new` and thinks better of it has
+   silently finished onboarding — no application, no tips screen, no way back into the flow.
+3. **It raises friction at the exact moment we should lower it.** `/applications/new` is the
+   full application form. AC-7 asks for two required fields. The terminal step of a first-run
+   flow is the wrong place to hand someone the heavyweight form.
+
+**And the doc already said so.** WIC-1689 amended this prose block but left the flowchart in
+this same file (§User Flow Diagrams → First-Time User) describing `Create Now → inline
+quick-add → Submit Success → Step 5: Completion`. `main` has contradicted its own design
+document since `eb40da8`. The ruling makes the two agree again rather than degrading the
+diagram to match the code.
+
+**What WIC-1689 got right, and keeps.** *Every visible control does something different.*
+The step renders **exactly one body control in each state** — `[Create Application Now]`
+before disclosure, `[Save Application]` after — with the footer as the single decline path.
+That rule survives intact and is why the quick-add is a disclosure rather than an
+always-rendered form: an always-rendered form puts required-field asterisks in front of a
+user on an *optional* step and invites the reading that footer [Next Step] will submit it.
+
+**Focus trap — the objection that expires.** WIC-1689 declined to render a form inline
+because this dialog has no focus trap (`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2). That was true
+when written and is why the ruling did not exist earlier. **PR #97 (WIC-1141) migrates
+`OnboardingModal` to a Radix `Dialog`**, which traps focus. So this is a **sequencing
+requirement, not a caveat**: land #97 first, then #146 rebased on it. Do not merge an inline
+form into an untrapped dialog — inputs are precisely the case §2 is about.
+
+**Scope held.** The footer decline stays unconditional and writes
+`applicationStepSkipped: true` even if the form is open and half-typed. Discarding a partial
+draft without a confirm is an accepted cost: the flag is honest (the user left without an
+application), AC-8 does not ask for a gate, and adding AC-5's warning-modal pattern to an
+*optional* step would be over-building. Recorded here so it is a decision, not an oversight.
+
+**Cost, measured not estimated** — of the four step-5 tests `eb40da8` shipped in
+`OnboardingModal.test.tsx`, **one** needs rewriting (`sends the primary CTA to the real
+create form`). The other three pass unchanged under this ruling: `does not merely advance
+the wizard…` (disclosure calls no `nextStep`), `offers exactly one body control…` (the
+second button stays deleted), `advances without creating anything when the footer is used
+to decline`. On #146's side exactly one test changes — `"I'll Do This Later" sets
+applicationStepSkipped` folds into the footer test beside it, which already covers that path.
 
 **Duration:** ~1 minute (if user creates application)
 
