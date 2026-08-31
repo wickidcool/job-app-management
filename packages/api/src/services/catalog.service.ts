@@ -891,6 +891,15 @@ export async function generateDiff(
   // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
   // and every catalog row auto-applied alongside it — with user_id null, which
   // no scoped reader (listDiffs / getDiff / applyDiff) can ever see again.
+  //
+  // It is also the tenancy check itself: `sourceId` comes straight from the
+  // request body, so the caller's identity is the thing being tested and it has
+  // to travel with the event. Without it `resolveOwnerUserId` falls back to the
+  // source row's own `user_id`, the "owner" resolves to the victim, and the
+  // scoped document read matches by construction. `?? null` rather than bare
+  // `userId`: in local-dev auth bypass `userId` is undefined,
+  // `typeof null === 'string'` is false, and the row fallback still applies, so
+  // single-user local behaviour is unchanged.
   await processCatalogChange({
     id: ulid(),
     sourceType,
