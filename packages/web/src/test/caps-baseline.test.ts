@@ -100,14 +100,6 @@ describe('no-literal-caps-jsx-text allowlist', () => {
     [declared, violations] = await Promise.all([declaredAllowList(), violatingStrings()]);
   }, 120_000);
 
-  it('flags at least one violation once the baseline is switched off', () => {
-    // Negative control. Without it, an allowlist that had correctly reached [] and a
-    // lint run that silently matched nothing would look identical from here.
-    // Delete this case when `allow` is dropped entirely — at that point an empty
-    // result is the expected state, and the two below still hold.
-    expect(violations.size).toBeGreaterThan(0);
-  });
-
   it('has no entry whose PR has already landed', () => {
     const dead = declared.filter((entry) => !violations.has(entry));
 

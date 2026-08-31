@@ -252,6 +252,17 @@ Two constraints on rung 2:
 cannot see. A polite live region on the create/delete-success path is required. Read §6 before
 adding one anywhere.
 
+> **Use the shared helper — `useAnnouncer` + `<Announcer>`** (`ACCESSIBILITY.md` → *Announcing an
+> outcome*). It portals itself to `<body>` per §6, and it handles the repeat case a hand-rolled
+> region gets wrong: announcing the *same* string twice is silent, because assistive tech reacts to
+> a change in the region and re-setting an identical string is not one.
+>
+> **Shipping the focus half alone does not satisfy this rule.** This clause has been normative
+> since 2026-08-19, and `ProjectsList`'s create-success path satisfied only its focus half — a
+> screen-reader user who created their first project heard "Create Project, button" and was never
+> told the project existed (WIC-1304). Landing a `fallbackRef` or a `restoreFocusTo` without an
+> announcement is half a fix; the two ship together.
+
 ### 5.3 When a fallback is **obligatory** — adopted 2026-08-29 (WIC-1670)
 
 **Normative.** §5.1 and §5.2 both answer *which* element to pass once you have already decided you
@@ -404,10 +415,11 @@ assertion goes unsound**, so any new background-hiding test should carry an empt
 
 ### 6.3 For implementers
 
-- App-level / page-level announcer → `createPortal(…, document.body)`. Mount it **permanently** and
-  change only its **text**: assistive tech announces updates to a region already in the
-  accessibility tree, so a region that mounts at the same moment its message appears may not be
-  announced at all.
+- App-level / page-level announcer → **`<Announcer>` + `useAnnouncer`** (WIC-1304), which is this
+  bullet already implemented. It does the `createPortal(…, document.body)` for you, mounts
+  **permanently** and changes only its **text** — assistive tech announces updates to a region
+  already in the accessibility tree, so a region that mounts at the same moment its message appears
+  may not be announced at all. Reach for it before writing `createPortal` by hand.
 - Component-local live regions (`ProgressIndicator`, `KanbanBoard`) can stay in place — they are
   content, not app chrome. They still cost the `#root` attribute while mounted, so do not use
   `#root[aria-hidden]` as a background-hiding assertion on a page that renders one. Assert on the
@@ -462,6 +474,19 @@ Suggested split — two PRs, so the destructive-action fix is not held up by the
 1. **PR 1:** `ConfirmationModal.tsx` alone. Highest severity, smallest diff, zero caller changes.
    *(This is PR #95 — open.)*
 2. **PR 2:** the other five. *(This is PR #97 — open.)*
+
+> **Added 2026-08-29 (WIC-1715) — PR 2 now gates a feature, not just an audit item.**
+> `OnboardingModal` is one of PR 2's five. The WIC-1715 ruling
+> (`ONBOARDING_FLOW.md` §Step 4) puts an **inline form with text inputs** on onboarding
+> step 5, and explicitly sequences it behind PR 2 for the focus trap this section
+> installs. So PR #97 is a dependency of PR #146, not merely a parallel a11y fix:
+> merging #146 first would ship the §2 hazard in its sharpest form — a partially
+> completed form a keyboard user can `Tab` straight out of, into a page this dialog's
+> `aria-modal="true"` has already told assistive tech does not exist.
+>
+> Stated here because the dependency runs the *other* way from where anyone would look
+> for it: nothing in #146 mentions focus management, and nothing in the audit table in
+> §2 suggests a feature is waiting on the `OnboardingModal` row.
 
 > **The original sequencing note is spent.** It said `QuickReferenceExport.tsx` and
 > `ConfirmationModal.tsx` had "uncommitted edits in the shared working tree right now (the WIC-1127

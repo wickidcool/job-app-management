@@ -34,29 +34,11 @@ export default defineConfig([
     files: ['src/**/*.tsx'],
     plugins: { local: localRules },
     rules: {
-      'local/no-literal-caps-jsx-text': [
-        'error',
-        {
-          // SHRINKING BASELINE — do not add an entry without a linked ticket.
-          //
-          // Every entry is a string still shouted on `main` because the PR that fixes it
-          // has not merged. Delete each entry as its PR lands; the list must reach [] and
-          // the option should then be dropped entirely.
-          //
-          //   PR #103 (WIC-1205) 'KEY PHRASES:', 'REDIRECT TO:'
-          //
-          // Matching is per-string and tree-wide, NOT per-file. That keeps the rule live
-          // inside GapMitigationPanel.tsx — a NEW caps string there still fails CI — but
-          // it also means a landed entry is a standing permission for that exact string
-          // ANYWHERE in src/**/*.tsx, including the site its own PR just fixed. Six such
-          // entries were live from #90/#98 merging until WIC-1440.
-          //
-          // This list is no longer maintained by hand alone: src/test/caps-baseline.test.ts
-          // fails as soon as an entry stops matching a real violation, so a merged PR
-          // cannot leave its permission behind.
-          allow: ['KEY PHRASES:', 'REDIRECT TO:'],
-        },
-      ],
+      // Terminal state reached (WIC-1440): the baseline's last two entries, #103's
+      // 'KEY PHRASES:' / 'REDIRECT TO:', landed and were deleted along with the
+      // `allow` option itself — see src/test/caps-baseline.test.ts for why a
+      // reintroduced `allow` list needs its own staleness test again.
+      'local/no-literal-caps-jsx-text': 'error',
     },
   },
 ])
