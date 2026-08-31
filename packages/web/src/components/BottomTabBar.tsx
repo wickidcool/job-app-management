@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useRouteUnmatched } from '../contexts/RouteMatchContext';
 
 interface TabItem {
   icon: string;
@@ -16,6 +17,7 @@ interface BottomTabBarProps {
 
 export function BottomTabBar({ applicationCount, exportCount }: BottomTabBarProps) {
   const location = useLocation();
+  const unmatched = useRouteUnmatched();
 
   const tabs: TabItem[] = [
     {
@@ -61,7 +63,12 @@ export function BottomTabBar({ applicationCount, exportCount }: BottomTabBarProp
     },
   ];
 
+  // Nothing is active on a path that matched no route — this is the bar where the
+  // 404 lit up "More", by way of its /reports dropdown entry (WIC-1053).
   const isActive = (path: string, dropdown?: { path: string }[]) => {
+    if (unmatched) {
+      return false;
+    }
     if (path === '/' && location.pathname === '/') {
       return true;
     }
@@ -111,7 +118,7 @@ export function BottomTabBar({ applicationCount, exportCount }: BottomTabBarProp
                         <Link
                           to={item.path}
                           className={`block rounded px-3 py-2 text-sm outline-none transition-colors ${
-                            location.pathname.startsWith(item.path)
+                            isActive(item.path)
                               ? 'bg-primary-50 font-medium text-primary-600'
                               : 'text-neutral-700 hover:bg-neutral-100'
                           }`}
