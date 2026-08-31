@@ -55,7 +55,7 @@ import {
   generateAIProjectMarkdown,
   isAIParserAvailable,
 } from './ai-parser.service.js';
-import { getOrCreateProjectBySlug } from './project.service.js';
+import { getOrCreateProjectBySlug, projectFileKey, localProjectsDir } from './project.service.js';
 import { track } from './analytics.service.js';
 
 type ErrorStage = 'upload' | 'extraction' | 'parsing' | 'export_generation';
@@ -407,18 +407,27 @@ function exportToDTO(e: typeof resumeExports.$inferSelect): ResumeExportDTO {
   };
 }
 
+/**
+ * WIC-1433 — the key builders live in `project.service`, not here. This
+ * function used to interpolate `projects/${slug}/${fileName}` itself, one file
+ * away from the namespaced builder it was supposed to match, and drifted out of
+ * agreement with it. Import, do not re-derive.
+ *
+ * The `config` parameter went with the inlined path — `localProjectsDir` reads
+ * `dataDir` off `getConfig()` itself.
+ */
 async function writeProjectFile(
+  userId: string | undefined,
   slug: string,
   fileName: string,
-  content: string,
-  config: ReturnType<typeof getConfig>
+  content: string
 ): Promise<void> {
   if (isStorageAvailable()) {
-    await uploadObject(`projects/${slug}/${fileName}`, content, 'text/markdown');
+    await uploadObject(projectFileKey(userId, slug, fileName), content, 'text/markdown');
   } else {
     const { promises: fs } = await import('node:fs');
     const path = await import('node:path');
-    const projectDir = path.join(config.dataDir, 'projects', slug);
+    const projectDir = path.join(localProjectsDir(userId), slug);
     await fs.mkdir(projectDir, { recursive: true });
     const filePath = path.join(projectDir, fileName);
     if (!filePath.startsWith(projectDir)) {
@@ -611,7 +620,7 @@ export async function uploadResume(
       userId
     );
 
-    // Generate per-company/project markdown files under data/projects/{projectSlug}/
+    // Generate per-company/project markdown files under projects/{userId}/{slug}/
     // Projects are created as independent entities in the database
     // Try AI parsing first, fall back to heuristic parsing
     let usedAI = false;
@@ -654,7 +663,7 @@ export async function uploadResume(
               `[resume] AI: catalog updated company="${aiProject.company}" slug="${project.slug}"`
             );
             const projectMarkdown = generateAIProjectMarkdown(aiProject);
-            await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+            await writeProjectFile(userId, project.slug, `${safeBase}.md`, projectMarkdown);
           } catch (err) {
             console.error(
               `[resume] AI: failed to process company="${aiProject.company}":`,
@@ -699,7 +708,7 @@ export async function uploadResume(
             .pop()!
             .replace(/\.[^.]+$/, '')
             .replace(/[^a-zA-Z0-9._-]/g, '_');
-          await writeProjectFile(project.slug, `${safeBase}.md`, projectMarkdown, config);
+          await writeProjectFile(userId, project.slug, `${safeBase}.md`, projectMarkdown);
         } catch (err) {
           console.error(
             `[resume] Heuristic: failed to process company="${entry.company}":`,
