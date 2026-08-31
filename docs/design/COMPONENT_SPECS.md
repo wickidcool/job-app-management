@@ -94,6 +94,12 @@ WIC-1187 → WIC-1195). It also stated that a shouted heading must always be de-
 strong: a heading uppercased by a CSS class is correct, because the caps never reach the accessibility
 tree. Marking intent per line removes the derivation, and with it the recurrence (WIC-1195).
 
+The source-side half of this is enforced in CI by `local/no-literal-caps-jsx-text`
+(`packages/web/eslint-rules/no-literal-caps-jsx-text.js`, WIC-1209): a literal all-caps JSX text node
+fails lint, while mixed-case source plus a CSS `uppercase` class passes. See
+`CONTENT_STYLE.md` §"ALL CAPS is a typographic treatment, not casing" for the rule's scope and its
+three known blind spots.
+
 ---
 
 ## 1. ApplicationCard
