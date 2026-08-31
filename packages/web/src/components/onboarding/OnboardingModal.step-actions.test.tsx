@@ -250,7 +250,10 @@ describe('OnboardingModal — resume skip races an in-flight upload (WIC-1429)',
     await userEvent.click(screen.getByRole('button', { name: /skip anyway/i }));
 
     expect(updateProgress).toHaveBeenCalledTimes(1);
-    expect(updateProgress).toHaveBeenCalledWith({ resumeStepSkipped: true });
+    expect(updateProgress).toHaveBeenCalledWith({
+      resumeStepSkipped: true,
+      resumeStepCompleted: false,
+    });
 
     await finishUpload();
 

@@ -258,6 +258,47 @@ Use ARIA live regions to announce dynamic changes without moving focus.
 - `polite`: Non-urgent updates (success messages, status changes)
 - `assertive`: Urgent updates (errors, warnings)
 
+#### Announcing an outcome: use the shared `Announcer` (WIC-1304)
+
+> **Rule.** An **outcome** announcement — something happened, and the DOM change alone does
+> not say so — uses `useAnnouncer` + `<Announcer>`. Do not hand-roll a sixth live region.
+
+```tsx
+import { Announcer } from '../components/Announcer';
+import { useAnnouncer } from '../hooks/useAnnouncer';
+
+const { message, announce, clear } = useAnnouncer();
+// on the success path, after the mutation resolves:
+announce(`Project ${createdName} created.`);
+
+return <Announcer message={message} />;   // portals itself out of #root
+```
+
+`Announcer` handles the mounting rule below; `useAnnouncer` handles the repeat case — the
+*second* of two identical outcomes is otherwise announced as nothing at all, because
+assistive tech reacts to a **change** in the region and re-setting the same string is not one.
+
+**When you need it.** The trigger is a *context change the user cannot see*. The canonical
+case is the destroyed-trigger class in `MODAL_FOCUS_MANAGEMENT_SPEC.md`: the control the user
+activated is unmounted by its own action, so focus is redirected to a different control.
+Redirecting focus is necessary but not sufficient — a screen-reader user then hears only the
+new control's label and is never told what happened. **Both halves are required; shipping the
+focus half alone is what WIC-1304 was filed for.**
+
+**When you do not.** A region whose text is **derived from render state** — `"Step 2 of 5"` in
+`wizard/ProgressIndicator` and `OnboardingProgressIndicator`, `KanbanBoard`'s drag announcer —
+is *content*, not outcome reporting. Those are already correct rendered in place and should
+stay there; see the component-local carve-out at the end of the next section. This helper is
+not a consolidation target for them.
+
+**Never build the region out of the thing that changed.** `EmptyState` carried `aria-live` on
+the container wrapping its own action button, and the exemption rule below turned that into a
+live control behind every dialog (WIC-1155). The region announces *about* the change; it does
+not contain it.
+
+Covered by `packages/web/src/components/Announcer.test.tsx`, which drives the real
+`aria-hidden` package rather than asserting on attributes.
+
 #### Where app-level live regions must be mounted
 
 > **Rule.** An app-level live region — a toast host, a route-change announcer, a save-status
