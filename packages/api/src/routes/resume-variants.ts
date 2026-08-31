@@ -12,6 +12,7 @@ import {
   exportResumeVariant,
 } from '../services/resume-variant.service.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 const formatValues = ['chronological', 'functional', 'hybrid'] as const;
 const emphasisValues = ['experience_heavy', 'skills_heavy', 'balanced'] as const;
@@ -114,7 +115,7 @@ const exportSchema = z
 
 export const resumeVariantsRoutes = new Hono<AppEnv>()
   .post('/resume-variants/generate', async (c) => {
-    const parsed = generateSchema.safeParse(await c.req.json());
+    const parsed = generateSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
@@ -122,7 +123,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     return c.json(result, 201);
   })
   .post('/resume-variants/suggest-bullets', async (c) => {
-    const parsed = suggestBulletsSchema.safeParse(await c.req.json());
+    const parsed = suggestBulletsSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
@@ -142,7 +143,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .patch('/resume-variants/:id', async (c) => {
-    const parsed = updateSchema.safeParse(await c.req.json());
+    const parsed = updateSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
@@ -158,7 +159,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   .post('/resume-variants/:id/revise', async (c) => {
-    const parsed = reviseSchema.safeParse(await c.req.json());
+    const parsed = reviseSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
@@ -170,7 +171,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .post('/resume-variants/:id/export', async (c) => {
-    const parsed = exportSchema.safeParse(await c.req.json());
+    const parsed = exportSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
