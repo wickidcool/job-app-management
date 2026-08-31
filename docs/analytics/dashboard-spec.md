@@ -1,7 +1,7 @@
 # Job Application Manager — PostHog Dashboard Spec
 
-**Version:** 1.0
-**Date:** 2026-08-04
+**Version:** 1.1
+**Date:** 2026-08-04 (rev 1.1 — 2026-08-26, §6 failure telemetry, WIC-1476)
 **Owner:** Data Analyst (WIC-814 dashboards)
 **Status:** **Live as of 2026-08-11** — prod `ANALYTICS_SINK=posthog` is deployed on both server (WIC-821) and client (WIC-899) tiers, so all 9 events are now capturing to PostHog. Dashboards A & B were computable at launch; the client `identify(userId)` alias then shipped (WIC-825, PR #72, 2026-08-13), so **Dashboard C is now fully computable** too — all three dashboards are live.
 **Depends on:** taxonomy on branch `wic-814-analytics-instrumentation` (validated below), PR merge (e7b65048), prod sink flip.
@@ -9,6 +9,12 @@
 This is the deploy-ready mapping from the 9-event taxonomy (`metrics-baseline.md` §3) to
 the KPIs (§2) as concrete PostHog insights. It also records two instrumentation gaps found
 by reading the actual branch code, with exact pre-merge fixes.
+
+> **§6 is normative and was added in rev 1.1.** Failure counts are derived from the
+> `submitted`-with-no-terminal-event **gap**, never from `count(resume_upload_failed)` — that event
+> is delivered by a `fetch` subrequest and is dropped by the very outages it is meant to report.
+> A10 is the failure KPI of record; A9 is diagnostic only. **Do not implement out-of-band emission
+> with `ctx.waitUntil()`** — it shares the same exhausted per-invocation budget. See §6.
 
 ---
 
@@ -37,7 +43,7 @@ moment events flow.
 
 | #   | KPI (§2.1/§2.2)            | PostHog insight         | Definition                                                                                                                                                                                 |
 | --- | -------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A1  | Upload Success Rate        | Funnel                  | Step 1 `resume_upload_submitted` → Step 2 `resume_upload_completed`. Conversion % = success rate. Target ≥95% (§4 warn <97, crit <93).                                                     |
+| A1  | Upload Success Rate        | Funnel                  | Step 1 `resume_upload_submitted` → Step 2 `resume_upload_completed`. Conversion % = success rate. Target ≥95% (§4 warn <97, crit <93). **Already gap-derived — do not "fix" this to use `_failed`. See §6.** |
 | A2  | Validation Error Rate      | Trends (formula)        | `resume_upload_validation_failed / resume_upload_started`. Target ≤5% (§4 warn >8, crit >15).                                                                                              |
 | A3  | Upload Funnel Completion   | Funnel                  | `resume_upload_started` → `resume_upload_submitted` → `resume_upload_completed`. Overall conversion. Target ≥80% (§4 warn <70). Breakdown by `source` (file_picker vs drag_drop).          |
 | A4  | Avg / P95 Processing Time  | Trends (property value) | `resume_upload_completed` → property `processing_time_ms`, aggregation Average and P95. Targets: avg ≤3000ms, P95 ≤8000ms (§4 warn >6000, crit >12000). **⚠ Requires gap-1 fix — see §4.** |
@@ -45,7 +51,8 @@ moment events flow.
 | A6  | Avg Sections Detected      | Trends (property avg)   | `resume_upload_completed` → avg `sections_detected`. Healthy 4–8.                                                                                                                          |
 | A7  | Avg Bullets per Section    | Trends (formula)        | avg(`bullets_total`) / avg(`sections_detected`) on `resume_upload_completed`. Healthy 3–10.                                                                                                |
 | A8  | Avg Extracted Text Length  | Trends (property avg)   | `resume_upload_completed` → avg `extracted_char_count`. Healthy 2,000–8,000.                                                                                                               |
-| A9  | Failure breakdown          | Trends (breakdown)      | `resume_upload_failed` broken down by `error_stage` (upload/extraction/parsing/export_generation) and `error_code`. Surfaces where the pipeline breaks.                                    |
+| A9  | Failure breakdown          | Trends (breakdown)      | `resume_upload_failed` broken down by `error_stage` (upload/extraction/parsing/export_generation) and `error_code`. Surfaces **where** the pipeline breaks. **⚠ DIAGNOSTIC ONLY — never the count of record. Its total is a lower bound and collapses toward 0 during exactly the outages you care about. See §6.** |
+| A10 | Upload Failure Rate        | Trends (formula)        | **`(count(resume_upload_submitted) - count(resume_upload_completed)) / count(resume_upload_submitted)`**, probe-excluded. This is the failure count/rate **of record**. Target ≤5% (§4 warn >3%, crit >7% — the complement of A1). See §6 for why it is gap-derived and its known biases. |
 
 **HogQL for A4 with the gap-1 fix applied** (exclude duplicate short-circuits from timing):
 
@@ -135,3 +142,179 @@ C1–C3 are computable. Upload-health and engagement dashboards (A/B) were unaff
    SUPABASE_DATABASE_URL / WIC-633 prod-DB incident).
 4. Verify with `ANALYTICS_SINK=console` in staging first — confirm all 9 events fire with §3 props.
 5. Build Dashboards A & B, wire §4 threshold alerts. Gap-2 is now closed (WIC-822 + WIC-825), so Dashboard C can be built alongside them.
+6. **Failure telemetry (§6, WIC-1476):** A10 (gap-derived) is the failure count of record; A9 is diagnostic only. Wire the §6.6 alert — it needs no deploy and runs on events already flowing.
+
+---
+
+## 6. Failure telemetry is gap-derived, not event-derived (WIC-1476 / ADR-007 §4)
+
+**Rule: a `resume_upload_submitted` with no matching terminal event _is_ a failure. Count failures
+that way. Never treat `count(resume_upload_failed)` as the number of failures.**
+
+### 6.1 Why — the event cannot survive the condition it reports on
+
+`resume.service.ts:759` awaits `track('resume_upload_failed', …)` inside its catch block before
+re-raising. `track()` delivers over `fetch()` (`analytics.service.ts`, `createPostHogSink`), and on
+Cloudflare a `fetch` is a **subrequest**. When the upload fails *because the Worker exhausted its
+subrequest budget*, the capture call has no budget left and the event is silently dropped.
+
+The loss is **correlated with the incident**: events vanish exactly when they cluster, so a panel
+built on `_failed` reads *lower* during a total outage and can read **0** during a complete one. It
+biases toward false calm precisely when the dashboard is being looked at. `_submitted` survives
+because it is emitted at `resume.service.ts:450`, before `getDb()` and before any dependency work,
+when the budget is still intact.
+
+### 6.2 Measured, in production (2026-08-26)
+
+Lifetime counts in PostHog project 551963, all upload legs:
+
+| Event                      | Count | Window                                      |
+| -------------------------- | ----- | ------------------------------------------- |
+| `resume_upload_submitted`  | 2     | 2026-08-18T04:48:45Z → 2026-08-26T04:19:39Z |
+| `resume_upload_completed`  | 1     | 2026-08-18T04:48:45Z                        |
+| `resume_upload_failed`     | 1     | 2026-08-18T04:48:45Z                        |
+
+Split by session, the two behave completely differently:
+
+| `session_id`               | submitted | completed | failed | What it was                                          |
+| -------------------------- | --------- | --------- | ------ | ---------------------------------------------------- |
+| `smoke-wic996-064d2fae…`   | 1         | 1         | 1      | WIC-996 smoke test — fired all three names directly at `/capture` 0.3s apart. Not a real pipeline run. |
+| `wic967-devops-1787717978` | 1         | **0**     | **0**  | WIC-967: a **real authenticated** `POST /api/resumes/upload` against production that **returned 500**. |
+
+The WIC-967 row is the defect, observed end to end. A genuine production 500 produced
+`count(resume_upload_failed) == 0`. The gap metric scores it correctly: `submitted - completed`
+= 1. Every `_failed` event that exists in this project is synthetic; the one real failure emitted
+none.
+
+### 6.3 Do **NOT** implement out-of-band emission with `ctx.waitUntil()`
+
+The subrequest cap is per **invocation** — the runtime's own error string is
+`Too many subrequests by single Worker invocation`. `waitUntil` callbacks run inside that same
+invocation, so a deferred `fetch` is charged to the same exhausted budget and dropped identically.
+It would look like a fix, pass review, and still lose every event during an outage.
+
+There is currently **no `waitUntil` anywhere in `packages/api/src`** — this is a guardrail against
+introducing one, not a description of existing code.
+
+Genuinely out-of-band delivery means a **Tail Worker or Logpush**, which execute as a *separate*
+invocation with their own budget. That is the only acceptable mechanism if out-of-band emission is
+wanted later, and it is not required for anything in this section.
+
+### 6.4 Keep emitting `_failed` — as diagnosis, never as the count
+
+`_failed` is the only carrier of `error_code` and `error_stage`, which the gap metric structurally
+cannot produce. Keep it, keep A9. Read it as *"of the failures that managed to report themselves,
+here is where they broke"* — a **lower bound**, and a **biased sample** (failures caused by resource
+exhaustion are the ones most likely to be missing, so A9 systematically under-represents them).
+
+### 6.5 Known limitations of the gap metric — state these on the panel
+
+1. **There is no per-upload correlation id.** `_submitted` carries `{session_id, file_type,
+   file_size_bytes}`; `_completed` carries `{session_id, resume_id, export_id, …}`. No field links a
+   specific submit to a specific terminal event. So the metric is only valid **in aggregate**
+   (count-level) or **per session with exactly one upload** — a session that uploads twice and fails
+   once nets out to "fine". *Recommended fix, cheap and additive: emit a shared `upload_id` (ULID,
+   generated at `resume.service.ts:444` next to `startTime`) on all three of `_submitted`,
+   `_completed` and `_failed`. That makes the gap exactly joinable and removes both this limitation
+   and limitation 2.*
+2. **Window-boundary error.** An upload submitted at 23:59 and completed at 00:01 counts as a
+   failure in the first window. Immaterial at 3s median processing time and daily/weekly grain; it
+   matters if anyone builds a per-minute panel. Don't.
+3. **It over-counts rather than under-counts under pressure.** If the pipeline consumes the last of
+   the budget and *succeeds*, the `_completed` capture at `resume.service.ts:596` can itself be
+   dropped — the user gets a 200 and the gap records a phantom failure. This is the **opposite**
+   bias to `_failed`, and it is the safe direction: the metric fails **loud** during an incident
+   instead of silent. Accept it. It also means A10 should be read as an upper bound on true failure
+   rate, just as A9 is a lower bound; the truth is bracketed between them.
+4. **Probe exclusion is mandatory, and matters more here than anywhere else.** An end-to-end probe
+   that submits without completing is *byte-identical in shape* to a real outage — that is exactly
+   what WIC-967 looks like in §6.2. Apply `docs/analytics/probe-registry.json` exclusion keys **and**
+   the prefix predicates from `organic_watch.py` (`startsWith(distinct_id, 'probe-'/'smoke-'/'qa-')`,
+   `match(toString(properties.session_id), '^wic[0-9]+-')`) before computing A10 or firing the §6.6
+   alert. Note WIC-967's `distinct_id` is a bare Supabase auth UUID set server-side and **cannot**
+   carry a prefix — the registry is the only thing that catches it. Use `startsWith()`, never
+   `LIKE 'qa\_%'`: HogQL rejects the `\_` escape with a hard 400.
+
+### 6.6 Alert — monitor the blind spot now, before any code change
+
+This needs no deploy and no new instrumentation; it runs on events already flowing.
+
+Both queries below were **executed against production project 551963 on 2026-08-26** and their
+outputs are quoted. Alias reuse across `SELECT` expressions works in HogQL; the `if()` zero-guard
+behaves as documented.
+
+**Query 1 — headline rate (A10).** Substitute the probe-exclusion predicate emitted by
+`organic_watch.py` (`build_predicates()` returns it; drop its trailing `AND timestamp > …`
+watermark, which is watcher state, not part of the alert).
+
+```sql
+SELECT
+  countIf(event = 'resume_upload_submitted')                AS submitted,
+  countIf(event = 'resume_upload_completed')                AS completed,
+  countIf(event = 'resume_upload_failed')                   AS failed_reported,
+  submitted - completed                                     AS failures_derived,
+  if(submitted = 0, 0, (submitted - completed) / submitted) AS failure_rate
+FROM events
+WHERE event IN ('resume_upload_submitted', 'resume_upload_completed', 'resume_upload_failed')
+  AND timestamp > now() - INTERVAL 1 DAY
+  -- AND <ORGANIC_PREDICATE from organic_watch.py>
+```
+
+- **Warn** `failure_rate > 3%`, **critical** `> 7%` (complement of the A1 ≥95% target and its §4
+  warn <97 / crit <93 thresholds — keep the two in sync; they are the same quantity).
+- Zero organic traffic ⇒ all counts 0 and `failure_rate` 0 by the `if()` guard. Verified: with the
+  probe predicate applied this returns `0, 0, 0, 0, 0.0`. That is correct and **must not raise** —
+  an empty funnel is a traffic fact, not a defect.
+- Without exclusion, lifetime returns `submitted=2, completed=1, failed_reported=1,
+  failures_derived=1, failure_rate=0.5` — the metric detects the WIC-967 failure that
+  `_failed` missed.
+
+**Query 2 — telemetry-integrity alarm. Must be computed PER SESSION, not as an aggregate
+difference.**
+
+```sql
+SELECT
+  countIf(sub > 0 AND comp = 0 AND fail = 0) AS silent_failures,    -- submitted, then nothing
+  countIf(sub > 0 AND comp = 0 AND fail > 0) AS reported_failures,  -- submitted, then _failed
+  countIf(sub > 0 AND comp > 0)              AS successes
+FROM (
+  SELECT toString(properties.session_id)                AS sid,
+         countIf(event = 'resume_upload_submitted')     AS sub,
+         countIf(event = 'resume_upload_completed')     AS comp,
+         countIf(event = 'resume_upload_failed')        AS fail
+  FROM events
+  WHERE event IN ('resume_upload_submitted', 'resume_upload_completed', 'resume_upload_failed')
+    AND timestamp > now() - INTERVAL 1 DAY
+    -- AND <ORGANIC_PREDICATE from organic_watch.py>
+  GROUP BY sid
+)
+```
+
+**`silent_failures > 0` is its own alarm**, independent of the rate: it means the telemetry path
+itself is degrading. That is the WIC-967 signature, and the number the `_failed` panel can never
+show you.
+
+> **Why per-session, and not `failures_derived - failed_reported`.** That aggregate form was the
+> obvious formulation and it is **wrong** — it was tried first and it silently reported `0`. Any
+> session that emits *both* `_completed` and `_failed` contributes a spurious `+1` to
+> `failed_reported` that **cancels** a genuinely missing `_failed` elsewhere in the window. On
+> lifetime data the WIC-996 smoke test does exactly this, hiding WIC-967: the aggregate gives
+> `silently_lost = 1 - 1 = 0`, while the per-session query above correctly gives
+> `silent_failures = 1, reported_failures = 0, successes = 1`. Cross-session cancellation makes the
+> aggregate form fail in the same direction as the bug it is meant to catch. **Do not use it.**
+
+### 6.7 Consequences for the rest of this document
+
+- **A1 (funnel) was already correct.** A PostHog funnel measures `submitted → completed`
+  conversion — it is gap-derived by construction and never reads `_failed`. It needed no change and
+  must not be "corrected" to use `_failed`. Its one caveat is that funnel steps correlate per
+  *person*, not per upload, so it shares limitation 1 above.
+- **A2 (Validation Error Rate) is unaffected.** `resume_upload_validation_failed` and
+  `resume_upload_started` are both **client**-side events captured by `posthog-js` in the browser,
+  not by the Worker, so the subrequest budget does not apply to them.
+- **A9 is demoted** to diagnostic-only (see §6.4). **A10 is the new count of record.**
+- `metrics-baseline.md` §2.1 defines Upload Success Rate as `successful_uploads / upload_attempts`.
+  That wording is already gap-shaped — `upload_attempts` = `_submitted`, `successful_uploads` =
+  `_completed`. No edit needed there; this section pins the interpretation.
+
+---
