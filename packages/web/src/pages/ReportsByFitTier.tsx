@@ -12,19 +12,49 @@ import type { FitTier } from '../services/api/reportsService';
  * Each blurb states a **necessary** condition of its tier — never a sufficient
  * one. `computeRecommendation` is a four-way cascade over three variables (match
  * percentage, critical-gap count, seniority flag), and a tile has no room to
- * restate a cascade. What it must never do is contradict the tier it labels.
- *
- * (The number beside each blurb is `byTier[tier]` — how many applications fall
- * in that tier. It is not a skill-match count, and no skill-match count is
- * rendered on this page.)
+ * restate a cascade. What it must never do is contradict the count printed
+ * beside it.
  *
  * These originally restated the match-percentage arm alone, which made them
- * false for 14.1% of reachable scoring inputs: 100% of required skills matched
- * with 3 critical gaps returns `moderate_fit`, so the tier was captioned
- * "50–79% of required skills" — contradicting both its own definition and the
- * "You match 20 of 20 required skills" the user reads on drill-in
- * (`computeSummary`, `job-fit.service.ts`) (WIC-1309). Every blurb below
- * therefore carries the gap and seniority conditions that can pull a tier down.
+ * false for 81 of the 574 reachable scoring inputs (14.1%): 100% of required
+ * skills matched with 3 critical gaps returns `moderate_fit`, so "50–79% of
+ * required skills" appeared above a match count of 20/20 (WIC-1309).
+ *
+ * Read them as a set, not as four independent lines (WIC-1318). No tile spends
+ * more than two clauses, because the cascade is legible *across* them: the gap
+ * ladder off `strong_fit` (≤1) and `stretch` (>3), which leaves 2–3 for
+ * `moderate_fit`; the seniority flag off `moderate_fit` ("no seniority
+ * mismatch") and `stretch` ("or a seniority mismatch"). That is why
+ * `moderate_fit` need not restate the gap bound and `low_fit` need not restate
+ * the seniority one — and why `low_fit` deliberately does not, since saying it
+ * would make that blurb sufficient as well as necessary.
+ *
+ * Two rules any rewording has to keep (WIC-1322):
+ *
+ * **A bare comma never carries the connective.** These blurbs are clause lists
+ * of two different kinds, and the reader gets no cue from a comma alone which
+ * kind they are holding. So conjunction is written `, with` and disjunction is
+ * written `, or` — never a naked comma for either. `strong_fit` and
+ * `moderate_fit` are conjunctions ("…, with at most one critical gap");
+ * `stretch` is a disjunction ("…, more than three critical gaps, or a seniority
+ * mismatch"); `low_fit` is one clause and takes no comma at all.
+ *
+ * **Exclusivity belongs to the set, not to the tiles.** The blurbs are
+ * necessary-only, so more than one is true of the same application — 267 of the
+ * 574 reachable inputs (46.5%) satisfy two or more. That is a property of
+ * dropping clauses and it cannot be worded away tile by tile. Prefixing the
+ * lower tiers with "Otherwise:" was proposed and measured: it removes only the
+ * *upward* bleed (a blurb true of an input that scored higher) and leaves 147
+ * of 574 (25.6%), because a blurb that dropped a clause stays true of inputs
+ * that fall *through* it — `moderate_fit` dropped `criticalGaps <= 3`, so 60%
+ * matched with five critical gaps reads as `moderate_fit` but scores `stretch`,
+ * and no ordering word touches that case. Full exclusivity needs every blurb to
+ * restate its whole cascade arm, which is the three-clause spec line this set
+ * exists to avoid, and it degrades `low_fit` to "everything else". The cascade
+ * is a fact about the four tiles together, so `TIER_ORDER_CAPTION` states it
+ * once above the row instead — where it also answers the question overlapping
+ * descriptions actually raise on a counts report: whether the counts
+ * double-count.
  *
  * `packages/api/test/fit-tier-blurbs.test.ts` reads these exact strings and
  * checks each one against the real `computeRecommendation` over every reachable
@@ -40,33 +70,53 @@ const VERDICT_TIERS: ReadonlyArray<{
 }> = [
   {
     tier: 'strong_fit',
-    blurb: '80%+ of required skills, at most one critical gap',
+    blurb: '80%+ of required skills, with at most one critical gap',
     container: 'border-green-200 bg-green-50',
     heading: 'text-green-900',
     body: 'text-green-700',
   },
   {
     tier: 'moderate_fit',
-    blurb: '50%+ of required skills, up to three critical gaps, no seniority mismatch',
+    blurb: '50%+ of required skills, with no seniority mismatch',
     container: 'border-yellow-200 bg-yellow-50',
     heading: 'text-yellow-900',
     body: 'text-yellow-700',
   },
   {
     tier: 'stretch',
-    blurb: 'A partial skill match, too many critical gaps, or a seniority mismatch',
+    blurb: 'Under 50% of required skills, more than three critical gaps, or a seniority mismatch',
     container: 'border-orange-100 bg-orange-50',
     heading: 'text-orange-700',
     body: 'text-orange-700',
   },
   {
     tier: 'low_fit',
-    blurb: 'Under 30% of required skills, and no seniority mismatch',
+    blurb: 'Under 30% of required skills',
     container: 'border-neutral-200 bg-neutral-50',
     heading: 'text-neutral-900',
     body: 'text-neutral-700',
   },
 ];
+
+/**
+ * Carries the one thing the tiles cannot say about themselves: the tiers are
+ * ordered and `computeRecommendation` stops at the first arm that matches, so
+ * an application meeting two descriptions is filed under the higher one only.
+ *
+ * Deliberately not folded into the blurbs. It is a claim about the set, and a
+ * per-tile version ("Otherwise: …") would have to be read as an anaphor to the
+ * tile before it — which the layout does not support: the row is
+ * `lg:grid-cols-4` across at desktop and 2×2 at `md`, so "the one before this"
+ * is leftward, or up-and-right, or (only at the single-column mobile
+ * breakpoint) actually above. A caption above the row reads the same at all
+ * three widths.
+ *
+ * "Counted once" is doing the load-bearing work: these tiles print counts, and
+ * four overlapping descriptions over four numbers invite the reader to wonder
+ * whether an application is being tallied twice.
+ */
+const TIER_ORDER_CAPTION =
+  'Ranked best first. Each application is counted once, in the first tier it qualifies for.';
 
 export function ReportsByFitTier() {
   const navigate = useNavigate();
@@ -159,7 +209,8 @@ export function ReportsByFitTier() {
       </div>
 
       {/* Placeholder tier groups */}
-      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4 opacity-50">
+      <p className="mt-6 text-sm text-neutral-600">{TIER_ORDER_CAPTION}</p>
+      <div className="mt-2 grid gap-4 md:grid-cols-2 lg:grid-cols-4 opacity-50">
         {VERDICT_TIERS.map(({ tier, blurb, container, heading, body }) => (
           <div key={tier} className={`rounded-lg border p-6 ${container}`}>
             <div className="flex items-center justify-between">
