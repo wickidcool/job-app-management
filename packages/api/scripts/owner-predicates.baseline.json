@@ -45,7 +45,7 @@
     "file": "src/services/cover-letter.service.ts",
     "check": "COND",
     "detail": "'userId' branched on in a ternary test",
-    "count": 6
+    "count": 7
   },
   {
     "file": "src/services/cover-letter.service.ts",
@@ -57,7 +57,7 @@
     "file": "src/services/cover-letter.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 8
+    "count": 9
   },
   {
     "file": "src/services/dashboard.service.ts",
@@ -78,76 +78,40 @@
     "count": 3
   },
   {
-    "file": "src/services/extraction.service.ts",
-    "check": "NOWNER",
-    "detail": "update on owner-bearing 'companyCatalog' is scoped by a non-unique key with no owner column ('userId') in its where predicate",
-    "count": 1
-  },
-  {
-    "file": "src/services/extraction.service.ts",
-    "check": "NOWNER",
-    "detail": "update on owner-bearing 'jobFitTags' is scoped by a non-unique key with no owner column ('userId') in its where predicate",
-    "count": 1
-  },
-  {
-    "file": "src/services/extraction.service.ts",
-    "check": "NOWNER",
-    "detail": "update on owner-bearing 'recurringThemes' is scoped by a non-unique key with no owner column ('userId') in its where predicate",
-    "count": 1
-  },
-  {
-    "file": "src/services/extraction.service.ts",
-    "check": "NOWNER",
-    "detail": "update on owner-bearing 'techStackTags' is scoped by a non-unique key with no owner column ('userId') in its where predicate",
-    "count": 1
-  },
-  {
-    "file": "src/services/extraction.service.ts",
-    "check": "SIG",
-    "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 1
-  },
-  {
-    "file": "src/services/interviewPrep.service.ts",
-    "check": "COND",
-    "detail": "'userId' branched on in a ternary test",
-    "count": 1
-  },
-  {
     "file": "src/services/interviewPrep.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 7
+    "count": 6
+  },
+  {
+    "file": "src/services/job-fit.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 1
   },
   {
     "file": "src/services/personal-info.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 3
+    "count": 2
   },
   {
     "file": "src/services/project.service.ts",
     "check": "COND",
     "detail": "'userId' branched on in a ternary test",
     "count": 4
-  },
-  {
-    "file": "src/services/project.service.ts",
-    "check": "COND",
-    "detail": "'userId' branched on in an if test",
-    "count": 5
   },
   {
     "file": "src/services/project.service.ts",
     "check": "NOWNER",
     "detail": "update on owner-bearing 'projects' is scoped by a non-unique key with no owner column ('userId') in its where predicate",
-    "count": 3
+    "count": 1
   },
   {
     "file": "src/services/project.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 11
+    "count": 21
   },
   {
     "file": "src/services/reports.service.ts",
@@ -169,15 +133,9 @@
   },
   {
     "file": "src/services/resume-variant.service.ts",
-    "check": "COND",
-    "detail": "'userId' branched on in a ternary test",
-    "count": 1
-  },
-  {
-    "file": "src/services/resume-variant.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 5
+    "count": 4
   },
   {
     "file": "src/services/resume.service.ts",
@@ -195,7 +153,7 @@
     "file": "src/services/resume.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 7
+    "count": 8
   },
   {
     "file": "src/services/storage.service.ts",

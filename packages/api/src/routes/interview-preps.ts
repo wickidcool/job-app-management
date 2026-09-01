@@ -12,6 +12,7 @@ import {
 } from '../services/interviewPrep.service.js';
 import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 const interviewTypeValues = ['behavioral', 'technical', 'mixed', 'case_study'] as const;
 const prepTimeValues = ['30min', '1hr', '2hr', 'full_day'] as const;
@@ -129,7 +130,7 @@ const exportQuerySchema = z.object({
 
 export const interviewPrepsRoutes = new Hono<AppEnv>()
   .post('/interview-preps', async (c) => {
-    const parsed = generateSchema.safeParse(await c.req.json());
+    const parsed = generateSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
@@ -141,7 +142,7 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .patch('/interview-preps/:id', async (c) => {
-    const parsed = updateSchema.safeParse(await c.req.json());
+    const parsed = updateSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
@@ -191,7 +192,7 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
     });
   })
   .post('/interview-preps/:id/practice', async (c) => {
-    const parsed = practiceSchema.safeParse(await c.req.json());
+    const parsed = practiceSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
