@@ -180,7 +180,7 @@ export function GapMitigationPanel({
 
                                   <div>
                                     <p className="text-xs font-semibold text-gray-700 mb-2">
-                                      KEY PHRASES:
+                                      Key phrases:
                                     </p>
                                     <div className="flex flex-wrap gap-2">
                                       {strategy.keyPhrases.map((phrase: string, idx: number) => (
@@ -196,7 +196,7 @@ export function GapMitigationPanel({
 
                                   <div className="p-3 bg-green-50 border border-green-200 rounded">
                                     <p className="text-xs font-semibold text-green-900 mb-1">
-                                      REDIRECT TO:
+                                      Redirect to:
                                     </p>
                                     <p className="text-sm text-green-800">
                                       {strategy.redirectToStrength}
