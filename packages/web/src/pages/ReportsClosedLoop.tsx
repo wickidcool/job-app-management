@@ -158,7 +158,7 @@ export function ReportsClosedLoop() {
       {applications.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white p-8 text-center">
           <div className="text-4xl mb-4">📊</div>
-          <h3 className="text-lg font-semibold text-neutral-900">No closed applications yet</h3>
+          <h2 className="text-lg font-semibold text-neutral-900">No closed applications yet</h2>
           <p className="mt-2 text-sm text-neutral-600">
             As you receive offers or rejections, they'll appear here for analysis.
           </p>

@@ -95,7 +95,11 @@ export async function createApplication(
       changedAt: now,
     });
 
-    enqueueChange('application', id, 'created');
+    // Pass the owner: processCatalogChange decides create-vs-update on this,
+    // and an application enqueued without it used to fall through to a
+    // slug-only company_catalog UPDATE that hit whichever tenant registered
+    // the company first. Mirrors resume.service.ts's enqueue.
+    enqueueChange('application', id, 'created', { userId: userId ?? null });
     return { application: toDTO(app) };
   });
 }
@@ -263,7 +267,7 @@ export async function updateApplication(
     throw new VersionConflictError();
   }
 
-  enqueueChange('application', id, 'updated');
+  enqueueChange('application', id, 'updated', { userId: userId ?? null });
   return { application: toDTO(updated) };
 }
 

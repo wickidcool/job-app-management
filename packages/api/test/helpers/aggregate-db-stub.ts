@@ -110,7 +110,8 @@ type Node =
   | { kind: 'and'; children: Node[] }
   | { kind: 'or'; children: Node[] }
   | { kind: 'cmp'; table: string; column: string; op: CmpOp; rhs: Rhs }
-  | { kind: 'null'; table: string; column: string; negated: boolean };
+  | { kind: 'null'; table: string; column: string; negated: boolean }
+  | { kind: 'in'; table: string; column: string; values: unknown[]; negated: boolean };
 
 const CMP_OPS = new Set<string>(['=', '<>', '!=', '>=', '>', '<=', '<']);
 
@@ -177,6 +178,44 @@ function parse(tokens: Token[], params: unknown[], sql: string): Node {
       }
       pos += 1;
       return { kind: 'null', table, column, negated };
+    }
+
+    // `IN ($1, $2, ...)` / `NOT IN (...)` — what `inArray`/`notInArray` emit.
+    // Modelled rather than rejected so an aggregate that filters on a status set
+    // does not have to be excluded from these fixtures.
+    {
+      let negated = false;
+      let opTok = op;
+      if (opTok?.t === 'word' && opTok.v === 'not') {
+        negated = true;
+        pos += 1;
+        opTok = tokens[pos];
+      }
+      if (opTok?.t === 'word' && opTok.v === 'in') {
+        pos += 1;
+        const open = tokens[pos];
+        if (!(open?.t === 'punct' && open.v === '(')) fail('expected `(` after `IN`');
+        pos += 1;
+        const values: unknown[] = [];
+        for (;;) {
+          const item = tokens[pos];
+          if (item?.t === 'param') values.push(params[item.v - 1]);
+          else if (item?.t === 'lit') values.push(item.v);
+          else fail('only bound parameters and literals are modelled inside `IN`');
+          pos += 1;
+          const sep = tokens[pos];
+          if (sep?.t === 'punct' && sep.v === ',') {
+            pos += 1;
+            continue;
+          }
+          break;
+        }
+        const close = tokens[pos];
+        if (!(close?.t === 'punct' && close.v === ')')) fail('unbalanced parentheses in `IN`');
+        pos += 1;
+        return { kind: 'in', table, column, values, negated };
+      }
+      if (negated) fail('unmodelled operator `not`');
     }
 
     if (!(op?.t === 'punct' && CMP_OPS.has(op.v))) {
@@ -269,6 +308,17 @@ function evaluate(node: Node, row: JoinedRow): boolean | null {
       const vs = node.children.map((c) => evaluate(c, row));
       if (vs.some((v) => v === true)) return true;
       return vs.some((v) => v === null) ? null : false;
+    }
+    case 'in': {
+      // Three-valued, like SQL: NULL IN (...) is UNKNOWN, not false.
+      const v = readColumn(row, node.table, node.column) ?? null;
+      if (v === null) return null;
+      const hit = node.values.some((cand) => {
+        const a = asTime(v);
+        const b = asTime(cand);
+        return a !== null && b !== null ? a === b : Object.is(v, cand) || v === cand;
+      });
+      return node.negated ? !hit : hit;
     }
     case 'null': {
       const v = readColumn(row, node.table, node.column) ?? null;
