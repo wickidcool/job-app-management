@@ -8,6 +8,15 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Changed — Web reads the interview-prep relevance score as `relevanceScorePct` (2026-08-26)
+
+The interview-prep population is the one that deviates from ADR-008 §1: it is a `0-100` integer, persisted as an `integer` column and produced by an LLM prompt that asks for one. Per §2 it therefore carries its unit **in its name**. This is the frontend half of that rename; the wire change is WIC-1520.
+
+- **Six consumers renamed** — `types/interviewPrep.ts`, `STARStoryBank` (sort, badge, render), `QuestionsList`, `GapMitigationPanel`, `QuickReferenceExport`, `InterviewPrepPage`. All six were already *correct* as percent renders; they are renamed so the name carries the unit, not because they were wrong. `InterviewPrepPage`'s `>= 80` is right here — this population really is `0-100`.
+- **`PrepStory.relevanceScorePct` is typed `Percent`**, so it cannot be crossed with a job-fit `relevanceScore: Ratio`.
+- **Completeness is compiler-enforced, not grepped** — because the property no longer exists on `PrepStory`, any missed or reintroduced site is a `TS2551`. Measured by reverting one consumer: two errors, naming the replacement. No source-scanning drift test was added; it would restate what `tsc` already proves.
+- ⚠️ **Breaking wire change — do not merge before WIC-1520.** Until the API emits `relevanceScorePct`, these six sites read `undefined` and render `undefined%`.
+
 ### Fixed — Cover letters are reachable after they are generated (2026-08-26)
 
 `CoverLetterDetail` (`/cover-letters/:id`) was fully built and had no standing entry point. The only inbound navigation was the redirect `CoverLetterNew` fires on completion, and it sits on one branch of a conditional: with an application id it returns to `/applications/:id` instead. Two of the three routes into the generator set that id, so on those paths the detail page was never shown at all — and on the third it was available only in the seconds after generation. Navigate away and `.docx` export, delete, variant switching and the full preview became unreachable for the life of the letter (WIC-1533).

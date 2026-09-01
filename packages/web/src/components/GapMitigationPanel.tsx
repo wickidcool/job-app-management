@@ -250,7 +250,7 @@ export function GapMitigationPanel({
                               {story.starEntryId.substring(0, 60)}
                             </p>
                             <p className="text-gray-600 text-xs mt-1">
-                              {story.themes.join(', ')} • {story.relevanceScore}% relevant
+                              {story.themes.join(', ')} • {story.relevanceScorePct}% relevant
                             </p>
                           </div>
                         );
