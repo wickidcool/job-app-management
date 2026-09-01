@@ -2,7 +2,33 @@
 
 ## Status
 
-Proposed — WIC-1516
+**Accepted** (2026-09-01) — proposed 2026-08-26, WIC-1516.
+
+Binding on every normalized score, rate, fraction and proportion that is newly written or
+touched. Implemented and enforced in the tree:
+
+| What landed | Where |
+|---|---|
+| The convention, the `Pct` suffix rule, the branded `Ratio` / `Percent` types, and the doc reconciliation | `38b4cc8e`, merged as PR #166 (`bc0bd8b1`) |
+| Backend rename `relevance_score` → `relevance_score_pct` and migration `0020_prep_relevance_score_pct.sql` | PR #249 (`b64c743c`), WIC-1520 |
+| Frontend consumers reading `relevanceScorePct: Percent` | PR #168 (`2c3b1ba3`), WIC-1521 |
+
+The defect this ADR exists for is closed at its own boundary: `responseRate` is declared `Ratio`
+at all four of its `packages/web` declarations and rendered through `toPercent`, so the
+`Percent`-into-`Ratio` assignment that produced WIC-1514 no longer type-checks. Adoption on the
+API-side DTOs is still incremental, exactly as §3 provides for — a bare `number` remains legal
+there and is not a conformance gap. The one standing deviation, `completeness`, is recorded under
+*Not addressed here* and in the API_CONTRACTS deviations table, so it reads as a decision.
+
+**Why this is `Accepted` rather than "accepted once the last residual closes."** A `Status` line
+records whether the decision *binds*, not whether every cleanup derived from it has landed — two
+questions that move on different clocks. This ADR's rule governed the corpus from `38b4cc8e`
+onward while §5's own last violation stood on `main` for six days after it (see the correction in
+§5). Anyone reading `Status` in that window to decide how to unit a new field would have been
+told the convention was not yet binding: a denial, and the more expensive direction of error,
+because an overclaim invites a reader to check while a denial tells them not to look. Residual
+conformance work is tracked in the Implementation table below, and does not hold this line
+hostage.
 
 Supersedes nothing. Referenced by [API_CONTRACTS.md](../API_CONTRACTS.md) ("Units: normalized
 scores and rates") and [COMPONENT_SPECS.md](../../design/COMPONENT_SPECS.md).

@@ -72,6 +72,16 @@ The unit convention landed in `38b4cc8e` (2026-08-26 17:26:59Z) carrying a rule 
 
 Documentation and contract annotations only. No source, schema, or test change; the ADR's decision is untouched and its status is left to its owner.
 
+### Docs — ADR-008 is `Accepted`; a `Status` line records whether a decision binds, not whether its cleanup has finished (2026-09-01)
+
+ADR-008 sat at `Status: Proposed` for six days while its decision governed the tree: the branded `Ratio` / `Percent` types shipped in both packages, the interview-prep field was renamed end to end behind a migration, and the convention was cited as normative from `API_CONTRACTS.md` and `COMPONENT_SPECS.md`. `Proposed` told a reader deciding how to unit a new score field that none of that was binding yet. It is now **Accepted (2026-09-01)**, with the implementing SHAs named — PR #166 (`bc0bd8b1`) for the convention and the brands, PR #249 (`b64c743c`, WIC-1520) for the backend rename and migration `0020`, PR #168 (`2c3b1ba3`, WIC-1521) for the frontend consumers (WIC-1932, closing WIC-1516).
+
+- **The status was decoupled from the acceptance criteria, deliberately, and the ADR now says why.** Waiting for the last residual to close is the reflex, and it is what kept this line stale: AC-T3d's own final violation stood on `main` until the PR this one is stacked on, six days after the rule that forbade it landed. A rule and its last known violation are not the same artifact and do not share a clock. Residual conformance work belongs in the Implementation table, which tracks it.
+- **The error direction is what makes it worth a card.** An overclaimed `Accepted` invites a reader to go check; a `Proposed` on a binding convention tells them not to look. The denial is the more expensive failure, and it is the one that was live.
+- **`Accepted` is not claimed wider than the tree supports.** `responseRate` is declared `Ratio` at all four of its `packages/web` declarations and rendered through `toPercent`, so the assignment that produced WIC-1514 no longer type-checks — but adoption on the API-side DTOs is still incremental, which §3 provides for explicitly, and the one standing deviation (`completeness`) stays recorded as a decision rather than being quietly folded in.
+
+Documentation only — one ADR's `## Status` section. No source, schema, test, or contract change.
+
 ### Security — Resolving a project by slug now requires an owner rather than defaulting to one (2026-08-26)
 
 `getOrCreateProjectBySlug` is the entry point for resume upload and dialogue capture, and it took `userId` as **optional**. WIC-1433 scoped its lookup, but through the shared `projectScope(slug, userId)` helper, which by design degrades to a slug-only predicate when `userId` is falsy — and both call sites above thread through a `userId?: string` of their own. The scoping was therefore only ever as good as the identity the entry point happened to carry: with no `sub` claim the predicate widened back to the whole table and handed the caller whichever user already held that company slug (WIC-1434).
