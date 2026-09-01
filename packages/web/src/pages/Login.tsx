@@ -57,9 +57,12 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          {/* The page h1. `/login` sits outside the app chrome — it is the one route
+              `ProtectedRoute` does not wrap — so there is no ancestor heading for an h2
+              to belong to, and as an h2 this route had no h1 at all (WIC-1675 AC-3). */}
+          <h1 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Job Application Manager
-          </h2>
+          </h1>
           <p className="mt-2 text-center text-sm text-gray-600">
             {mode === 'login' ? 'Sign in to manage your job applications' : 'Create an account'}
           </p>
