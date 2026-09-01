@@ -1,0 +1,217 @@
+name: Docs Audits
+
+# WIC-1867. Three of the audits wired into the required `Lint & Test` job of
+# deploy.yml gate ONLY documentation:
+#
+#   - docs/design/doc-reference-audit.py     (dangling `FOO.md` citations)
+#   - docs/design/route-title-table-audit.py (ROUTE_TITLE_CONVENTION §5 drift)
+#   - docs/design/wireframe-casing-audit.py  (COMPONENT_SPECS caps labels)
+#
+# That creates an inversion. A docs-only commit is simultaneously the *only*
+# kind of change that can break these audits AND exactly the kind `[skip ci]` is
+# meant to wave through: skip-ci-guard.yml deliberately permits docs-only and
+# workflow-only skips as the no-deploy merge route, because those paths have no
+# runtime surface. The guard's predicate is "touches runtime code" — which is
+# precisely inverted for this class of failure.
+#
+# `[skip ci]` (and its siblings) suppress the `push` AND `pull_request` events,
+# so when the marker is present the audits inside deploy.yml never run. `main`
+# can then go red unseen: f07b9f6 landed a docs file citing a nonexistent
+# ADR-007 path via a *direct `[skip ci]` push* to `main`, and every branch
+# rebased onto it inherited a failing required check through no fault of its own
+# (PR #141, #159, #161, #256).
+#
+# This workflow runs those three audits on triggers `[skip ci]` CANNOT suppress,
+# closing both routes the marker opens:
+#
+#   - pull_request_target — not skippable; catches a docs-breaking PR before it
+#     merges, even one carrying a skip marker. (The PR route.)
+#   - schedule — runs regardless of any marker on `main`'s tip; catches a
+#     breakage that reaches `main` by a path no PR gate can see — notably the
+#     direct `[skip ci]` push that is how f07b9f6 actually landed — and bounds
+#     the poison window to <=1h. (The push route.)
+#   - workflow_dispatch — run the `main` audit on demand.
+#
+# The audits are pure-stdlib python3 (no npm, no pip, ~1s total), so this is
+# near-free to run on every PR and every hour. The runner is inlined (not a
+# checked-in script) on purpose: under pull_request_target the `run:` body comes
+# from the BASE workflow file, so it does not depend on the PR head tree carrying
+# a helper script — only on the audits themselves, which are what is being
+# checked.
+#
+# SECURITY (pull_request_target). This event grants a write token and secret
+# access evaluated in the BASE context. The PR job below downgrades its token to
+# `contents: read` and references no secrets, so executing the PR tree's python
+# is no more privileged than a normal `pull_request` run. Every PR in this repo
+# originates from a same-repo branch (no forks). The `main` job runs trusted
+# base code and is the only one granted `issues: write`, to file a durable,
+# de-duplicated alert when the audits are red on `main`.
+
+on:
+  pull_request_target:
+    # `branches:` filters the BASE branch. `['**']` so stacked PRs are covered
+    # too (same lesson as skip-ci-guard.yml / WIC-1138). `edited` catches a
+    # retarget, which emits no push/synchronize.
+    branches: ['**']
+    types: [opened, synchronize, reopened, edited]
+  schedule:
+    # Hourly. Detection within an hour of a red `main`, per WIC-1867's remedy.
+    # Offset off :00 to avoid GitHub's top-of-hour scheduler congestion.
+    - cron: '23 * * * *'
+  workflow_dispatch: {}
+
+# Least privilege by default; the two jobs widen only what they need.
+permissions:
+  contents: read
+
+concurrency:
+  # Coalesce redundant PR runs; keep scheduled/main runs on their own lane so a
+  # `main` audit is never cancelled by a PR event.
+  group: docs-audit-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+
+jobs:
+  pr-docs-audit:
+    name: Docs audits (PR)
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      # pull_request_target defaults to the BASE ref. Check out the PR head so
+      # the audits see the change under review. Token stays read-only (workflow
+      # default) and no secrets are referenced, so running head-tree python is
+      # not privileged.
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Run docs audits
+        run: |
+          set +e
+          fail=0
+          for s in doc-reference-audit route-title-table-audit wireframe-casing-audit; do
+            script="docs/design/$s.py"
+            echo "::group::$script"
+            if [ ! -f "$script" ]; then
+              echo "::error::$script is missing from this tree"
+              fail=1
+              echo "::endgroup::"
+              continue
+            fi
+            python3 "$script"
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::$script exited $rc"
+              fail=1
+            fi
+          done
+          {
+            echo "### Docs audits"
+            if [ "$fail" -eq 0 ]; then
+              echo "All three docs audits passed."
+            else
+              echo "One or more docs audits failed — see the annotations above."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $fail
+
+  main-docs-audit:
+    name: Docs audits (main)
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run docs audits
+        run: |
+          set +e
+          fail=0
+          : > "$RUNNER_TEMP/audit.log"
+          for s in doc-reference-audit route-title-table-audit wireframe-casing-audit; do
+            script="docs/design/$s.py"
+            echo "::group::$script"
+            if [ ! -f "$script" ]; then
+              echo "::error::$script is missing from this tree"
+              echo "$script is missing from this tree" >> "$RUNNER_TEMP/audit.log"
+              fail=1
+              echo "::endgroup::"
+              continue
+            fi
+            python3 "$script" 2>&1 | tee -a "$RUNNER_TEMP/audit.log"
+            rc=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::$script exited $rc"
+              fail=1
+            fi
+          done
+          {
+            echo "### Docs audits (main)"
+            if [ "$fail" -eq 0 ]; then
+              echo "All three docs audits passed on \`main\`."
+            else
+              echo "One or more docs audits are RED on \`main\` — an alert issue was filed/refreshed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $fail
+
+      # A red `main` is the exact "unseen" failure this card is about, so make it
+      # durable and de-duplicated rather than a lone red run nobody watches.
+      - name: File / refresh a de-duplicated alert issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="CI: docs audits are red on \`main\` (WIC-1867 class)"
+          body_file="$RUNNER_TEMP/issue-body.md"
+          {
+            echo "The scheduled docs-audit of \`main\` failed. One of the three"
+            echo "docs-only audits is red, so \`main\` is broken and every branch"
+            echo "rebased onto it inherits a failing required check."
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "Reproduce on a clean checkout of \`main\`:"
+            echo
+            echo '```'
+            echo "python3 docs/design/doc-reference-audit.py"
+            echo "python3 docs/design/route-title-table-audit.py"
+            echo "python3 docs/design/wireframe-casing-audit.py"
+            echo '```'
+            echo
+            echo "<details><summary>Audit output</summary>"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/audit.log" 2>/dev/null || echo "(log unavailable)"
+            echo '```'
+            echo
+            echo "</details>"
+          } > "$body_file"
+
+          # De-dup: reuse the single open alert issue if one exists; otherwise
+          # open one. Never spam a new issue every hour.
+          existing="$(gh issue list --state open --search "in:title docs audits are red on" \
+            --json number,title --jq \
+            '[.[] | select(.title | contains("docs audits are red on"))][0].number // empty')"
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body_file"
+            echo "Refreshed existing alert issue #$existing."
+          else
+            gh issue create --title "$title" --body-file "$body_file" || \
+              echo "::warning::could not open alert issue (missing issues:write?); the red run is still the signal"
+          fi

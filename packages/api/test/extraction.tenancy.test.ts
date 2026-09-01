@@ -793,18 +793,30 @@ describe('WIC-1406 — generateDiff scopes to the caller, not to the named docum
     ).toBeDefined();
   });
 
-  it('falls back to the document owner when there is no authenticated caller', async () => {
-    // Local-dev auth bypass: `c.get('userId')` is undefined, so the route passes
-    // `undefined`. `metadata.userId` is then null, `typeof null === 'string'` is
-    // false, and the row fallback still applies — single-user local behaviour is
-    // untouched by the caller-scoping fix.
+  it('does not fall back to the document owner when there is no authenticated caller', async () => {
+    // SUPERSEDED, deliberately. WIC-1406 originally pinned the opposite here: an
+    // absent caller fell back to the source row's own owner, so local-dev auth
+    // bypass kept working. ADR-010 D3/D4 (WIC-1600, implemented by WIC-1638)
+    // rules that an absent owner must match zero rows instead — a fallback that
+    // resolves the "owner" from the document being named is the cross-tenant
+    // read the ADR exists to close.
+    //
+    // Local dev is not collateral damage: D3 gives it a real LOCAL_DEV_USER_ID
+    // rather than an absence. Until D1/D3 land in middleware/auth.ts, local dev
+    // without Supabase config gets a 401 on these routes, which
+    // routes/require-owner.ts documents as the intended posture.
+    //
+    // In production this service call is unreachable with an absent owner --
+    // requireOwner(c) at POST /catalog/generate-diff rejects first -- so this
+    // case pins the service-level posture directly rather than through a route.
     await seedResumeWithText('01RESUME_A', USER_A, A_PRIVATE_TEXT);
 
-    const diff = await generateDiff('resume', '01RESUME_A', undefined);
-    expect(diff.id).toBeDefined();
+    const result = await generateDiff('resume', '01RESUME_A', undefined as unknown as string).catch(
+      (e: unknown) => e
+    );
 
-    const rows = await db.select().from(techStackTags).where(eq(techStackTags.userId, USER_A));
-    expect(rows.find((t) => t.tagSlug === 'react')).toBeDefined();
+    expect(result, 'an ownerless call must reject rather than resolve').toBeInstanceOf(Error);
+    expect(JSON.stringify(result)).not.toContain('Stealth Startup');
   });
 });
 

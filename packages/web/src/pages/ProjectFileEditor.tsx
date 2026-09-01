@@ -5,11 +5,18 @@ import remarkGfm from 'remark-gfm';
 import remarkFrontmatter from 'remark-frontmatter';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useProjectFile, useUpdateProjectFile } from '../hooks/useProjects';
+import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 export function ProjectFileEditor() {
   const { projectId, fileName } = useParams<{ projectId: string; fileName: string }>();
   const { data: content, isLoading } = useProjectFile(projectId!, fileName!);
   const updateFile = useUpdateProjectFile();
+
+  // Mirrors the page <h1> (`fileName`). Taken from the URL param, so unlike the other
+  // dynamic routes it is known before any fetch resolves; the fallback only covers a
+  // paramless render.
+  useDocumentTitle(fileName || DYNAMIC_TITLE_FALLBACKS.projectFile);
 
   const [editMode, setEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState('');

@@ -11,6 +11,7 @@ import { TopNavigation } from './components/TopNavigation';
 import { MobileNavigation } from './components/MobileNavigation';
 import { BottomTabBar } from './components/BottomTabBar';
 import { CommandPalette } from './components/CommandPalette';
+import { RouteTitle } from './components/RouteTitle';
 import { Dashboard } from './pages/Dashboard';
 import { ApplicationsList } from './pages/ApplicationsList';
 import { ApplicationDetail } from './pages/ApplicationDetail';
@@ -30,6 +31,7 @@ import { ReportsStale } from './pages/ReportsStale';
 import { ReportsClosedLoop } from './pages/ReportsClosedLoop';
 import { ReportsByFitTier } from './pages/ReportsByFitTier';
 import { JobFitAnalysis } from './pages/JobFitAnalysis';
+import { CoverLettersList } from './pages/CoverLettersList';
 import { CoverLetterNew } from './pages/CoverLetterNew';
 import { CoverLetterDetail } from './pages/CoverLetterDetail';
 import { OutreachNew } from './pages/OutreachNew';
@@ -86,6 +88,8 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <div className="min-h-screen bg-neutral-50">
+                      {/* Renders nothing; applies the route table's document.title (WIC-1089). */}
+                      <RouteTitle />
                       <div className="hidden md:block">
                         <TopNavigation
                           applicationCount={inProgressCount}
@@ -125,6 +129,7 @@ function App() {
                           <Route path="/resumes/:resumeId/exports" element={<ResumeExports />} />
                           <Route path="/catalog" element={<CatalogPage />} />
                           <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
+                          <Route path="/cover-letters" element={<CoverLettersList />} />
                           <Route path="/cover-letters/new" element={<CoverLetterNew />} />
                           <Route path="/cover-letters/:id" element={<CoverLetterDetail />} />
                           <Route path="/outreach/new" element={<OutreachNew />} />

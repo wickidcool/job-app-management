@@ -55,6 +55,7 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
       items: [
         { label: 'Catalog', path: '/catalog' },
         { label: 'Job Fit Analysis', path: '/job-fit-analysis' },
+        { label: 'Cover Letters', path: '/cover-letters' },
         { label: 'Projects', path: '/projects' },
       ],
     },

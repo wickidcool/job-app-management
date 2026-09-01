@@ -16,7 +16,19 @@ test.describe('Authentication - UI Components', () => {
     await page.goto('/');
 
     await expect(page).toHaveURL('/login');
-    await expect(page.getByRole('heading', { name: /job application manager/i })).toBeVisible();
+
+    // The login heading is the product name, and the product name is `PRODUCT_NAME` in
+    // `src/constants/title.ts` — the same constant that suffixes every page title
+    // (WIC-1089). It read "Job Application Manager" until that landed. Asserted here as a
+    // string rather than imported because no e2e spec imports from `src/`, and the
+    // coupling is already pinned on the unit side: `constants/title.test.ts` asserts
+    // `PRODUCT_NAME === 'Careerpin'`, so changing the brand fails there first and points
+    // back at this line.
+    //
+    // `level: 1` is deliberate and not incidental — WIC-1675 AC-3 promoted this from an
+    // <h2> precisely because `/login` is the one route `ProtectedRoute` does not wrap, so
+    // it had no <h1> at all. A nameless `getByRole('heading')` would pass if it regressed.
+    await expect(page.getByRole('heading', { level: 1, name: /careerpin/i })).toBeVisible();
     await expect(page.getByText(/sign in to manage your job applications/i)).toBeVisible();
   });
 

@@ -19,7 +19,8 @@
     "census:catalog-diffs": "node scripts/census-catalog-diff-owners.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "audit:star-leak": "node scripts/audit-foreign-star-text.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

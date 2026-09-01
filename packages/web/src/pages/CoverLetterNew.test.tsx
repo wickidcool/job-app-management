@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import coverLetterGeneratorSource from '../components/CoverLetterGenerator.tsx?raw';
+import { describeOutline, findOutlineSkips, getOutline } from '../test/headingOutline';
 import coverLetterNewSource from './CoverLetterNew.tsx?raw';
 
 /**
@@ -37,45 +38,6 @@ function stripComments(source: string): string {
 
 function countOccurrences(source: string, needle: RegExp): number {
   return [...source.matchAll(needle)].length;
-}
-
-interface HeadingNode {
-  level: number;
-  text: string;
-}
-
-/**
- * The document outline as a screen reader would build it: every native `h1`-`h6`
- * plus anything with `role="heading"`, in document order, carrying `aria-level`
- * where present. Asserting on this rather than on `<h2>` tags means a heading
- * re-expressed as `<div role="heading" aria-level="1">` is still caught.
- */
-function getOutline(container: HTMLElement): HeadingNode[] {
-  const nodes = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, [role="heading"]');
-  return [...nodes].map((el) => {
-    const ariaLevel = el.getAttribute('aria-level');
-    const tagLevel = /^H([1-6])$/.exec(el.tagName)?.[1];
-    return {
-      level: Number(ariaLevel ?? tagLevel ?? NaN),
-      text: (el.textContent ?? '').replace(/\s+/g, ' ').trim(),
-    };
-  });
-}
-
-/** Every place the outline jumps down by more than one level, e.g. h1 → h3. */
-function findOutlineSkips(outline: HeadingNode[]): string[] {
-  const skips: string[] = [];
-  outline.forEach((node, i) => {
-    const previous = outline[i - 1];
-    if (previous && node.level > previous.level + 1) {
-      skips.push(`h${previous.level} "${previous.text}" -> h${node.level} "${node.text}"`);
-    }
-  });
-  return skips;
-}
-
-function describeOutline(outline: HeadingNode[]): string {
-  return outline.map((n) => `h${n.level} "${n.text}"`).join('\n');
 }
 
 // The page's two data hooks. Stubbing these (rather than the network) keeps each of
