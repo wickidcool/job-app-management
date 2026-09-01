@@ -105,7 +105,7 @@
     "file": "src/services/project.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 21
+    "count": 20
   },
   {
     "file": "src/services/reports.service.ts",

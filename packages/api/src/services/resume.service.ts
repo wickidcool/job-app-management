@@ -36,6 +36,7 @@ import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import {
+  AppError,
   NotFoundError,
   ResumeDTO,
   ResumeExportDTO,
@@ -655,6 +656,20 @@ export async function uploadResume(
           // Catalog write is always attempted — project file write is best-effort.
           // Separating them so an R2 write failure doesn't prevent catalog updates.
           try {
+            // WIC-1434 — a resume-derived project is filed under its owner. With
+            // no `sub` claim there is no owner, and the slug lookup used to
+            // resolve globally: this user's STAR content was filed into whichever
+            // user already held the company slug. Throwing here reproduces what
+            // `createProject` already did on the create branch — the catch below
+            // logs it and the upload still succeeds, project write skipped.
+            if (!userId) {
+              throw new AppError(
+                'BAD_REQUEST',
+                'userId is required to file a resume-derived project',
+                undefined,
+                400
+              );
+            }
             const slug = toProjectSlug(aiProject.company) || resumeId;
             const project = await getOrCreateProjectBySlug(slug, aiProject.company, userId);
             await addCompanyToCatalog(aiProject.company, userId);
@@ -696,6 +711,15 @@ export async function uploadResume(
         const slug = toProjectSlug(entry.company) || resumeId;
         console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
         try {
+          // WIC-1434 — see the AI path above; same owner requirement.
+          if (!userId) {
+            throw new AppError(
+              'BAD_REQUEST',
+              'userId is required to file a resume-derived project',
+              undefined,
+              400
+            );
+          }
           const project = await getOrCreateProjectBySlug(slug, entry.company, userId);
           await addCompanyToCatalog(entry.company, userId);
           companiesAddedToCatalog.push(entry.company);
