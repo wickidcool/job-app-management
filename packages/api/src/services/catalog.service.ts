@@ -1,4 +1,4 @@
-import { eq, and, ilike, asc, desc, sql } from 'drizzle-orm';
+import { eq, and, ilike, asc, desc, inArray, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
@@ -24,6 +24,35 @@ import {
   type TechStackCategory,
 } from '../types/index.js';
 import { processCatalogChange } from './extraction.service.js';
+
+/**
+ * Reject a source list a merge cannot safely act on, before it builds any
+ * predicate or touches the database.
+ *
+ * Empty list: `inArray(col, [])` does not render `false` on the drizzle-orm
+ * pinned here (0.30.10) — it throws `inArray requires at least one value` while
+ * the query is being built, which would surface as an opaque 500. The routes
+ * already enforce `.min(1)` on both merge bodies (`catalog.routes.ts:70,75`), so
+ * that only guards a direct service call — but it makes that call fail with a
+ * 400 like the route would, rather than a 500 from inside the query builder.
+ *
+ * Target listed as its own source: `sourcesWhere` is exactly the predicate the
+ * merge soft-deletes by (companies) or hard-deletes by (tags), and it is built
+ * from `sourceIds` alone — nothing excludes the target. So a target that also
+ * appears in its own source list is destroyed by its own merge: companies come
+ * back HTTP 200 with the survivor already `isDeleted`, and the tag paths delete
+ * the row outright, after which the `updated!` re-read is undefined and the DTO
+ * mapper throws an opaque 500. Both are unrecoverable for the tag case, so this
+ * rejects the input rather than trying to repair it. See WIC-1395.
+ */
+function assertMergeSources(sourceIds: string[], targetId: string) {
+  if (sourceIds.length === 0) {
+    throw new AppError('BAD_REQUEST', 'A merge needs at least one source id', undefined, 400);
+  }
+  if (sourceIds.includes(targetId)) {
+    throw new AppError('BAD_REQUEST', 'A merge target cannot also be a source', undefined, 400);
+  }
+}
 
 // ── Company catalog ──────────────────────────────────────────────────────────
 
@@ -73,18 +102,40 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
   };
 }
 
-export async function mergeCompanies(sourceIds: string[], targetId: string, _userId?: string) {
+export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  const [target] = await db.select().from(companyCatalog).where(eq(companyCatalog.id, targetId));
+  assertMergeSources(sourceIds, targetId);
+  // Every read AND every write is scoped to the caller, so a known id belonging
+  // to another user can neither be folded into a target nor soft-deleted. The
+  // predicate is conditional on userId for the same reason as resolveDiffItem:
+  // single-user/local mode (SUPABASE_JWT_SECRET unset) has no userId to scope by.
+  const targetWhere = userId
+    ? and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId))
+    : eq(companyCatalog.id, targetId);
+  // The id term must be `inArray`, never a raw `= ANY(${sourceIds})`: Drizzle
+  // interpolates a JS array into a `sql` template as a comma-separated
+  // parameter list, so that renders `= ANY(($1, $2))` — a row constructor,
+  // which Postgres rejects outright. See the WIC-1377 tests.
+  const sourcesWhere = userId
+    ? and(inArray(companyCatalog.id, sourceIds), eq(companyCatalog.userId, userId))
+    : inArray(companyCatalog.id, sourceIds);
+
+  const [target] = await db.select().from(companyCatalog).where(targetWhere);
   if (!target) throw new NotFoundError('Company');
 
-  const sources = await db
-    .select()
-    .from(companyCatalog)
-    .where(sql`${companyCatalog.id} = ANY(${sourceIds})`);
+  const sources = await db.select().from(companyCatalog).where(sourcesWhere);
 
   const totalCount = sources.reduce((s, c) => s + c.applicationCount, target.applicationCount);
   const allAliases = [...new Set([...target.aliases, ...sources.map((s) => s.name)])];
+  // The survivor inherits the earliest sighting across everything being folded
+  // together, not just its own. Duplicates usually appear because a company was
+  // re-entered under a new spelling, so the source is normally the *older* row;
+  // keeping the target's date unconditionally would walk `firstSeen` forward in
+  // time, and the source is soft-deleted, so nothing else can recover it.
+  const earliestFirstSeen = sources.reduce(
+    (earliest, s) => (s.firstSeenAt < earliest ? s.firstSeenAt : earliest),
+    target.firstSeenAt
+  );
 
   await db.transaction(async (tx) => {
     await tx
@@ -92,17 +143,18 @@ export async function mergeCompanies(sourceIds: string[], targetId: string, _use
       .set({
         applicationCount: totalCount,
         aliases: allAliases,
+        firstSeenAt: earliestFirstSeen,
         updatedAt: new Date(),
         version: target.version + 1,
       })
-      .where(eq(companyCatalog.id, targetId));
+      .where(targetWhere);
     await tx
       .update(companyCatalog)
       .set({ isDeleted: true, updatedAt: new Date() })
-      .where(sql`${companyCatalog.id} = ANY(${sourceIds})`);
+      .where(sourcesWhere);
   });
 
-  const [updated] = await db.select().from(companyCatalog).where(eq(companyCatalog.id, targetId));
+  const [updated] = await db.select().from(companyCatalog).where(targetWhere);
   return { mergedCompany: toCompanyDTO(updated!), mergedCount: sources.length };
 }
 
@@ -164,7 +216,12 @@ export async function updateJobFitTag(
   userId?: string
 ) {
   const db = getDb();
-  const [existing] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, id));
+  // Scope the read so another user's tag reports NotFound rather than falling
+  // through to the version check and reporting a misleading version conflict.
+  const scoped = userId
+    ? and(eq(jobFitTags.id, id), eq(jobFitTags.userId, userId))
+    : eq(jobFitTags.id, id);
+  const [existing] = await db.select().from(jobFitTags).where(scoped);
   if (!existing) throw new NotFoundError('JobFitTag');
 
   if (
@@ -188,22 +245,31 @@ export async function updateJobFitTag(
       updatedAt: new Date(),
       version: existing.version + 1,
     })
-    .where(and(eq(jobFitTags.id, id), eq(jobFitTags.version, patch.version)))
+    // Re-assert the tenancy term on the write itself: the read above and this
+    // update are separate statements, so an id-only predicate here is still
+    // exploitable on its own.
+    .where(and(scoped, eq(jobFitTags.version, patch.version)))
     .returning();
 
   if (!updated) throw new NotFoundError('JobFitTag (version conflict)');
   return toJobFitTagDTO(updated);
 }
 
-export async function mergeJobFitTags(sourceIds: string[], targetId: string, _userId?: string) {
+export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  const [target] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, targetId));
+  assertMergeSources(sourceIds, targetId);
+  const targetWhere = userId
+    ? and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId))
+    : eq(jobFitTags.id, targetId);
+  // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
+  const sourcesWhere = userId
+    ? and(inArray(jobFitTags.id, sourceIds), eq(jobFitTags.userId, userId))
+    : inArray(jobFitTags.id, sourceIds);
+
+  const [target] = await db.select().from(jobFitTags).where(targetWhere);
   if (!target) throw new NotFoundError('JobFitTag');
 
-  const sources = await db
-    .select()
-    .from(jobFitTags)
-    .where(sql`${jobFitTags.id} = ANY(${sourceIds})`);
+  const sources = await db.select().from(jobFitTags).where(sourcesWhere);
 
   const totalMentions = sources.reduce((s, t) => s + t.mentionCount, target.mentionCount);
   const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap((s) => s.sourceIds)])];
@@ -219,13 +285,22 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string, _us
         updatedAt: new Date(),
         version: target.version + 1,
       })
-      .where(eq(jobFitTags.id, targetId));
-    for (const id of sourceIds) {
-      await tx.delete(jobFitTags).where(eq(jobFitTags.id, id));
+      .where(targetWhere);
+    // Delete is a hard delete, so it iterates the rows the *scoped* read
+    // returned rather than the caller's raw sourceIds — an id the read
+    // excluded must not still be deleted by an id-only predicate.
+    for (const source of sources) {
+      await tx
+        .delete(jobFitTags)
+        .where(
+          userId
+            ? and(eq(jobFitTags.id, source.id), eq(jobFitTags.userId, userId))
+            : eq(jobFitTags.id, source.id)
+        );
     }
   });
 
-  const [updated] = await db.select().from(jobFitTags).where(eq(jobFitTags.id, targetId));
+  const [updated] = await db.select().from(jobFitTags).where(targetWhere);
   return { mergedTag: toJobFitTagDTO(updated!), mergedCount: sources.length };
 }
 
@@ -278,7 +353,10 @@ export async function updateTechStackTag(
   userId?: string
 ) {
   const db = getDb();
-  const [existing] = await db.select().from(techStackTags).where(eq(techStackTags.id, id));
+  const scoped = userId
+    ? and(eq(techStackTags.id, id), eq(techStackTags.userId, userId))
+    : eq(techStackTags.id, id);
+  const [existing] = await db.select().from(techStackTags).where(scoped);
   if (!existing) throw new NotFoundError('TechStackTag');
 
   if (
@@ -302,22 +380,28 @@ export async function updateTechStackTag(
       updatedAt: new Date(),
       version: existing.version + 1,
     })
-    .where(and(eq(techStackTags.id, id), eq(techStackTags.version, patch.version)))
+    .where(and(scoped, eq(techStackTags.version, patch.version)))
     .returning();
 
   if (!updated) throw new NotFoundError('TechStackTag (version conflict)');
   return toTechStackTagDTO(updated);
 }
 
-export async function mergeTechStackTags(sourceIds: string[], targetId: string, _userId?: string) {
+export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId?: string) {
   const db = getDb();
-  const [target] = await db.select().from(techStackTags).where(eq(techStackTags.id, targetId));
+  assertMergeSources(sourceIds, targetId);
+  const targetWhere = userId
+    ? and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId))
+    : eq(techStackTags.id, targetId);
+  // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
+  const sourcesWhere = userId
+    ? and(inArray(techStackTags.id, sourceIds), eq(techStackTags.userId, userId))
+    : inArray(techStackTags.id, sourceIds);
+
+  const [target] = await db.select().from(techStackTags).where(targetWhere);
   if (!target) throw new NotFoundError('TechStackTag');
 
-  const sources = await db
-    .select()
-    .from(techStackTags)
-    .where(sql`${techStackTags.id} = ANY(${sourceIds})`);
+  const sources = await db.select().from(techStackTags).where(sourcesWhere);
 
   const totalMentions = sources.reduce((s, t) => s + t.mentionCount, target.mentionCount);
   const allSourceIds = [...new Set([...target.sourceIds, ...sources.flatMap((s) => s.sourceIds)])];
@@ -333,13 +417,20 @@ export async function mergeTechStackTags(sourceIds: string[], targetId: string, 
         updatedAt: new Date(),
         version: target.version + 1,
       })
-      .where(eq(techStackTags.id, targetId));
-    for (const id of sourceIds) {
-      await tx.delete(techStackTags).where(eq(techStackTags.id, id));
+      .where(targetWhere);
+    // See mergeJobFitTags: hard delete iterates the scoped read, not sourceIds.
+    for (const source of sources) {
+      await tx
+        .delete(techStackTags)
+        .where(
+          userId
+            ? and(eq(techStackTags.id, source.id), eq(techStackTags.userId, userId))
+            : eq(techStackTags.id, source.id)
+        );
     }
   });
 
-  const [updated] = await db.select().from(techStackTags).where(eq(techStackTags.id, targetId));
+  const [updated] = await db.select().from(techStackTags).where(targetWhere);
   return { mergedTag: toTechStackTagDTO(updated!), mergedCount: sources.length };
 }
 
@@ -796,22 +887,40 @@ export async function generateDiff(
   userId?: string
 ) {
   const db = getDb();
+  // processCatalogChange reads the owner off event.metadata.userId (the shape
+  // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
+  // and every catalog row auto-applied alongside it — with user_id null, which
+  // no scoped reader (listDiffs / getDiff / applyDiff) can ever see again.
+  //
+  // It is also the tenancy check itself: `sourceId` comes straight from the
+  // request body, so the caller's identity is the thing being tested and it has
+  // to travel with the event. Without it `resolveOwnerUserId` falls back to the
+  // source row's own `user_id`, the "owner" resolves to the victim, and the
+  // scoped document read matches by construction. `?? null` rather than bare
+  // `userId`: in local-dev auth bypass `userId` is undefined,
+  // `typeof null === 'string'` is false, and the row fallback still applies, so
+  // single-user local behaviour is unchanged.
   await processCatalogChange({
     id: ulid(),
     sourceType,
     sourceId,
     changeType: 'created',
     timestamp: new Date().toISOString(),
+    metadata: { userId: userId ?? null },
   });
+  const conditions = [
+    eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'),
+    eq(catalogDiffs.triggerId, sourceId),
+  ];
+  // Without this, a caller naming another user's resume/application id gets
+  // back whichever diff is newest for that trigger. processCatalogChange bails
+  // early when the source yields no text, so the row this call would otherwise
+  // have inserted need not exist — the lookup then falls through to the owner's.
+  if (userId) conditions.push(eq(catalogDiffs.userId, userId));
   const [diff] = await db
     .select()
     .from(catalogDiffs)
-    .where(
-      and(
-        eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'),
-        eq(catalogDiffs.triggerId, sourceId)
-      )
-    )
+    .where(and(...conditions))
     .orderBy(desc(catalogDiffs.createdAt))
     .limit(1);
   if (!diff) throw new NotFoundError('CatalogDiff');

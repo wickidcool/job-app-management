@@ -115,8 +115,15 @@ export function STARInput({ value, onChange, errors = {} }: STARInputProps) {
             >
               {field.label}
               {isValid && (
-                <span className="ml-2 text-success-700" aria-label="Field valid">
-                  ✓
+                // No aria-label here on purpose: a <span> with no role maps to the ARIA
+                // `generic` role, which prohibits an author-supplied name. This span sits
+                // inside the <label> that names the textarea, so if assistive tech drops
+                // that prohibited name the bare ✓ glyph lands in the field's accessible
+                // name instead. The glyph is decorative and hidden; the status is carried
+                // by real text, so the name is the same either way.
+                <span className="ml-2 text-success-700">
+                  <span aria-hidden="true">✓</span>
+                  <span className="sr-only">Field valid</span>
                 </span>
               )}
             </label>

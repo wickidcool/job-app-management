@@ -91,10 +91,16 @@ local set is one workspace reset away from being lost, which is the failure this
 rewritten to remove.
 """
 
+import contextlib
+import http.client
+import io
 import json
 import os
 import re
+import socket
+import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -282,18 +288,212 @@ LIMIT 25
 """
 
 
+# PostHog runs the SAME HogQL two ways, and the difference is not latency -- it is the
+# ClickHouse `max_execution_time` the query is submitted under (read straight out of the
+# `clickhouse` field each response echoes back):
+#
+#     sync   POST /query/                          -> max_execution_time=10
+#     async  POST /query/ {"refresh":"force_async"} -> max_execution_time=600
+#
+# 60x. On 2026-09-01 the sync leg began returning `504 Gateway Timeout` for every query
+# against this project that touches `events` -- including a bare `SELECT count() FROM
+# events` on a project holding *six* lifetime events. `SELECT 1` still answered in 322ms,
+# so this is not auth, not the network and not our predicate: the events-table read no
+# longer finishes inside the 10s sync budget. The async leg answered the identical
+# aggregate query correctly (organic=0, synthetic=6, lifetime=6).
+#
+# Why that mattered enough to fix rather than wait out: with only the sync leg, `run()`
+# raised, main() printed CHECK FAILED and returned **1**. Exit 1 is the fail-safe "not
+# evidence either way" code, which is honest -- but it is also what this watcher would
+# have returned on the day a real first user arrived. The detector could not fire. A
+# watcher that cannot distinguish "no traffic" from "cannot see" is not armed, and this
+# one is the sole trigger for releasing the WIC-1024 hold.
+#
+# So: sync first (322ms when it works, and it is the cheaper call), async only on the
+# faults that mean "no answer, but the question was fine". Everything else propagates
+# untouched -- a 401 or a malformed-HogQL 400 gets the same answer from the async leg and
+# retrying it would only burn the budget before failing identically.
+# The sync leg's ClickHouse budget is 10s (above), so a sync call still unanswered at 20s
+# is hung in the gateway, not computing -- it will never return a result. Waiting the old
+# 60s just spent 40s that the async leg needs. Measured 2026-09-01: every sync success was
+# sub-second, every sync failure ran to the full timeout. There is no middle.
+SYNC_TIMEOUT_SECONDS = 20.0
+
+# The async SUBMIT is itself flaky while PostHog is degraded, and flaky in a shape worth
+# naming: measured 3 consecutive submits of the same query at 40s / 40s / **0.27s**. A good
+# submit is sub-second; a bad one hangs to the timeout and never recovers. That is a dead
+# connection, not a slow queue, so the remedy is a short timeout and another try -- not a
+# longer wait. Retries are near-free (0.27s when they work) and this is the single point
+# where the whole fallback can fail closed.
+ASYNC_SUBMIT_TIMEOUT_SECONDS = 25.0
+ASYNC_SUBMIT_ATTEMPTS = 3
+ASYNC_POLL_SECONDS = 5.0
+ASYNC_BUDGET_SECONDS = 240.0
+
+
+def _query_url(suffix=""):
+    return f"{HOST}/api/projects/{PROJECT}/query/{suffix}"
+
+
+def _auth_headers(key):
+    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+def should_retry_async(exc):
+    """Does `exc` mean the sync leg never got an answer to an otherwise-good query?
+
+    Deliberately narrow. HTTPError is tested BEFORE URLError because it subclasses it,
+    and TimeoutError before OSError for the same reason -- order is load-bearing here.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        # 408/502/503/504 are the gateway saying "I gave up waiting", not "your query is
+        # wrong". 500 is deliberately NOT here: a ClickHouse-side query error surfaces as
+        # 500 and is perfectly reproducible on the async leg.
+        return exc.code in (408, 502, 503, 504)
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, (socket.timeout, TimeoutError))
+    return False
+
+
+def _run_sync(query, key):
+    req = urllib.request.Request(
+        _query_url(),
+        data=json.dumps({"query": {"kind": "HogQLQuery", "query": query}}).encode(),
+        headers=_auth_headers(key),
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=SYNC_TIMEOUT_SECONDS) as resp:
+        return json.load(resp)
+
+
+def _async_submit(query, key):
+    """POST the query on the async leg and return its query id, retrying a hung submit.
+
+    Only the *submit* is retried, and only on the retryable transport faults. A submit is
+    idempotent in the sense that matters here -- a duplicate merely queues a second
+    read-only aggregate -- whereas a poll failure is handled by the budget loop instead.
+    """
+    last = None
+    for attempt in range(1, ASYNC_SUBMIT_ATTEMPTS + 1):
+        req = urllib.request.Request(
+            _query_url(),
+            data=json.dumps(
+                {"query": {"kind": "HogQLQuery", "query": query}, "refresh": "force_async"}
+            ).encode(),
+            headers=_auth_headers(key),
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=ASYNC_SUBMIT_TIMEOUT_SECONDS) as resp:
+                status = (json.load(resp) or {}).get("query_status") or {}
+        except (urllib.error.URLError, OSError) as exc:
+            if not should_retry_async(exc) or attempt == ASYNC_SUBMIT_ATTEMPTS:
+                raise
+            last = exc
+            print(
+                f"(async submit attempt {attempt}/{ASYNC_SUBMIT_ATTEMPTS} failed: {exc}; retrying)",
+                file=sys.stderr,
+            )
+            continue
+        query_id = status.get("id")
+        if query_id:
+            return query_id
+        raise RuntimeError("async query submit returned no query id")
+    raise RuntimeError(f"async submit exhausted {ASYNC_SUBMIT_ATTEMPTS} attempts: {last}")
+
+
+def _run_async(query, key, budget=ASYNC_BUDGET_SECONDS):
+    """Submit on the 600s async leg and poll to completion.
+
+    Returns the same `{"columns": [...], "results": [...]}` shape as `_run_sync`, so both
+    call sites in main() are indifferent to which leg answered. Every failure path raises
+    something inside QUERY_FAULTS, so an async fault still lands on exit 1 (fail-safe) and
+    never on a false "no organic traffic".
+    """
+    query_id = _async_submit(query, key)
+    deadline = time.monotonic() + budget
+    while True:
+        if time.monotonic() >= deadline:
+            # RuntimeError is in QUERY_FAULTS -> exit 1. A watcher that hangs past its
+            # heartbeat is worse than one that reports it could not see.
+            raise RuntimeError(
+                f"async query {query_id} did not finish within {budget:.0f}s"
+            )
+        time.sleep(ASYNC_POLL_SECONDS)
+        poll = urllib.request.Request(_query_url(f"{query_id}/"), headers=_auth_headers(key))
+        with urllib.request.urlopen(poll, timeout=60) as resp:
+            status = (json.load(resp) or {}).get("query_status") or {}
+        if not status.get("complete"):
+            continue
+        if status.get("error"):
+            raise RuntimeError(f"async query failed: {status.get('error_message')}")
+        results = status.get("results")
+        if not results:
+            # Same shape of lie as a 200 with no "columns" -- KeyError, per QUERY_FAULTS.
+            raise KeyError("results")
+        return results
+
+
 def run(query):
     key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
     if not key:
         raise RuntimeError("POSTHOG_PERSONAL_API_KEY is not set")
-    req = urllib.request.Request(
-        f"{HOST}/api/projects/{PROJECT}/query/",
-        data=json.dumps({"query": {"kind": "HogQLQuery", "query": query}}).encode(),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.load(resp)
+    try:
+        return _run_sync(query, key)
+    # HTTPError and socket.timeout both land here: HTTPError subclasses URLError, and
+    # TimeoutError subclasses OSError. Narrower than QUERY_FAULTS on purpose -- and
+    # QUERY_FAULTS is not yet defined at this point in the file anyway.
+    except (urllib.error.URLError, OSError) as exc:
+        if not should_retry_async(exc):
+            raise
+        print(
+            f"(sync query leg unavailable: {exc}; retrying on the async leg)",
+            file=sys.stderr,
+        )
+        return _run_async(query, key)
+
+
+# Every fault class a `run()` round-trip can raise, as ONE named tuple used by BOTH call
+# sites. It was two hand-written tuples that had drifted apart, and the drift is the bug
+# (WIC-1680): the candidate-detail tuple named only (URLError, HTTPError, RuntimeError,
+# KeyError), through which 12 of 16 measured fault classes escaped.
+#
+# The membership is not obvious, so state it rather than re-deriving it next time:
+#   urllib.error.URLError   -- what urllib wraps most socket errors in. Subclasses OSError,
+#                              so it is redundant with the OSError below; named anyway
+#                              because it is the class a reader expects to see here.
+#                              `urllib.error.HTTPError` is NOT named: it subclasses
+#                              URLError, so listing it only implied the tuple was
+#                              exhaustive when it was not.
+#   http.client.HTTPException -- subclasses Exception, NOT OSError. This is the gap that
+#                              bit prod_db_health() first (PR #207): IncompleteRead,
+#                              BadStatusLine, LineTooLong, ResponseNotReady, InvalidURL.
+#   OSError                 -- load-bearing, and the class the WIC-1680 write-up initially
+#                              missed. ssl.SSLError, socket.gaierror, ConnectionResetError
+#                              and TimeoutError are OSError subclasses and are NOT reached
+#                              by HTTPException or ValueError; without OSError, 4 of the 12
+#                              escapes stay open. Only relevant when urlopen raises them
+#                              unwrapped, which is exactly what the selftest stub does.
+#   ValueError              -- `json.load` raises JSONDecodeError, and a bad byte in the
+#                              response raises UnicodeDecodeError. Both subclass ValueError.
+#   RuntimeError            -- run() itself, on a missing POSTHOG_PERSONAL_API_KEY.
+#   KeyError                -- a 200 whose JSON lacks "columns"/"results".
+#
+# Deliberately absent: MemoryError, and no `except Exception`. Resource exhaustion must
+# stay uncaught -- see `test_query_fault_coverage` for the negative control that pins it.
+# Caveat worth knowing: RecursionError IS caught, because it subclasses the RuntimeError we
+# genuinely need for the missing-key path. That is incidental, pre-existing, and not
+# removable without a re-raise; it is not a claim that recursion faults are handled.
+QUERY_FAULTS = (
+    urllib.error.URLError,
+    http.client.HTTPException,
+    OSError,
+    ValueError,
+    RuntimeError,
+    KeyError,
+)
 
 
 def prod_db_health():
@@ -311,19 +511,79 @@ def prod_db_health():
     headers = {"User-Agent": "wic-organic-watch/1.0 (+WIC-1358)", "Accept": "application/json"}
     try:
         req = urllib.request.Request(PROD_HEALTH_URL, method="GET", headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        # 90s, not 30s. The probe's real ceiling is the API's Postgres `connect_timeout`:
+        # `packages/api/src/db/client.ts:23` builds `postgres(DATABASE_URL, {prepare: false,
+        # ssl: 'require'})` and sets NO connect_timeout, so postgres-js's default of 30s
+        # applies (`postgres@3.4.9`, `src/index.js:453`) -- plus TLS and edge overhead.
+        # 90s clears that with margin. Note the default is UNPINNED: package.json declares
+        # `"postgres": "^3.4.4"`, so a bump that raises it silently re-opens this race.
+        #
+        # This is a budget over a known ceiling, not over an observation. Observed latency
+        # varies widely on the same exhausted prod: 25.6-27.2s on 2026-08-27 03:4xZ (one
+        # connect attempt expiring just under the 30s ceiling), ~4s at 08:2xZ. A 30s timeout
+        # left only a ~3s margin over the former, so the probe intermittently raised "The read
+        # operation timed out" and reported clause (b) as UNKNOWN when prod had in fact
+        # answered a clean `degraded`. An UNKNOWN here is not harmless: it is indistinguishable
+        # from "never measured", and it is the exact reading that would let a reader conclude
+        # the outage had lifted.
+        #
+        # NOT the mechanism, though an earlier revision of this comment said so: the Worker's
+        # Hyperdrive retry loop (`worker.ts:13-21`) is unreachable for this endpoint. `/health`
+        # catches its own DB error (`app.ts:97-102`) and returns 503 itself (`app.ts:105`), so
+        # nothing propagates out of `app.fetch` to retry on; the loop also needs a
+        # Hyperdrive-specific message and prod
+        # has no Hyperdrive binding, and its whole budget is 150ms regardless. Nor is
+        # subrequest exhaustion the slow path -- once the invocation's budget is spent the
+        # runtime refuses the connection immediately, which is the ~4s reading above.
+        # Raising the timeout costs nothing on a healthy response: it bounds a hang, so a 4s
+        # answer still returns in 4s.
+        with urllib.request.urlopen(req, timeout=90) as resp:
             body = json.load(resp)
     except urllib.error.HTTPError as exc:
         # 503 is the *expected* degraded response and carries the useful payload, so
         # read the error body rather than discarding it with the exception.
         try:
             body = json.loads(exc.read().decode("utf-8", "replace"))
-        except (ValueError, OSError):
-            return ("unknown", {"probe_error": f"HTTP {exc.code}, unparseable body"})
-    except (urllib.error.URLError, ValueError, OSError) as exc:
+        except (ValueError, OSError, http.client.HTTPException):
+            return ("unknown", {"probe_error": describe_edge_failure(exc.code)})
+    # `http.client.HTTPException` is load-bearing and easy to lose: it subclasses
+    # Exception, NOT OSError, so `IncompleteRead` (truncated /health body),
+    # `BadStatusLine` and `LineTooLong` all escape an (OSError, ValueError) tuple.
+    # Escaping here propagates out of the prod_db_health() call at :533 -- which sits
+    # *before* the organic branch -- so the process dies with exit 1 and the
+    # CANDIDATE ORGANIC TRAFFIC block never prints. That is a probe fault suppressing
+    # a real first user: the precise failure the docstring above forbids. Caught in
+    # review of PR #207 (WIC-1636); `test_prod_db_health_faults` below pins it.
+    except (urllib.error.URLError, http.client.HTTPException, ValueError, OSError) as exc:
         return ("unknown", {"probe_error": str(exc)})
 
     return classify_health(body)
+
+
+# Cloudflare's own edge-generated 5xx codes. These never reach the Worker, so the body is
+# plain text ("error code: 522") and carries no health payload -- the generic
+# "HTTP <code>, unparseable body" that used to be printed here read as an ambiguous probe
+# fault, when in fact each of these is a specific, actionable statement about prod.
+# Naming them matters because the failure they describe is NOT the WIC-1386 subrequest
+# exhaustion: exhaustion is the Worker *running* and answering 503 with a JSON body, while
+# a 52x means the Worker/origin never answered at all. Confusing the two sends the next
+# reader to the wrong card.
+CF_EDGE_CODES = {
+    520: "origin returned an empty/invalid response",
+    521: "origin refused the connection (origin down)",
+    522: "connection to origin timed out (origin unreachable)",
+    523: "origin is unreachable (bad DNS/routing at the edge)",
+    524: "origin accepted the connection but never sent a response in time",
+    525: "SSL handshake with the origin failed",
+    526: "origin presented an invalid SSL certificate",
+}
+
+
+def describe_edge_failure(code):
+    """Pure. Render an unparseable HTTP failure into an actionable one-liner."""
+    if code in CF_EDGE_CODES:
+        return f"HTTP {code} from the Cloudflare edge -- {CF_EDGE_CODES[code]}; the app never ran"
+    return f"HTTP {code}, unparseable body"
 
 
 def classify_health(body):
@@ -405,6 +665,273 @@ HEALTH_CASES = [
     ("not a dict", "<!DOCTYPE html>", "unknown"),
 ]
 
+# (label, code, substring that must appear in the rendered probe_error)
+EDGE_CASES = [
+    ("522 origin unreachable", 522, "connection to origin timed out"),
+    ("521 origin down", 521, "refused the connection"),
+    ("524 origin never responded", 524, "never sent a response"),
+    # Not a CF edge code -- must keep the generic rendering rather than inventing a cause.
+    ("502 is not a CF edge code", 502, "unparseable body"),
+    ("403 bot challenge", 403, "unparseable body"),
+]
+
+
+# (label, exception the stubbed urlopen raises). Every one must collapse to "unknown"
+# rather than escape prod_db_health().
+#
+# Why this table exists: HEALTH_CASES and EDGE_CASES cover `classify_health` and
+# `describe_edge_failure`, which are pure -- but the safety invariant in the
+# prod_db_health() docstring lives in the *except tuples*, and those had zero coverage.
+# Review of PR #207 (WIC-1636) demonstrated the gap two ways: mutating the fault return
+# from "unknown" to "degraded" left the suite at 14/14, and `http.client.HTTPException`
+# was genuinely missing from the tuple, so a truncated /health body escaped, propagated
+# out of the call at :533 -- before the organic branch -- and exited 1 instead of 10.
+# A probe fault suppressed a real first user. Assert the collapse, not the rendering.
+PROBE_FAULTS = [
+    # HTTPException subclasses OSError NOWHERE. These are the ones that escaped.
+    ("truncated /health body", http.client.IncompleteRead(b"", 5)),
+    ("garbage status line", http.client.BadStatusLine("\x00\x00")),
+    ("oversized header line", http.client.LineTooLong("header line")),
+    # Caught before the fix too, but only incidentally -- it also inherits ConnectionResetError.
+    ("peer hung up mid-response", http.client.RemoteDisconnected("closed")),
+    ("socket read timeout", urllib.error.URLError("The read operation timed out")),
+    ("bare timeout", TimeoutError("timed out")),
+    ("DNS failure", OSError("Name or service not known")),
+    ("unparseable 200 body", ValueError("Expecting value: line 1 column 1")),
+]
+
+
+class _UnreadableBody:
+    """A response body that fails mid-read -- exercises the inner tuple at the HTTPError
+    branch, where the 503 payload read can fail exactly as the outer call can."""
+
+    def read(self, *_args):
+        raise http.client.IncompleteRead(b"", 5)
+
+    def close(self):
+        pass
+
+
+def probe_fault_cases():
+    """(label, urlopen-stub) pairs covering both except tuples in prod_db_health."""
+    cases = [(label, (lambda e: lambda *a, **k: _raise(e))(exc)) for label, exc in PROBE_FAULTS]
+
+    def http_error_unreadable(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            PROD_HEALTH_URL, 522, "origin timeout", {}, _UnreadableBody()
+        )
+
+    cases.append(("522 whose body read fails", http_error_unreadable))
+    return cases
+
+
+def _raise(exc):
+    raise exc
+
+
+def selftest_probe_faults():
+    """Stub urlopen and assert every fault path collapses to "unknown" without escaping."""
+    failures = 0
+    real_urlopen = urllib.request.urlopen
+    try:
+        for label, stub in probe_fault_cases():
+            urllib.request.urlopen = stub
+            try:
+                state, detail = prod_db_health()
+                ok = state == "unknown"
+                got = f"{state!r}"
+            except Exception as exc:  # noqa: BLE001 -- escaping IS the failure under test
+                ok = False
+                got = f"ESCAPED {type(exc).__name__}: {exc}"
+                detail = None
+            failures += 0 if ok else 1
+            print(f"  [{'PASS' if ok else 'FAIL'}] probe fault, {label}: got {got}, want 'unknown'")
+            if not ok and detail is not None:
+                print(f"         detail: {detail}")
+    finally:
+        urllib.request.urlopen = real_urlopen
+    return failures
+
+
+# The `run()` leg (WIC-1680). PROBE_FAULTS above stops at prod_db_health; this table
+# carries the same idea to the two `run()` call sites in main(). Every entry is a fault a
+# real PostHog round-trip can produce, and every one of them must be absorbed by
+# QUERY_FAULTS rather than escaping into a traceback.
+#
+# The last entry is a NEGATIVE control and the reason this is a table of (fault, expected)
+# rather than a flat list: MemoryError must keep escaping. A tuple that swallowed it would
+# pass a naive "nothing escapes" assertion while quietly becoming an `except Exception`.
+QUERY_FAULT_CASES = [
+    # http.client.HTTPException -- subclasses Exception, not OSError.
+    ("truncated response body", http.client.IncompleteRead(b"", 5), True),
+    ("garbage status line", http.client.BadStatusLine("\x00\x00"), True),
+    ("oversized header line", http.client.LineTooLong("header line"), True),
+    ("read before request sent", http.client.ResponseNotReady("Request-sent"), True),
+    ("control chars in URL", http.client.InvalidURL("URL can't contain control characters"), True),
+    # OSError subclasses -- NOT reachable via HTTPException or ValueError. These are the
+    # four the WIC-1680 write-up's suggested two-class fix would have left escaping.
+    ("TLS record failure", ssl.SSLError("record layer failure"), True),
+    ("bad server certificate", ssl.SSLCertVerificationError("certificate verify failed"), True),
+    ("DNS resolution failure", socket.gaierror(-2, "Name or service not known"), True),
+    ("peer reset the connection", ConnectionResetError("Connection reset by peer"), True),
+    ("socket read timeout", TimeoutError("timed out"), True),
+    # ValueError subclasses -- json.load and the utf-8 decode under it.
+    ("unparseable 200 body", json.JSONDecodeError("Expecting value", "", 0), True),
+    ("undecodable response bytes",
+     UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad start byte"), True),
+    # Already caught before the fix; kept so a future tuple edit cannot silently drop them.
+    ("wrapped socket error", urllib.error.URLError("The read operation timed out"), True),
+    ("HTTP 500 from PostHog",
+     urllib.error.HTTPError(HOST, 500, "Internal Server Error", {}, None), True),
+    ("missing API key", RuntimeError("POSTHOG_PERSONAL_API_KEY is not set"), True),
+    ("200 with no 'columns'", KeyError("columns"), True),
+    # Negative control. See the note above: this MUST escape.
+    ("memory exhaustion (must escape)", MemoryError(), False),
+]
+
+# The aggregate row main() needs before it reaches the candidate branch. organic_events > 0
+# is what selects that branch; the rest only has to be printable.
+_FAKE_AGGREGATE = {
+    "columns": [
+        "organic_events", "organic_people", "organic_newest",
+        "synthetic_events", "lifetime_events", "lifetime_newest",
+    ],
+    "results": [[1, 1, "2026-08-29T00:00:00Z", 6, 7, "2026-08-29T00:00:00Z"]],
+}
+
+
+# Reachable only from the aggregate call: `body["results"][0]` on an empty result set.
+# Nothing in the candidate-detail branch indexes a row, which is why QUERY_FAULTS does not
+# name IndexError and the aggregate site adds it locally.
+AGGREGATE_ONLY_FAULTS = [("empty results row", IndexError("list index out of range"), True)]
+
+
+def _drive_query_fault(exc, fail_on_call):
+    """Run main() with run() stubbed to raise `exc` on its `fail_on_call`-th invocation.
+
+    Returns (exit_code, None) or (None, escaped_exception). prod_db_health is stubbed too,
+    so the whole thing runs without opening a socket.
+    """
+    real_run, real_health, real_argv = run, prod_db_health, sys.argv
+    calls = []
+
+    def stub_run(_query):
+        calls.append(1)
+        if len(calls) == fail_on_call:
+            raise exc
+        return _FAKE_AGGREGATE
+
+    globals()["run"] = stub_run
+    globals()["prod_db_health"] = lambda: ("degraded", {"db": "down"})
+    # main() re-reads sys.argv; leaving "--selftest" in it would recurse forever.
+    sys.argv = ["organic_watch.py"]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return (main(), None)
+    # `Exception`, not `BaseException`: MemoryError subclasses Exception, so this catches
+    # the negative control too, while a stray KeyboardInterrupt still aborts the suite.
+    except Exception as escaped:  # noqa: BLE001 -- escaping is the behaviour under test
+        return (None, escaped)
+    finally:
+        globals()["run"], globals()["prod_db_health"] = real_run, real_health
+        sys.argv = real_argv
+
+
+def selftest_query_faults():
+    """Drive every fault into BOTH run() call sites and assert the exit code survives.
+
+    This asserts the CONSEQUENCE, not the tuple. The bug WIC-1680 describes is an exit-code
+    inversion -- 10 ("candidate organic traffic, adjudicate") degrading into a traceback
+    exit 1 ("the check itself failed") -- so the test drives real main() control flow and
+    checks the exit code, the thing a heartbeat actually branches on. Asserting
+    `isinstance(exc, QUERY_FAULTS)` instead would be circular: it would pass against
+    whatever tuple the handler happened to name, including the broken one.
+
+    Both legs, because they now share QUERY_FAULTS and a single-site test would not notice
+    the shared constant regressing the other:
+      - candidate detail (main()'s 2nd run() call) must still return 10;
+      - aggregate (main()'s 1st run() call) must return 1 having printed "CHECK FAILED"
+        rather than dying in a traceback -- both exit 1, so only driving main() tells the
+        handled path from the unhandled one.
+    """
+    failures = 0
+    legs = [
+        ("candidate detail", 2, 10, QUERY_FAULT_CASES),
+        ("aggregate", 1, 1, QUERY_FAULT_CASES + AGGREGATE_ONLY_FAULTS),
+    ]
+    for leg, fail_on_call, want_code, cases in legs:
+        for label, exc, want_caught in cases:
+            code, escaped = _drive_query_fault(exc, fail_on_call)
+            if escaped is not None:
+                got, ok = f"ESCAPED {type(escaped).__name__}", not want_caught
+            else:
+                got, ok = f"exit {code}", want_caught and code == want_code
+            failures += 0 if ok else 1
+            want = f"exit {want_code}" if want_caught else "ESCAPED MemoryError"
+            print(f"  [{'PASS' if ok else 'FAIL'}] {leg} fault, {label}: got {got}, want {want}")
+    return failures
+
+
+# Which sync faults hand off to the async leg, and which must propagate untouched. The
+# `False` rows are the load-bearing half: a fallback that triggers on everything would
+# turn a 401 into a 240s stall before failing with the same error, on every heartbeat.
+ASYNC_DISPATCH_CASES = [
+    ("HTTP 504 Gateway Timeout", urllib.error.HTTPError(HOST, 504, "Gateway Timeout", {}, None), True),
+    ("HTTP 502 Bad Gateway", urllib.error.HTTPError(HOST, 502, "Bad Gateway", {}, None), True),
+    ("HTTP 503 Service Unavailable", urllib.error.HTTPError(HOST, 503, "Service Unavailable", {}, None), True),
+    ("HTTP 408 Request Timeout", urllib.error.HTTPError(HOST, 408, "Request Timeout", {}, None), True),
+    ("bare socket read timeout", socket.timeout("The read operation timed out"), True),
+    ("URLError wrapping a timeout", urllib.error.URLError(socket.timeout("timed out")), True),
+    # Everything below reproduces identically on the async leg -- do not spend the budget.
+    ("HTTP 401 Unauthorized", urllib.error.HTTPError(HOST, 401, "Unauthorized", {}, None), False),
+    ("HTTP 400 malformed HogQL", urllib.error.HTTPError(HOST, 400, "Bad Request", {}, None), False),
+    ("HTTP 500 ClickHouse query error", urllib.error.HTTPError(HOST, 500, "Internal Server Error", {}, None), False),
+    ("DNS resolution failure", urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), False),
+    ("TLS bad certificate", urllib.error.URLError(ssl.SSLError(1, "bad server certificate")), False),
+    ("peer reset the connection", ConnectionResetError(104, "Connection reset by peer"), False),
+]
+
+
+def selftest_async_dispatch():
+    """Assert run() hands off to the async leg on exactly the right faults.
+
+    Both legs are stubbed, so this measures run()'s dispatch DECISION and nothing else --
+    no network, and the helper never calls the real _run_sync/_run_async. That matters for
+    the same reason WIC-1680's test drives main(): asserting against `should_retry_async`
+    directly would be circular, passing against whatever predicate the code happens to
+    hold. Here the observable is which leg produced the returned body.
+    """
+    failures = 0
+    sentinel = {"columns": ["from_async"], "results": [[1]]}
+    real_sync, real_async = _run_sync, _run_async
+    # Both legs are stubbed, so the value is never used -- but run() checks for the key
+    # before dispatching, and an unset key would short-circuit every case into RuntimeError.
+    had_key = "POSTHOG_PERSONAL_API_KEY" in os.environ
+    os.environ.setdefault("POSTHOG_PERSONAL_API_KEY", "selftest-stub-key")
+    try:
+        for label, exc, want_async in ASYNC_DISPATCH_CASES:
+            calls = []
+            globals()["_run_sync"] = lambda _q, _k, _e=exc: _raise(_e)
+            globals()["_run_async"] = lambda _q, _k, *_a, **_kw: (
+                calls.append("async"),
+                sentinel,
+            )[1]
+            try:
+                body = run("SELECT 1")
+                got = "fell back to async" if body is sentinel and calls else "returned without async"
+                ok = want_async and body is sentinel
+            except BaseException as raised:  # noqa: BLE001 -- propagation is the assertion
+                got = f"propagated {type(raised).__name__}"
+                ok = (not want_async) and raised is exc and not calls
+            failures += 0 if ok else 1
+            want = "fell back to async" if want_async else f"propagated {type(exc).__name__}"
+            print(f"  [{'PASS' if ok else 'FAIL'}] async dispatch, {label}: got {got}, want {want}")
+    finally:
+        globals()["_run_sync"], globals()["_run_async"] = real_sync, real_async
+        if not had_key:
+            os.environ.pop("POSTHOG_PERSONAL_API_KEY", None)
+    return failures
+
 
 def selftest():
     """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
@@ -416,7 +943,25 @@ def selftest():
         print(f"  [{'PASS' if ok else 'FAIL'}] {label}: got {state!r}, want {expected!r}")
         if not ok:
             print(f"         detail: {detail}")
-    print(f"\n{len(HEALTH_CASES) - failures}/{len(HEALTH_CASES)} health-classification cases pass.")
+    for label, code, want in EDGE_CASES:
+        rendered = describe_edge_failure(code)
+        ok = want in rendered
+        failures += 0 if ok else 1
+        print(f"  [{'PASS' if ok else 'FAIL'}] {label}: {rendered!r}")
+        if not ok:
+            print(f"         wanted substring: {want!r}")
+    failures += selftest_probe_faults()
+    failures += selftest_query_faults()
+    failures += selftest_async_dispatch()
+    total = (
+        len(HEALTH_CASES)
+        + len(EDGE_CASES)
+        + len(probe_fault_cases())
+        + 2 * len(QUERY_FAULT_CASES)
+        + len(AGGREGATE_ONLY_FAULTS)
+        + len(ASYNC_DISPATCH_CASES)
+    )
+    print(f"\n{total - failures}/{total} cases pass.")
     return 1 if failures else 0
 
 
@@ -459,7 +1004,10 @@ def main():
     try:
         body = run(aggregate_query(synthetic, organic))
         row = dict(zip(body["columns"], body["results"][0]))
-    except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, IndexError) as exc:
+    # IndexError is the one class this site needs and the candidate site does not: an empty
+    # `results` makes `results[0]` raise. Both sites otherwise share QUERY_FAULTS so they
+    # cannot drift apart again, which is how WIC-1680 happened.
+    except QUERY_FAULTS + (IndexError,) as exc:
         print(f"CHECK FAILED (not evidence of anything): {exc}", file=sys.stderr)
         return 1
 
@@ -494,7 +1042,13 @@ def main():
                 "WIC-1024 hold while prod is degraded. `resume_upload_completed` sits "
                 "after the DB writes and cannot fire, so completion/timing insights and "
                 "the C1-C3 person_id tiles would render empty or 100%-failure. Report "
-                "the traffic, but keep the dashboard build held on WIC-1473."
+                "the traffic, but keep the dashboard build held on WIC-1473.\n"
+                "Expect this candidate to be resume_upload_started or "
+                "resume_upload_validation_failed -- they are the only 2 of 9 events "
+                "that can arrive while prod is degraded. A candidate bearing any OTHER "
+                "event name during an outage is anomalous and deserves scrutiny before "
+                "adjudication. Per-event split: "
+                "docs/analytics/event-reachability-matrix.md"
             )
         print(
             "\nThese events failed every synthetic fingerprint AND are absent from "
@@ -507,7 +1061,13 @@ def main():
             print("\t".join(detail["columns"]))
             for r in detail["results"]:
                 print("\t".join("" if c is None else str(c) for c in r))
-        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError) as exc:
+        # This handler sits AFTER the CANDIDATE headline prints and BEFORE `return 10`, so
+        # an escape here does not hide the candidate from a human reading stdout -- but it
+        # does lose the detail rows (the adjudication evidence) and the registration
+        # guidance below, and it turns the exit code 10 that a heartbeat branches on into a
+        # traceback exit 1. Same exit-code inversion as WIC-1636, one branch later.
+        # No IndexError: nothing here indexes a row, unlike the aggregate call above.
+        except QUERY_FAULTS as exc:
             print(f"(candidate detail fetch failed: {exc})", file=sys.stderr)
         print(
             "\nIf synthetic: register the actor in docs/analytics/probe-registry.json "
@@ -525,10 +1085,15 @@ def main():
     print(f"COLLECTOR HEALTH: {health_line}")
     if health_state != "ok":
         print(
-            "NOTE: the client capture leg is independent of the Worker DB, so 0 organic "
-            "still means 0 arrivals -- but prod is broken for anyone who does arrive "
-            "and signs in. Treat 0 organic as a demand reading taken under an outage, "
-            "not as clean demand evidence. Unblock owner: WIC-1473 (board decision)."
+            "NOTE: only 2 of the 9 taxonomy events are outage-immune -- "
+            "resume_upload_started and resume_upload_validation_failed, which fire in "
+            "the browser straight to PostHog with no Worker in the path. 5 are "
+            "outage-blocked and 1 (export_viewed) is dead code, so THIS ZERO IS A "
+            "DEMAND READING FOR 2 EVENTS AND A RESTATEMENT OF THE OUTAGE FOR THE REST. "
+            "The detector still works -- a real first user trips those 2 -- but do not "
+            "quote 0 organic as clean demand evidence. Per-event split with call sites: "
+            "docs/analytics/event-reachability-matrix.md. "
+            "Unblock owner: WIC-1473 (board decision)."
         )
     return 0
 

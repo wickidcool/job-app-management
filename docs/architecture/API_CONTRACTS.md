@@ -199,6 +199,39 @@ interface ErrorResponse {
 }
 ```
 
+### Malformed request bodies
+
+**A body that is not valid JSON is a `400`, on every write endpoint that takes a JSON body.**
+The response is the standard error envelope with code `VALIDATION_ERROR` and the exact message
+`Request body is not valid JSON`:
+
+```json
+{
+  "error": { "code": "VALIDATION_ERROR", "message": "Request body is not valid JSON" }
+}
+```
+
+Four things worth knowing, all measured rather than assumed (WIC-1524, WIC-1843):
+
+- **An empty body takes the same path.** `Content-Length: 0` is not valid JSON, so it is the
+  same `400`, not a `200` treating the body as `{}`.
+- **`Content-Type` is not enforced on read.** A body is parsed whether or not the header says
+  `application/json`; omitting it does not change the status either way.
+- **This is a separate guard from schema validation.** Valid JSON of the wrong *shape* is
+  rejected by Zod and carries the route's own code and a `details` payload (`INVALID_EMAIL`,
+  `VALIDATION_ERROR` with `details.fieldErrors`, …). Only a JSON *parse* failure produces the
+  message above, and it never carries `details`. Clients that branch on the error can rely on
+  that distinction.
+- **Read the qualifier literally.** A write endpoint that does not take a JSON body is outside
+  this guarantee entirely, and there are two kinds. `POST /resumes/upload` takes
+  `multipart/form-data` and reads it with `c.req.parseBody()`, not the JSON helper: a malformed
+  *or* empty body there is still a `400`, but it carries `BAD_REQUEST` with the message
+  `No file provided`, so a client branching on the code and message above will not match it.
+  The rest — every `DELETE`, plus writes like `POST /auth/logout` whose input is entirely in
+  the path and the token — read no body at all, so a malformed one is *ignored* rather than
+  rejected, and the status is whatever the route would have returned anyway
+  (`POST /auth/logout` with a body of `{ not json` is a `204`).
+
 ---
 
 ## Pagination
@@ -782,7 +815,7 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;
+  responseRate: number;     // 0-1, percentage of applications with response
 }
 
 export interface ActivityItem {
@@ -1181,6 +1214,20 @@ interface MergeCompaniesResponse {
 }
 ```
 
+`targetCompanyId` must not appear in `sourceCompanyIds` — the merge soft-deletes
+everything the source list names, so a target listed as its own source would be
+deleted by its own merge. That request is rejected with `400 BAD_REQUEST`
+(`A merge target cannot also be a source`) before anything is written.
+
+The surviving company reports the **earliest** first-seen date across the target
+and every source, not the target's own. Duplicates usually arise because a
+company was re-entered under a new spelling, so the source is commonly the older
+record; keeping the target's date would walk the reported start of the
+relationship forward in time. Sources are soft-deleted, so their dates are not
+readable through any endpoint afterwards. `applicationCount` is likewise summed
+across all of them, and each source's `name` is folded into the survivor's
+`aliases`.
+
 ---
 
 #### Tags
@@ -1277,6 +1324,12 @@ interface MergeTagsResponse {
   mergedCount: number;
 }
 ```
+
+`targetTagId` must not appear in `sourceTagIds`, and the constraint is stricter
+here than for companies: the tag merge **hard**-deletes its sources, so a target
+listed as its own source is removed permanently. That request is rejected with
+`400 BAD_REQUEST` (`A merge target cannot also be a source`) before anything is
+written.
 
 ---
 
@@ -3557,9 +3610,272 @@ function calculateCompleteness(prep: InterviewPrep): number {
 
 ---
 
+### Onboarding
+
+Four routes back the first-run experience, all defined in
+`packages/api/src/routes/onboarding.ts` and mounted at the `/api` root. Every one of them
+operates on the caller identified by the JWT's `sub` claim; there is no user id in any
+path or body.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /users/me/onboarding/should-show` | **The only** authority on whether to display onboarding |
+| `GET /users/me/onboarding/status` | The user's progress row — and it creates one if absent |
+| `POST /users/me/onboarding/progress` | Record step movement, completions and skips |
+| `POST /users/me/onboarding/complete` | Finish the flow |
+
+> **Clients must not derive onboarding visibility from the status row.** Call
+> `should-show` and render on its boolean. The status row cannot answer the question:
+> `GET /status` auto-creates a `welcome` row for anyone who lacks one, so a client that
+> tests `completedAt === null` or `currentStep === 'welcome'` will show onboarding to
+> every established user in the product. That was the WIC-1359 defect — the service
+> already exposed the correct predicate and the SPA was not calling it.
+
+#### Onboarding Status Object
+
+Returned in full by `/status`, `/progress` and `/complete`. It mirrors the
+`onboarding_status` table one-for-one (`packages/api/src/db/schema.ts`).
+
+```typescript
+interface OnboardingStatus {
+  id: string;                            // ULID
+  userId: string;                        // UUID, unique — one row per user
+  currentStep: OnboardingStep;
+  personalInfoStepCompleted: boolean;
+  personalInfoStepSkipped: boolean;
+  resumeStepCompleted: boolean;
+  resumeStepSkipped: boolean;
+  applicationStepCompleted: boolean;
+  applicationStepSkipped: boolean;
+  startedAt: string;                     // ISO 8601
+  completedAt: string | null;            // ISO 8601, null until /complete
+  createdAt: string;                     // ISO 8601
+  updatedAt: string;                     // ISO 8601
+  version: number;                       // Optimistic-lock counter
+}
+
+type OnboardingStep =
+  | 'welcome'
+  | 'personal_info'
+  | 'resume_upload'
+  | 'first_application'
+  | 'completed';
+```
+
+A step's `Completed` and `Skipped` flags are independent and both default to `false`.
+Skipping a step sets only `*StepSkipped`; it never sets `*StepCompleted`. The pair is
+what distinguishes "the user did this" from "the user declined this", and callers should
+preserve that distinction rather than collapsing it to a single boolean.
+
+---
+
+#### Should Show Onboarding
+
+```
+GET /users/me/onboarding/should-show
+```
+
+Answers the visibility question and nothing else. This is a pure read — unlike `/status`
+it never writes a row.
+
+**Response**: `200 OK`
+
+```json
+{ "shouldShow": true }
+```
+
+The envelope is deliberately a bare boolean. The status row is not included, precisely so
+that callers cannot fall back to re-deriving visibility themselves.
+
+**Decision rule** (`shouldShowOnboarding` in
+`packages/api/src/services/onboarding.service.ts`) — evaluated top to bottom, first match
+wins:
+
+| Status row | `shouldShow` | Reasoning |
+|------------|--------------|-----------|
+| `currentStep === 'completed'`, or `completedAt` is stamped | `false` | The user finished. |
+| **Engaged**: `currentStep` is anything other than `welcome`, **or** any one of the six `*Completed`/`*Skipped` flags is `true` | `false` if the user has a resume uploaded **before** `startedAt`, or an application created **before** `startedAt`; otherwise `true` | The user has driven the flow at least one step, so work created *after* the row may be the flow's own output and cannot count against them. Work that predates the row can. |
+| No row at all, or a pristine `welcome` row with nothing completed or skipped | `false` if the user has **any** resume or **any** application, at any time; otherwise `true` | We have never seen this user in the flow, so there is no flow output to exclude and the probe is deliberately unbounded. |
+
+**The AC-10 returning-user bypass is scoped in time, not blanket — and not by engagement
+either.** AC-10 reads "a user with at least one resume or application is never shown
+onboarding", and the tempting implementation is to check that first and short-circuit.
+That is wrong here: onboarding's resume-upload step *produces* a resume, so a blanket rule
+would eject a genuine new user from the flow the instant their first upload succeeded.
+
+Treating any engagement as an unconditional `true` is the equal and opposite error, and it
+fails in the same direction as the original defect. The flow ships as a modal, so an
+established user who was wrongly shown it and pressed "Get Started" or "Skip for now" once
+has POSTed progress — an engagement short-circuit would then show them onboarding over a
+populated dashboard forever. `startedAt` is what separates the two cases, because work
+created before the status row existed cannot have come from the flow.
+
+"Pristine" is load-bearing. Because `GET /status` auto-initializes, an established user who
+merely opened the app has a `welcome` row that carries no intent whatsoever, and it must
+not be read as "mid-onboarding".
+
+The `startedAt` bound is applied on the engaged branch only. On the pristine branch the
+probe stays unbounded on purpose: bounding it there would drag a genuine new user back into
+onboarding after they dismissed at `welcome` and then created an application by hand.
+
+The history probe is existence-only (`LIMIT 1` against `resumes`, then `applications`, the
+resume probe short-circuiting the second round trip). Query cost: 1 for a completed user, 2
+when a resume probe hits, 3 otherwise. Only the completed row is settled without touching
+history.
+
+---
+
+#### Get Onboarding Status
+
+```
+GET /users/me/onboarding/status
+```
+
+Returns the caller's onboarding row.
+
+> **This endpoint writes.** If the user has no row, one is created at `currentStep:
+> 'welcome'` with every flag `false`, and *that* row is returned. The read is therefore
+> not idempotent on first call, and the row's existence proves only that the user once
+> loaded a page that called this endpoint — never that they engaged with onboarding. This
+> auto-initialization is the mechanism behind the WIC-1359 blast radius; see the warning
+> at the top of this section.
+
+Initialization is safe under concurrent first-page-loads: the insert uses
+`ON CONFLICT (user_id) DO NOTHING` and re-reads the winner's row.
+
+**Response**: `200 OK` — an [Onboarding Status Object](#onboarding-status-object).
+
+```json
+{
+  "id": "01HXONBOARD00000000000001",
+  "userId": "8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60",
+  "currentStep": "welcome",
+  "personalInfoStepCompleted": false,
+  "personalInfoStepSkipped": false,
+  "resumeStepCompleted": false,
+  "resumeStepSkipped": false,
+  "applicationStepCompleted": false,
+  "applicationStepSkipped": false,
+  "startedAt": "2026-08-26T00:00:00.000Z",
+  "completedAt": null,
+  "createdAt": "2026-08-26T00:00:00.000Z",
+  "updatedAt": "2026-08-26T00:00:00.000Z",
+  "version": 1
+}
+```
+
+---
+
+#### Update Onboarding Progress
+
+```
+POST /users/me/onboarding/progress
+```
+
+Records step movement, completions and skips. Creates the row first if it does not exist,
+so a client may call this before ever calling `/status`.
+
+**Request Body** — every field is optional; send only what changed.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `currentStep` | `OnboardingStep` | Must be one of the five enum values |
+| `personalInfoStepCompleted` | boolean | |
+| `personalInfoStepSkipped` | boolean | |
+| `resumeStepCompleted` | boolean | |
+| `resumeStepSkipped` | boolean | |
+| `applicationStepCompleted` | boolean | |
+| `applicationStepSkipped` | boolean | |
+
+```json
+{ "currentStep": "resume_upload", "personalInfoStepCompleted": true }
+```
+
+Unrecognized keys are silently stripped rather than rejected. An empty body `{}` is
+valid and is accepted as a no-op update — it still bumps `version` and `updatedAt`.
+
+There is no step *ordering* validation: any enum value is accepted from any current step,
+including moving backwards. Sequencing is the client's responsibility. Note that setting
+`currentStep: 'completed'` here does **not** stamp `completedAt` — only `/complete` does
+that — but it is enough on its own to make `should-show` return `false`.
+
+**Response**: `200 OK` — the updated [Onboarding Status Object](#onboarding-status-object).
+
+**Errors**:
+
+| Code | HTTP | Cause |
+|------|------|-------|
+| `VALIDATION_ERROR` | 400 | `currentStep` outside the enum, or a step flag that is not a boolean. `details` carries the flattened Zod issues |
+| `VERSION_CONFLICT` | 409 | A concurrent write bumped `version` between this request's read and its update |
+
+The `409` is worth planning for even though the client sends no version. The write is
+guarded by the `version` the server itself just read, so two progress calls racing from,
+say, a double-clicked "Skip" will leave one of them conflicted. Re-read `/status` and
+retry.
+
+---
+
+#### Complete Onboarding
+
+```
+POST /users/me/onboarding/complete
+```
+
+Marks the flow finished: sets `currentStep` to `completed` and stamps `completedAt`.
+Takes no request body. Creates the row first if it does not exist.
+
+**Response**: `200 OK` — the completed [Onboarding Status Object](#onboarding-status-object).
+
+Calling it twice is idempotent rather than an error; the second call simply re-stamps
+`completedAt` and bumps `version`. Afterwards `should-show` returns `false` permanently —
+there is no endpoint that reopens onboarding.
+
+**Errors**:
+
+| Code | HTTP | Cause |
+|------|------|-------|
+| `NOT_FOUND` | 404 | The row vanished between the existence check and the write |
+| `VERSION_CONFLICT` | 409 | A concurrent write bumped `version` |
+
+---
+
+#### Onboarding Notes & Caveats
+
+**All four routes return `401 UNAUTHORIZED` when there is no authenticated user id —
+including under the local auth bypass.** When `SUPABASE_URL` and `SUPABASE_JWT_SECRET`
+are both absent the middleware waves requests through with `userId = null` (see
+[Authentication](#authentication)), but onboarding state is strictly per-user, so these
+routes refuse rather than operate on an anonymous null user. Unlike most of the API,
+they are not usable in the single-user local mode without a token.
+
+**A malformed JSON body on `/progress` returns `400 VALIDATION_ERROR`**, like every other
+write endpoint that takes a JSON body — see
+[Malformed request bodies](#malformed-request-bodies). This used to be a `500` and was
+documented here as a known rough edge; WIC-1524 fixed it across all 34 body reads, so it is
+now a contract guarantee rather than a caveat.
+
+**Known drift from the WIC-238 plan document.** Two differences between the accepted
+spec and what shipped, recorded here so they are not re-derived as defects:
+
+- **The step enum has five values, not four.** `personal_info` was added by migration
+  `0015_onboarding_personal_info_step.sql` *after* WIC-238 was accepted, and so is absent
+  from that spec. The enum in this document is the shipped one.
+- **There is no `/onboarding` page route**, despite AC-1 naming one. The flow ships as a
+  global `<OnboardingModal />` mounted in `packages/web/src/App.tsx`, shown or hidden on
+  the `should-show` boolean. Navigating to `/onboarding` will not reach it.
+
+Additionally, `docs/design/ONBOARDING_FLOW.md` sketched a
+`POST /api/users/me/onboarding/dismiss` endpoint and localStorage-shaped request bodies.
+**No `dismiss` route exists** and those body shapes were never built. This section is the
+authoritative contract; that document is a design sketch and now defers to it.
+
+---
+
 ## References
 
 - [Architecture Overview](./ARCHITECTURE.md)
 - [Data Model](./DATA_MODEL.md)
 - [User Flows](../design/USER_FLOWS.md)
+- [Onboarding Flow — component spec](../design/ONBOARDING_FLOW.md) (design sketch; the
+  API contract above supersedes its endpoint list)
 - [UC-6 Resume Variant Generation API](./UC-6_RESUME_VARIANT_API.md)
