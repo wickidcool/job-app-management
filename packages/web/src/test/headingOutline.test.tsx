@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import * as Dialog from '@radix-ui/react-dialog';
 
 import { describeOutline, findOutlineSkips, getOutline } from './headingOutline';
 
@@ -142,5 +143,88 @@ describe('getOutline / findOutlineSkips', () => {
     expect(describeOutline(getOutline(aria))).toBe(describeOutline(getOutline(native)));
     expect(findOutlineSkips(getOutline(aria))).toHaveLength(1);
     expect(findOutlineSkips(getOutline(native))).toHaveLength(1);
+  });
+});
+
+/**
+ * The outline is the *accessibility tree's*, not the DOM's (WIC-1886).
+ *
+ * These exist because of one concrete failure: on a **modal-bodied route** — a route whose
+ * entire body is an always-open Radix dialog — Radix's `hideOthers()` marks everything
+ * outside the portal `aria-hidden="true"`. The page file is outside the portal for the
+ * whole life of the route, so an `<h1>` placed there per `ROUTE_HEADING_OUTLINE.md` §5
+ * rule 1 reaches no screen reader. Counting it lets the WIC-1675 route sweep certify that
+ * non-fix green, and the sweep's `MISSING_H1` ratchet actively invites making it.
+ *
+ * The first test below is the one that discriminates, and it is why `getOutline` uses
+ * `closest()` rather than reading the attribute off the heading: **Radix hides an ancestor,
+ * never the heading itself.** A node-level filter passes every other test in this block and
+ * is a no-op on the real defect — it was measured, and it left the route sweep green.
+ */
+describe('getOutline skips what assistive tech cannot reach', () => {
+  it('excludes a heading whose ANCESTOR is aria-hidden, not just one marked itself', () => {
+    const { container } = render(
+      <>
+        <div aria-hidden="true">
+          <h1>Hidden page heading</h1>
+        </div>
+        <h2>Reachable section</h2>
+      </>
+    );
+
+    // The heading carries nothing itself — the hiding is entirely on the wrapper.
+    expect(container.querySelector('h1')?.getAttribute('aria-hidden')).toBeNull();
+    expect(describeOutline(getOutline(container))).toBe('h2 "Reachable section"');
+  });
+
+  it('excludes a heading marked aria-hidden directly, and one under inert', () => {
+    // `innerHTML` for the same reason the invalid-`aria-level` case above uses it: React 19
+    // types `inert` as a boolean and drops the bare HTML attribute form, which is the form
+    // this is about. `getOutline` reads the DOM, and this is the same DOM.
+    const container = document.createElement('div');
+    container.innerHTML = [
+      '<h1 aria-hidden="true">Marked itself</h1>',
+      '<div inert><h2>Under inert</h2></div>',
+      '<h3>Reachable</h3>',
+    ].join('');
+
+    expect(describeOutline(getOutline(container))).toBe('h3 "Reachable"');
+  });
+
+  it('keeps aria-hidden="false", which does not hide anything', () => {
+    const { container } = render(
+      <div aria-hidden="false">
+        <h1>Still reachable</h1>
+      </div>
+    );
+
+    expect(describeOutline(getOutline(container))).toBe('h1 "Still reachable"');
+  });
+
+  it('drops the page h1 of a real modal-bodied route, keeping the dialog it hid it behind', () => {
+    // Not a synthetic aria-hidden: Radix puts it there via hideOthers(), which is the
+    // actual mechanism. If Radix ever stops hiding the page, this test says so.
+    const { baseElement } = render(
+      <div>
+        <h1>Capture project dialogue</h1>
+        <Dialog.Root open>
+          <Dialog.Portal>
+            <Dialog.Content aria-describedby={undefined}>
+              <Dialog.Title asChild>
+                <h1>New Project</h1>
+              </Dialog.Title>
+              <h2>Step section</h2>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      </div>
+    );
+
+    // baseElement, not container: the dialog is portalled to document.body, which is also
+    // what the WIC-1675 route sweep reads. Both headings are in the DOM here.
+    expect(baseElement.querySelectorAll('h1')).toHaveLength(2);
+
+    // ...but only the dialog's is in the accessibility tree, so the route opens at one h1.
+    expect(describeOutline(getOutline(baseElement))).toBe('h1 "New Project" -> h2 "Step section"');
   });
 });

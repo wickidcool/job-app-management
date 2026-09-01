@@ -9,6 +9,7 @@ import {
   updateApplicationStatus,
 } from '../services/application.service.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 const applicationStatusEnum = z.enum([
   'saved',
@@ -136,7 +137,7 @@ export const applicationsRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .post('/applications', async (c) => {
-    const body = createApplicationSchema.safeParse(await c.req.json());
+    const body = createApplicationSchema.safeParse(await readJsonBody(c));
     if (!body.success) {
       return c.json(
         {
@@ -153,7 +154,7 @@ export const applicationsRoutes = new Hono<AppEnv>()
     return c.json(result, 201);
   })
   .patch('/applications/:id', async (c) => {
-    const body = updateApplicationSchema.safeParse(await c.req.json());
+    const body = updateApplicationSchema.safeParse(await readJsonBody(c));
     if (!body.success) {
       return c.json(
         {
@@ -178,7 +179,7 @@ export const applicationsRoutes = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   .post('/applications/:id/status', async (c) => {
-    const body = updateStatusSchema.safeParse(await c.req.json());
+    const body = updateStatusSchema.safeParse(await readJsonBody(c));
     if (!body.success) {
       return c.json(
         {

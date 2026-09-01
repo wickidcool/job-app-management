@@ -91,9 +91,13 @@ Every change gets an entry under `## [Unreleased]` in `CHANGELOG.md`.
 
 **Never anchor at the top of `[Unreleased]` — and don't take any other fixed position on faith. Measure, then insert where nobody else does.** Entries inside a release are same-day and effectively unordered, so being first buys nothing, and being first is what causes conflicts.
 
-`.gitattributes` marks `CHANGELOG.md merge=union`. That auto-resolves the merge **locally**, and only locally: GitHub computes mergeability without the driver, so a changelog the driver "fixed" for you still reports `CONFLICTING / DIRTY` on the PR page and still blocks the merge button. The driver hides the conflict from you and not from GitHub, which is why these show up late.
+`.gitattributes` marks `CHANGELOG.md merge=union`, which auto-resolves the merge locally. **This section used to assert that GitHub ignores the driver, so that a changelog union "fixed" for you still reports `CONFLICTING / DIRTY`. That assertion is withdrawn — it is not reproducible.** Measured at `main` `78abadf` across all 98 open PRs: 48 `MERGEABLE` PRs touch `CHANGELOG.md`, 34 of those diverge from their base on that file, and **0 of the 34 collide with the driver disabled**. The discriminating case — a PR whose changelog merges *only* because of union — does not exist in the queue today, so neither answer has evidence behind it. **Do not remove the `merge=union` line, or migrate to changelog fragments, on the strength of a claim in either direction.**
 
-Every one of those conflicts is the same conflict: an insertion collision on the **first `### ` heading under the `[Unreleased]` backfill note**. The merge base at that point is *empty* and both sides are pure additions, which is why the resolution is always "keep both" and why it always comes back. That anchor is also **branch-point independent** — the backfill note has sat directly above it since `1ea6186` (2026-08-04), so every open PR resolves "the top of `[Unreleased]`" to the same line no matter when it was cut. A guaranteed collision, by construction.
+What *is* reproducible is that the PR-page flag is stale. Of the 29 PRs GitHub currently calls `CONFLICTING`, only **three** have any genuine conflict, and none of the three is on `CHANGELOG.md`: #160 on `ApplicationsList.tsx`, #154 and #147 on `deploy.yml` and `docs/analytics/`. The other 26 each have a GitHub-computed two-parent merge commit at `refs/pull/N/merge` with zero conflict markers. **The changelog conflict backlog is 0.** Certify from that merge ref or from a real `git merge`, never from `mergeable` alone.
+
+⚠️ **Measure a PR against the base its merge ref was computed at, not against today's `main`.** Every one of those 26 merge refs has an *older* `main` as its first parent. Replaying `head` vs current `main` reports all 26 as "would conflict without union"; replaying against `merge-base(p1, head)` reports **0 of 22**. Same PRs, same driver, opposite answer — the first number is an artifact of a moved base, and it is the same three-coordinate-systems error as the weld and anchor-tally checks below.
+
+Historically, every changelog conflict this repo saw was the same conflict: an insertion collision on the **first `### ` heading under the `[Unreleased]` backfill note**. The merge base at that point is *empty* and both sides are pure additions, which is why the resolution is always "keep both" and why it always comes back. That anchor is also **branch-point independent** — the backfill note has sat directly above it since `1ea6186` (2026-08-04), so every open PR resolves "the top of `[Unreleased]`" to the same line no matter when it was cut. A guaranteed collision, by construction.
 
 Anchoring below the top entry breaks that. "Below the current top entry" resolves to a *different* line depending on which `main` you branched from, so only PRs cut from the identical commit can still collide. Measured on PR #174: it edited `CHANGELOG.md` while #111, #165 and #166 were open and added **zero** new conflicts to any of them, where #169, #170 and #172 each took the top anchor and #170 alone broke both #165 and #166.
 
@@ -146,7 +150,7 @@ caught the collision with #242 before it shipped.
 
 ### Diagnosing one
 
-`git merge`, `git merge-tree` and a local `git pull` all apply the union driver, so they report **clean** on a PR GitHub calls `CONFLICTING`. They are not wrong; they are answering a different question. `git merge-file` is the low-level three-way merge and does not read `.gitattributes`, so it is the one that reproduces what GitHub sees:
+`git merge`, `git merge-tree` and a local `git pull` all apply the union driver, so they report **clean** on a PR GitHub calls `CONFLICTING`. `git merge-file` is the low-level three-way merge and does not read `.gitattributes`, so it answers the *other* question — what the merge would do with the driver switched off. Run it to see what union is actually absorbing. **It is not a reproduction of "what GitHub sees":** that framing assumed GitHub ignores the driver, which is withdrawn above, and `git merge-tree` reads attributes from your *working tree* unless you pass `git --attr-source=<base> merge-tree` (before the subcommand, or git exits 129 and every pair reads as a conflict).
 
 ```bash
 BR=origin/your-branch
@@ -174,6 +178,9 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
   contradictory descriptions of one change, with no conflict ever shown (WIC-1561, fixed by #181).
   The kept copy can be the **superseded** one: in WIC-1597 a merged code-review correction was
   silently republished alongside the claim it retracted.
+  **A "revision" here can be purely cosmetic and still collide** — changing `*emphasis*` to
+  `_emphasis_` counts, because union grades edits by position, not by significance. See
+  "A cosmetic reformat is a semantic collision" below.
 - **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
   last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
@@ -638,6 +645,55 @@ blank-terminated, differ only in how diff3 happened to align the *other* side's 
 So the anchor command answers "will GitHub call this CONFLICTING"; only the union simulation
 answers "will the driver corrupt the result". Different questions, and their answers disagree.
 Run the simulation.
+
+### A cosmetic reformat is a semantic collision
+
+**Never reformat a `CHANGELOG.md` line you are not otherwise changing.** Every pre-existing line your
+branch rewrites — even if only `*emphasis*` → `_emphasis_`, even if it renders identically — becomes
+a collision candidate. Union compares positions, not meaning: if `main` also edits that line before
+you land, both copies survive, and the reader gets one bullet twice in two different states of truth.
+
+The damaging direction is the likely one. `main`'s edits to an *existing* entry are overwhelmingly
+**corrections**, because that is the only reason anyone goes back to a shipped entry. So the pairing
+is almost always your stale copy against `main`'s corrected copy — and union emits yours first,
+putting the retracted claim above its own retraction.
+
+Measured 2026-08-30, `main` at `3b0c0d3`, PR #209 head `fdd800d`: nine pre-existing lines rewritten
+with emphasis-only changes, one of which `main` had corrected four hours earlier in `70396b0`. The
+merge carried that bullet twice — the uncorrected copy first — and the union simulation was
+byte-identical to a real `git merge origin/main` in a scratch worktree, so that is what would have
+shipped. Filed as WIC-1884 and fixed the same day in `cdb1c24`, which reverted all nine; at head
+`2085803` the union introduces nothing.
+
+Across all 100 open PRs, **four** still carry emphasis-only rewrites of pre-existing lines — #299
+(91 lines), #261 (48), #249 (10), #226 (2), **151 lines total**, none of them colliding today. They
+are dormant purely because `main` has not touched those lines yet, and each converts the moment it
+does.
+
+⚠️ **Re-measure this roster immediately before you quote it anywhere.** #209 went from nine lines to
+zero in the interval between this section being drafted and the PR carrying it being merged. A
+roster of accused branches is the fastest-decaying thing in this file: quote every entry at a head
+SHA, and re-run the sweep — diffing the roster — right before you push.
+
+That the dormant ones are one edit from live is a controlled result, not an inference. Run it on any
+branch in the roster: take a line it only reformatted, synthesise a `main` that appends a correction
+to that line, and re-run the union — copies go **1 → 2**, while the negative control with `main`
+untouched stays at **1**. Measured on `fdd800d`, which still carried eight such lines at the time.
+
+**This is the second independent reason `format` and `format:check` stay scoped to `packages/**` and
+exclude root `CHANGELOG.md`** (the first is that prettier strips the blank line above every `### `
+heading, re-arming the weld on every entry at once — WIC-1732). The scoping is load-bearing. Do not
+widen it, and do not "tidy" the changelog as a drive-by.
+
+The fix on a branch that already did it is to **restore the original spelling on every line you only
+reformatted**, keeping whatever you genuinely add. Byte-identical lines give union nothing to
+resolve, which retires the latent cases too. Fixing it after the merge does not work: the corruption
+exists only in the merge result, so there is nothing to see on either branch until it has shipped.
+
+⚠️ **The byte-exact multiset conservation check cannot see this class.** The two copies are
+*different strings* — that is the whole point — so no line is lost and no line count changes. Only
+the normalised-prefix bullet check in the detector above catches it. This is the concrete case the
+prefix normalisation was worth paying for.
 
 ### A weld you commit is a misfile you have armed for whoever branches off you next
 
