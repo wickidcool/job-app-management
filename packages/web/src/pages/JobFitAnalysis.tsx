@@ -23,17 +23,17 @@ type Stage = 'input' | 'analyzing' | 'results' | 'error';
  *
  * This route is one of the two in `HOOK_TITLED_ROUTES` that vary by in-page state rather
  * than by URL param, so no route-table entry can express it. `analyzing` and `error` are
- * quoted from the `<h2>`s at `:108` and `:412` — which are rendered *instead of* the page
+ * quoted from the `<h2>`s at `:129` and `:433` — which are rendered *instead of* the page
  * `<h1>`, a heading-outline defect tracked separately at
  * `docs/design/ROUTE_TITLE_CONVENTION.md` §6.2. Whatever fixes that, the requirement here
  * is unchanged: the tab must not read "Job Fit Analysis Results" while the screen says
  * the analysis failed.
  */
 const STAGE_TITLES: Record<Stage, string> = {
-  input: 'Job Fit Analysis', //          JobFitAnalysis.tsx:460 (the page <h1>)
-  analyzing: 'Analyzing Job Fit', //     :108 <h2>, ellipsis dropped — a tab label is not a progress line
-  results: 'Job Fit Analysis Results', //:148 (the page <h1>)
-  error: 'Analysis Failed', //           :412 <h2>
+  input: 'Job Fit Analysis', //          JobFitAnalysis.tsx:481 (the page <h1>)
+  analyzing: 'Analyzing Job Fit', //     :129 <h2>, ellipsis dropped — a tab label is not a progress line
+  results: 'Job Fit Analysis Results', //:169 (the page <h1>)
+  error: 'Analysis Failed', //           :433 <h2>
 };
 
 export function JobFitAnalysis() {

@@ -21,11 +21,17 @@ import { NOT_FOUND_COPY } from '../pages/NotFound.copy';
  * The product name, in one place.
  *
  * `Careerpin` is what the public marketing site (`packages/marketing/*.html`) and the
- * production host `app.careerpin.app` both say. Two other names are still in the repo —
- * `Job Application Manager` in `index.html` and on the login page, and `jobtrail` in the
- * root `package.json` — and the convention doc picked `Careerpin` on the evidence of the
- * first two rather than parking a WCAG A item behind a branding thread. If the board or
+ * production host `app.careerpin.app` both say. The convention doc picked it on that
+ * evidence rather than parking a WCAG A item behind a branding thread. If the board or
  * the Copywriter lands elsewhere, this constant is the only line that moves.
+ *
+ * It has *not* displaced the old name everywhere. `index.html` and Login's `<h2>` — the
+ * two places §2 named — now read from here, but `Job Application Manager` survives as
+ * prose in `components/onboarding/OnboardingModal.tsx` (the step-1 headline) and in
+ * `components/QuickReferenceExport.tsx` (the exported interview sheet's footer, so it
+ * reaches printed output). Neither renames mechanically — "Welcome to Your Careerpin"
+ * does not read — so both are the Copywriter's call and are recorded in the spec's §9.
+ * `jobtrail`, in the root `package.json` and the deploy target, is not user-facing.
  */
 export const PRODUCT_NAME = 'Careerpin';
 
@@ -72,7 +78,7 @@ export const STATIC_ROUTE_TITLES: Readonly<Record<string, string>> = {
   // Read from the page's own copy block, never retyped: the apostrophe in
   // "couldn't" is a straight U+0027, not the typographic U+2019 that the em-dash
   // separator above would lead you to expect. See ROUTE_TITLE_CONVENTION.md §7.
-  '*': NOT_FOUND_COPY.heading, //                         NotFound.tsx:90
+  '*': NOT_FOUND_COPY.heading, //                         NotFound.copy.ts:18
 };
 
 /**
@@ -85,12 +91,12 @@ export const STATIC_ROUTE_TITLES: Readonly<Record<string, string>> = {
  * title" — which is the failure this whole mechanism exists to make impossible.
  */
 export const HOOK_TITLED_ROUTES: readonly string[] = [
-  '/applications/:id', //                        ApplicationDetail.tsx:140  {application.jobTitle}
-  '/resume-variants/:id', //                     ResumeVariantDetail.tsx:163 {variant.title}
-  '/projects/:projectId', //                     ProjectDetail.tsx:40       {projectName}
-  '/projects/:projectId/files/:fileName', //     ProjectFileEditor.tsx:66   {fileName}
-  '/job-fit-analysis', //                        JobFitAnalysis.tsx:460 / :148, by stage
-  '/projects/new/dialogue', //                   WizardContainer.tsx:399-401, by wizard variant
+  '/applications/:id', //                        ApplicationDetail.tsx:147  {application.jobTitle}
+  '/resume-variants/:id', //                     ResumeVariantDetail.tsx:170 {variant.title}
+  '/projects/:projectId', //                     ProjectDetail.tsx:46       {projectName}
+  '/projects/:projectId/files/:fileName', //     ProjectFileEditor.tsx:73   {fileName}
+  '/job-fit-analysis', //                        JobFitAnalysis.tsx:481 / :169, by stage
+  '/projects/new/dialogue', //                   WizardContainer.tsx:398-401, by wizard variant
   // Not dynamic — `/login` sits in the *outer* <Routes> in App.tsx, above ProtectedRoute,
   // so the shell that applies STATIC_ROUTE_TITLES is never mounted for it. Same mechanism
   // as the six above, different reason; its string is LOGIN_TITLE below.

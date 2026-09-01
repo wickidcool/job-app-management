@@ -5,7 +5,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { ProjectData } from '../components/wizard';
 
 /**
- * The wizard names itself by variant in `WizardContainer.tsx:399-401`. Mirrored here
+ * The wizard names itself by variant in `WizardContainer.tsx:398-401`. Mirrored here
  * rather than read from the container because the variant is a *route* concern — it comes
  * off the query string — and because the container renders that string as a
  * `Dialog.Title`, which `ROUTE_TITLE_CONVENTION.md` §3.1 otherwise forbids from touching

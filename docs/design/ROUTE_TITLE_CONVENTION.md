@@ -121,15 +121,15 @@ Two options were on the table in WIC-1089. Neither is sufficient alone.
 
 | Route | Heading source | Title |
 |---|---|---|
-| `/applications/:id` | `application.jobTitle` (`ApplicationDetail.tsx:113`) | `{jobTitle} — Careerpin` |
-| `/projects/:projectId` | `projectName` (`ProjectDetail.tsx:40`) | `{projectName} — Careerpin` |
-| `/projects/:projectId/files/:fileName` | `fileName` (`ProjectFileEditor.tsx:66`) | `{fileName} — Careerpin` |
-| `/resume-variants/:id` | `variant.title` (`ResumeVariantDetail.tsx:163`) | `{variant.title} — Careerpin` |
+| `/applications/:id` | `application.jobTitle` (`ApplicationDetail.tsx:147`) | `{jobTitle} — Careerpin` |
+| `/projects/:projectId` | `projectName` (`ProjectDetail.tsx:46`) | `{projectName} — Careerpin` |
+| `/projects/:projectId/files/:fileName` | `fileName` (`ProjectFileEditor.tsx:73`) | `{fileName} — Careerpin` |
+| `/resume-variants/:id` | `variant.title` (`ResumeVariantDetail.tsx:170`) | `{variant.title} — Careerpin` |
 
 Plus two routes whose heading changes by *stage* or *variant* rather than by params:
 
-- `/job-fit-analysis` renders `Job Fit Analysis` at input (`JobFitAnalysis.tsx:460`) and `Job Fit Analysis Results` after submit (`:148`).
-- `/projects/new/dialogue` renders `New Project`, `Enrich Project` or `Correct Project` depending on `variant` (`WizardContainer.tsx:386-390`).
+- `/job-fit-analysis` renders `Job Fit Analysis` at input (`JobFitAnalysis.tsx:481`) and `Job Fit Analysis Results` after submit (`:169`).
+- `/projects/new/dialogue` renders `New Project`, `Enrich Project` or `Correct Project` depending on `variant` (`WizardContainer.tsx:398-401`).
 
 **So: build both.** The route table is the mechanism; `useDocumentTitle` is the primitive it calls, exported for the six dynamic routes to call directly. A route with a `title` field gets it applied by the shell; a route without one is expected to call the hook itself.
 
@@ -143,7 +143,7 @@ Three behaviours the hook must have:
 
 §0.3 says "the page's `<h1>`", which was unambiguous when every route had at most one. It no longer is:
 
-- **`/applications/:id/prep` renders a second `<h1>`** — `QuickReferenceExport.tsx:89`
+- **`/applications/:id/prep` renders a second `<h1>`** — `QuickReferenceExport.tsx:107`
   (`Interview quick reference`) inside a `fixed inset-0 … z-50` export modal, rendered only when
   `showExportModal` is true (`InterviewPrepPage.tsx:363`). The route's own `<h1>` is
   `InterviewPrepPage.tsx:263` (`Interview Preparation`).
@@ -164,36 +164,36 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 
 | Path | Page title | Source (verified `f457cc3`) |
 |---|---|---|
-| `/` | `Dashboard` | `Dashboard.tsx:38` |
-| `/applications` | `Applications` | `ApplicationsList.tsx:113` |
+| `/` | `Dashboard` | `Dashboard.tsx:37` |
+| `/applications` | `Applications` | `ApplicationsList.tsx:155` |
 | `/applications/new` | `New Application` | **new copy** — page has no `<h1>` (§6.1) |
-| `/applications/:id` | `{jobTitle}` | `ApplicationDetail.tsx:113`, dynamic; fallback `Application` |
+| `/applications/:id` | `{jobTitle}` | `ApplicationDetail.tsx:147`, dynamic; fallback `Application` |
 | `/applications/:id/prep` | `Interview Preparation` | `InterviewPrepPage.tsx:263` — *not* the modal `<h1>` (§3.1) |
 | `/reports` | `Reports` | `Reports.tsx:49` |
 | `/reports/needs-action` | `Needs Action` | `ReportsNeedsAction.tsx:76` |
 | `/reports/stale` | `Stale Applications` | `ReportsStale.tsx:41` |
 | `/reports/closed-loop` | `Closed Loop Analysis` | `ReportsClosedLoop.tsx:113` |
-| `/reports/by-fit-tier` | `By Fit Tier` | `ReportsByFitTier.tsx:101` |
-| `/resumes` | `Resume Manager` | `ResumeManager.tsx:94` |
+| `/reports/by-fit-tier` | `By Fit Tier` | `ReportsByFitTier.tsx:227` |
+| `/resumes` | `Resume Manager` | `ResumeManager.tsx:119` |
 | `/resumes/upload` | `Upload Resume` | `ResumeUpload.tsx:35` |
 | `/resumes/exports` | `Resume Exports` | `ResumeExports.tsx:52` |
 | `/resumes/:resumeId/exports` | `Resume Exports` | **added 2026-08-27** — same component, `resumeId` optional (`ResumeExports.tsx:12`); route absent from the 2026-08-19 table |
 | `/catalog` | `Master Catalog Index` | `CatalogBrowse/CatalogBrowseView.tsx:116` |
-| `/job-fit-analysis` | `Job Fit Analysis` → `Job Fit Analysis Results` | `JobFitAnalysis.tsx:460` / `:148`, stage-dependent (§3) — ~~`:462` / `:144`~~ |
+| `/job-fit-analysis` | `Job Fit Analysis` → `Job Fit Analysis Results` | `JobFitAnalysis.tsx:481` / `:169`, stage-dependent (§3) — ~~`:462` / `:144`~~ |
 | `/cover-letters` | `Cover Letters` | `CoverLettersList.tsx:54` — **added 2026-08-27** by **WIC-1533**, the route's first standing entry point; sibling of `/resume-variants` below |
 | `/cover-letters/new` | `Generate Cover Letter` | `CoverLetterNew.tsx:47` — ~~`CoverLetterGenerator.tsx:181`~~, moved to a page `<h1>` by **WIC-1571** |
-| `/cover-letters/:id` | `Cover Letter` | `CoverLetterDetail.tsx:104` |
-| `/outreach/new` | `Compose Outreach Message` | `OutreachNew.tsx:29` |
+| `/cover-letters/:id` | `Cover Letter` | `CoverLetterDetail.tsx:114` |
+| `/outreach/new` | `Compose Outreach Message` | `OutreachNew.tsx:30` |
 | `/resume-variants` | `Resume Variants` | `ResumeVariantsList.tsx:44` |
 | `/resume-variants/new` | `Generate Resume Variant` | `ResumeVariantNew.tsx:114` |
-| `/resume-variants/:id` | `{variant.title}` | `ResumeVariantDetail.tsx:163`, dynamic; fallback `Resume Variant` |
-| `/projects` | `Projects` | `ProjectsList.tsx:59` |
-| `/projects/new/dialogue` | `New Project` / `Enrich Project` / `Correct Project` | `WizardContainer.tsx:386-390`, varies by wizard variant (§3) |
-| `/projects/:projectId` | `{projectName}` | `ProjectDetail.tsx:40`, dynamic; fallback `Project` |
-| `/projects/:projectId/files/:fileName` | `{fileName}` | `ProjectFileEditor.tsx:66`, dynamic; fallback `Project File` |
+| `/resume-variants/:id` | `{variant.title}` | `ResumeVariantDetail.tsx:170`, dynamic; fallback `Resume Variant` |
+| `/projects` | `Projects` | `ProjectsList.tsx:107` |
+| `/projects/new/dialogue` | `New Project` / `Enrich Project` / `Correct Project` | `WizardContainer.tsx:398-401`, varies by wizard variant (§3) |
+| `/projects/:projectId` | `{projectName}` | `ProjectDetail.tsx:46`, dynamic; fallback `Project` |
+| `/projects/:projectId/files/:fileName` | `{fileName}` | `ProjectFileEditor.tsx:73`, dynamic; fallback `Project File` |
 | `/settings` | `Settings` | `Settings.tsx:29` |
 | `/login` | `Sign In` | **new copy** — page has only an `<h2>`, and it is the product name (§6.1) |
-| `*` (NotFound) | `That page couldn't be found` | `NotFound.tsx:94` ← `COPY.heading` — ~~`Page not found`~~, corrected 2026-08-27 |
+| `*` (NotFound) | `That page couldn't be found` | `NotFound.copy.ts:18` ← `NOT_FOUND_COPY.heading` — ~~`NotFound.tsx:94`~~ moved 2026-09-01 (§9); ~~`Page not found`~~, corrected 2026-08-27 |
 
 > **The 404 row is the one to read twice.** The 2026-08-19 table said `Page not found`, and §7 AC5
 > told the implementer to assert exactly `Page not found — Careerpin`. The shipped `<h1>` is
@@ -227,7 +227,7 @@ Both are WCAG-adjacent (1.3.1 heading structure) and both are why §5 needs new 
 
 ### 6.2 `/job-fit-analysis` loses its `<h1>` in two states — *still true*
 
-`JobFitAnalysis.tsx:104` (`Analyzing Job Fit...`) and `:414` (`Analysis Failed`) are `<h2>`s rendered *instead of* the `<h1>`, not below it. So the page has no `<h1>` while analysing and no `<h1>` when analysis fails — the error state in particular is one a user needs to orient in. Should be an `<h1>`, or the `<h1>` should be persistent with the stage message below it.
+`JobFitAnalysis.tsx:129` (`Analyzing Job Fit...`) and `:414` (`Analysis Failed`) are `<h2>`s rendered *instead of* the `<h1>`, not below it. So the page has no `<h1>` while analysing and no `<h1>` when analysis fails — the error state in particular is one a user needs to orient in. Should be an `<h1>`, or the `<h1>` should be persistent with the stage message below it.
 
 **Interaction with this document:** those two states are exactly when §3 behaviour 2 applies. Whatever the heading fix is, the title must not sit at `Job Fit Analysis Results` while the screen says `Analysis Failed`.
 
