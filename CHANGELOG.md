@@ -108,6 +108,27 @@ WIC-1638's negative control drove the app with a JWT that verifies but carries n
 - **Docs corrected at the two places that disagreed** — `docs/design/COMPONENT_SPECS.md` said `0-100` and now says `0-1`, citing API_CONTRACTS as the source of record for the unit; `docs/architecture/DATA_MODEL.md` declared `responseRate` with no unit at all, directly above a code sample that computes a ratio.
 
 
+
+### Docs — the product name is `Careerpin`, and that ruling now exists in the repository
+
+The Copywriter / Editor ruled on 2026-08-19 (WIC-1102) that the product is **`Careerpin`**,
+with ` — ` (U+2014) as the title separator, and recorded the ruling in a comment saying it had
+landed in `docs/design/CONTENT_STYLE.md`. It had not. That file carried **zero** occurrences of
+`Careerpin` until this change, and its own front matter still read
+`**Project:** Job Application Manager` — so for thirteen days the standard was undiscoverable by
+anyone who read the document it was supposed to live in, and unenforceable by anything.
+
+The same comment reported two of the four affected sites as already fixed. Re-measured at
+`origin/main`, **all four still read the old name**: `packages/web/index.html:13`,
+`pages/Login.tsx:64`, `components/onboarding/OnboardingModal.tsx:330` and
+`components/QuickReferenceExport.tsx:201`. The first two are fixed by WIC-1089 (PR #336), which
+routes both through a single `PRODUCT_NAME` constant. The last two are **not** mechanical
+substitutions — "Welcome to Your Careerpin" does not read, and the export footer reaches printed
+output — so they stay with the Copywriter / Editor and are tracked separately.
+
+Docs only; no source, no rendered output, and no test changed. `docs/design/README.md` picks up
+the same one-line front-matter correction (WIC-1102).
+
 ### Docs — ADR-008's own "percentage is not a ratio" rule was violated on `main` for six days, and every live citation in the ADR had rotted (2026-09-01)
 
 The unit convention landed in `38b4cc8e` (2026-08-26 17:26:59Z) carrying a rule — do not write "percentage" about a `[0, 1]` field — and deleted the single annotation that broke it, in the same commit. Thirty-one minutes later `8433ff2f`, whose subject reads *"say what the brand actually guards, and unit the second declaration"*, annotated the **second** `responseRate` declaration by reaching for the wording the ADR had just retracted: `// 0-1, percentage of applications with response`, byte-identical to the string removed upstream. That second declaration is `DashboardStats` — the field whose mis-unit *is* WIC-1514, a 75% response rate rendering as `1%`. The contract re-asserted the wrong unit on the one field the ADR exists because of, and it stood on `main` until now.

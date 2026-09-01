@@ -1,6 +1,6 @@
 # Content Style — UI Strings
 
-**Project:** Job Application Manager
+**Project:** Careerpin
 **Owner:** Copywriter / Editor, with UI/UX Developer
 **Status:** 🟡 Proposed — pending board sign-off (WIC-1066)
 **Created:** August 19, 2026
@@ -46,6 +46,48 @@ The exception list is closed. If a string is not covered below, it is sentence c
 **1. Proper nouns and brand names** — written as their owner writes them.
 
 > `Sign in with Google` · `Import from LinkedIn` · `Powered by Cloudflare`
+
+**The product's own name is `Careerpin`.** Ruled by the Copywriter / Editor on
+2026-08-19 under WIC-1102, together with the ` — ` (U+2014 EM DASH) title separator.
+Not `Job Application Manager`, and not `jobtrail` — the latter is the internal package
+and deploy-target name and is never user-facing.
+
+The reasoning is worth keeping, because it is a casing argument and not a preference:
+`Job Application Manager` is three title-cased common nouns, so it survives only if
+Exception 1 above is granted to it — and granting a *descriptive phrase* brand-name
+status reopens the "feature names are not proper nouns" loophole that
+[What is *not* an exception](#what-is-not-an-exception) closes deliberately. Deny it the
+exception and sentence case renders it `Job application manager`, which nobody would ship
+above a sign-in form. It is unstable on both branches. `Careerpin` takes its capital
+cleanly and is invariant under every other rule in this document. **A name that forces a
+standing exception to the house style is a defect in the name.**
+
+Title pattern, adopted from the five `packages/marketing/*.html` `<title>` elements
+already deployed (codepoints checked, not eyeballed — all five are U+2014):
+
+> `{Page} — Careerpin`, and `Careerpin — {tagline}` on the root page only.
+
+This **supersedes the ` · ` (U+00B7) separator** specified for the 404 in WIC-1046, which
+predated the marketing-package audit.
+
+⚠️ **This ruling was decided on 2026-08-19 and did not reach this file until
+2026-09-01.** In between, a WIC-1102 comment recorded it as landed here and reported the
+two then-outstanding sites as fixed; neither was true of the repository, so the ruling was
+unenforceable and invisible to every implementer who read this document. Re-measured at
+`origin/main` on 2026-09-01 — **all four user-facing sites still read the old name:**
+
+| Site | What it is | Status |
+|---|---|---|
+| `packages/web/index.html:13` | the SPA `<title>` | fixed by WIC-1089 / PR #336 |
+| `packages/web/src/pages/Login.tsx:64` | the sign-in `<h2>` | fixed by WIC-1089 / PR #336 |
+| `packages/web/src/components/onboarding/OnboardingModal.tsx:330` | step-1 headline, `"Welcome to Your Job Application Manager"` | **outstanding** |
+| `packages/web/src/components/QuickReferenceExport.tsx:201` | export footer, `"Generated with Job Application Manager"` | **outstanding** |
+
+The first two now read from one constant, `PRODUCT_NAME` in
+`packages/web/src/constants/title.ts`; change that line and both move together. The last
+two are **not** mechanical substitutions — "Welcome to Your Careerpin" does not read, and
+the export footer is printed output — so each needs a copy decision, not a find-and-replace.
+Those two are the Copywriter / Editor's call and are tracked separately.
 
 **2. Acronyms and initialisms** — keep their established casing.
 
@@ -338,3 +380,5 @@ standard, and let the migration close the gap.
 - WIC-1052 — the 404 copy pass, written to this standard before it was written down
 - WIC-1090 — UI/UX review: the slot matrix, and the selector audit behind the test section
 - WIC-1069 / WIC-1086 — baked-caps cleanup
+- WIC-1102 — the product-name ruling (`Careerpin`) and the ` — ` title separator
+- WIC-1089 / WIC-1098 — per-route `document.title`, which consumes `PRODUCT_NAME`
