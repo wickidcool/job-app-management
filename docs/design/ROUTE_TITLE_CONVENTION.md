@@ -310,10 +310,24 @@ and §7 in place, so the deviations stay auditable — same convention the WIC-1
    formatter plus a co-located `.test.ts`).
 
 **§6.1's second finding is now half-fixed, and deliberately only half.** `/login`'s `<h2>` was
-the product name; it is now `{PRODUCT_NAME}`, so the stale `Job Application Manager` is gone
-from the last place a user could read it. It is still an `<h2>` with no `<h1>` above it — the
+the product name; it is now `{PRODUCT_NAME}`. It is still an `<h2>` with no `<h1>` above it — the
 heading-structure half is a `ROUTE_HEADING_OUTLINE.md` call, not this document's, and is left
 where §6.1 filed it.
+
+> **Correction to §2 — `index.html` and `Login.tsx` were not the only two.** §2 says the stale
+> product name lives in "`index.html` title and the `<h2>` on `pages/Login.tsx:60`". Measured
+> 2026-09-01, two more user-visible occurrences exist and were **not** touched by this work:
+> `components/onboarding/OnboardingModal.tsx:330` (`title="Welcome to Your Job Application
+> Manager"`, the onboarding step-1 headline) and `components/QuickReferenceExport.tsx:201`
+> (`Generated with Job Application Manager`, in the footer of the exported interview sheet — so it
+> reaches printed and shared output).
+>
+> Both are **prose, not titles**, and neither renames mechanically: "Welcome to Your Careerpin"
+> does not read. Renaming them is a copy decision belonging to the Copywriter/Editor, and §2 itself
+> flags the name to that role "for confirmation, not for permission". They are therefore recorded
+> here rather than changed, so that the next reader does not repeat §2's count. Anyone completing
+> the rename should also check `packages/web/src/components/index.ts` and
+> `services/api/index.ts`, where it survives in comments only.
 
 **AC7 is enforced structurally.** Rather than open each dialog and assert the title held still,
 the coverage test asserts that `useDocumentTitle` is called only from pages and from

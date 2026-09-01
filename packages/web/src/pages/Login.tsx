@@ -66,7 +66,8 @@ export function Login() {
           {/* The product name, from the one constant that also builds every page title.
               Was the hardcoded "Job Application Manager" — a third name for a product the
               public site and the production host both call Careerpin
-              (docs/design/ROUTE_TITLE_CONVENTION.md §2). */}
+              (docs/design/ROUTE_TITLE_CONVENTION.md §2). Two prose occurrences of the old
+              name remain elsewhere in the app and are the Copywriter's call; see §9. */}
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">{PRODUCT_NAME}</h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             {mode === 'login' ? 'Sign in to manage your job applications' : 'Create an account'}

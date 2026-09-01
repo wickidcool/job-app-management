@@ -42,9 +42,12 @@ describe('the product name lives in exactly one place (AC2)', () => {
     expect(PRODUCT_NAME).toBe('Careerpin');
   });
 
-  it('has displaced the two stale names everywhere a user can read them', () => {
-    // `jobtrail` (the root package.json name and a deploy target) is not user-facing and
-    // is out of scope; `Job Application Manager` was, in two places, and is now gone.
+  it('keeps the stale product name out of every title', () => {
+    // Scoped to titles on purpose, and the scope is the honest claim: `Job Application
+    // Manager` is gone from `index.html` and from Login's <h2>, the two places §2 named —
+    // but it survives as prose in OnboardingModal.tsx:330 and QuickReferenceExport.tsx:201,
+    // which are the Copywriter's to rename and are recorded in the spec's §9. Asserting
+    // "gone everywhere" here would be a test that documents a falsehood.
     const titles = Object.values(STATIC_ROUTE_TITLES).concat(LOGIN_TITLE);
     for (const title of titles) {
       expect(title).not.toContain('Job Application Manager');

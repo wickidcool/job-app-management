@@ -120,8 +120,13 @@ a single-page app, and the reason `Ctrl/Cmd+H` could not be used to get back to 
   against the tree rather than copied from the doc: every one is stable, but **every line number in
   §5 had moved** in the five days since the port.
 - `PRODUCT_NAME`/`formatTitle` live in one module, so the brand is a one-line change. `index.html`
-  and `Login.tsx`'s `<h2>` — the last two user-visible places that still said `Job Application
-  Manager` — now read **Careerpin**, which is what the marketing site and the production host say.
+  and `Login.tsx`'s `<h2>` now read **Careerpin**, which is what the marketing site and the
+  production host say. Those are the two places §2 named; they are **not** the last two in the
+  product. `OnboardingModal.tsx:330` ("Welcome to Your Job Application Manager") and
+  `QuickReferenceExport.tsx:201` ("Generated with Job Application Manager", printed on the exported
+  interview sheet) still carry the old name. Both are prose headlines rather than titles, neither
+  is mechanical to rename — "Welcome to Your Careerpin" does not read — and the wording is the
+  Copywriter's to set, so they are flagged here rather than guessed at.
 - **The 404's title is read from its copy block, never retyped.** `NotFound.copy.ts` is a new module
   for exactly that: the separator is a typographic em dash and the apostrophe in "couldn't" is a
   straight `'`, so a title retyped from the design doc's prose disagrees with the heading in a way
