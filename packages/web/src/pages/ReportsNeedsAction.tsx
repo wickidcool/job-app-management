@@ -120,9 +120,9 @@ export function ReportsNeedsAction() {
       {applications.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white p-8 text-center">
           <div className="text-4xl mb-4">🎉</div>
-          <h3 className="text-lg font-semibold text-neutral-900">
+          <h2 className="text-lg font-semibold text-neutral-900">
             No actions due within {daysThreshold} days
-          </h3>
+          </h2>
           <p className="mt-2 text-sm text-neutral-600">Great work staying on top of things!</p>
         </div>
       ) : (
@@ -145,9 +145,9 @@ export function ReportsNeedsAction() {
                       status={item.status as Parameters<typeof StatusBadge>[0]['status']}
                     />
                   </div>
-                  <h3 className="text-lg font-semibold text-neutral-900">
+                  <h2 className="text-lg font-semibold text-neutral-900">
                     {item.jobTitle} @ {item.company}
-                  </h3>
+                  </h2>
                   <p className="mt-1 text-sm text-neutral-700">
                     <span className="font-medium">Next Action:</span> {item.nextAction}
                   </p>

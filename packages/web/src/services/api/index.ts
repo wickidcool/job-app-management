@@ -13,6 +13,7 @@
  * ```
  */
 
+import { AUTH_TOKEN_KEY } from '../appStorage';
 import { createAPIClient } from './apiClient';
 import { createApplicationService } from './applicationService';
 import { createDashboardService } from './dashboardService';
@@ -35,7 +36,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
  * Get authentication token from localStorage
  */
 async function getAuthToken(): Promise<string | null> {
-  return localStorage.getItem('auth_token');
+  return localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
 // Create API client

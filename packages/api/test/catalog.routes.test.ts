@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
+import {
+  buildAuthedApp,
+  resetAuthEnv,
+  TEST_USER_ID,
+  type AuthedApp,
+} from './helpers/authed-app.js';
 import { _resetConfig } from '../src/config.js';
 import { _resetJwksCache } from '../src/middleware/auth.js';
 
@@ -82,17 +88,23 @@ const mockTag = {
 };
 
 describe('Catalog Routes', () => {
-  let app: ReturnType<typeof buildApp>;
+  // Authenticated: these routes call `requireOwner`, so an owner-less request
+  // is a 401 and never reaches the service (WIC-1638). See helpers/authed-app.
+  let app: AuthedApp;
 
-  beforeEach(() => {
-    app = buildApp();
+  beforeEach(async () => {
+    app = await buildAuthedApp();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetAuthEnv();
   });
 
   // ── GET /api/catalog/diffs ──────────────────────────────────────────────────
 
   describe('GET /api/catalog/diffs', () => {
-    it('returns 200 with plain array of diffs', async () => {
+    it('returns 200 with the documented { diffs } envelope', async () => {
       vi.mocked(catalogService.listDiffs).mockResolvedValue({
         diffs: [mockDiff],
         nextCursor: undefined,
@@ -101,14 +113,14 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/diffs', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockDiff]);
+      expect(await response.json()).toEqual({ diffs: [mockDiff] });
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
         {
           status: undefined,
           limit: undefined,
           cursor: undefined,
         },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -120,17 +132,17 @@ describe('Catalog Routes', () => {
       expect(response.status).toBe(200);
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'approved' }),
-        undefined
+        TEST_USER_ID
       );
     });
 
-    it('returns empty array when no diffs exist', async () => {
+    it('returns an empty diffs array when no diffs exist', async () => {
       vi.mocked(catalogService.listDiffs).mockResolvedValue({ diffs: [], nextCursor: undefined });
 
       const response = await app.request('/api/catalog/diffs', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([]);
+      expect(await response.json()).toEqual({ diffs: [] });
     });
   });
 
@@ -174,7 +186,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.generateDiff).toHaveBeenCalledWith(
         'resume',
         '01HZ_RESUME_001',
-        undefined
+        TEST_USER_ID
       );
     });
   });
@@ -201,7 +213,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.applyDiff).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { action: 'approve_all' },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -269,7 +281,7 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001', { method: 'DELETE' });
 
       expect(response.status).toBe(204);
-      expect(catalogService.discardDiff).toHaveBeenCalledWith('01HZ_DIFF_001', undefined);
+      expect(catalogService.discardDiff).toHaveBeenCalledWith('01HZ_DIFF_001', TEST_USER_ID);
     });
 
     it('returns 404 when diff not found', async () => {
@@ -284,7 +296,7 @@ describe('Catalog Routes', () => {
   // ── GET /api/catalog/companies ─────────────────────────────────────────────
 
   describe('GET /api/catalog/companies', () => {
-    it('returns 200 with plain array of companies', async () => {
+    it('returns 200 with the documented { companies } envelope', async () => {
       const mockCompany = {
         id: '01HZ_CO_001',
         name: 'Acme Corp',
@@ -304,14 +316,14 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/companies', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockCompany]);
+      expect(await response.json()).toEqual({ companies: [mockCompany] });
     });
   });
 
   // ── GET /api/catalog/tags/:type ────────────────────────────────────────────
 
   describe('GET /api/catalog/tags/tech-stack', () => {
-    it('returns 200 with plain array of tech stack tags', async () => {
+    it('returns 200 with the documented { tags } envelope', async () => {
       vi.mocked(catalogService.listTechStackTags).mockResolvedValue({
         tags: [mockTag],
         nextCursor: undefined,
@@ -320,12 +332,12 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/tags/tech-stack', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockTag]);
+      expect(await response.json()).toEqual({ tags: [mockTag] });
     });
   });
 
   describe('GET /api/catalog/tags/job-fit', () => {
-    it('returns 200 with plain array of job fit tags', async () => {
+    it('returns 200 with the documented { tags } envelope', async () => {
       vi.mocked(catalogService.listJobFitTags).mockResolvedValue({
         tags: [mockTag],
         nextCursor: undefined,
@@ -334,7 +346,7 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/tags/job-fit', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockTag]);
+      expect(await response.json()).toEqual({ tags: [mockTag] });
     });
   });
 
@@ -409,7 +421,7 @@ describe('Catalog Routes', () => {
   // ── GET /api/catalog/quantified-bullets ───────────────────────────────────
 
   describe('GET /api/catalog/quantified-bullets', () => {
-    it('returns 200 with plain array of bullets', async () => {
+    it('returns 200 with the documented { bullets } envelope', async () => {
       const mockBullet = {
         id: '01HZ_BULLET_001',
         sourceType: 'resume',
@@ -432,14 +444,14 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/quantified-bullets', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockBullet]);
+      expect(await response.json()).toEqual({ bullets: [mockBullet] });
     });
   });
 
   // ── GET /api/catalog/themes ────────────────────────────────────────────────
 
   describe('GET /api/catalog/themes', () => {
-    it('returns 200 with plain array of themes', async () => {
+    it('returns 200 with the documented { themes } envelope', async () => {
       const mockTheme = {
         id: '01HZ_THEME_001',
         themeSlug: 'team-leadership',
@@ -459,7 +471,60 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/themes', { method: 'GET' });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual([mockTheme]);
+      expect(await response.json()).toEqual({ themes: [mockTheme] });
+    });
+  });
+
+  // ── nextCursor propagation ─────────────────────────────────────────────────
+  //
+  // Every catalog list service computes a `nextCursor`; every one of these
+  // routes used to destructure the items out and drop it on the floor
+  // (WIC-1336). The envelope assertions above do not catch that on their own —
+  // a route returning `c.json({ diffs })` satisfies every one of them, because
+  // their fixtures all leave `nextCursor` undefined and `toEqual` treats an
+  // undefined property as absent. Each case here therefore mints a *defined*
+  // cursor and requires it to survive the trip through the route.
+  describe('nextCursor survives every catalog list route', () => {
+    const LIST_ROUTES = [
+      ['listDiffs', '/api/catalog/diffs', 'diffs'],
+      ['listCompanies', '/api/catalog/companies', 'companies'],
+      ['listJobFitTags', '/api/catalog/tags/job-fit', 'tags'],
+      ['listTechStackTags', '/api/catalog/tags/tech-stack', 'tags'],
+      ['listBullets', '/api/catalog/quantified-bullets', 'bullets'],
+      ['listThemes', '/api/catalog/themes', 'themes'],
+    ] as const;
+
+    // Guards the guard. `LIST_ROUTES` is hand-maintained, so on its own it can
+    // only claim to be exhaustive; this counts. A catalog list endpoint that
+    // lands without a row fails here rather than quietly shrinking the claim
+    // above — the failure mode that cost WIC-1335 a quarter of its coverage.
+    it('covers every catalog service function that mints a cursor', async () => {
+      const { readFile } = await import('node:fs/promises');
+      const source = await readFile(
+        new URL('../src/services/catalog.service.ts', import.meta.url),
+        'utf-8'
+      );
+
+      const minters = source
+        .split('export async function ')
+        .slice(1)
+        .filter((body) => body.includes('nextCursor'))
+        .map((body) => body.slice(0, body.indexOf('(')));
+
+      expect(new Set(minters)).toEqual(new Set(LIST_ROUTES.map(([fn]) => fn)));
+      expect(minters).toHaveLength(LIST_ROUTES.length);
+    });
+
+    it.each(LIST_ROUTES)('%s returns nextCursor at %s', async (fn, path, itemsKey) => {
+      vi.mocked(catalogService[fn]).mockResolvedValue({
+        [itemsKey]: [],
+        nextCursor: 'MTA',
+      } as never);
+
+      const response = await app.request(path, { method: 'GET' });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ [itemsKey]: [], nextCursor: 'MTA' });
     });
   });
 
@@ -505,7 +570,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeCompanies).toHaveBeenCalledWith(
         ['01HZ_CO_002', '01HZ_CO_003'],
         '01HZ_CO_001',
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -573,7 +638,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeJobFitTags).toHaveBeenCalledWith(
         ['01HZ_TAG_002'],
         '01HZ_TAG_001',
-        undefined
+        TEST_USER_ID
       );
       expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
     });
@@ -595,7 +660,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeTechStackTags).toHaveBeenCalledWith(
         ['01HZ_TAG_AI_ML'],
         '01HZ_TAG_001',
-        undefined
+        TEST_USER_ID
       );
       expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
     });
@@ -657,7 +722,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { itemType: 'change', itemIndex: 0, decision: 'approve' },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -682,7 +747,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { itemType: 'review', itemIndex: 2, decision: 'reject', selectedOption: 'ai-ml' },
-        undefined
+        TEST_USER_ID
       );
     });
 

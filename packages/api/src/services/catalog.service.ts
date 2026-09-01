@@ -102,23 +102,24 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
   };
 }
 
-export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
+export async function mergeCompanies(sourceIds: string[], targetId: string, userId: string) {
   const db = getDb();
   assertMergeSources(sourceIds, targetId);
   // Every read AND every write is scoped to the caller, so a known id belonging
   // to another user can neither be folded into a target nor soft-deleted. The
-  // predicate is conditional on userId for the same reason as resolveDiffItem:
-  // single-user/local mode (SUPABASE_JWT_SECRET unset) has no userId to scope by.
-  const targetWhere = userId
-    ? and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId))
-    : eq(companyCatalog.id, targetId);
+  // owner is required rather than optional (ADR-010 D2): an absent owner used to
+  // degrade this to a bare id match, which is the cross-tenant merge WIC-1365
+  // closed. Local dev resolves a real owner at the route edge (ADR-010 D3), so
+  // there is no owner-absent path left for this predicate to serve.
+  const targetWhere = and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId));
   // The id term must be `inArray`, never a raw `= ANY(${sourceIds})`: Drizzle
   // interpolates a JS array into a `sql` template as a comma-separated
   // parameter list, so that renders `= ANY(($1, $2))` — a row constructor,
   // which Postgres rejects outright. See the WIC-1377 tests.
-  const sourcesWhere = userId
-    ? and(inArray(companyCatalog.id, sourceIds), eq(companyCatalog.userId, userId))
-    : inArray(companyCatalog.id, sourceIds);
+  const sourcesWhere = and(
+    inArray(companyCatalog.id, sourceIds),
+    eq(companyCatalog.userId, userId)
+  );
 
   const [target] = await db.select().from(companyCatalog).where(targetWhere);
   if (!target) throw new NotFoundError('Company');
@@ -213,14 +214,12 @@ function toJobFitTagDTO(row: typeof jobFitTags.$inferSelect) {
 export async function updateJobFitTag(
   id: string,
   patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
-  userId?: string
+  userId: string
 ) {
   const db = getDb();
   // Scope the read so another user's tag reports NotFound rather than falling
   // through to the version check and reporting a misleading version conflict.
-  const scoped = userId
-    ? and(eq(jobFitTags.id, id), eq(jobFitTags.userId, userId))
-    : eq(jobFitTags.id, id);
+  const scoped = and(eq(jobFitTags.id, id), eq(jobFitTags.userId, userId));
   const [existing] = await db.select().from(jobFitTags).where(scoped);
   if (!existing) throw new NotFoundError('JobFitTag');
 
@@ -255,16 +254,14 @@ export async function updateJobFitTag(
   return toJobFitTagDTO(updated);
 }
 
-export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId?: string) {
+export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId: string) {
   const db = getDb();
   assertMergeSources(sourceIds, targetId);
-  const targetWhere = userId
-    ? and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId))
-    : eq(jobFitTags.id, targetId);
+  // See mergeCompanies: the owner is required, so neither the target read nor
+  // the source read can degrade to a bare id match (ADR-010 D2).
+  const targetWhere = and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId));
   // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
-  const sourcesWhere = userId
-    ? and(inArray(jobFitTags.id, sourceIds), eq(jobFitTags.userId, userId))
-    : inArray(jobFitTags.id, sourceIds);
+  const sourcesWhere = and(inArray(jobFitTags.id, sourceIds), eq(jobFitTags.userId, userId));
 
   const [target] = await db.select().from(jobFitTags).where(targetWhere);
   if (!target) throw new NotFoundError('JobFitTag');
@@ -292,11 +289,7 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string, use
     for (const source of sources) {
       await tx
         .delete(jobFitTags)
-        .where(
-          userId
-            ? and(eq(jobFitTags.id, source.id), eq(jobFitTags.userId, userId))
-            : eq(jobFitTags.id, source.id)
-        );
+        .where(and(eq(jobFitTags.id, source.id), eq(jobFitTags.userId, userId)));
     }
   });
 
@@ -350,12 +343,12 @@ function toTechStackTagDTO(row: typeof techStackTags.$inferSelect) {
 export async function updateTechStackTag(
   id: string,
   patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
-  userId?: string
+  userId: string
 ) {
   const db = getDb();
-  const scoped = userId
-    ? and(eq(techStackTags.id, id), eq(techStackTags.userId, userId))
-    : eq(techStackTags.id, id);
+  // See updateJobFitTag: scoped so another user's tag is NotFound, not a
+  // misleading version conflict. Owner required per ADR-010 D2.
+  const scoped = and(eq(techStackTags.id, id), eq(techStackTags.userId, userId));
   const [existing] = await db.select().from(techStackTags).where(scoped);
   if (!existing) throw new NotFoundError('TechStackTag');
 
@@ -387,16 +380,14 @@ export async function updateTechStackTag(
   return toTechStackTagDTO(updated);
 }
 
-export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId?: string) {
+export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId: string) {
   const db = getDb();
   assertMergeSources(sourceIds, targetId);
-  const targetWhere = userId
-    ? and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId))
-    : eq(techStackTags.id, targetId);
+  // See mergeCompanies: the owner is required, so neither the target read nor
+  // the source read can degrade to a bare id match (ADR-010 D2).
+  const targetWhere = and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId));
   // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
-  const sourcesWhere = userId
-    ? and(inArray(techStackTags.id, sourceIds), eq(techStackTags.userId, userId))
-    : inArray(techStackTags.id, sourceIds);
+  const sourcesWhere = and(inArray(techStackTags.id, sourceIds), eq(techStackTags.userId, userId));
 
   const [target] = await db.select().from(techStackTags).where(targetWhere);
   if (!target) throw new NotFoundError('TechStackTag');
@@ -422,11 +413,7 @@ export async function mergeTechStackTags(sourceIds: string[], targetId: string, 
     for (const source of sources) {
       await tx
         .delete(techStackTags)
-        .where(
-          userId
-            ? and(eq(techStackTags.id, source.id), eq(techStackTags.userId, userId))
-            : eq(techStackTags.id, source.id)
-        );
+        .where(and(eq(techStackTags.id, source.id), eq(techStackTags.userId, userId)));
     }
   });
 
@@ -897,20 +884,29 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
 export async function generateDiff(
   sourceType: 'resume' | 'application',
   sourceId: string,
-  userId?: string
+  userId: string
 ) {
   const db = getDb();
   // processCatalogChange reads the owner off event.metadata.userId (the shape
   // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
   // and every catalog row auto-applied alongside it — with user_id null, which
   // no scoped reader (listDiffs / getDiff / applyDiff) can ever see again.
+  //
+  // It is also the tenancy check itself: `sourceId` comes straight from the
+  // request body, so the caller's identity is the thing being tested and it has
+  // to travel with the event. Without it `resolveOwnerUserId` falls back to the
+  // source row's own `user_id`, the "owner" resolves to the victim, and the
+  // scoped document read matches by construction. `?? null` rather than bare
+  // `userId`: in local-dev auth bypass `userId` is undefined,
+  // `typeof null === 'string'` is false, and the row fallback still applies, so
+  // single-user local behaviour is unchanged.
   await processCatalogChange({
     id: ulid(),
     sourceType,
     sourceId,
     changeType: 'created',
     timestamp: new Date().toISOString(),
-    metadata: { userId: userId ?? null },
+    metadata: { userId },
   });
   const conditions = [
     eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'),
@@ -920,7 +916,8 @@ export async function generateDiff(
   // back whichever diff is newest for that trigger. processCatalogChange bails
   // early when the source yields no text, so the row this call would otherwise
   // have inserted need not exist — the lookup then falls through to the owner's.
-  if (userId) conditions.push(eq(catalogDiffs.userId, userId));
+  // Unconditional: the owner is required, so this term is always present.
+  conditions.push(eq(catalogDiffs.userId, userId));
   const [diff] = await db
     .select()
     .from(catalogDiffs)
