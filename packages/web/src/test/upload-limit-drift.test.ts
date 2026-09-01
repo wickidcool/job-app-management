@@ -342,10 +342,17 @@ function lineStartAt(source: string, index: number): number {
  * never crossing a line start.
  *
  * `|` is in the delimiter class and is load-bearing, not decorative:
- * `COMPONENT_SPECS.md:874` is a markdown table row, and neighbouring cells have
- * to scope apart or a marker in one cell exempts the figures in the next.
- * (`:841` on `560f5df`; the `9ba5041` merge moved it 33 lines. Pinned by
- * `table cells scope apart` below, which does not depend on the line number.)
+ * COMPONENT_SPECS.md's `File Too Large` row — `| File Too Large | Drop 15MB file
+ * (max 10MB) | Show error toast: "File must be under 10MB" |` — is a markdown
+ * table row, and neighbouring cells have to scope apart or a marker in one cell
+ * exempts the figures in the next.
+ *
+ * That row is named by content, not by line number, because every line number
+ * this comment has carried went stale before anyone read it. It has moved twice
+ * under merges already, and the number cited here previously now points at an
+ * unrelated `acceptedFormats` field in a TypeScript block. `grep` for the row
+ * instead. The behaviour is pinned by `table cells scope apart` below, which
+ * likewise does not depend on a line number.
  *
  * The failure direction is safe. An abbreviation the split does not know about
  * — `e.g.`, `i.e.`, a decimal — can only cut the clause *shorter* than the
@@ -668,37 +675,22 @@ describe('resume upload size limit', () => {
   }
 
   /**
-   * Trip-wire, not a guard: green while the defect is live, RED the moment it is
-   * fixed. PR #143 (WIC-1382) is the fix. When it merges, delete `.fails`.
-   *
-   * The onboarding zone caps uploads at 5MB while the server accepts 10MB, so a 7MB
-   * PDF is refused at the highest-drop-off point in the product with no way around
-   * it — the standalone `/resumes/upload` surface takes the same file.
-   *
-   * Verified against #143's real diff, not a stand-in for it (WIC-1568 / F1).
+   * Was a trip-wire (green while the defect was live, RED the moment it was
+   * fixed) until PR #143 (WIC-1382) landed. Now a guard: the onboarding zone
+   * and the server agree on the limit, and this keeps them that way.
    */
-  it.fails('the onboarding upload zone enforces the API limit (WIC-1382 / PR #143)', () => {
+  it('the onboarding upload zone enforces the API limit (WIC-1382 / PR #143)', () => {
     expect(resolveZoneLimit().mb).toBe(resolveApiLimit().mb);
   });
 
   /**
-   * Trip-wire, not a guard. PR #150 (WIC-1436) moves every figure in this doc to
-   * 10MB; when it merges, delete `.fails`.
+   * Was a trip-wire until PR #150 (WIC-1436) moved every figure in this doc to
+   * 10MB. Now a guard.
    *
-   * Compares distinct *values*, not a fixed-length array, so #150's reflow of the
+   * Compares distinct *values*, not a fixed-length array, so a reflow of the
    * surrounding prose cannot keep it green on a count mismatch (WIC-1568 / F2).
-   * Verified against #150's real diff.
-   *
-   * Note the ordering this enforces. ONBOARDING_FLOW.md is the doc that specifies
-   * `<ResumeUploadZone />`, and today its 5MB matches that component — so #150,
-   * which is docs-only, briefly makes the doc wrong about the thing it specifies
-   * if it lands before #143. That is a real but cosmetic and time-boxed hazard,
-   * and it should not gate #150 (WIC-1568 / F4): the doc and the component are
-   * wrong *together*, and their agreement is not evidence that either is right —
-   * two sibling specs and the server all say 10MB. Both trip-wires are here so
-   * that each PR flips its own, and neither can land silently.
    */
-  it.fails(`${ONBOARDING_FLOW_PATH} quotes the API limit (WIC-1436 / PR #150)`, () => {
+  it(`${ONBOARDING_FLOW_PATH} quotes the API limit (WIC-1436 / PR #150)`, () => {
     expect(distinctLimitFiguresIn(onboardingFlowDoc)).toEqual([resolveApiLimit().mb]);
   });
 });
