@@ -8,10 +8,11 @@ import {
 } from '../services/dialogue.service.js';
 import { AppError } from '../types/index.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 export const dialogueRoutes = new Hono<AppEnv>()
   .post('/projects/:projectId/capture', async (c) => {
-    const parsed = ProjectCaptureSchema.safeParse(await c.req.json());
+    const parsed = ProjectCaptureSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       throw new AppError('BAD_REQUEST', 'Invalid capture data', parsed.error.flatten(), 400);
     }
@@ -28,7 +29,7 @@ export const dialogueRoutes = new Hono<AppEnv>()
     if (!fileName.endsWith('.md')) {
       throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
     }
-    const parsed = ProjectEnrichSchema.safeParse(await c.req.json());
+    const parsed = ProjectEnrichSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       throw new AppError('BAD_REQUEST', 'Invalid enrich data', parsed.error.flatten(), 400);
     }
@@ -53,7 +54,7 @@ export const dialogueRoutes = new Hono<AppEnv>()
     if (!fileName.endsWith('.md')) {
       throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
     }
-    const parsed = ProjectCaptureSchema.safeParse(await c.req.json());
+    const parsed = ProjectCaptureSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       throw new AppError('BAD_REQUEST', 'Invalid correction data', parsed.error.flatten(), 400);
     }
