@@ -8,6 +8,14 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Fixed — a bare `COMPONENT_SPECS` was mangled by an emphasis reformat (2026-09-01)
+
+One CHANGELOG line rendered as `COMPONENT*SPECS ... left the \_decision* open`. It should read `COMPONENT_SPECS ... left the *decision* open`. The wholesale `*x*` -> `_x_` emphasis reformat in #299 (WIC-1675) re-paired the underscore in the bare identifier `COMPONENT_SPECS` with the `_` it was inserting to close `*decision*`, splitting one emphasis span across two unrelated tokens. Net effect on the rendered page: the identifier lost its underscore and displayed as italic `SPECS`, and `decision` displayed a literal backslash.
+
+- **This is why the identifier is now in backticks, not merely un-mangled.** Of the 22 occurrences of `COMPONENT_SPECS` in this file, 21 were already inside a code span and every one of them survived the reformat untouched — an underscore inside a code span is inert to the emphasis parser. The single bare occurrence was the only casualty. Backticking it matches the file's own dominant convention and makes the line immune to any future reformat, which un-mangling alone would not.
+- **Blast radius was exactly one line, and that was measured, not assumed.** Pairing every line of the reformat by its emphasis-stripped text, 88 of the 89 rewritten lines round-trip cleanly; this was the 89th. The `\_` escape count across the whole file went 0 -> 1 at #299 and is back to 0.
+- **It reinforces the standing rule rather than qualifying it:** do not run a formatter over `CHANGELOG.md` (WIC-1732). This is the first observed instance of that class actually corrupting content rather than only re-arming a `merge=union` seam.
+
 ### Added — the rendered heading outline of every route is now a build gate (2026-08-30)
 
 WCAG 2.1 AA (SC 1.3.1) has been an accepted NFR with nothing enforcing heading order. Layer 1 (WIC-1483/PR #226) added `eslint-plugin-jsx-a11y` and **cannot** close this: the plugin has no `heading-order` rule, and heading order is not a property of any single element, so a per-file lint is structurally blind to it. This is layer 2 (WIC-1675) — it renders all **30 routes × 4 branches = 120** (route, branch) pairs under jsdom and reads the outline a screen reader would build.
@@ -293,7 +301,7 @@ Every catalog list *service* computes a `nextCursor`; every catalog *route* dest
 
 ### Decided — salary filtering is dropped, with the reason recorded (2026-08-30)
 
-COMPONENT*SPECS §6 specified a salary range slider (min $0k, max $500k, step $10k) and `salaryMin`/`salaryMax` on `FilterOptions`. None of it was ever built. WIC-1613 struck the fields as a statement of fact but deliberately left the \_decision* open, because deleting an unbuilt clause without recording why is precisely how `dateRange` read as delivered for four months. This is that decision (WIC-1731, stacked on WIC-1613). No behaviour changes; salary is still captured on the form and shown on the card, detail and reports views.
+`COMPONENT_SPECS` §6 specified a salary range slider (min $0k, max $500k, step $10k) and `salaryMin`/`salaryMax` on `FilterOptions`. None of it was ever built. WIC-1613 struck the fields as a statement of fact but deliberately left the _decision_ open, because deleting an unbuilt clause without recording why is precisely how `dateRange` read as delivered for four months. This is that decision (WIC-1731, stacked on WIC-1613). No behaviour changes; salary is still captured on the form and shown on the card, detail and reports views.
 
 - **The specified control needed a number, and salary is free text.** `salary_range` is a nullable `TEXT` column (`DATA_MODEL.md:74`), typed `salaryRange?: string` — "Optional, 1-50 chars" (`API_CONTRACTS.md:408`) — and captured by a plain text input. `salaryMin`/`salaryMax` were the **only** numeric salary anywhere in the repository, with no producer and no consumer.
 - **The format is already inconsistent in our own fixtures**, before any user touches it: `'$140k - $180k'`, `'$150k-180k'`, `'$180k-220k'`. Hourly rates, other currencies, single figures and "DOE" are all equally valid against `string`.
