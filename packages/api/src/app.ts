@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { sql } from 'drizzle-orm';
 import { getDb } from './db/client.js';
@@ -87,7 +88,15 @@ export function buildApp() {
     })
   );
 
-  app.get('/health', async (c) => {
+  // Liveness that actually reaches Postgres, served with NO auth (WIC-1296). It runs a
+  // real `SELECT 1`, so a paused/unreachable database makes it go `503 degraded` — unlike
+  // the authenticated `/api/*` routes, which return 401 before touching the DB and can
+  // therefore never register a database outage. Registered on BOTH `/health` and
+  // `/api/health`: the `/api/health` handler is declared here, before `app.route('/api',
+  // api)` mounts the auth-guarded sub-app, so it wins the match and is not shadowed by
+  // `authMiddleware`. Callers that (reasonably) assumed `/api/health` was a health check
+  // were previously getting a bare 401; now they get a genuine DB liveness signal.
+  const healthHandler = async (c: Context<AppEnv>) => {
     const hyperdrive = !!c.env?.HYPERDRIVE;
     const hasDbUrl = !!c.env?.DATABASE_URL;
     // Only probe the DB when a Workers DB binding is present.
@@ -103,7 +112,9 @@ export function buildApp() {
     }
     const status = db === 'ok' || db === 'not_applicable' ? 'ok' : 'degraded';
     return c.json({ status, hyperdrive, db }, status === 'ok' ? 200 : 503);
-  });
+  };
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
 
   const api = new Hono<AppEnv>();
   api.use('*', authMiddleware);

@@ -823,6 +823,16 @@ The entry below fixed the except tuple in `organic_watch.py`'s `prod_db_health()
 - **Three new rules for new routes** (`ROUTE_HEADING_OUTLINE.md` §5): classify a heading before promoting it and read branchy bodies per branch rather than per file; grep for `headingLevel` in the subtree first; and note that `routeHeadingOutline.test.ts` reads JSX comments as live source, so a heading tag written in prose inside a `{/* … */}` block registers as a real heading. That last one cost a false collision during WIC-1571 — prefer `h2`/`h3` over `<h2>`/`<h3>` when explaining a heading decision in a comment.
 - Order of landing, which is what settled it: `6911bcb` (`ROUTE_HEADING_OUTLINE.md`) → `38bd487` (the prop) → `1c54133` (§3's "now live" note). §4's third row was written about a prop that did not yet exist. A precedence note at the head of `ROUTE_HEADING_OUTLINE.md` now records which document governs.
 
+
+### Added — a DB-backed synthetic auth probe for prod, and `/api/health` is a real liveness check (2026-08-30)
+
+Under WIC-1281 production Supabase paused, every login broke, and not one monitor went red. The cause is structural: `GET /api/*` runs the JWT auth middleware and returns `401` *before* it touches Postgres, so an authenticated health check can never observe a database outage (WIC-1296).
+
+- **A synthetic auth canary now exercises the one unauthenticated path that must reach the database.** A new job in `.github/workflows/supabase-keepalive.yml` POSTs deliberately-invalid canary credentials to prod `/api/auth/login` every 15 minutes and asserts a *structured* rejection: it passes only on `{"error":{"message":"Invalid login credentials"}}`, which Supabase emits only after validating against a live database. It fails on the exact WIC-1281 signature — an empty/`"{}"` message, any `5xx`, a non-JSON body, or an unreachable host — and on failure opens (or comments on) a deduplicated GitHub incident issue so a human sees it. Invalid-credential login only: `signInWithPassword` is read-only, creates no account, and mutates nothing.
+- **It folds into WIC-1293's keep-alive workflow rather than adding a second cron.** The two jobs are gated on `github.event.schedule`, so the canary's 15-minute cadence does not drag the 3-day `SELECT 1` keep-alive along with it, and vice versa.
+- **`/api/health` is now a genuine no-auth liveness check instead of a blanket `401`.** Callers that reasonably assumed `/api/health` was a health endpoint were getting the auth middleware's 401; it now serves the same real `SELECT 1` as `/health`, registered before the `/api` sub-app so `authMiddleware` no longer shadows it (regression-guarded in `auth.test.ts`).
+- CI/monitoring only. No product routes changed; the probe never deploys.
+
 ### Fixed — `/cover-letters/new` has a page heading of its own (2026-08-27)
 
 `CoverLetterNew` mounted `<CoverLetterGenerator>` inside a bare `<div>` and emitted no heading, and no shared layout supplies one. The highest heading on the route was therefore the generator's own step-bar `h2`, which read "Generate Cover Letter", so the document outline began at `h2` with nothing above it (WIC-1571). The generator's heading structure is reworked in the same commit, because `ROUTE_HEADING_OUTLINE.md` §4 (WIC-1581) assigns that change to this ticket — see the last two bullets.
