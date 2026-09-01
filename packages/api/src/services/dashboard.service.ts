@@ -1,12 +1,120 @@
-import { sql, and, gte, eq, desc } from 'drizzle-orm';
+import { sql, and, or, gte, lt, eq, asc, desc, inArray, isNull } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
-import { DashboardStats, ActivityItem, ApplicationStatus } from '../types/index.js';
+import {
+  DashboardStats,
+  ActivityItem,
+  ApplicationStatus,
+  AttentionApplication,
+  DashboardAttention,
+} from '../types/index.js';
 import { ALL_STATUSES } from './status.service.js';
+
+/** Days without an update after which a non-terminal application is stale. */
+export const STALE_THRESHOLD_DAYS = 7;
+
+/** Days after which a `saved` application counts as not-yet-submitted. */
+export const SAVED_THRESHOLD_DAYS = 3;
+
+/** Statuses an application can still be acted on from. */
+const NON_TERMINAL_STATUSES: ApplicationStatus[] = [
+  'saved',
+  'applied',
+  'phone_screen',
+  'interview',
+];
+
+/** Non-terminal statuses that represent a submitted application. */
+const ACTIVE_STATUSES: ApplicationStatus[] = ['applied', 'phone_screen', 'interview'];
+
+const INTERVIEWING_STATUSES: ApplicationStatus[] = ['phone_screen', 'interview'];
+
+/**
+ * How many rows each attention category returns for rendering. These bound the
+ * *sample lists* only — the counts beside them are always full-table.
+ */
+const INTERVIEWING_SAMPLE_LIMIT = 5;
+const ATTENTION_SAMPLE_LIMIT = 2;
+
+/** Columns needed to render an attention row. Excludes `jobDescription` on purpose. */
+const attentionColumns = {
+  id: applications.id,
+  jobTitle: applications.jobTitle,
+  company: applications.company,
+  status: applications.status,
+  createdAt: applications.createdAt,
+  updatedAt: applications.updatedAt,
+};
+
+type AttentionRow = {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function toAttentionApplication(row: AttentionRow): AttentionApplication {
+  return {
+    id: row.id,
+    jobTitle: row.jobTitle,
+    company: row.company,
+    status: row.status as ApplicationStatus,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * The predicates behind every attention/quick-win count, as pure data.
+ *
+ * WIC-1478. These are the product of this card — "which applications need
+ * attention?" — and until they were lifted out they ran inside
+ * `getDashboardStats`, which `dashboard.routes.test.ts` mocks wholesale. That
+ * left them executed by no test at all: inverting `lt` to `gte` on both
+ * thresholds, which compiles and would ship, passed the entire gate (build,
+ * lint, format, api 739/739, web 128/128) while reporting the freshly-touched
+ * rows as the ones needing follow-up.
+ *
+ * Exported so `dashboard.service.test.ts` can render each clause to SQL and
+ * assert its direction and status set directly. `now` is a parameter only so
+ * those assertions can pin a fixed instant; production always passes none.
+ */
+export function buildAttentionConditions(now: Date = new Date()) {
+  const staleThreshold = new Date(now);
+  staleThreshold.setDate(staleThreshold.getDate() - STALE_THRESHOLD_DAYS);
+
+  const savedThreshold = new Date(now);
+  savedThreshold.setDate(savedThreshold.getDate() - SAVED_THRESHOLD_DAYS);
+
+  return {
+    staleThreshold,
+    savedThreshold,
+    staleCondition: and(
+      inArray(applications.status, NON_TERMINAL_STATUSES),
+      lt(applications.updatedAt, staleThreshold)
+    ),
+    staleActiveCondition: and(
+      inArray(applications.status, ACTIVE_STATUSES),
+      lt(applications.updatedAt, staleThreshold)
+    ),
+    missingDescriptionCondition: and(
+      inArray(applications.status, NON_TERMINAL_STATUSES),
+      or(isNull(applications.jobDescription), eq(applications.jobDescription, ''))
+    ),
+    staleSavedCondition: and(
+      eq(applications.status, 'saved'),
+      lt(applications.createdAt, savedThreshold)
+    ),
+    interviewingCondition: inArray(applications.status, INTERVIEWING_STATUSES),
+  };
+}
 
 export async function getDashboardStats(userId?: string): Promise<{
   stats: DashboardStats;
   recentActivity: ActivityItem[];
+  attention: DashboardAttention;
 }> {
   const db = getDb();
   const userFilter = userId ? eq(applications.userId, userId) : undefined;
@@ -89,6 +197,89 @@ export async function getDashboardStats(userId?: string): Promise<{
     timestamp: row.changedAt.toISOString(),
   }));
 
+  // Attention/quick-win aggregates.
+  //
+  // These deliberately live here rather than on the client. The client only ever
+  // holds a page of applications (`GET /api/applications` defaults to 50, ordered
+  // by most-recently-updated), so a client-side "which of these are stale?" scan
+  // is blind to exactly the rows it exists to surface. Every count below is over
+  // the full table, the same way `byStatus` above is.
+  const {
+    staleCondition,
+    staleActiveCondition,
+    missingDescriptionCondition,
+    staleSavedCondition,
+    interviewingCondition,
+  } = buildAttentionConditions();
+
+  const countMatching = async (condition: ReturnType<typeof and>): Promise<number> => {
+    const [row] = await db
+      .select({ count: sql<number>`cast(count(*) as int)` })
+      .from(applications)
+      .where(and(condition, userFilter));
+    return row?.count ?? 0;
+  };
+
+  const sampleMatching = async (
+    condition: ReturnType<typeof and>,
+    orderBy: ReturnType<typeof asc>,
+    limit: number
+  ): Promise<AttentionApplication[]> => {
+    const rows = await db
+      .select(attentionColumns)
+      .from(applications)
+      .where(and(condition, userFilter))
+      .orderBy(orderBy)
+      .limit(limit);
+    return rows.map(toAttentionApplication);
+  };
+
+  const [
+    staleCount,
+    staleActiveCount,
+    missingDescriptionCount,
+    staleSavedCount,
+    interviewingSamples,
+    staleActiveSamples,
+    missingDescriptionSamples,
+    staleSavedSamples,
+  ] = await Promise.all([
+    countMatching(staleCondition),
+    countMatching(staleActiveCondition),
+    countMatching(missingDescriptionCondition),
+    countMatching(staleSavedCondition),
+    // Most recently touched interviews first — they are the ones being prepped for.
+    sampleMatching(interviewingCondition, desc(applications.updatedAt), INTERVIEWING_SAMPLE_LIMIT),
+    // Most stale first: the oldest row is the one most in need of a follow-up.
+    sampleMatching(staleActiveCondition, asc(applications.updatedAt), ATTENTION_SAMPLE_LIMIT),
+    sampleMatching(
+      missingDescriptionCondition,
+      desc(applications.updatedAt),
+      ATTENTION_SAMPLE_LIMIT
+    ),
+    // Longest-saved first.
+    sampleMatching(staleSavedCondition, asc(applications.createdAt), ATTENTION_SAMPLE_LIMIT),
+  ]);
+
+  const attention: DashboardAttention = {
+    staleThresholdDays: STALE_THRESHOLD_DAYS,
+    savedThresholdDays: SAVED_THRESHOLD_DAYS,
+    counts: {
+      // Derived from `byStatus` rather than re-queried, so the two can never disagree.
+      interviewing: byStatus.phone_screen + byStatus.interview,
+      stale: staleCount,
+      staleActive: staleActiveCount,
+      missingJobDescription: missingDescriptionCount,
+      staleSaved: staleSavedCount,
+    },
+    samples: {
+      interviewing: interviewingSamples,
+      staleActive: staleActiveSamples,
+      missingJobDescription: missingDescriptionSamples,
+      staleSaved: staleSavedSamples,
+    },
+  };
+
   return {
     stats: {
       total,
@@ -98,5 +289,6 @@ export async function getDashboardStats(userId?: string): Promise<{
       responseRate: Math.round(responseRate * 100) / 100,
     },
     recentActivity,
+    attention,
   };
 }

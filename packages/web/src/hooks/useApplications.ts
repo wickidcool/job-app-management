@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { applicationService } from '../services/api';
+import type { ApplicationCollection } from '../services/api/applicationService';
 import type { Application, ApplicationFormData, ApplicationStatus } from '../types/application';
 
 /**
@@ -13,17 +14,38 @@ export const applicationKeys = {
   detail: (id: string) => [...applicationKeys.details(), id] as const,
 };
 
-/**
- * Fetch all applications
- */
-export function useApplications(filters?: {
+type ApplicationFilters = {
   status?: ApplicationStatus[];
   company?: string;
   search?: string;
-}) {
+};
+
+/**
+ * Fetch every application matching `filters`, together with the metadata needed
+ * to tell a complete result from a partial one.
+ *
+ * Use this over {@link useApplications} on any surface that renders a count, a
+ * total, or a "nothing to see here" conclusion — `truncated` is the only signal
+ * that the list is a prefix rather than the whole set.
+ */
+export function useApplicationCollection(filters?: ApplicationFilters) {
   return useQuery({
     queryKey: applicationKeys.list(filters),
-    queryFn: () => applicationService.getAll(filters),
+    queryFn: () => applicationService.getAllPaged(filters),
+  });
+}
+
+/**
+ * Fetch all applications.
+ *
+ * Shares a cache entry with {@link useApplicationCollection} — same query key,
+ * same fetch — and just projects out the rows.
+ */
+export function useApplications(filters?: ApplicationFilters) {
+  return useQuery({
+    queryKey: applicationKeys.list(filters),
+    queryFn: () => applicationService.getAllPaged(filters),
+    select: (collection) => collection.applications,
   });
 }
 
@@ -98,21 +120,33 @@ export function useUpdateApplicationStatus() {
       await queryClient.cancelQueries({ queryKey: applicationKeys.lists() });
       await queryClient.cancelQueries({ queryKey: applicationKeys.detail(id) });
 
-      // Snapshot previous values
-      const previousApplications = queryClient.getQueryData<Application[]>(applicationKeys.lists());
+      // Snapshot previous values.
+      //
+      // Lists are matched by *prefix*: `lists()` is `['applications', 'list']`,
+      // but a list query registers under `list(filters)` = `[...lists(), filters]`,
+      // and there is one such entry per filter combination the app has rendered.
+      // `getQueryData`/`setQueryData` are exact-match, so reading `lists()` with
+      // them always returned `undefined` and the whole optimistic block below was
+      // dead code (WIC-1497). `getQueriesData`/`setQueriesData` take a filter and
+      // are the prefix-matching pair.
+      const previousLists = queryClient.getQueriesData<ApplicationCollection>({
+        queryKey: applicationKeys.lists(),
+      });
       const previousApplication = queryClient.getQueryData<Application>(applicationKeys.detail(id));
 
-      // Optimistically update to the new value
-      if (previousApplications) {
-        queryClient.setQueryData<Application[]>(
-          applicationKeys.lists(),
-          previousApplications.map((app) =>
-            app.id === id
-              ? { ...app, status, updatedAt: new Date(), version: app.version + 1 }
-              : app
-          )
-        );
-      }
+      // Optimistically update every cached list that could be showing this row.
+      queryClient.setQueriesData<ApplicationCollection>(
+        { queryKey: applicationKeys.lists() },
+        (collection) =>
+          collection && {
+            ...collection,
+            applications: collection.applications.map((app) =>
+              app.id === id
+                ? { ...app, status, updatedAt: new Date(), version: app.version + 1 }
+                : app
+            ),
+          }
+      );
 
       if (previousApplication) {
         queryClient.setQueryData<Application>(applicationKeys.detail(id), {
@@ -123,13 +157,15 @@ export function useUpdateApplicationStatus() {
         });
       }
 
-      return { previousApplications, previousApplication };
+      return { previousLists, previousApplication };
     },
     onError: (_err, { id }, context) => {
-      // Rollback on error
-      if (context?.previousApplications) {
-        queryClient.setQueryData(applicationKeys.lists(), context.previousApplications);
-      }
+      // Rollback on error. `previousLists` is one `[queryKey, data]` pair per list
+      // query that was patched, so every one of them is restored — restoring a
+      // single key would leave any other filter showing the failed status.
+      context?.previousLists?.forEach(([queryKey, data]) => {
+        queryClient.setQueryData(queryKey, data);
+      });
       if (context?.previousApplication) {
         queryClient.setQueryData(applicationKeys.detail(id), context.previousApplication);
       }
