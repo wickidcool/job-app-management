@@ -206,6 +206,12 @@ describe('OnboardingModal — step 5 "create first application"', () => {
     expect(completeOnboarding).not.toHaveBeenCalled();
   });
 
+  // WIC-1830, same vacuity class as the ordering tests above. A bare
+  // `expect(nextStep).not.toHaveBeenCalled()` is passed just as well by a CTA that does
+  // nothing at all as by one that correctly reveals the quick-add — measured: replacing
+  // the button's onClick with a no-op leaves this assertion green. So anchor the negative
+  // behind the positive effect that must have happened, and the negative then means
+  // "it did the right thing *instead of* advancing" rather than merely "it did not advance".
   it('does not merely advance the wizard when the primary CTA is pressed', async () => {
     const nextStep = vi.fn();
     mockOnboarding({ currentStep: 5, nextStep });
@@ -213,6 +219,7 @@ describe('OnboardingModal — step 5 "create first application"', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /create application now/i }));
 
+    expect(screen.getByLabelText(/company/i)).toBeInTheDocument();
     expect(nextStep).not.toHaveBeenCalled();
   });
 
