@@ -88,9 +88,18 @@ All four read from one constant, `PRODUCT_NAME` in
 `packages/web/src/constants/title.ts`; change that line and all four move together. **This
 inventory is closed.** No user-facing string in `packages/web` says `Job Application
 Manager`. What survives is internal-only and out of scope for this document: the
-`jobtrail` package and deploy-target name, and four source comments and READMEs
-(`components/README.md`, `components/index.ts`, `services/api/index.ts`,
-`services/api/README.md`).
+`jobtrail` package and deploy-target name, and the old name in prose outside
+`packages/web` — the root `README.md`, `packages/api/`, `docs/architecture/` and
+`docs/analytics/` — 18 occurrences across 15 files, enumerated on a child of WIC-1954 so
+they do not have to be re-derived. The four `packages/web/src` source comments this note
+previously listed, and the design-doc titles under `docs/design/`, were renamed under
+WIC-1954. Three classes of occurrence are *deliberately* left reading `Job Application
+Manager` and must not be swept: the historical quotations in
+[ROUTE_TITLE_CONVENTION.md](./ROUTE_TITLE_CONVENTION.md) and
+[NOTFOUND_PAGE_DESIGN_SPEC.md](./NOTFOUND_PAGE_DESIGN_SPEC.md), which are evidence of the
+old state and would falsify their own audits if updated; the `CHANGELOG.md` entries; and
+the source comments and one negative test assertion that exist precisely to record what
+the string used to be (`pages/Login.tsx`, `constants/title.test.ts`, `e2e/auth.spec.ts`).
 
 #### The two copy rulings
 

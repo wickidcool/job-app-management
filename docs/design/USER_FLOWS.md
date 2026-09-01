@@ -1,8 +1,8 @@
-# User Flows — Job Application Manager
+# User Flows — Careerpin
 
 ## Overview
 
-This document outlines the key user flows for the application tracking features in the Job Application Manager MVP (Phase 1).
+This document outlines the key user flows for the application tracking features in the Careerpin MVP (Phase 1).
 
 ## Primary User Flows
 

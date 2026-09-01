@@ -1,4 +1,4 @@
-# Component Specifications — Job Application Manager
+# Component Specifications — Careerpin
 
 This document defines all reusable UI components with their states, variants, props, and behaviors.
 
