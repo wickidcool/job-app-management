@@ -43,6 +43,15 @@ import { AppError, NotFoundError } from '../types/index.js';
  * `interview_preps.user_id` and `applications.user_id` are both nullable and
  * both insert paths write `userId ?? null`, so `IS NULL` selects genuine
  * anonymous rows and the ADR-003 local-dev bypass keeps working.
+ *
+ * `quantified_bullets` is the exception and the case WIC-1449 landed a dedicated
+ * `bulletOwnerScope` for. That helper is gone — it was this function with the
+ * table pre-applied, and one predicate with one name is the point. Unscoped,
+ * that read copies another user's `rawText` into the generated STAR stories and
+ * persists them to `interview_prep_stories`. Its `user_id` is `.notNull()` since
+ * `0017_enforce_userid_not_null.sql`, so `IS NULL` matches **no rows** and an
+ * anonymous caller reaches an empty catalog and this service raises
+ * `CATALOG_EMPTY`. Failing closed is the intent.
  */
 function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
@@ -460,10 +469,13 @@ export async function generateInterviewPrep(
       impactCategory: quantifiedBullets.impactCategory,
     })
     .from(quantifiedBullets)
+    .where(ownerScope(quantifiedBullets, userId))
     .limit(200);
 
   const warnings: Array<{ code: string; message: string }> = [];
 
+  // Evaluated over the caller's catalog — the UC-7 counterpart of UC-6's
+  // CATALOG_EMPTY, likewise unreachable while the read was global.
   if (allBullets.length === 0) {
     throw new InterviewPrepError(
       'CATALOG_EMPTY',
