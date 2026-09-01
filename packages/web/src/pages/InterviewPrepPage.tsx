@@ -228,7 +228,7 @@ export function InterviewPrepPage() {
   };
 
   const topStories = prep.stories
-    .filter((s: PrepStory) => s.isFavorite || s.relevanceScore >= 80)
+    .filter((s: PrepStory) => s.isFavorite || s.relevanceScorePct >= 80)
     .slice(0, 5);
 
   const keyQuestions = prep.questions
@@ -282,7 +282,6 @@ export function InterviewPrepPage() {
         <div className="space-y-6">
           {/* Prep Card */}
           <InterviewPrepCard
-            applicationId={applicationId}
             application={{
               ...applicationSummary,
               interviewDate: application.interviewDate,
@@ -299,10 +298,8 @@ export function InterviewPrepPage() {
               // This would trigger generation - handled on application detail page
               navigate(`/applications/${applicationId}`);
             }}
-            onViewPrep={() => {
-              // Already on this page
-            }}
             onExportQuickRef={() => setShowExportModal(true)}
+            onPractice={() => setActiveTab('questions')}
           />
 
           {/* Tabs */}

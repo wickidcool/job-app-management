@@ -3,4 +3,26 @@
 # The union driver keeps both sides' entries instead of conflicting.
 # Deliberately scoped to this one file — union resolves by concatenation with no
 # conflict, which is correct for a changelog and wrong for structured files.
+#
+# CAVEAT — this does NOT stop github.com from showing "This branch has conflicts".
+# Merge drivers are a local-checkout feature. GitHub computes PR mergeability
+# server-side with the default text driver and does not apply this rule, so a PR
+# that touches [Unreleased] flips to CONFLICTING as soon as another such PR
+# merges ahead of it. The driver makes the fix free; it does not prevent the flag.
+#
+# Measured 2026-08-26 (WIC-1363): of 30 open PRs, 25 touched CHANGELOG.md and 17
+# read CONFLICTING — 15 of those 17 in both sets. On an 8-PR sample, CHANGELOG.md
+# conflicted under the default driver every time, and in 7 of the 8 it was the
+# *only* conflicting file, i.e. those PRs were otherwise clean.
+#
+# So: do not go looking for a real conflict, and do not rebase a PR that others
+# are stacked on. Merge main in and push — the driver resolves it on the way
+# through, and the merge commit is what flips GitHub back to mergeable:
+#
+#     git fetch origin && git merge origin/main && git push
+#
+# If that leaves conflict markers in CHANGELOG.md, the driver did not fire (the
+# file is only union-merged when .gitattributes is present in the checkout) and
+# you are resolving by hand. Keep BOTH entries, newest date first; the sides are
+# additive and neither edits the other's text.
 CHANGELOG.md merge=union

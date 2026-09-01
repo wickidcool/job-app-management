@@ -11,9 +11,17 @@
  * The rest of the script — R2 pagination, copy/delete, `fs.rename` — stays
  * unverified here and is called out as such on the PR.
  */
-import { describe, it, expect } from 'vitest';
-// @ts-expect-error — plain .mjs ops script, no type declarations
-import { classify, bucketByOwnership } from '../scripts/migrate-project-storage-keys.mjs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  classify,
+  bucketByOwnership,
+  splitCollisions,
+  enumerateLocal,
+  // @ts-expect-error — plain .mjs ops script, no type declarations
+} from '../scripts/migrate-project-storage-keys.mjs';
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -50,6 +58,149 @@ describe('classify — legacy vs already-migrated', () => {
       slug: 'acme-corp.io',
       fileName: 'notes.v2.md',
     });
+  });
+
+  // The per-owner index `generateProjectIndex` writes has the same segment
+  // count as a legacy key. Read as legacy, no `projects` row owns its "slug"
+  // (a userId), so it lands in `orphaned` and pins the exit at 2 forever —
+  // which spends the very signal the non-zero exit exists to carry.
+  it('reads the per-owner index as namespaced, not as a legacy slug', () => {
+    const ownerIds = new Set([USER_A, USER_B]);
+    expect(classify(`projects/${USER_A}/index.md`, ownerIds)).toEqual({ kind: 'namespaced' });
+  });
+
+  it('still reads a legacy project file named index.md as legacy', () => {
+    // Only the *owner id* position disambiguates: `index.md` is a legal
+    // project file name, so a real legacy artefact may well be called that.
+    expect(classify('projects/acme-corp/index.md', new Set([USER_A]))).toEqual({
+      kind: 'legacy',
+      slug: 'acme-corp',
+      fileName: 'index.md',
+    });
+  });
+});
+
+describe('splitCollisions — never overwrite a live file with a pre-fix one', () => {
+  const movable = [
+    { key: 'projects/solo-co/c.md', slug: 'solo-co', fileName: 'c.md', userId: USER_A },
+    { key: 'projects/acme-corp/a.md', slug: 'acme-corp', fileName: 'a.md', userId: USER_B },
+  ];
+
+  it('withholds a legacy file whose namespaced destination already exists', () => {
+    // `--apply` copies then deletes the source, so an occupied destination is
+    // an unrecoverable overwrite — the owner wrote after the fix shipped, and
+    // migrating would replace those bytes with their pre-fix ones.
+    const existing = new Set([`projects/${USER_B}/acme-corp/a.md`]);
+    const { moves, collisions } = splitCollisions(movable, existing);
+    expect(moves.map((m: { slug: string }) => m.slug)).toEqual(['solo-co']);
+    expect(collisions).toHaveLength(1);
+    expect(collisions[0]).toMatchObject({
+      slug: 'acme-corp',
+      dest: `projects/${USER_B}/acme-corp/a.md`,
+    });
+  });
+
+  it('moves everything when no destination is occupied, and stamps the dest key', () => {
+    const { moves, collisions } = splitCollisions(movable, new Set());
+    expect(collisions).toEqual([]);
+    expect(moves.map((m: { dest: string }) => m.dest)).toEqual([
+      `projects/${USER_A}/solo-co/c.md`,
+      `projects/${USER_B}/acme-corp/a.md`,
+    ]);
+  });
+
+  it('accounts for every input file', () => {
+    const { moves, collisions } = splitCollisions(
+      movable,
+      new Set([`projects/${USER_B}/acme-corp/a.md`])
+    );
+    expect(moves.length + collisions.length).toBe(movable.length);
+  });
+});
+
+describe('enumerateLocal — the --local walk, which had no cover at all', () => {
+  let root: string;
+  let projects: string;
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'wic1433-'));
+    projects = path.join(root, 'projects');
+    await fs.mkdir(projects, { recursive: true });
+  });
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const write = async (rel: string, body = 'x') => {
+    const p = path.join(projects, rel);
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    await fs.writeFile(p, body, 'utf-8');
+  };
+
+  // The regression that motivated exporting this: the membership test asked
+  // the *slug* map whether a directory name was a *userId*. Both branches
+  // invert, and the dangerous direction is silent.
+  it('enumerates legacy slug dirs when the tree is entirely legacy', async () => {
+    await write('acme-corp/star.md');
+    await write('globex-inc/y.md');
+    const { legacy } = await enumerateLocal(projects, new Set([USER_A, USER_B]));
+    expect(legacy.map((l: { slug: string }) => l.slug).sort()).toEqual(['acme-corp', 'globex-inc']);
+  });
+
+  it('does not walk an already-migrated owner tree as though it were legacy', async () => {
+    await write(`${USER_B}/globex-inc/x.md`);
+    const { legacy } = await enumerateLocal(projects, new Set([USER_B]));
+    // Asking the slug set instead yields `slug=<uuid> fileName=globex-inc` —
+    // a directory enumerated as a file, then reported as an orphan.
+    expect(legacy).toEqual([]);
+  });
+
+  it('reports the already-namespaced keys so a collision is visible', async () => {
+    await write(`${USER_B}/globex-inc/x.md`);
+    const { existingKeys } = await enumerateLocal(projects, new Set([USER_B]));
+    expect([...existingKeys]).toEqual([`projects/${USER_B}/globex-inc/x.md`]);
+  });
+
+  it('separates a mixed tree correctly — the migrated half is skipped, the legacy half is not', async () => {
+    await write('acme-corp/star.md');
+    await write(`${USER_B}/globex-inc/x.md`);
+    const { legacy, existingKeys } = await enumerateLocal(projects, new Set([USER_A, USER_B]));
+    expect(legacy).toEqual([
+      { key: path.join(projects, 'acme-corp', 'star.md'), slug: 'acme-corp', fileName: 'star.md' },
+    ]);
+    expect(existingKeys.has(`projects/${USER_B}/globex-inc/x.md`)).toBe(true);
+  });
+
+  it('collects the legacy global index but not a per-owner one', async () => {
+    await write('index.md');
+    await write(`${USER_A}/index.md`);
+    const { legacy, legacyIndexes } = await enumerateLocal(projects, new Set([USER_A]));
+    expect(legacyIndexes).toEqual([path.join(projects, 'index.md')]);
+    expect(legacy).toEqual([]);
+  });
+
+  it('a purely-legacy tree can never report zero work to do', async () => {
+    // The silent failure: skip every legacy dir, enumerate nothing, report
+    // zero unresolved slugs, exit 0 — a success that means its own opposite.
+    await write('acme-corp/star.md');
+    await write('globex-inc/y.md');
+    const { legacy } = await enumerateLocal(projects, new Set([USER_A, USER_B]));
+    const owners = new Map([
+      ['acme-corp', [USER_A]],
+      ['globex-inc', [USER_B]],
+    ]);
+    const { movable, commingled, orphaned } = bucketByOwnership(legacy, owners);
+    const { moves, collisions } = splitCollisions(movable, new Set());
+    expect(moves).toHaveLength(2);
+    expect(commingled.size + orphaned.size + collisions.length).toBe(0); // exit 0 — truthfully
+  });
+
+  it('returns empty rather than throwing when the projects dir does not exist', async () => {
+    const { legacy, legacyIndexes, existingKeys } = await enumerateLocal(
+      path.join(root, 'nope'),
+      new Set()
+    );
+    expect([legacy, legacyIndexes, [...existingKeys]]).toEqual([[], [], []]);
   });
 });
 

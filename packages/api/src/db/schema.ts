@@ -705,7 +705,7 @@ export const interviewPrepStories = pgTable('interview_prep_stories', {
     .references(() => interviewPreps.id, { onDelete: 'cascade' }),
   starEntryId: text('star_entry_id').notNull(),
   themes: jsonb('themes').$type<string[]>().notNull().default([]),
-  relevanceScore: integer('relevance_score').notNull(),
+  relevanceScorePct: integer('relevance_score_pct').notNull(),
   oneMinVersion: text('one_min_version').notNull(),
   twoMinVersion: text('two_min_version').notNull(),
   fiveMinVersion: text('five_min_version').notNull(),
