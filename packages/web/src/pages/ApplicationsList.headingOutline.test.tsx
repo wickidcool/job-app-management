@@ -26,7 +26,7 @@ import { describeOutline, findOutlineSkips, getOutline } from '../test/headingOu
  *
  * ## What this grades that the WIC-1675 route sweep does not
  *
- * `src/test/routeOutline.render.test.tsx` (PR #299) renders all 29 routes across four
+ * `src/test/routeOutline.render.test.tsx` (PR #299) renders all 30 routes across four
  * *data* branches and enforces "no heading-level skip" unconditionally, `/applications`
  * included. This file is deliberately not a second copy of that. It adds two grades the
  * sweep cannot give:
@@ -92,6 +92,29 @@ const APPLICATIONS = [
 ];
 
 /**
+ * The fixture in the shape `useApplicationCollection` reads.
+ *
+ * WIC-1675 (PR #299) moved this page from `getAll()` — which resolved to a bare array —
+ * onto `getAllPaged()`, which resolves to an `ApplicationCollection`
+ * (`{applications, totalCount, truncated}`); the page now reads
+ * `collection?.applications ?? []`. A bare array therefore yields `undefined` there and
+ * silently renders the *empty* board: six columns, no cards, and no error to say so.
+ *
+ * The array-plus-own-properties form is the convention `routeOutlineApiMock`'s own
+ * generic `payload()` uses, and it is the right one here for the same reason — the
+ * override replaces the payload for *every* mocked method on this page, so it has to
+ * satisfy an array-expecting caller and an envelope-expecting one at once.
+ *
+ * `truncated: false` is load-bearing, not filler: a truthy value renders the partial-view
+ * banner above the board, which would change the outline this file pins.
+ */
+const APPLICATION_COLLECTION = Object.assign([...APPLICATIONS], {
+  applications: APPLICATIONS,
+  totalCount: APPLICATIONS.length,
+  truncated: false,
+});
+
+/**
  * The outline `/applications` renders once its data has arrived.
  *
  * `KanbanBoard` renders all six columns whether or not they hold anything, so the empty
@@ -127,7 +150,7 @@ async function renderApplications(path = '/applications') {
 
 beforeEach(() => {
   setBranch('loaded');
-  setPayloadOverride(() => APPLICATIONS);
+  setPayloadOverride(() => APPLICATION_COLLECTION);
   window.localStorage.clear();
 });
 
