@@ -479,6 +479,14 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
             discard request. Rendered as a sibling of `Dialog.Root` it would
             instead be hidden by the wizard's own modal `aria-hidden` sweep.
           */}
+          {/* focus-restore-exempt: "Keep editing" leaves the whole wizard
+            mounted, so every trigger (header ×, step controls) survives and
+            Radix restores to the real one. "Discard" exists to leave the route
+            — it unmounts this component — so nothing on this page outlives it
+            and no ref could be mounted on both arms, which is what §5.1 rule 2
+            requires. Not the ResumeManager shape: the trigger is not a per-row
+            control inside a `.map()` over a mutated collection; there is no
+            refetch and no list here, only a route change. */}
           <ConfirmationModal
             isOpen={confirmOpen}
             variant="danger"
