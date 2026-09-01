@@ -169,16 +169,18 @@ describe('processCatalogChange owner handling (WIC-1617)', () => {
     expect(db.inserts.filter((i) => NOT_NULL_TABLES.includes(i.table))).toEqual([]);
   });
 
-  it('still records the diff when there is no owner, as pending not approved', async () => {
+  it('records no diff at all when there is no owner', async () => {
     const db = stubDb();
     await processCatalogChange(resumeEvent(null));
 
-    // catalog_diffs.user_id is nullable — 0017 backfills it but never constrains
-    // it — so the diff is still written, and must not claim it was applied.
-    const diff = db.into('catalog_diffs');
-    expect(diff).toHaveLength(1);
-    expect(diff[0].values).toMatchObject({ userId: null, status: 'pending', resolvedAt: null });
-    expect(diff[0].values.summary).not.toContain('auto-applied');
+    // This suite originally asserted the opposite — that the diff was still
+    // written as `pending` — on the premise that `catalog_diffs.user_id` was
+    // nullable. `processCatalogChange` now bails before any read or write when
+    // it cannot resolve an owner, and WIC-1604 constrains that column NOT NULL,
+    // so a pending ownerless row is neither reachable nor writable. Nothing is
+    // lost: the five tables the apply path writes are all NOT NULL since 0017,
+    // and an anonymous reader scopes to `user_id IS NULL`, which selects empty.
+    expect(db.into('catalog_diffs')).toEqual([]);
   });
 
   it('treats a missing metadata.userId the same as an explicit null', async () => {

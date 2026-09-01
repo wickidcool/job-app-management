@@ -9,6 +9,7 @@ import { GAP_SEVERITY } from '../constants/gapSeverity';
 import { formatSkillCount } from '../constants/skillCount';
 import { formatRequirement, REQUIREMENT_SEPARATOR } from '../constants/requirementLabel';
 import { APIError } from '../services/api/apiClient';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 interface JobFitFormData {
   jobDescriptionText: string;
@@ -16,6 +17,24 @@ interface JobFitFormData {
 }
 
 type Stage = 'input' | 'analyzing' | 'results' | 'error';
+
+/**
+ * The route's title by stage, mirroring the heading actually on screen.
+ *
+ * This route is one of the two in `HOOK_TITLED_ROUTES` that vary by in-page state rather
+ * than by URL param, so no route-table entry can express it. `analyzing` and `error` are
+ * quoted from the `<h2>`s at `:129` and `:433` — which are rendered *instead of* the page
+ * `<h1>`, a heading-outline defect tracked separately at
+ * `docs/design/ROUTE_TITLE_CONVENTION.md` §6.2. Whatever fixes that, the requirement here
+ * is unchanged: the tab must not read "Job Fit Analysis Results" while the screen says
+ * the analysis failed.
+ */
+const STAGE_TITLES: Record<Stage, string> = {
+  input: 'Job Fit Analysis', //          JobFitAnalysis.tsx:481 (the page <h1>)
+  analyzing: 'Analyzing Job Fit', //     :129 <h2>, ellipsis dropped — a tab label is not a progress line
+  results: 'Job Fit Analysis Results', //:169 (the page <h1>)
+  error: 'Analysis Failed', //           :433 <h2>
+};
 
 export function JobFitAnalysis() {
   const navigate = useNavigate();
@@ -25,6 +44,8 @@ export function JobFitAnalysis() {
   const [stage, setStage] = useState<Stage>('input');
   const [results, setResults] = useState<AnalyzeJobFitResponse | null>(null);
   const { mutate: analyzeJobFit, isPending, error: mutationError } = useJobFitAnalysis();
+
+  useDocumentTitle(STAGE_TITLES[stage]);
 
   const {
     register,

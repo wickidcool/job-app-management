@@ -95,11 +95,14 @@ export async function createApplication(
       changedAt: now,
     });
 
-    // processCatalogChange reads the owner off event.metadata.userId (the shape
-    // resume.service.ts and catalog.service.ts both use). Omitting it here left
-    // every application-triggered extraction ownerless, which after migration
-    // 0017 made user_id NOT NULL meant the auto-apply transaction died on a
-    // 23502 that flush() swallowed — silently, for authenticated callers too.
+    // Pass the owner. processCatalogChange reads it off event.metadata.userId
+    // (the shape resume.service.ts and catalog.service.ts both use) and decides
+    // create-vs-update on it. Omitting it here left every application-triggered
+    // extraction ownerless, which cost twice over: it fell through to a
+    // slug-only company_catalog UPDATE that hit whichever tenant registered the
+    // company first, and once migration 0017 made user_id NOT NULL the
+    // auto-apply transaction died on a 23502 that flush() swallowed — silently,
+    // for authenticated callers too.
     enqueueChange('application', id, 'created', { userId: userId ?? null });
     return { application: toDTO(app) };
   });
