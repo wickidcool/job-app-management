@@ -638,13 +638,37 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
   declared` — the exact string this follow-up specified as the pass condition, so the prop did not
   land under a different name and the audit is watching the thing it was built to watch.
 
+- ~~**Extend the focus E2E sweep to the four uncovered dialogs**~~ **Done 2026-09-01 (WIC-1925)** —
+  `modal-focus-onboarding.spec.ts` (20), `modal-focus-quick-reference.spec.ts` (9),
+  `modal-focus-wizard.spec.ts` (10), `modal-focus-diff-review.spec.ts` (9). All six dialogs in §2 now
+  have E2E focus coverage; 47 new tests, 72 across the six files.
+
+  **This follow-up predicted its own answer wrong, and that is the result worth keeping.** It said
+  "all four consume the same hook, so the expected result is that they already pass." Three do.
+  **`WizardContainer` does not** — its `useDialogFocusRestore` is inert, and closing the wizard
+  strands focus on `<body>`. Filed as **WIC-1931**, pinned `test.fail()` in
+  `modal-focus-wizard.spec.ts`. The argument from construction was load-bearing and it was false, on
+  1 of 4. Do not retire a coverage gap on the strength of a shared dependency again.
+
+  Measured with a **deletion control** on each dialog — removing `{...focusRestore}` from the
+  component and re-running its spec. `QuickReferenceExport`, `DiffReviewModal` and `OnboardingModal`
+  each lose exactly 4 tests; `WizardContainer` loses **0**, which is the measurement that the hook
+  does nothing there. A spec that stays green when the thing it tests is deleted is not coverage,
+  and that control is what separated the two cases.
+
 **Still open:**
 
-- **Extend the focus E2E sweep to the four uncovered dialogs** — `QuickReferenceExport`,
-  `OnboardingModal`, `WizardContainer`, `DiffReviewModal`. All four consume the same hook, so the
-  expected result is that they already pass; the point is that nothing currently *measures* it, and
-  "they share a hook" is an argument from construction. `OnboardingModal` is the one to do first: it
-  instantiates the hook three times (§5), the only dialog that does.
+- **`WizardContainer` focus restore is inert — WIC-1931.** Third instance of the WIC-1181 /
+  WIC-1222 class (`.focus()` on a detached trigger is a silent no-op). The wizard is entered by
+  `navigate()` from `ProjectsList`, so the captured trigger unmounts on the way in and is detached
+  by close time; there is no `fallbackRef`, so nothing is focused and focus falls to `<body>`. Per
+  §5.3 this dialog meets the bar where a fallback is **obligatory**. Pinned `test.fail()` rather
+  than asserted away — it turns RED when fixed, which is the signal to delete the pin.
+- **`OnboardingModal`'s nested confirms expose the panel behind them — WIC-1868** (open, backlog).
+  Two `role="dialog"` elements are exposed at once and neither is `aria-hidden`; measured in
+  Chromium here, matching the jsdom probe on that card and the in-code note at
+  `OnboardingModal.tsx:773`. The two honest assertions are written and pinned `test.fail()` — per
+  WIC-1925, coordinated with WIC-1868 rather than weakened to pass.
 
 ## 11. Related
 

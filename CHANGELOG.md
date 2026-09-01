@@ -93,6 +93,16 @@ The `attention` block above is ~167 lines of aggregate SQL, and nothing in CI ra
 - **AC-N1c is now reproduced server-side** — 150 seeded applications, 40 stale, asserting `counts.stale === 40` *and* `samples.staleActive.length === 2` together, since either number alone is satisfied by some mutation.
 - One test documents rather than endorses: `getDashboardStats()` with no `userId` builds no owner filter and so reads every tenant (the WIC-1554 `sub`-less-JWT class; `applications.user_id` is nullable, as migration 0017 does not cover this table). When that is fixed the expectation should invert — failing there is the signal the fix landed.
 
+
+### Tests — Focus E2E now covers all six dialogs, and the fourth one does not pass (2026-09-01)
+
+`MODAL_FOCUS_MANAGEMENT_SPEC.md` §10 had one open follow-up: four of the six dialogs that consume `useDialogFocusRestore` had zero E2E focus coverage — `QuickReferenceExport`, `OnboardingModal`, `WizardContainer`, `DiffReviewModal`. It also predicted the outcome: *"all four consume the same hook, so the expected result is that they already pass."* Three do. One does not (WIC-1925).
+
+- **47 new tests** across `modal-focus-onboarding.spec.ts` (20), `modal-focus-wizard.spec.ts` (10), `modal-focus-quick-reference.spec.ts` (9) and `modal-focus-diff-review.spec.ts` (9), at parity with `modal-focus.spec.ts`: dialog role and accessible name, focus moves in on open, Tab is trapped, Escape and Cancel restore the trigger, background scroll locked, page behind hidden from the SR virtual cursor.
+- **`WizardContainer`'s focus restore is inert** — closing the dialogue wizard strands focus on `<body>`. It is entered by `navigate()` from `ProjectsList`, so the captured trigger unmounts on the way in and is detached by close time, and there is no `fallbackRef`. Third instance of the WIC-1181 / WIC-1222 class. Pinned `test.fail()` and filed as WIC-1931.
+- **The deletion control is what distinguished the two cases.** Removing `{...focusRestore}` from each component costs exactly 4 tests on `QuickReferenceExport`, `DiffReviewModal` and `OnboardingModal`, and **0** on `WizardContainer` — nothing observes the hook's removal there because it does nothing. A spec that stays green when the code under test is deleted is not coverage.
+- `OnboardingModal`'s two nested confirms expose the panel behind them (two `role="dialog"`, neither `aria-hidden`). Reproduced in Chromium, matching the jsdom probe on WIC-1868; asserted honestly and pinned `test.fail()` rather than weakened to pass. Both pins turn RED when the behaviour is fixed, which is the signal to delete them.
+
 ### Tests — The partial-view notice, and the collection metadata behind it, are now pinned (2026-08-27)
 
 Two invariants that the entries around this one depend on were carried correctly by the code and asserted by nothing. Both turned out to be the same fixture problem wearing two hats, and both were found by re-measuring those changes rather than by reading them (WIC-1570, off the PR #180 and PR #160 reviews).
