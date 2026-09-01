@@ -271,20 +271,45 @@ Note the discriminator is the **`db` field**, not the HTTP status: `/health`
 returns 503 both before and after this change, so accept recovery only on
 `db == "ok"`.
 
-> **Correction (WIC-1916, 2026-09-01) — the private-CA hypothesis above is
-> almost certainly a dead end; do not spend remediation on CA trust.** The
-> hypothesis requires the Workers TLS stack to *ignore* `rejectUnauthorized:
-> false`. But `postgres@3.4.9` `src/connection.js:283-284` sets
-> `rejectUnauthorized = false` for `ssl` in `{'require','allow','prefer'}`, and
-> the prod path passes `ssl: 'require'` (`db/client.ts`). Certificate
-> verification is therefore *off* on this path by construction, so a CA that
-> cannot be chained to a public root cannot be what fails these dials. The dials
-> fail for a transport reason (host unreachable / connection refused), and the
-> amplifier — the part this repo can bound and the part that turns a connect
-> failure into a whole-budget outage — is the **ceiling-less initial-connect
-> retry** (`connection.js`: `if (initial) return reconnect()`, `setTimeout(
-> connect, 0)`), independent of TLS. See `db/connect-budget.ts` for the interim
-> bound; the durable fix remains option 1 below.
+> **Correction (WIC-1917, 2026-09-01, supersedes the WIC-1916 note previously
+> here) — the private-CA hypothesis above is UNSETTLED, not refuted.** The earlier
+> note argued it was a dead end because `postgres@3.4.9` `src/connection.js:283-284`
+> sets `rejectUnauthorized = false` for `ssl: 'require'` (the prod path in
+> `db/client.ts`), so certificate verification is off *at the library layer*. That
+> inference has a gap: postgres-js sets the flag, but the **Cloudflare Workers
+> runtime** performs the handshake (`startTls()` under `nodejs_compat`), not Node's
+> `tls`. If the Workers implementation validates against a public trust store and
+> does not honour `rejectUnauthorized: false` (or a custom `ca`), a private root
+> fails the handshake despite the flag being set — exactly as the original theory
+> says. A library-level setting is not decisive over the runtime that executes it.
+> So weigh the private-CA theory alongside plain unreachability; nothing here has
+> measured which one it is.
+>
+> **The falsification test above has been SPENT and came back inconclusive.** PR
+> #148 merged and deployed (2026-08-31), and root `/health` returns neither a
+> `CERT_*`/`SELF_SIGNED_CERT_IN_CHAIN` string nor `ECONNREFUSED`/`ETIMEDOUT` — it
+> returns `"Too many subrequests by single Worker invocation"` (re-confirmed 503 on
+> both hosts 2026-09-01). That is a third outcome the test did not anticipate: #148
+> does not actually bound the dial loop (its `subrequest-budget.test.ts` stubs the
+> service layer and never exercises the connection path), so the budget is exhausted
+> before any individual dial's error string can surface. **Budget exhaustion masks
+> the per-dial error.** The test was not failed; it was never able to run.
+>
+> **Diagnostic ordering that makes the two causes distinguishable:** (1) bound the
+> dials first — `db/connect-budget.ts` / `withConnectBudget` calling
+> `sql.end({timeout:0})` on first connect failure (`max:1` / `connect_timeout`
+> provably cannot do it); (2) *then* read root `GET /health` — the `db` field will
+> finally carry the real connect error instead of the Cloudflare budget message
+> (`CERT_*`/`SELF_SIGNED_CERT_IN_CHAIN` ⇒ private-CA / trust-store; `ECONNREFUSED`/
+> `ETIMEDOUT` ⇒ genuine unreachability); (3) only then choose remediation.
+>
+> What is **not** in doubt: the ceiling-less initial-connect retry
+> (`connection.js`: `if (initial) return reconnect()`, `setTimeout(connect, 0)`) is
+> the amplifier that turns any connect failure into a whole-budget outage, and
+> option 1 below (a prod Hyperdrive binding) is the right durable fix under *both*
+> hypotheses — Hyperdrive terminates TLS itself and pools outside the Worker,
+> removing the direct-dial path, the trust-store question, and the subrequest
+> amplification together. `db/connect-budget.ts` remains the interim bound.
 
 ### The decision left for the board
 
