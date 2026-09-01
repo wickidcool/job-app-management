@@ -214,6 +214,66 @@ function resolveLocal(name, fromNode) {
   return null;
 }
 
+const moduleReturnCache = new WeakMap();
+
+/**
+ * The expressions a module-scope helper returns, or `null` when no such helper is
+ * declared in this file -- an imported `eq`/`and`, which tells us nothing.
+ *
+ * Only the returned *expressions* are needed, with no parameter substitution:
+ * the check looks for owner COLUMNS (`projects.userId`), and those are file-level
+ * table references, not values threaded through the helper's parameters.
+ */
+function moduleScopeReturns(name, src) {
+  let perFile = moduleReturnCache.get(src);
+  if (!perFile) {
+    perFile = new Map();
+    moduleReturnCache.set(src, perFile);
+  }
+  if (perFile.has(name)) return perFile.get(name);
+
+  let fn = null;
+  for (const stmt of src.statements) {
+    if (ts.isFunctionDeclaration(stmt) && stmt.name && stmt.name.text === name) {
+      fn = stmt;
+      break;
+    }
+    if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations) {
+        if (
+          ts.isIdentifier(d.name) &&
+          d.name.text === name &&
+          d.initializer &&
+          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+        ) {
+          fn = d.initializer;
+        }
+      }
+      if (fn) break;
+    }
+  }
+  if (!fn || !fn.body) {
+    perFile.set(name, null);
+    return null;
+  }
+
+  const out = [];
+  if (!ts.isBlock(fn.body)) {
+    out.push(fn.body);
+  } else {
+    const walk = (n) => {
+      // A nested closure's `return` is not this helper's return value.
+      if (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n))
+        return;
+      if (ts.isReturnStatement(n) && n.expression) out.push(n.expression);
+      ts.forEachChild(n, walk);
+    };
+    ts.forEachChild(fn.body, walk);
+  }
+  perFile.set(name, out);
+  return out;
+}
+
 /**
  * Does this `where` argument constrain the owner column?
  * `true` = yes, `false` = provably not, `'opaque'` = we could not see through it.
@@ -274,6 +334,26 @@ function classifyPredicate(expr, src, uniqueColumns) {
           ? n.expression.name.text
           : null;
       const argsArePredicates = predPos && callee !== null && PREDICATE_COMBINATORS.has(callee);
+
+      /**
+       * A module-scope predicate helper -- `where(projectScope(slug, userId, ...))`
+       * -- IS the predicate, so inline what it returns. Without this hop the
+       * helper's `eq(t.userId, owner)` term is invisible and the site scores a
+       * hard `false`, i.e. the check asserts "no owner column" about a predicate
+       * it never opened. That is strictly worse than `opaque`: it is reported.
+       * Monotone by construction -- inlining only ever sets `owner`/`unique`
+       * true, so it can retire a finding but never manufacture one.
+       */
+      if (predPos && callee !== null && !argsArePredicates && !seen.has(`fn:${callee}`)) {
+        seen.add(`fn:${callee}`);
+        const returns = moduleScopeReturns(callee, src);
+        if (returns !== null) {
+          if (returns.length === 0) out.opaque = true;
+          for (const r of returns) scan(r, true);
+          if (out.owner) return;
+        }
+      }
+
       scan(n.expression, false);
       for (const a of n.arguments) scan(a, argsArePredicates);
       return;
