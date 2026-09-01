@@ -628,37 +628,22 @@ describe('resume upload size limit', () => {
   }
 
   /**
-   * Trip-wire, not a guard: green while the defect is live, RED the moment it is
-   * fixed. PR #143 (WIC-1382) is the fix. When it merges, delete `.fails`.
-   *
-   * The onboarding zone caps uploads at 5MB while the server accepts 10MB, so a 7MB
-   * PDF is refused at the highest-drop-off point in the product with no way around
-   * it — the standalone `/resumes/upload` surface takes the same file.
-   *
-   * Verified against #143's real diff, not a stand-in for it (WIC-1568 / F1).
+   * Was a trip-wire (green while the defect was live, RED the moment it was
+   * fixed) until PR #143 (WIC-1382) landed. Now a guard: the onboarding zone
+   * and the server agree on the limit, and this keeps them that way.
    */
-  it.fails('the onboarding upload zone enforces the API limit (WIC-1382 / PR #143)', () => {
+  it('the onboarding upload zone enforces the API limit (WIC-1382 / PR #143)', () => {
     expect(resolveZoneLimit().mb).toBe(resolveApiLimit().mb);
   });
 
   /**
-   * Trip-wire, not a guard. PR #150 (WIC-1436) moves every figure in this doc to
-   * 10MB; when it merges, delete `.fails`.
+   * Was a trip-wire until PR #150 (WIC-1436) moved every figure in this doc to
+   * 10MB. Now a guard.
    *
-   * Compares distinct *values*, not a fixed-length array, so #150's reflow of the
+   * Compares distinct *values*, not a fixed-length array, so a reflow of the
    * surrounding prose cannot keep it green on a count mismatch (WIC-1568 / F2).
-   * Verified against #150's real diff.
-   *
-   * Note the ordering this enforces. ONBOARDING_FLOW.md is the doc that specifies
-   * `<ResumeUploadZone />`, and today its 5MB matches that component — so #150,
-   * which is docs-only, briefly makes the doc wrong about the thing it specifies
-   * if it lands before #143. That is a real but cosmetic and time-boxed hazard,
-   * and it should not gate #150 (WIC-1568 / F4): the doc and the component are
-   * wrong *together*, and their agreement is not evidence that either is right —
-   * two sibling specs and the server all say 10MB. Both trip-wires are here so
-   * that each PR flips its own, and neither can land silently.
    */
-  it.fails(`${ONBOARDING_FLOW_PATH} quotes the API limit (WIC-1436 / PR #150)`, () => {
+  it(`${ONBOARDING_FLOW_PATH} quotes the API limit (WIC-1436 / PR #150)`, () => {
     expect(distinctLimitFiguresIn(onboardingFlowDoc)).toEqual([resolveApiLimit().mb]);
   });
 });
