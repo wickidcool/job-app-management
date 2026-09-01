@@ -2,7 +2,9 @@ import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useApplications } from '../hooks/useApplications';
+import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import { RECENT_SEARCHES_KEY } from '../services/appStorage';
+import { useNavigationGuardControls } from '../contexts/CommandPaletteContext';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -23,19 +25,114 @@ const MAX_RECENT_SEARCHES = 5;
 const SUGGESTED_FILTERS = [
   {
     id: 'interviews',
-    title: 'Interviews This Week',
+    title: FILTER_SHORTCUT_LABELS.interviewing,
     path: '/applications?status=interview,phone_screen',
     icon: '🤝',
   },
-  { id: 'needs-followup', title: 'Needs Follow-up', path: '/reports/stale', icon: '⏰' },
+  {
+    id: 'needs-followup',
+    title: FILTER_SHORTCUT_LABELS.needsFollowUp,
+    path: '/reports/stale',
+    icon: '⏰',
+  },
   {
     id: 'recently-applied',
-    title: 'Recently Applied',
+    title: FILTER_SHORTCUT_LABELS.applied,
     path: '/applications?status=applied',
     icon: '📤',
   },
-  { id: 'offers', title: 'Active Offers', path: '/applications?status=offer', icon: '🎉' },
+  {
+    id: 'offers',
+    title: FILTER_SHORTCUT_LABELS.activeOffers,
+    path: '/applications?status=offer',
+    icon: '🎉',
+  },
 ];
+
+function getResultIcon(result: SearchResult) {
+  if (result.icon) return result.icon;
+
+  switch (result.type) {
+    case 'application':
+      return '💼';
+    case 'company':
+      return '🏢';
+    case 'recent':
+      return '🕐';
+    case 'suggestion':
+      return '✨';
+    default:
+      return '📄';
+  }
+}
+
+function getResultBgColor(result: SearchResult) {
+  switch (result.type) {
+    case 'application':
+      return 'bg-blue-100';
+    case 'company':
+      return 'bg-purple-100';
+    case 'recent':
+      return 'bg-neutral-100';
+    case 'suggestion':
+      return 'bg-primary-100';
+    default:
+      return 'bg-neutral-100';
+  }
+}
+
+/**
+ * The spoken counterpart to the result-type emoji (WIC-1850).
+ *
+ * Keyed on `type`, never on the glyph: `result.icon` lets a caller override the emoji
+ * (`SUGGESTED_FILTERS` all do), so deriving the label from the icon would leave the four
+ * suggested filters unlabelled and mislabel nothing else usefully.
+ */
+function getResultTypeLabel(result: SearchResult) {
+  switch (result.type) {
+    case 'application':
+      return 'Application';
+    case 'company':
+      return 'Company';
+    case 'recent':
+      return 'Recent search';
+    case 'suggestion':
+      return 'Suggested filter';
+    default:
+      return 'Result';
+  }
+}
+
+/**
+ * The type badge on a result row: the glyph for sighted users, the word for everyone else.
+ *
+ * Both halves are here on purpose, because on this surface the pair is the fix and neither
+ * half is (WIC-1850). Without `aria-hidden` the emoji joins the enclosing button's
+ * *accessible name*, so every row is announced as "briefcase Senior Engineer, button" — and
+ * the palette is arrow-key navigated, so that is heard once per keystroke rather than once
+ * per page. But `aria-hidden` alone would drop information: the emoji is the only signal
+ * that distinguishes one result type from another. `getResultBgColor` is purely visual, and
+ * `subtitle` carries no type at all for `suggestion` and `recent` (they have none) and
+ * nothing type-shaped for `application` (it is the company). So the glyph is replaced by an
+ * `sr-only` label rather than merely silenced.
+ *
+ * Rendered as one component rather than repeated at each of the four call sites so that a
+ * fifth row cannot pick up the emoji without the label. See the decorative-glyph rule in
+ * docs/design/ACCESSIBILITY.md.
+ */
+function ResultTypeBadge({ result }: { result: SearchResult }) {
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
+      >
+        {getResultIcon(result)}
+      </div>
+      <span className="sr-only">{getResultTypeLabel(result)}:</span>
+    </>
+  );
+}
 
 // localStorage helpers
 function getRecentSearches(): string[] {
@@ -65,6 +162,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [prevQuery, setPrevQuery] = useState('');
   const [prevOpen, setPrevOpen] = useState(false);
   const navigate = useNavigate();
+  const { requestNavigation } = useNavigationGuardControls();
   const { data: applications = [] } = useApplications();
 
   // Load recent searches - recalculate when palette opens
@@ -165,6 +263,22 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     }
   }
 
+  /**
+   * The palette's single exit. The ⌘/Ctrl+K listener is on `window`, so the
+   * palette opens over an open modal — and until WIC-1765 that made it the one
+   * way to navigate out of the dialogue wizard without the wizard hearing about
+   * it, discarding every unsaved answer silently. A registered guard gets first
+   * refusal; with none registered this is exactly the previous behaviour.
+   *
+   * The palette closes *first* either way, so a guard that opens a confirmation
+   * does not render it underneath this dialog.
+   */
+  const goTo = (path: string) => {
+    onOpenChange(false);
+    if (requestNavigation(path)) return;
+    navigate(path);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -174,8 +288,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       setSelectedIndex((prev) => (prev - 1 + searchResults.length) % searchResults.length);
     } else if (e.key === 'Enter' && searchResults.length > 0) {
       e.preventDefault();
-      navigate(searchResults[selectedIndex].path);
-      onOpenChange(false);
+      goTo(searchResults[selectedIndex].path);
     }
   };
 
@@ -184,40 +297,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     if (query.trim()) {
       addRecentSearch(query);
     }
-    navigate(path);
-    onOpenChange(false);
-  };
-
-  const getResultIcon = (result: SearchResult) => {
-    if (result.icon) return result.icon;
-
-    switch (result.type) {
-      case 'application':
-        return '💼';
-      case 'company':
-        return '🏢';
-      case 'recent':
-        return '🕐';
-      case 'suggestion':
-        return '✨';
-      default:
-        return '📄';
-    }
-  };
-
-  const getResultBgColor = (result: SearchResult) => {
-    switch (result.type) {
-      case 'application':
-        return 'bg-blue-100';
-      case 'company':
-        return 'bg-purple-100';
-      case 'recent':
-        return 'bg-neutral-100';
-      case 'suggestion':
-        return 'bg-primary-100';
-      default:
-        return 'bg-neutral-100';
-    }
+    goTo(path);
   };
 
   return (
@@ -225,6 +305,34 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content className="fixed left-[50%] top-[20%] z-50 w-full max-w-2xl translate-x-[-50%] translate-y-[-20%] rounded-lg bg-white shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+          {/*
+            The dialog's own name and description (WIC-1851). Without these the palette
+            opened as an unnamed "dialog" — SC 4.1.2 — on the surface a keyboard-first user
+            reaches most often, and Radix said so on every mount.
+
+            Neither may carry an `id` prop. Radix's `TitleWarning` / `DescriptionWarning`
+            look up `context.titleId` / `context.descriptionId` with `getElementById`
+            (@radix-ui/react-dialog 1.1.15, dist/index.mjs:295 and :308), so overriding the
+            id leaves the lookup empty and the console warning fires even though the markup
+            is correct. `ApplicationForm.tsx:227` does override it and warns for that reason
+            — follow the wiring here, not that call site's ids.
+
+            Both are `sr-only` rather than visible: the palette's whole visual design is that
+            it appears with nothing above the search field.
+
+            Pointing `aria-describedby` at the footer instead — one copy of the instructions
+            rather than two — was tried and rejected. The footer is written to be glanced at,
+            so it reads as a stutter aloud ("Navigate with arrow keys, up and down arrow keys
+            to navigate…"), and it says nothing about typing, which is the affordance a
+            first-time listener actually needs. The two texts are close enough that a change
+            to the key handling must update both; `handleKeyDown` is the thing to grep.
+          */}
+          <Dialog.Title className="sr-only">Quick search</Dialog.Title>
+          <Dialog.Description className="sr-only">
+            Type to search applications, companies, and statuses. Use the up and down arrow keys to
+            move between results, and Enter to open one.
+          </Dialog.Description>
+
           <div className="flex flex-col">
             <div className="flex items-center border-b border-neutral-200 px-4">
               <svg
@@ -278,11 +386,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div
-                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                                >
-                                  {getResultIcon(result)}
-                                </div>
+                                <ResultTypeBadge result={result} />
                                 <div className="flex-1 overflow-hidden">
                                   <div className="truncate font-medium">{result.title}</div>
                                   {result.subtitle && (
@@ -330,11 +434,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div
-                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                                >
-                                  {getResultIcon(result)}
-                                </div>
+                                <ResultTypeBadge result={result} />
                                 <div className="flex-1 overflow-hidden">
                                   <div className="truncate font-medium">{result.title}</div>
                                 </div>
@@ -377,11 +477,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                     : 'text-neutral-900 hover:bg-neutral-100'
                                 }`}
                               >
-                                <div
-                                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                                >
-                                  {getResultIcon(result)}
-                                </div>
+                                <ResultTypeBadge result={result} />
                                 <div className="flex-1 overflow-hidden">
                                   <div className="truncate font-medium">{result.title}</div>
                                   {result.subtitle && (
@@ -424,11 +520,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                             : 'text-neutral-900 hover:bg-neutral-100'
                         }`}
                       >
-                        <div
-                          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-xl ${getResultBgColor(result)}`}
-                        >
-                          {getResultIcon(result)}
-                        </div>
+                        <ResultTypeBadge result={result} />
                         <div className="flex-1 overflow-hidden">
                           <div className="truncate font-medium">{result.title}</div>
                           {result.subtitle && (
@@ -457,7 +549,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               </div>
             ) : (
               <div className="p-8 text-center text-neutral-500">
-                <div className="text-4xl mb-2">🔍</div>
+                {/* Purely decorative — "No results found" below says the same thing, so
+                    unlike the row glyphs this one needs no `sr-only` replacement. Without
+                    aria-hidden it is read out as "magnifying glass tilted left" first
+                    (WIC-1850). */}
+                <div className="text-4xl mb-2" aria-hidden="true">
+                  🔍
+                </div>
                 <p>No results found</p>
               </div>
             )}
@@ -466,9 +564,25 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               <div className="flex items-center justify-between">
                 <span>Navigate with arrow keys</span>
                 <span className="flex gap-2">
-                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">↑↓</kbd>
+                  {/*
+                    Key glyphs, not decoration (WIC-1851). These carry the whole instruction —
+                    remove them and the sentence is "to navigate … to select" — so the
+                    decorative-glyph rule's `aria-hidden`-alone branch does not apply. But left
+                    bare they are announced by Unicode name: ↵ is "downwards arrow with corner
+                    leftwards", which is not a key any listener can find. So each is hidden and
+                    replaced by the key's spoken name, the same hidden-plus-`sr-only` shape
+                    WIC-1850 used on the result rows, and the footer reads as "Up and down arrow
+                    keys to navigate, Enter to select".
+                  */}
+                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">
+                    <span aria-hidden="true">↑↓</span>
+                    <span className="sr-only">Up and down arrow keys</span>
+                  </kbd>
                   to navigate
-                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">↵</kbd>
+                  <kbd className="rounded border border-neutral-300 bg-white px-2 py-0.5">
+                    <span aria-hidden="true">↵</span>
+                    <span className="sr-only">Enter</span>
+                  </kbd>
                   to select
                 </span>
               </div>

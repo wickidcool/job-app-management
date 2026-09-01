@@ -2,8 +2,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { WizardContainer } from './WizardContainer';
+import { CommandPalette } from '../CommandPalette';
+import { CommandPaletteProvider, useCommandPalette } from '../../contexts/CommandPaletteContext';
 import wizardContainerSource from './WizardContainer.tsx?raw';
 import dialogueCaptureSource from '../../pages/DialogueCapture.tsx?raw';
 
@@ -30,29 +33,72 @@ import dialogueCaptureSource from '../../pages/DialogueCapture.tsx?raw';
  * so on their own they prove nothing about it.
  */
 
-/** Renders the wizard at its real route, with a nav link that lives OUTSIDE the
- *  wizard overlay — the way TopNavigation does in App.tsx (nav is a sibling of
- *  <main>, and the wizard renders no focus trap, so it is genuinely reachable).
+function PaletteHost() {
+  const { open, setOpen } = useCommandPalette();
+  return <CommandPalette open={open} onOpenChange={setOpen} />;
+}
+
+/**
+ * Renders the wizard at its real route, under the same app-shell pieces that
+ * surround it in `App.tsx`: a nav `<Link>` outside the overlay, and the command
+ * palette mounted as a sibling via `CommandPaletteProvider` + `CommandPalette`.
  *
- *  `<Link>`, not a bare `<a href>`, and that distinction is load-bearing:
- *  TopNavigation uses `<Link>` (TopNavigation.tsx:1), and jsdom does not follow
- *  bare anchors at all. Against a bare anchor the "did not navigate" assertions
- *  below would pass no matter what the guard did — they would be measuring
- *  jsdom, not the code. */
+ * ## Which "in-app navigation" is real, and why the fixture changed
+ *
+ * An earlier revision drove the nav `<Link>` for all three navigation cases,
+ * justified by the wizard having no focus trap. **WIC-1181 made
+ * `WizardContainer` a modal Radix `Dialog.Content`**, which marks everything
+ * outside it `aria-hidden` — so `getByRole('link')` cannot see that link any
+ * more, and neither can a user. Those cases did not start failing because the
+ * guard broke; they started failing because the path they drove stopped
+ * existing. `keeps the nav link genuinely unreachable` below pins exactly that,
+ * so this fixture change cannot quietly become a way of dodging a real failure.
+ *
+ * What *is* still reachable is the command palette: its ⌘/Ctrl+K listener is on
+ * `window`, so it opens over the modal and navigates programmatically. Measured
+ * with the wizard open: the palette's search box renders with no `aria-hidden`
+ * ancestor. That is the live discard-by-navigation path, and it is the one the
+ * navigation cases below drive.
+ *
+ * The `<Link>` is still mounted — it is what the unreachability control needs —
+ * and it is a `<Link>` rather than a bare `<a href>` on purpose: jsdom does not
+ * follow bare anchors, so against one the "did not navigate" assertions would
+ * pass no matter what the guard did (they would be measuring jsdom).
+ */
 function renderWizard(onComplete = vi.fn(), onCancel = vi.fn()) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
-    <MemoryRouter initialEntries={['/projects/new/dialogue']}>
-      <Link to="/projects">Projects</Link>
-      <Routes>
-        <Route
-          path="/projects/new/dialogue"
-          element={<WizardContainer variant="create" onComplete={onComplete} onCancel={onCancel} />}
-        />
-        <Route path="/projects" element={<h1>Projects landing</h1>} />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/projects/new/dialogue']}>
+        <CommandPaletteProvider>
+          <Link to="/projects">Projects</Link>
+          <Routes>
+            <Route
+              path="/projects/new/dialogue"
+              element={
+                <WizardContainer variant="create" onComplete={onComplete} onCancel={onCancel} />
+              }
+            />
+            <Route path="/projects" element={<h1>Projects landing</h1>} />
+            <Route path="/reports/stale" element={<h1>Needs follow-up landing</h1>} />
+          </Routes>
+          <PaletteHost />
+        </CommandPaletteProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
   return { ...view, onComplete, onCancel };
+}
+
+/**
+ * Drives the live in-app navigation path: ⌘/Ctrl+K over the open wizard, then
+ * pick the "Needs Follow-up" suggested filter, which routes to `/reports/stale`.
+ * A suggestion is used rather than a typed search so the result set does not
+ * depend on any application fixture.
+ */
+async function navigateViaPalette(user: ReturnType<typeof userEvent.setup>) {
+  await user.keyboard('{Control>}k{/Control}');
+  await user.click(await screen.findByRole('button', { name: /Needs Follow-up/ }));
 }
 
 const confirmTitle = () => screen.queryByText('Discard this project?');
@@ -107,10 +153,27 @@ describe('WizardContainer — confirm on discard (WIC-1765)', () => {
       renderWizard();
       await typeCompany(user);
 
-      await user.click(screen.getByRole('link', { name: 'Projects' }));
+      await navigateViaPalette(user);
 
       expect(confirmTitle()).toBeInTheDocument();
-      expect(screen.queryByRole('heading', { name: 'Projects landing' })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('heading', { name: 'Needs follow-up landing' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('keeps the nav link genuinely unreachable, so the palette is the path that matters', () => {
+      renderWizard();
+
+      // The control for the fixture change documented on `renderWizard`. If a
+      // later change drops the modal (or Radix stops hiding outside content),
+      // this goes green-to-red and says so — rather than leaving the navigation
+      // cases above silently testing a path users cannot take. Queried through
+      // the DOM because the accessibility-tree queries are precisely what the
+      // `aria-hidden` sweep removes.
+      const link = document.querySelector('a[href="/projects"]');
+      expect(link).not.toBeNull();
+      expect(link?.closest('[aria-hidden="true"]')).not.toBeNull();
+      expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
     });
 
     it('carries the copy the ruling specifies, including the "not saved anywhere" clause', async () => {
@@ -173,17 +236,21 @@ describe('WizardContainer — confirm on discard (WIC-1765)', () => {
       expect(confirmTitle()).not.toBeInTheDocument();
     });
 
-    it('completes the original navigation when the discard came from a link', async () => {
+    it('completes the original navigation when the discard came from the palette', async () => {
       const user = userEvent.setup();
       renderWizard();
       await typeCompany(user);
 
-      await user.click(screen.getByRole('link', { name: 'Projects' }));
+      await navigateViaPalette(user);
       await user.click(screen.getByRole('button', { name: 'Discard' }));
 
-      // The user asked to go to /projects, so that is where they must land —
-      // not merely "the wizard closed".
-      expect(await screen.findByRole('heading', { name: 'Projects landing' })).toBeInTheDocument();
+      // The user asked to go to /reports/stale, so that is where they must land
+      // — not merely "the wizard closed". A guard that swallowed the href and
+      // called `onCancel` instead would drop them somewhere they never asked
+      // for, and would pass a weaker assertion than this one.
+      expect(
+        await screen.findByRole('heading', { name: 'Needs follow-up landing' })
+      ).toBeInTheDocument();
     });
 
     it('writes nothing to localStorage across a full type-then-discard cycle', async () => {
@@ -227,10 +294,12 @@ describe('WizardContainer — confirm on discard (WIC-1765)', () => {
       const user = userEvent.setup();
       renderWizard();
 
-      await user.click(screen.getByRole('link', { name: 'Projects' }));
+      await navigateViaPalette(user);
 
       expect(confirmTitle()).not.toBeInTheDocument();
-      expect(await screen.findByRole('heading', { name: 'Projects landing' })).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { name: 'Needs follow-up landing' })
+      ).toBeInTheDocument();
     });
 
     it('keeps the user on the step they were on when they choose "Keep editing"', async () => {
@@ -284,7 +353,12 @@ describe('WizardContainer — confirm on discard (WIC-1765)', () => {
 
       await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
       expect(confirmTitle()).not.toBeInTheDocument();
-    });
+      // Explicit headroom: this is the only case that walks all five steps and
+      // types five STAR fields, so it is several times the length of any other
+      // here and runs close to the 5s default on a loaded box. The extra time
+      // buys nothing if the assertion is wrong — `onComplete` either fires or
+      // it does not.
+    }, 20000);
 
     it('still guards if the create failed and left the wizard open with the answers', async () => {
       // `DialogueCapture.handleComplete` catches a failed create and only
@@ -296,10 +370,12 @@ describe('WizardContainer — confirm on discard (WIC-1765)', () => {
       renderWizard(vi.fn());
       await typeCompany(user);
 
-      await user.click(screen.getByRole('link', { name: 'Projects' }));
+      await navigateViaPalette(user);
 
       expect(confirmTitle()).toBeInTheDocument();
-      expect(screen.queryByRole('heading', { name: 'Projects landing' })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('heading', { name: 'Needs follow-up landing' })
+      ).not.toBeInTheDocument();
     });
   });
 

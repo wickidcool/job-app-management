@@ -1,5 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from 'react-router-dom';
+import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
 import { ConfirmationModal } from '../ConfirmationModal';
 import { useInAppNavigationGuard } from '../../hooks/useInAppNavigationGuard';
 import { ProgressIndicator } from './ProgressIndicator';
@@ -43,6 +45,9 @@ const STEP_LABELS = ['Context', 'Details', 'Industry', 'Accomplishments', 'Tags'
  * Main wizard controller for dialogue-based STAR file capture
  */
 export function WizardContainer({ variant, onComplete, onCancel }: WizardContainerProps) {
+  // Step 1's company input carries `autoFocus`, so Radix never dispatches
+  // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
+  const focusRestore = useDialogFocusRestore();
   const [currentStep, setCurrentStep] = useState(1);
   const [data, setData] = useState<Partial<ProjectData>>({
     accomplishments: [],
@@ -67,10 +72,10 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
   // Deliberately NOT `Object.keys(data).length > 0`: `data` is seeded with
   // three keys, so that test is true before the user touches anything. That is
   // the exact bug that made the old 30-second autosave fire unconditionally
-  // (WIC-1621); it is repeated here only to be named and avoided.
+  // (WIC-1621); it is named here only so it is not reintroduced.
   //
   // `currentSTAR`/`currentTech` count even though they are not yet in `data` —
-  // a half-typed accomplishment that was never "saved" is precisely the work a
+  // a half-typed accomplishment that was never "added" is precisely the work a
   // user would be upset to lose.
   const isDirty =
     !!data.company ||
@@ -84,8 +89,8 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
     currentTech.length > 0;
 
   // Completion deliberately does NOT disarm this (AC-4 needs no latch here).
-  // Finishing the wizard navigates with a programmatic `navigate()`, which this
-  // guard does not intercept by design — see useInAppNavigationGuard.
+  // Finishing the wizard leaves through `onComplete`, which never routes into
+  // `requestDiscard`, so the success path cannot prompt.
   //
   // A latch would also be actively wrong: `DialogueCapture.handleComplete`
   // catches a failed create and only alerts, leaving the wizard mounted with
@@ -95,8 +100,9 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
 
   const { pendingHref, clearPendingNavigation } = useInAppNavigationGuard(guardActive);
 
-  // `pendingHref` is set by an intercepted link click; the other two paths set
-  // this directly. Both funnel into the same confirmation.
+  // `pendingHref` is set by an intercepted link click; Radix dismissal (Escape,
+  // the header ×, an overlay click) sets `discardRequested`. Both funnel into
+  // the same confirmation.
   const [discardRequested, setDiscardRequested] = useState(false);
   const confirmOpen = discardRequested || pendingHref !== null;
 
@@ -124,24 +130,6 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
       onCancel();
     }
   }, [pendingHref, clearPendingNavigation, navigate, onCancel]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      // While the confirmation is up, Escape belongs to it: it means "keep
-      // editing", not a second discard request.
-      if (confirmOpen) {
-        event.stopPropagation();
-        handleKeepEditing();
-        return;
-      }
-      event.stopPropagation();
-      requestDiscard();
-    };
-
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [confirmOpen, handleKeepEditing, requestDiscard]);
 
   const handleComplete = useCallback(() => {
     // Generate filename
@@ -430,68 +418,82 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 z-modal flex items-center justify-center p-4"
-      role="dialog"
-      aria-labelledby="wizard-title"
-      aria-modal="true"
+    // Mount-controlled: the parent renders the wizard only while it is open.
+    <Dialog.Root
+      open
+      onOpenChange={(next) => {
+        // Every Radix dismissal funnels through here — Escape, the header ×
+        // (a `Dialog.Close`), and an overlay click. Routing all three into
+        // `requestDiscard` is what makes the guard cover them uniformly;
+        // there is deliberately no separate `keydown` listener, which would
+        // double-fire against Radix's own handling and would not know about
+        // the nested confirmation's layer.
+        if (!next) requestDiscard();
+      }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-8 py-6 border-b border-neutral-200">
-          <div className="flex items-center justify-between mb-4">
-            <h1 id="wizard-title" className="text-h2 text-neutral-900">
-              {variant === 'create' && 'New Project'}
-              {variant === 'enrich' && 'Enrich Project'}
-              {variant === 'correct' && 'Correct Project'}
-            </h1>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={requestDiscard}
-                className="text-neutral-600 hover:text-neutral-800 text-h3"
-                aria-label="Close wizard"
-              >
-                ×
-              </button>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black bg-opacity-50 z-modal" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-[calc(100%-2rem)] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-modal"
+          aria-describedby={undefined}
+          {...focusRestore}
+        >
+          {/* Header */}
+          <div className="px-8 py-6 border-b border-neutral-200">
+            <div className="flex items-center justify-between mb-4">
+              <Dialog.Title className="text-h2 text-neutral-900">
+                {variant === 'create' && 'New Project'}
+                {variant === 'enrich' && 'Enrich Project'}
+                {variant === 'correct' && 'Correct Project'}
+              </Dialog.Title>
+              <div className="flex items-center gap-3">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="text-neutral-600 hover:text-neutral-800 text-h3"
+                    aria-label="Close wizard"
+                  >
+                    ×
+                  </button>
+                </Dialog.Close>
+              </div>
             </div>
+
+            {/* Progress Indicator */}
+            <ProgressIndicator
+              currentStep={currentStep}
+              totalSteps={totalSteps}
+              stepLabels={STEP_LABELS}
+              onStepClick={handleStepClick}
+            />
           </div>
 
-          {/* Progress Indicator */}
-          <ProgressIndicator
-            currentStep={currentStep}
-            totalSteps={totalSteps}
-            stepLabels={STEP_LABELS}
-            onStepClick={handleStepClick}
+          {/* Step Content */}
+          <div className="flex-1 overflow-y-auto px-8 py-6">{renderStepContent()}</div>
+
+          {/*
+            Rendered *inside* `Dialog.Content` on purpose. Radix stacks
+            dismissable layers by React tree position, and only the topmost
+            layer answers Escape — that nesting is what makes Escape mean
+            "keep editing" while the confirmation is up, rather than a second
+            discard request. Rendered as a sibling of `Dialog.Root` it would
+            instead be hidden by the wizard's own modal `aria-hidden` sweep.
+          */}
+          <ConfirmationModal
+            isOpen={confirmOpen}
+            variant="danger"
+            title="Discard this project?"
+            message={
+              'You have unsaved answers. Closing now discards them — they are not saved anywhere.'
+            }
+            confirmLabel="Discard"
+            cancelLabel="Keep editing"
+            onConfirm={handleConfirmDiscard}
+            onCancel={handleKeepEditing}
           />
-        </div>
-
-        {/* Step Content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">{renderStepContent()}</div>
-      </div>
-
-      {/*
-        Nested inside the wizard, which is itself role="dialog" aria-modal.
-        Focus therefore restores to the wizard control, not the page. This is
-        NOT focus-managed: ConfirmationModal declares no role="dialog", no
-        aria-modal and no focus trap; the repo's own
-        docs/design/confirmation-modal-focus-audit.py reports
-        MODAL_FOCUS_MANAGEMENT_SPEC §5.3 as unenforced pending WIC-1181. Reuse
-        is still correct — fix the shared component, not a wizard-local copy.
-      */}
-      <ConfirmationModal
-        isOpen={confirmOpen}
-        variant="danger"
-        title="Discard this project?"
-        message={
-          'You have unsaved answers. Closing now discards them — they are not saved anywhere.'
-        }
-        confirmLabel="Discard"
-        cancelLabel="Keep editing"
-        onConfirm={handleConfirmDiscard}
-        onCancel={handleKeepEditing}
-      />
-    </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
