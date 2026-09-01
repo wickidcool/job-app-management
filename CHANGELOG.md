@@ -781,6 +781,15 @@ The three per-skill sections on the Job Fit Analysis screen disclosed the same `
 - **No wire values change.** Presentation only.
 - Specified in `docs/design/DESIGN_SYSTEM.md` → "Per-row required-ness", which replaces the "Known residue" note left by the entry below.
 
+### Fixed — The route audit is no longer blind to a commented-out entry point (2026-08-26)
+
+The `route → link` direction added below credited a route from any inbound link site found in source — but `collectLinkSites` regexes over **raw** source, so a link that had been *commented out* still counted. Deleting the sole `<Link>` to a page turned the suite red; **commenting the same link out did not**, even though the user-visible outcome is identical (button gone, page unreachable). Commenting the entry point out is the single most common way a page actually becomes orphaned, so this was a fail-open on the exact class the audit exists to catch — JSX-commenting `CoverLetterDetail`'s `<Link to={\`/outreach/new…\`}>` would have silently reverted WIC-1530's fix and kept this guard green (WIC-1560).
+
+- **`stripComments` runs before the link patterns**, dropping `{/* … */}` JSX comments, `/* … */` block comments, and `// …` line comments. The line-comment rule carries a `[^:'"\`\\]` guard so `https://` and `to="//x"` are not mistaken for comments.
+- **Latent, not live.** Measured at introduction: **0 of 152** link sites sat inside a comment and all 28 non-`<Navigate>` routes keep a live credit, so the baseline is unchanged (`packages/web` suite `45 passed / 2 todo`). Eight of the 28 routes hang on exactly one credit, where a single commented-out line is the whole difference between guarded and unguarded.
+- **Three negative controls, all now red.** Deleting the `/reports/needs-action` nav entry (was already red), **line-commenting** it (was green → now red), and **JSX-commenting** the sole `/outreach/new` `<Link>` (was green → now red, naming `/outreach/new`). A new in-file capability test (`does not credit a route from a commented-out link`) pins all three comment forms plus the `https://` guard, so this cannot regress.
+- **Test-only.** No application code changes.
+
 ### Docs — ADR-009 proposes per-PR changelog fragments, because the insertion collision is a category and not an incident (2026-08-27)
 
 Eleven board cards have been opened, worked and closed by performing the same manual re-merge of `CHANGELOG.md`. `docs/architecture/adr/ADR-009-changelog-fragments.md` (new, **Proposed**) prices that aggregate for the first time and proposes one file per change instead of one line per change.
