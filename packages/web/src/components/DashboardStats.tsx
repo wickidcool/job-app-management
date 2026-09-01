@@ -1,8 +1,18 @@
+import { toPercent, type Ratio } from '../types/units';
+
 export interface DashboardStatsProps {
   stats: {
     total: number;
     appliedThisWeek: number;
-    responseRate: number; // 0-100
+    /**
+     * Share of applications that drew a response, as a ratio in [0, 1].
+     *
+     * This is the unit the API ships (`GET /dashboard`, see
+     * `docs/architecture/API_CONTRACTS.md`) and it arrives here untransformed.
+     * `0.75` means 75%; the conversion to a percentage happens below, at the
+     * render site, and nowhere else.
+     */
+    responseRate: Ratio;
     inReview: number; // phone_screen + interview count
   };
   loading?: boolean;
@@ -13,28 +23,14 @@ export interface DashboardStatsProps {
  * Display key metrics at a glance
  */
 export function DashboardStats({ stats, loading = false }: DashboardStatsProps) {
-  // Stat configuration
+  // Stat configuration. Each entry carries its final display string: the unit
+  // conversion belongs next to the value it applies to, not in a shared
+  // `formatValue` that a differently-united number could be routed through.
   const statItems = [
-    {
-      value: stats.total,
-      label: 'Total',
-      formatValue: (val: number) => val.toString(),
-    },
-    {
-      value: stats.appliedThisWeek,
-      label: 'This Week',
-      formatValue: (val: number) => val.toString(),
-    },
-    {
-      value: stats.responseRate,
-      label: 'Response',
-      formatValue: (val: number) => `${Math.round(val)}%`,
-    },
-    {
-      value: stats.inReview,
-      label: 'In Review',
-      formatValue: (val: number) => val.toString(),
-    },
+    { display: stats.total.toString(), label: 'Total' },
+    { display: stats.appliedThisWeek.toString(), label: 'This Week' },
+    { display: `${Math.round(toPercent(stats.responseRate))}%`, label: 'Response' },
+    { display: stats.inReview.toString(), label: 'In Review' },
   ];
 
   if (loading) {
@@ -50,7 +46,7 @@ export function DashboardStats({ stats, loading = false }: DashboardStatsProps) 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {statItems.map((stat, index) => (
-        <StatCard key={index} value={stat.formatValue(stat.value)} label={stat.label} />
+        <StatCard key={index} value={stat.display} label={stat.label} />
       ))}
     </div>
   );

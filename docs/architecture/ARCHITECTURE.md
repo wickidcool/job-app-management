@@ -208,4 +208,5 @@ That design is not preserved here — this file now documents the deployed syste
 - [Authentication guide](../AUTHENTICATION.md)
 - [ADR-004: Cloud migration to Supabase + Cloudflare](./adr/ADR-004-cloud-migration-supabase-cloudflare.md)
 - [ADR-006: Hono framework on Workers](./adr/ADR-006-hono-framework-workers.md)
+- [ADR-008: Unit convention for normalized scores and rates](./adr/ADR-008-score-and-rate-unit-convention.md)
 - [UI/UX design specs](../design/)
