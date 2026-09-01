@@ -42,24 +42,51 @@ const ARIA_DEFAULT_HEADING_LEVEL = 2;
  *
  * Resolving either to `NaN` would falsify the paragraph above about not being walkable
  * around, so both are pinned in `headingOutline.test.tsx`.
+ *
+ * ## Headings under `aria-hidden` / `inert` are not in the outline (WIC-1886)
+ *
+ * The filter below reads the *accessibility tree*, not the DOM. A heading inside an
+ * `aria-hidden="true"` or `inert` subtree does not exist for assistive tech, so counting
+ * it would make this helper certify an outline no screen-reader user can navigate.
+ *
+ * That is not hypothetical — it is the **modal-bodied route**, where the route's whole body
+ * is an always-open Radix dialog (`/projects/new/dialogue`, `/applications/new`). Radix
+ * calls `hideOthers()` on the content, which puts `aria-hidden="true"` on everything
+ * outside the portal — and the page file is outside the portal, permanently, because the
+ * dialog *is* the route. So `ROUTE_HEADING_OUTLINE.md` §5 rule 1 ("the page owns the
+ * `<h1>`"), applied to such a route, yields an `<h1>` that is invisible to every screen
+ * reader. Unfiltered, this helper would score that fix green. Measured: with the page
+ * `<h1>` added to `/applications/new` and its four `MISSING_H1` lines deleted, the WIC-1675
+ * route sweep passes 10/10 — a fix that changes nothing, certified.
+ *
+ * **`closest()`, not `getAttribute()` — this is the whole trap.** Radix hides the page's
+ * *ancestor*, not the heading. The `<h1>` itself has `aria-hidden === null`, so the obvious
+ * node-level filter is a silent no-op: it leaves the sweep green on the control above and
+ * changes nothing anywhere else. Both variants were measured; only this one bites.
+ *
+ * Cost on the tree as it stands: **zero**. The filter reds nothing today — every affected
+ * route is already inventoried as missing its `<h1>` — so it is purely a tripwire against
+ * the wrong fix being banked as progress later. See `ROUTE_HEADING_OUTLINE.md` §5 rule 7.
  */
 export function getOutline(container: HTMLElement): OutlineEntry[] {
   const nodes = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, [role="heading"]');
 
-  return Array.from(nodes).map((node) => {
-    const ariaLevel = node.getAttribute('aria-level');
-    const fromTag = /^H([1-6])$/.exec(node.tagName);
+  return Array.from(nodes)
+    .filter((node) => !node.closest('[aria-hidden="true"], [inert]'))
+    .map((node) => {
+      const ariaLevel = node.getAttribute('aria-level');
+      const fromTag = /^H([1-6])$/.exec(node.tagName);
 
-    const explicit = ariaLevel === null ? Number.NaN : Number(ariaLevel);
-    const level =
-      Number.isInteger(explicit) && explicit >= 1
-        ? explicit
-        : fromTag
-          ? Number(fromTag[1])
-          : ARIA_DEFAULT_HEADING_LEVEL;
+      const explicit = ariaLevel === null ? Number.NaN : Number(ariaLevel);
+      const level =
+        Number.isInteger(explicit) && explicit >= 1
+          ? explicit
+          : fromTag
+            ? Number(fromTag[1])
+            : ARIA_DEFAULT_HEADING_LEVEL;
 
-    return { level, text: (node.textContent ?? '').trim() };
-  });
+      return { level, text: (node.textContent ?? '').trim() };
+    });
 }
 
 /**
