@@ -157,6 +157,20 @@ jobs:
       - name: Audit owner-absent tenancy predicates
         run: node packages/api/scripts/audit-owner-predicates.mjs
 
+      # WIC-1939: drizzle's migrate() is journal-driven, so a .sql file missing
+      # from meta/_journal.json never runs — and two branches that independently
+      # claim the same migration number produce a journal conflict whose natural
+      # "keep both migrations" resolution yields ONE entry object with two "tag"
+      # keys. That is valid JSON, every parser keeps the last key, and the losing
+      # migration silently disappears from the journal while its file stays on
+      # disk. Reproduced at main 586712c2 by merging PR #238: _journal.json is
+      # the only conflicted path and the loss is real.
+      # Runs unconditionally rather than paths-filtered — the check is ~30ms and
+      # needs no database, and the damage is done by a MERGE, so it must run on
+      # PRs whose own diff does not touch migrations/ at all.
+      - name: Audit migration journal
+        run: node packages/api/scripts/audit-migration-journal.mjs
+
       - name: Run tests
         run: npm run test
 
