@@ -843,20 +843,45 @@ Common patterns used in this project:
 > keyboard access outside dialogs, and box 3 is held open by **WIC-1181** — a confirm action that
 > unmounts its own trigger still drops focus on `<body>` — independently of how many dialogs have
 > moved.
+>
+> ✅ **Box 3 has now met both conditions, and is checked on that basis (2026-08-31, WIC-1902).**
+> Measured at `c74cd2f1`, with the commits, as this note requires:
+>
+> 1. **The migration completed** — `grep -rl '@radix-ui/react-dialog' packages/web/src` returns all
+>    six dialogs (`ed71ed5`), the measurement this note nominates.
+> 2. **WIC-1181 is resolved** — the clause that held box 3 open independently of the migration.
+>    `ConfirmationModal` takes a `restoreFocusTo` fallback (`:27`), `ResumeManager` passes its list
+>    ref (`:239`), and `packages/web/e2e/modal-focus.spec.ts` asserts *"a successful delete moves
+>    focus to the resume list, not `<body>`"* — the exact failure named above (`bf8c8b3`).
+>
+> **Box 1 stays unchecked**, exactly as this note predicted: its dialog clause is closed, but it also
+> covers keyboard access outside dialogs, which nothing here measured. The two boxes moved apart
+> because the note said in advance which clause was doing the work in each — **that is what made a
+> partial fix safe to record.**
 
 - [ ] Keyboard navigation for all features — **partial.** Kanban drag-and-drop *is* keyboard
       operable (`KanbanBoard.tsx` wires `KeyboardSensor` with `sortableKeyboardCoordinates`). But
-      all six hand-rolled dialogs handle **zero** `Escape` keypresses and have no focus trap, so a
-      keyboard user who opens one cannot leave it. See `MODAL_FOCUS_MANAGEMENT_SPEC.md` §2.
+      ~~all six hand-rolled dialogs handle **zero** `Escape` keypresses and have no focus trap, so a
+      keyboard user who opens one cannot leave it.~~ **Closed 2026-08-31:** all six are on
+      `@radix-ui/react-dialog`, which supplies `Escape` and the focus trap. See
+      `MODAL_FOCUS_MANAGEMENT_SPEC.md` §2. This bullet stays `- [ ]` for its *other* clause — the
+      remaining keyboard-operability gaps are not the dialogs.
 - [ ] Proper form labels and validation — **validation yes, labels no.** Validation is real
       (`react-hook-form` + `zod`). **28 of 98** form controls in `packages/web/src` expose no
       programmatic accessible name: 11 sit beside a visible `<label>` that carries no `htmlFor`
       (assistive tech reads these as unlabelled), and 17 have no label at all.
-- [ ] Focus management in modals — **not shipped.** `packages/web/src/hooks/useDialogFocusRestore.ts`
-      does not exist and no `useDialogFocusRestore` / `fallbackRef` / `RESTORE_WATCH_MS` symbol
-      appears anywhere under `packages/web/src`. Authority for this item is
-      **`MODAL_FOCUS_MANAGEMENT_SPEC.md` §5** (hook contract, *specified, not implemented*); §2 of
-      that document audits all six dialogs and every row still holds at `0e5d97a`.
+- [x] Focus management in modals — **shipped 2026-08-30/31**, and this is the one box in this list
+      that was checked on a measurement rather than an assumption.
+      `packages/web/src/hooks/useDialogFocusRestore.ts` exists (added at `ed71ed5`), and
+      `useDialogFocusRestore` / `fallbackRef` / `RESTORE_WATCH_MS` resolve to **18 / 6 / 3**
+      occurrences under `packages/web/src`, against *none* when this box was last measured. All six
+      dialogs audited by **`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2** now mount the full
+      `@radix-ui/react-dialog` stack, with **8** `useDialogFocusRestore(` call sites between them.
+      Enforced by `docs/design/confirmation-modal-focus-audit.py` in `Lint & Test`, which is now
+      **armed** (`ConfirmationModal focus restore OK — 1 call site(s) declared`) rather than dormant,
+      and exercised by `packages/web/e2e/modal-focus.spec.ts` and `modal-focus-projects.spec.ts`.
+      Authority for this item remains **`MODAL_FOCUS_MANAGEMENT_SPEC.md` §5**, now a description of
+      shipped code. *Residual:* the E2E sweep covers 2 of the 6 dialogs directly (§10 of that spec).
 - [ ] ARIA labels for interactive elements — **partial.** Two controls have no accessible name at
       all: the `role="switch"` toggle in `FilterPanel.tsx` and the icon-only back button in
       `InterviewPrepPage.tsx`. The 17 unlabelled form controls above are additional to those.
