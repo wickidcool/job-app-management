@@ -371,15 +371,29 @@ describe('generateInterviewPrep — the positive controls that make the above fa
     expect(prompts.join('\n')).toContain('Initech');
   });
 
-  it('succeeds for an absent caller against the application nobody owns', async () => {
+  it('fails closed for an absent caller, because no bullet can be owner-less', async () => {
+    // This case used to assert success, and that expectation is now unsatisfiable
+    // by construction rather than by accident. WIC-1485/1449 scoped the
+    // `quantified_bullets` read in `generateInterviewPrep` to the caller, and that
+    // column is `.notNull()` since `0017_enforce_userid_not_null.sql`. So an absent
+    // caller's `user_id IS NULL` predicate matches no rows *ever* — not merely none
+    // in this fixture — the catalog reads empty, and the service raises
+    // `CATALOG_EMPTY` before it can reach the insert. The service documents this as
+    // the intent: "Failing closed is the intent."
+    //
+    // The owner positive control above is what keeps the tenancy assertions in this
+    // file falsifiable, so pinning the fail-closed posture here costs nothing and
+    // buys a regression guard on the anonymous path.
     const { generateInterviewPrep } = await import('../src/services/interviewPrep.service.js');
 
-    await generateInterviewPrep({ applicationId: NOBODYS_APP } as never, undefined);
+    await expect(
+      generateInterviewPrep({ applicationId: NOBODYS_APP } as never, undefined)
+    ).rejects.toMatchObject({ code: 'CATALOG_EMPTY' });
 
-    expect(insertedInto).toContain('interview_preps');
-    const rows = await prepRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0].application_id).toBe(NOBODYS_APP);
+    // Fails closed *before* the insert — the unowned application's UNIQUE
+    // `application_id` slot is not consumed by the attempt.
+    expect(insertedInto).toEqual([]);
+    expect(await prepRows()).toHaveLength(0);
   });
 });
 
