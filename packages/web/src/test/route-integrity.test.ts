@@ -220,7 +220,16 @@ const sources = import.meta.glob('../**/*.{ts,tsx}', {
 
 const appSources = Object.fromEntries(
   Object.entries(sources).filter(
-    ([file]) => !file.includes('/test/') && !/\.(test|spec)\.tsx?$/.test(file)
+    ([file]) =>
+      // The glob is rooted at this file's own directory, so a sibling in `src/test/`
+      // comes back as `./name.tsx` — Vite normalises `../test/name.tsx` away — and the
+      // `/test/` check below never sees a `/test/` segment to match. Any non-`.test.`
+      // helper living here was therefore scanned as application source. That was
+      // invisible while `src/test/` held only `headingOutline.ts` and `prohibitedName.ts`
+      // (neither contains a link-shaped string); `routeOutlineRoutes.tsx` carries the
+      // concrete URLs the outline sweep mounts, including a deliberately unrouted one
+      // for the `*` catch-all, and surfaced it. (WIC-1675)
+      !/^\.\/[^/]+$/.test(file) && !file.includes('/test/') && !/\.(test|spec)\.tsx?$/.test(file)
   )
 );
 
