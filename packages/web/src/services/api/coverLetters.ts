@@ -19,6 +19,8 @@ export interface CoverLetter {
   id: string;
   title: string;
   content: string;
+  targetCompany: string;
+  targetRole: string;
   tone: CoverLetterTone;
   lengthVariant: CoverLetterLength;
   emphasis: CoverLetterEmphasis;
@@ -36,6 +38,8 @@ function transformCoverLetter(
     id: apiCoverLetter.id,
     title: apiCoverLetter.title,
     content: apiCoverLetter.content,
+    targetCompany: apiCoverLetter.targetCompany,
+    targetRole: apiCoverLetter.targetRole,
     tone: apiCoverLetter.tone,
     lengthVariant: apiCoverLetter.lengthVariant,
     emphasis: apiCoverLetter.emphasis ?? 'balanced',
@@ -62,7 +66,18 @@ export class CoverLetterService {
     return transformCoverLetter(response.coverLetter);
   }
 
-  async list(params?: { status?: 'draft' | 'finalized'; company?: string; search?: string }) {
+  /**
+   * `limit` maps to the endpoint's page size — server default 20, server
+   * maximum 100 (`listQuerySchema` in `routes/cover-letters.ts`). `cursor` is
+   * deliberately not exposed: nothing paginates yet, and an unexercised
+   * parameter is how the drift this type was just corrected for started.
+   */
+  async list(params?: {
+    status?: 'draft' | 'finalized';
+    company?: string;
+    search?: string;
+    limit?: number;
+  }) {
     const response = await this.client.get<ListCoverLettersResponse>('/cover-letters', params);
     return response.coverLetters;
   }

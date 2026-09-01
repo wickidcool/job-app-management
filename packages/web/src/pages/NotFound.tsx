@@ -1,24 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-
-/**
- * Copy strings for the 404 page.
- *
- * Held in one block on purpose: the wording is owned by Copywriter/Editor
- * (WIC-1051) and the layout by UI/UX. Keeping them separate means a copy
- * revision is a one-hunk diff that cannot disturb spacing or structure.
- */
-const COPY = {
-  eyebrow: '404',
-  heading: "That page couldn't be found",
-  body: "The link may be out of date, or the address may have a typo. Everything you've saved is safe.",
-  // Deliberately not the onboarding CTA's "Go to Dashboard": a 404-recovery click
-  // and a completed-onboarding click are opposite signals and must stay tellable
-  // apart in analytics and in role+name test selectors. "Back" frames recovery.
-  primaryAction: 'Back to dashboard',
-  backAction: 'Go back',
-  pathLabel: 'Address you tried:',
-} as const;
+import { Link, useLocation } from 'react-router-dom';
+import { useReportRouteUnmatched } from '../contexts/RouteMatchContext';
+import { useCommandPalette } from '../contexts/CommandPaletteContext';
+import { NOT_FOUND_COPY as COPY } from './NotFound.copy';
 
 /** Longest path we will render before eliding the middle. */
 const MAX_PATH_CHARS = 120;
@@ -38,24 +22,23 @@ function elidePath(path: string): string {
  * `<main>` — indistinguishable from a page that is still loading.
  *
  * Shows the path that was not found so a typo can be told apart from a
- * broken link, and offers a way back rather than a dead end.
+ * broken link, and offers one unambiguous way out.
  */
 export function NotFound() {
   const location = useLocation();
-  const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const { openPalette } = useCommandPalette();
+
+  // Tell the navigation chrome that this path matched nothing, so it stops marking
+  // a tab (and an `aria-current="page"`) as the page you are on while this page
+  // says the page was not found. The router is the only thing that knows.
+  useReportRouteUnmatched();
 
   // Move focus to the heading so screen-reader and keyboard users are told
   // the navigation landed somewhere unexpected instead of silently staying put.
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
-
-  // `window.history.length` counts the whole tab session, so a cold deep-link
-  // from an external site (email, Slack) reports length 2 and "Go back" would
-  // eject the user out of the app entirely. React Router stamps the initial
-  // entry with key 'default', so this is true only after an in-app navigation.
-  const canGoBack = location.key !== 'default';
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 lg:px-8">
@@ -96,7 +79,20 @@ export function NotFound() {
 
         <p className="mt-3 max-w-md text-body text-neutral-600">{COPY.body}</p>
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+        {/*
+          Exactly one *primary* action, and no `navigate(-1)`: §2.1 (decided in
+          WIC-1105) objected to a back affordance because the dominant arrival is a
+          click on a stale link elsewhere, so "back" returns the user to the page
+          holding it — a loop. That objection is about reversing the navigation, and
+          it still stands.
+
+          The search button is not that. It moves the user forward, and it exists
+          because the keyboard hint below is `sm:`-only by necessity — there is no
+          Ctrl+K on a phone — which left touch users with a single affordance on the
+          one screen where "I know the company, the URL is just stale" is the common
+          case (WIC-1053). Secondary styling keeps the primary action dominant.
+        */}
+        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-lg bg-primary-600 px-6 py-3
@@ -107,21 +103,24 @@ export function NotFound() {
             {COPY.primaryAction}
           </Link>
 
-          {canGoBack && (
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="inline-flex items-center justify-center rounded-lg border border-neutral-300
-                       bg-white px-6 py-3 font-medium text-neutral-700 transition-colors duration-200
-                       hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500
-                       focus:ring-offset-2"
-            >
-              {COPY.backAction}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={openPalette}
+            className="inline-flex items-center justify-center rounded-lg border border-neutral-300
+                     bg-white px-6 py-3 font-medium text-neutral-700 transition-colors duration-200
+                     hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500
+                     focus:ring-offset-2"
+          >
+            {COPY.searchAction}
+          </button>
         </div>
 
-        {/* Keyboard hint only — hidden on touch layouts where there is no shortcut. */}
+        {/*
+          The same control as the button above, by keyboard. Hidden on touch layouts,
+          where the shortcut does not exist and printing it would be a dead
+          instruction — which is exactly why the button has to render at every
+          breakpoint rather than only below `sm`.
+        */}
         <p className="mt-8 hidden text-body-sm text-neutral-600 sm:block">
           Looking for something specific? Press{' '}
           <kbd className="rounded border border-neutral-300 bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-700">

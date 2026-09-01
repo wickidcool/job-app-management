@@ -7,10 +7,15 @@
 change that would have deleted a shipped prop. Corrections are marked inline rather than silently
 applied, because the errors are the useful part: see §1.2, §1.3 and especially **§4's correction
 note**, plus the new §5 rules 4–6 that exist to stop the same class recurring.
+**Revised 2026-09-01 (WIC-1886)** — §5 gains **rule 7**: on a route whose body is an always-open
+modal, rule 1 is *wrong*, and `getOutline` could not see that it was wrong. Both halves are fixed
+together, because the doc rule without the check is unenforceable and the check without the rule
+explains nothing. Rule 1 is left as written and qualified by rule 7 rather than edited, per this
+document's own convention of marking corrections inline.
 **Related:** `COMPONENT_SPECS.md` §10 → "Heading level" (WIC-1417),
 `COVER_LETTER_PANE_LABELLING.md` (WIC-1569 — the ruling this one's `<h1>` rule is a tripwire for;
 see its §3), `CONTENT_STYLE.md` (heading copy is sentence case), WIC-1571, WIC-1563, WIC-1586,
-WIC-1598
+WIC-1598, WIC-1675/PR #299 (the rendered route sweep), WIC-1886
 
 > **Precedence.** Where this document and `COVER_LETTER_PANE_LABELLING.md` disagree about
 > `CoverLetterPreview`'s `headingLevel`, **`COVER_LETTER_PANE_LABELLING.md` §3 governs.** It is the
@@ -54,6 +59,34 @@ The ticket found `/outreach/new`. A full sweep — every static `<h1>` and `<h2>
 
 Those are the only two exact page-`<h1>`/component-`<h2>` collisions in the tree. The sweep is
 reproducible: intersect the static heading strings, then check the mount site.
+
+> **Correction (WIC-1533, 2026-08-27) — `routeHeadingOutline.test.ts` implemented only the first
+> half of that sentence.** It intersected the heading strings and asserted the result empty,
+> without checking the mount site, so it also reported pairs from **two different routes** — which
+> §0 does not forbid and cannot: if no page renders both files, no reader ever hears the string
+> twice and there is no outline in which it sits at two levels.
+>
+> First live instance: `/cover-letters` names itself `<h1>Cover Letters</h1>` while
+> `/applications/:id` — whose own `<h1>` is the interpolated `{application.jobTitle}` — carries an
+> `<h2>Cover Letters</h2>` section beside `Details`, `Timeline`, `Job Description` and `Documents`.
+> Neither page mounts the other. The only "fixes" available were to rename a correct section or a
+> correct page title, i.e. to make the copy worse to satisfy a check that did not apply to it.
+>
+> The test now filters collisions to pairs that share a render tree — the same file, or one
+> importing the other transitively. **Both original defects remain caught, measured rather than
+> assumed:** reintroducing `OutreachComposer`'s or `ResumeExportList`'s `<h2>` reds it, and forcing
+> the new predicate to `false` reds the mount-site test added alongside it, so the narrowing cannot
+> fail open unnoticed. That control earned its keep immediately — the first version of the resolver
+> dropped a leading `../` and linked nothing, which would have made the whole sweep vacuous while
+> reading green.
+>
+> New blind spot, stated: a component reached through a barrel file or a dynamic `import()` is not
+> linked, so such a pair would go unreported. Narrower than the sweep's existing static-text and
+> JSX-comment limits, but it is new and it is mine.
+>
+> Flagged to this ruling's author rather than assumed settled. If the intended rule really is "no
+> string is ever both an `h1` and an `h2` tree-wide", that is a **stronger** rule than §0 states and
+> §0 should say so — at which point the right fix is to rename a heading and revert this narrowing.
 
 ### 1.2 WIC-1571 has not shipped, so `/cover-letters/new` is not duplicated yet
 
@@ -263,6 +296,45 @@ When adding a `/new` route or any route whose body is a single component:
    new comments. The same blind spot in reverse is real too: interpolated headings are invisible to
    the sweep entirely (33% of `<h1>`, 26% of `<h2>` at `6911bcb` — WIC-1586), so a green run means
    "no *literal* collision", never "no collision".
+7. **If the route's body is an always-open modal, rule 1 inverts: the `<h1>` goes on the dialog
+   title, not the page file.** (WIC-1886.) Radix's `Dialog.Content` calls `hideOthers()`, which puts
+   `aria-hidden="true"` on everything outside the portal. When the dialog *is* the route, "outside
+   the portal" is the page file, permanently — so an `<h1>` placed there per rule 1 is in the DOM
+   and in **no** screen reader, for the entire life of the route. Write it as
+   `<Dialog.Title asChild><h1>…</h1></Dialog.Title>`: the dialog title and the route `<h1>` are the
+   same node, and `asChild` keeps Radix's accessible-name wiring. `WizardContainer`
+   (`/projects/new/dialogue`) is the worked instance; `ApplicationForm` (`/applications/new`) is the
+   second. `CatalogBrowseView` is the same shape reached by analogy rather than by rule, which is
+   why this is written down.
+
+   **How to recognise one:** the page component renders a single child, and that child hardcodes
+   `<Dialog.Root open>` with no `modal={false}`. It is not "a route that can open a dialog" — it is
+   a route with no non-dialog state.
+
+   > **The check could not see this, and now can.** `getOutline` was a plain `querySelectorAll`, so
+   > it counted the hidden `<h1>` and scored the rule-1 fix green — the failure mode WIC-1483 named,
+   > *a mechanism that certifies the wrong fix is not enforcement*. It now skips any heading inside
+   > an `aria-hidden="true"` or `inert` subtree, i.e. it reads the accessibility tree rather than
+   > the DOM.
+   >
+   > **Two measured details worth keeping**, both of which cost a wrong turn if you rediscover them
+   > the hard way:
+   >
+   > 1. **The heading itself is not `aria-hidden` — an ancestor is.** `hideOthers()` marks the
+   >    page's top-level wrapper. So the obvious `node.getAttribute('aria-hidden') !== 'true'`
+   >    filter is a **silent no-op**: measured, it leaves the positive control below fully green.
+   >    The fix has to be `closest()`. A filter written the obvious way would have been the same
+   >    class of non-fix this rule exists to prevent.
+   > 2. **What bites is the "opens at exactly one `<h1>`" assertion, not the skip assertion.** With
+   >    the page `<h1>` removed from the accessibility tree the route's outline is `h2 -> h3`, which
+   >    contains no *skip* — `findOutlineSkips` returns `[]` either way. Only the `<h1>` rule sees it.
+   >
+   > **Positive control** (`/applications/new`, WIC-1675 route sweep on PR #299): add an `<h1>` to
+   > the page file per rule 1, delete the four `/applications/new|*` lines from `MISSING_H1`, and
+   > drop the size pin 25 → 21 — the fix the inventory's ratchet actively invites. Unfiltered, that
+   > passes **10/10**. Ancestor-filtered, it reds on all four branches. **Cost of the filter on the
+   > tree as it stands: zero** — 19/19 on that branch, 43/43 across every `getOutline` consumer on
+   > `main`. It reds nothing today and is purely a tripwire on the wrong fix.
 
 ## 6. Note on [`ROUTE_TITLE_CONVENTION.md`](./ROUTE_TITLE_CONVENTION.md)
 

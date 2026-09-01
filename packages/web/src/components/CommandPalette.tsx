@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useApplications } from '../hooks/useApplications';
 import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
+import { RECENT_SEARCHES_KEY } from '../services/appStorage';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -18,7 +19,6 @@ interface SearchResult {
   icon?: string;
 }
 
-const RECENT_SEARCHES_KEY = 'wic-recent-searches';
 const MAX_RECENT_SEARCHES = 5;
 
 const SUGGESTED_FILTERS = [
