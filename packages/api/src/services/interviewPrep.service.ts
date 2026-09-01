@@ -20,6 +20,7 @@ import {
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { AppError, NotFoundError } from '../types/index.js';
+import { clampPercent, type Percent } from '../types/units.js';
 
 // ── Tenancy ───────────────────────────────────────────────────────────────────
 
@@ -86,7 +87,13 @@ export interface PrepStoryDTO {
   id: string;
   starEntryId: string;
   themes: string[];
-  relevanceScore: number;
+  /**
+   * Percent in `[0, 100]`, integer — the one ADR-008 §4 deviation from the
+   * ratio convention. The `Pct` suffix is the contract; the brand is checked
+   * on assignment only, so the `[0, 100]` bound and the `/100` export string
+   * are pinned by tests, not by this type (WIC-1520, ADR-008 §3).
+   */
+  relevanceScorePct: Percent;
   oneMinVersion: string;
   twoMinVersion: string;
   fiveMinVersion: string;
@@ -238,7 +245,9 @@ function storyRowToDTO(row: InterviewPrepStory): PrepStoryDTO {
     id: row.id,
     starEntryId: row.starEntryId,
     themes: (row.themes ?? []) as string[],
-    relevanceScore: row.relevanceScore,
+    // Persisted already-clamped on the write path; re-clamp so a row written
+    // before the bound existed cannot escape onto the wire.
+    relevanceScorePct: clampPercent(row.relevanceScorePct),
     oneMinVersion: row.oneMinVersion,
     twoMinVersion: row.twoMinVersion,
     fiveMinVersion: row.fiveMinVersion,
@@ -294,7 +303,7 @@ async function generatePrepWithAI(
   stories: Array<{
     starEntryId: string;
     themes: string[];
-    relevanceScore: number;
+    relevanceScorePct: number;
     oneMinVersion: string;
     twoMinVersion: string;
     fiveMinVersion: string;
@@ -326,7 +335,7 @@ Generate comprehensive interview prep materials in JSON format with exactly this
     {
       "starEntryId": "<ID from the [ID:...] prefix above>",
       "themes": ["<theme1>", "<theme2>"],
-      "relevanceScore": <0-100 integer>,
+      "relevanceScorePct": <0-100 integer>,
       "oneMinVersion": "<~100 word concise summary of this achievement>",
       "twoMinVersion": "<~200 word moderate-length version>",
       "fiveMinVersion": "<~400 word full STAR story version>"
@@ -408,7 +417,7 @@ Rules:
     stories: Array<{
       starEntryId: string;
       themes: string[];
-      relevanceScore: number;
+      relevanceScorePct: number;
       oneMinVersion: string;
       twoMinVersion: string;
       fiveMinVersion: string;
@@ -559,7 +568,9 @@ export async function generateInterviewPrep(
     interviewPrepId: prepId,
     starEntryId: s.starEntryId,
     themes: s.themes,
-    relevanceScore: Math.min(100, Math.max(0, s.relevanceScore)),
+    // Bounds the LLM's `<0-100 integer>` to ADR-008's percent range. Pinned by
+    // test — the `Percent` brand is erased by arithmetic and cannot enforce it.
+    relevanceScorePct: clampPercent(s.relevanceScorePct),
     oneMinVersion: s.oneMinVersion,
     twoMinVersion: s.twoMinVersion,
     fiveMinVersion: s.fiveMinVersion,
@@ -1048,7 +1059,9 @@ export async function exportInterviewPrep(
     lines.push('');
     for (const story of storyDTOs) {
       lines.push(`### Story (Themes: ${story.themes.join(', ')})`);
-      lines.push(`**Relevance Score:** ${story.relevanceScore}/100`);
+      // `/100` because this population is a percent, not a ratio (ADR-008 §4).
+      // Pinned by test; the brand does not survive template interpolation.
+      lines.push(`**Relevance Score:** ${story.relevanceScorePct}/100`);
       lines.push('');
       lines.push('**1-min version:**');
       lines.push(story.oneMinVersion);
