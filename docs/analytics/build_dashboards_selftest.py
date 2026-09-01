@@ -281,6 +281,23 @@ class InjectHogql(unittest.TestCase):
         _out, sites = bd.inject_hogql("SELECT 1", PRED)
         self.assertEqual(sites, 0)
 
+    def test_unterminated_block_comment_fails_closed(self):
+        # `/* oops` with no `*/` masks to end-of-string: the predicate would land inside
+        # the never-closed comment and the emitted SQL is unbalanced, yet inject_hogql
+        # still reports one filtered site -- the silent-unfilter signature this whole
+        # mechanism exists to kill (WIC-1844). Drop the `close == -1` guard in
+        # `_sql_tokens` and this reds (it returns (sql, 1) instead of raising).
+        with self.assertRaises(SystemExit):
+            bd.inject_hogql("SELECT count() FROM events WHERE event = 'a' /* oops", PRED)
+
+    def test_comment_only_where_body_fails_closed(self):
+        # `WHERE -- all` is a non-empty substring but carries no tokens, so it would wrap
+        # to `WHERE ()` -- empty parens, invalid SQL. The pre-fix `if not condition` guard
+        # missed it because "-- all" is truthy; the fix counts tokens after comment
+        # masking (WIC-1844). Revert that guard to `if not condition` and this reds.
+        with self.assertRaises(SystemExit):
+            bd.inject_hogql("SELECT count() FROM events WHERE -- all\n", PRED)
+
 
 class ApplyExclusion(unittest.TestCase):
     def test_zero_sites_is_fatal(self):

@@ -43,18 +43,28 @@ const SCANNABLE_EXT = new Set([
   '.vars',
 ]);
 
+/**
+ * Dotfiles worth scanning, matched by *basename*. `extname('.env') === ''` and
+ * `extname('.env.production') === '.production'`, so the `.env` entry in
+ * SCANNABLE_EXT above only ever matches a file literally named `foo.env` — a
+ * real `.env`-family file was never reaching the scanner.
+ */
+const SCANNABLE_BASENAME = /^\.(env|envrc|npmrc|netrc|secrets?|pgpass)(\..*)?$/;
+
 /** Files/paths never worth scanning (noise, vendored, or binary). */
 const IGNORE_SUBPATHS = ['node_modules/', 'dist/', 'build/', '.wrangler/', 'test-results/'];
 const IGNORE_BASENAMES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']);
 
 /** Config/manifest files also get generic high-entropy scanning. */
-function isConfigFile(path: string): boolean {
+export function isConfigFile(path: string): boolean {
   const base = basename(path);
   if (base === 'wrangler.jsonc' || base === 'wrangler.toml' || base === 'wrangler.json')
     return true;
   if (path.startsWith('.github/workflows/')) return true;
   if (extname(path) === '.toml') return true;
   if (base.startsWith('.dev.vars') || base.endsWith('.vars.example')) return true;
+  // Env files are a secret-bearing manifest surface, same as `.dev.vars`.
+  if (SCANNABLE_BASENAME.test(base)) return true;
   return false;
 }
 
@@ -75,10 +85,12 @@ function listTrackedFiles(root: string): string[] {
   }
 }
 
-function shouldScan(path: string): boolean {
+export function shouldScan(path: string): boolean {
   if (IGNORE_SUBPATHS.some((p) => path.includes(p))) return false;
-  if (IGNORE_BASENAMES.has(basename(path))) return false;
-  return SCANNABLE_EXT.has(extname(path));
+  const base = basename(path);
+  if (IGNORE_BASENAMES.has(base)) return false;
+  if (SCANNABLE_EXT.has(extname(path))) return true;
+  return SCANNABLE_BASENAME.test(base);
 }
 
 function loadAllowlist(root: string): Allowlist | undefined {
@@ -156,4 +168,6 @@ function main(): void {
   console.log(`[secret-scan] OK: no secret material in ${files.length} scanned file(s).`);
 }
 
-main();
+// Only run the CLI when invoked directly — importing this module (e.g. from a
+// test that pins the file-discovery rules) must not scan the repo or exit.
+if (process.argv[1] && /secret-scan\.[tj]s$/.test(process.argv[1])) main();
