@@ -16,7 +16,7 @@
  * `Ratio`, and `Ratio` and `Percent` are not assignable to each other — so a conversion has to
  * be written down, at a site a reviewer can see.
  *
- * This file is mirrored at `packages/api/src/types/units.ts`. The two must stay identical; the
+ * This file is mirrored at `packages/web/src/types/units.ts`. The two must stay identical; the
  * repo has no shared package, and duplicating ~90 lines is cheaper than introducing one for
  * this alone. If a shared package ever lands, this is a straight move.
  *
