@@ -19,6 +19,7 @@ import { ApplicationsList } from '../pages/ApplicationsList';
 import { CatalogPage } from '../pages/CatalogPage';
 import { CoverLetterDetail } from '../pages/CoverLetterDetail';
 import { CoverLetterNew } from '../pages/CoverLetterNew';
+import { CoverLettersList } from '../pages/CoverLettersList';
 import { Dashboard } from '../pages/Dashboard';
 import { DialogueCapture } from '../pages/DialogueCapture';
 import { InterviewPrepPage } from '../pages/InterviewPrepPage';
@@ -121,6 +122,7 @@ export const ROUTES: RouteCase[] = [
   },
   { path: '/catalog', render: () => <CatalogPage /> },
   { path: '/job-fit-analysis', render: () => <JobFitAnalysis /> },
+  { path: '/cover-letters', render: () => <CoverLettersList /> },
   { path: '/cover-letters/new', render: () => <CoverLetterNew /> },
   {
     path: '/cover-letters/cl-1',

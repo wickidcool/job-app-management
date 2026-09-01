@@ -60,7 +60,9 @@ import {
 } from './routeOutlineApiMock';
 
 import { AuthProvider } from '../contexts/AuthContext';
+import { CommandPaletteProvider } from '../contexts/CommandPaletteContext';
 import { OnboardingProvider } from '../contexts/OnboardingContext';
+import { RouteMatchProvider } from '../contexts/RouteMatchContext';
 
 export { BRANCHES, setBranch, currentBranch, apiMockModule } from './routeOutlineApiMock';
 export type { Branch } from './routeOutlineApiMock';
@@ -109,9 +111,20 @@ export function renderRoute(element: ReactElement, options: RenderRouteOptions):
       <AuthProvider>
         <OnboardingProvider>
           <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route path={pattern} element={element} />
-            </Routes>
+            {/*
+             * Mirrors `AppShellProviders` in `App.tsx`, which sits in exactly this
+             * position — inside the router, wrapping `Routes`. Not decoration: with no
+             * `CommandPaletteProvider` above it, `NotFound`'s `useCommandPalette()`
+             * *throws*, and a throw in `collectOutlines` fails the whole suite rather
+             * than one route, taking every other assertion with it.
+             */}
+            <RouteMatchProvider>
+              <CommandPaletteProvider>
+                <Routes>
+                  <Route path={pattern} element={element} />
+                </Routes>
+              </CommandPaletteProvider>
+            </RouteMatchProvider>
           </MemoryRouter>
         </OnboardingProvider>
       </AuthProvider>

@@ -51,6 +51,21 @@ export function currentBranch(): Branch {
  */
 const WHEN = new Date('2026-01-01T00:00:00.000Z');
 
+/**
+ * `createdAt` is the one exception, and it is a string.
+ *
+ * It is the only date field with two *incompatible* callers rather than two compatible
+ * ones. `coverLettersForApplication` sorts with `b.createdAt.localeCompare(a.createdAt)`,
+ * which a `Date` does not have — and because that runs during render, a `Date` here
+ * throws inside `ApplicationDetail` and fails the whole sweep, not one route.
+ *
+ * A string is safe for everyone else: unlike `updatedAt`, **every** reader of `createdAt`
+ * wraps it (`new Date(letter.createdAt)` in `CoverLettersList`, `ApplicationDetail`,
+ * `ResumeVariantCard`, `QuickWins`, `CatalogBrowseView`). It also matches the real
+ * contract — `CoverLetterSummary.createdAt` is declared `string` in `services/api/types`.
+ */
+const WHEN_ISO = WHEN.toISOString();
+
 const ROW: Record<string, unknown> = {
   id: 'row-1',
   applicationId: 'row-1',
@@ -66,10 +81,17 @@ const ROW: Record<string, unknown> = {
   jobTitle: 'Staff Engineer',
   company: 'Acme',
   companyName: 'Acme',
+  // `coverLettersForApplication` keeps only letters whose target matches the
+  // application's `company`/`jobTitle`, so these have to agree with the two fields above.
+  // If they disagree the filter returns `[]` and `/applications/:id` renders its "no
+  // letters yet" state on the `loaded` branch — measuring the empty path twice and the
+  // populated one never.
+  targetCompany: 'Acme',
+  targetRole: 'Staff Engineer',
   location: 'Remote',
   status: 'applied',
   version: 1,
-  createdAt: WHEN,
+  createdAt: WHEN_ISO,
   updatedAt: WHEN,
   uploadedAt: WHEN,
   appliedDate: WHEN,

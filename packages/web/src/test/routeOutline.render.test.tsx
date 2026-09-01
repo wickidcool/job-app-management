@@ -171,16 +171,16 @@ describe('every route renders a clean heading outline on every branch', () => {
    * Asserting the expected volume first makes that failure loud in each test instead.
    */
   function pairs() {
-    expect(ROUTES).toHaveLength(29);
-    expect(measured, 'the sweep did not render every (route, branch) pair').toHaveLength(116);
+    expect(ROUTES).toHaveLength(30);
+    expect(measured, 'the sweep did not render every (route, branch) pair').toHaveLength(120);
     return measured;
   }
 
-  it('renders all four branches of all 29 routes', () => {
+  it('renders all four branches of all 30 routes', () => {
     // AC-4: coverage is a number, not an impression. If a route stops rendering, or a
     // branch stops being reachable, this is what says so — the per-pair assertions below
     // would all still pass over the smaller set.
-    expect(pairs()).toHaveLength(116);
+    expect(pairs()).toHaveLength(120);
   });
 
   it('renders a non-empty outline on at least three quarters of the pairs', () => {
@@ -189,7 +189,7 @@ describe('every route renders a clean heading outline on every branch', () => {
     // second h1 and no wrong opening level. If the API mock or the provider stack breaks,
     // the sweep goes quiet rather than red, so the volume of what it saw is pinned too.
     const withHeadings = pairs().filter((m) => m.outline.length > 0);
-    expect(withHeadings.length).toBeGreaterThanOrEqual(87);
+    expect(withHeadings.length).toBeGreaterThanOrEqual(90);
   });
 
   it('skips no heading level, on any route, on any branch', () => {
