@@ -80,6 +80,23 @@ jobs:
       - name: Audit wireframe casing
         run: python3 docs/design/wireframe-casing-audit.py
 
+      # WIC-1302: docs/analytics/dashboard-templates.json and console-build-runbook.md
+      # are generated artifacts of insight-payloads.json + make_console_pack.py (PR #109).
+      # The guarantee was procedural — the two-step regen lives only in the generator's
+      # stdout — so an edit to an input that skipped regeneration could land a stale pack
+      # on main silently; the Prettier format check does not cover docs/** and so misses it.
+      # This regenerates and diffs. A non-empty diff = an input changed without regen.
+      # The generator exits 1 by design when a payload has neither inline HogQL nor a
+      # _hogql_variant fallback; set -e surfaces that as a real failure, not a silent one.
+      # Runs unconditionally (not paths-filtered): the check is ~1s and deterministic,
+      # and always-on guarantees the pack is in sync on every merge regardless of route.
+      - name: Verify console pack is regenerated from insight-payloads.json
+        run: |
+          set -euo pipefail
+          python3 docs/analytics/make_console_pack.py
+          npx prettier --write docs/analytics/dashboard-templates.json docs/analytics/console-build-runbook.md
+          git diff --exit-code docs/analytics/dashboard-templates.json docs/analytics/console-build-runbook.md
+
       # WIC-1582: ROUTE_TITLE_CONVENTION.md §5 is a copy of strings that live in
       # source, and it spent eight days outside the repo drifting — a heading moved
       # file, the 404's copy changed, and a route was added with no row. All three
