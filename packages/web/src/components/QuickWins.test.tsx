@@ -141,11 +141,7 @@ describe('QuickWins (WIC-1478)', () => {
 describe('QuickWins row age vs the bucket that selected the row (WIC-1575)', () => {
   function renderStale(daysAgo: number, staleThresholdDays = 7) {
     return renderWins(
-      attention(
-        { staleActive: 1 },
-        { staleActive: [app('a', daysAgo)] },
-        { staleThresholdDays }
-      )
+      attention({ staleActive: 1 }, { staleActive: [app('a', daysAgo)] }, { staleThresholdDays })
     );
   }
 
