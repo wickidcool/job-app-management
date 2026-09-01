@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { differenceInDays, parseISO, startOfDay } from 'date-fns';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
@@ -7,6 +7,9 @@ import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
 import { useApplicationCollection, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useDebounce } from '../hooks/useDebounce';
+import { filterByDateRange } from '../utils/dateRangeFilter';
+import { parseStatusParam } from '../constants/applicationStatus';
 import type { Application, ApplicationStatus } from '../types/application';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
@@ -38,19 +41,47 @@ function calculatePipelineStats(applications: Application[]) {
 
 export function ApplicationsList() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<FilterOptions>({});
+  const [searchParams] = useSearchParams();
+  const statusParam = searchParams.get('status');
+
+  // The command palette links here as `/applications?status=interview,phone_screen`. Until
+  // WIC-1775 that query string was never read, so every shortcut landed on the unfiltered
+  // list and the label above it was false whatever it said.
+  const [filters, setFilters] = useState<FilterOptions>(() => {
+    const status = parseStatusParam(statusParam);
+    return status.length > 0 ? { status } : {};
+  });
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [prevStatusParam, setPrevStatusParam] = useState(statusParam);
+
+  // Re-apply when a shortcut navigates here while this page is already mounted — the
+  // initialiser above only runs on first render. This is the derived-state-during-render
+  // pattern (as in CommandPalette), not an effect: an effect would render the stale list
+  // first and then correct it, and the lint rule rejects the cascading render.
+  if (statusParam !== prevStatusParam) {
+    setPrevStatusParam(statusParam);
+    const status = parseStatusParam(statusParam);
+    if (status.length > 0) {
+      setFilters((prev) => ({ ...prev, status }));
+    }
+  }
+
+  // `filters` updates on every keystroke so that `FilterPanel` can stay controlled (it
+  // holds no state of its own — see WIC-1612), so the debounce that used to live inside
+  // the panel lives here instead: between the committed filter state and the API, which
+  // is the only place that actually needed protecting from a request per character.
+  const debouncedSearch = useDebounce(filters.search, 300);
 
   // Convert FilterOptions to API filter format
   const apiFilters = useMemo(
     () => ({
       status: filters.status,
-      search: filters.search,
+      search: debouncedSearch,
       // API only supports single company partial match, not multiple exact matches
       // We'll handle multiple companies via client-side filtering
       company: undefined,
     }),
-    [filters.status, filters.search]
+    [filters.status, debouncedSearch]
   );
 
   const { data: collection, isLoading } = useApplicationCollection(apiFilters);
@@ -63,7 +94,9 @@ export function ApplicationsList() {
   const isPartialView = collection?.truncated ?? false;
   const updateStatusMutation = useUpdateApplicationStatus();
 
-  // Client-side filtering for multiple companies and activeOnly (API doesn't support these)
+  // Client-side filtering for multiple companies, activeOnly and the date range — none
+  // of which `/applications` supports as a query parameter. Every row already carries
+  // `createdAt` and `appliedAt`, so the date window needs no API change (WIC-1613).
   const applications = useMemo(() => {
     let filtered = rawApplications;
 
@@ -75,8 +108,10 @@ export function ApplicationsList() {
       filtered = filtered.filter((app) => ACTIVE_STATUSES.includes(app.status));
     }
 
+    filtered = filterByDateRange(filtered, filters.dateRange);
+
     return filtered;
-  }, [rawApplications, filters.company, filters.activeOnly]);
+  }, [rawApplications, filters.company, filters.activeOnly, filters.dateRange]);
 
   // Pipeline stats for the summary bar
   const pipelineStats = useMemo(() => calculatePipelineStats(rawApplications), [rawApplications]);
