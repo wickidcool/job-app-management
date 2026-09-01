@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { identify, reset } from '../services/analytics';
+import { AUTH_TOKEN_KEY, clearAppStorage } from '../services/appStorage';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-const TOKEN_KEY = 'auth_token';
 
 interface User {
   id: string;
@@ -35,17 +35,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         setUser(data.user);
         setToken(authToken);
-        localStorage.setItem(TOKEN_KEY, authToken);
+        localStorage.setItem(AUTH_TOKEN_KEY, authToken);
         // Session-restore: alias the anonymous session onto the authed user so
         // pre-auth events stitch to their profile (WIC-825 / WIC-822 GAP-2).
         identify(data.user.id);
       } else {
-        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(AUTH_TOKEN_KEY);
         setUser(null);
         setToken(null);
       }
     } catch {
-      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
       setUser(null);
       setToken(null);
     }
@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const storedToken = localStorage.getItem(TOKEN_KEY);
+    const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
     if (storedToken) {
       (async () => {
         await fetchCurrentUser(storedToken);
@@ -70,8 +70,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchCurrentUser]);
 
   useEffect(() => {
+    // An expired session ends the session just as a sign-out does, so it sweeps the
+    // same keys: the shared-browser threat in WIC-1495 does not distinguish "chose to
+    // log out" from "was logged out". Safe to sweep here because this listener is
+    // strictly 401-driven — `auth:unauthorized` has exactly one dispatch site
+    // (`services/api/apiClient.ts`), inside `!response.ok` behind `status === 401`.
+    // An offline or parse failure never reaches it; it throws NETWORK_ERROR from the
+    // catch below that check. Do NOT move this sweep into a request catch block,
+    // which would wipe a still-valid session's data every time the network blips.
     const handleUnauthorized = () => {
-      localStorage.removeItem(TOKEN_KEY);
+      clearAppStorage();
       setToken(null);
       setUser(null);
       reset();
@@ -93,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(data.error?.message || 'Login failed');
     }
 
-    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(AUTH_TOKEN_KEY, data.token);
     setToken(data.token);
     setUser(data.user);
     // Login: alias the anonymous pre-login session onto the authed user.
@@ -114,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (data.token) {
-      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
       setToken(data.token);
       setUser(data.user);
       // Registration that returns a session (no email confirmation): identify now.
@@ -126,14 +134,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    const currentToken = localStorage.getItem(TOKEN_KEY);
+    const currentToken = localStorage.getItem(AUTH_TOKEN_KEY);
     if (currentToken) {
       await fetch(`${API_BASE_URL}/auth/logout`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${currentToken}` },
       }).catch(() => {});
     }
-    localStorage.removeItem(TOKEN_KEY);
+    // Logout clears every app-owned localStorage key, not just the token. The
+    // shared-browser case below is not only an analytics-identity problem: recent
+    // searches, saved filters and onboarding progress are the previous user's data
+    // and were readable by the next person with no session at all (WIC-1495).
+    clearAppStorage();
     setToken(null);
     setUser(null);
     // Logout: drop the identity and rotate the anon session so a next user on a
