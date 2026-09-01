@@ -211,7 +211,7 @@ jobs:
           # A non-existent canary account with a deliberately-wrong password. This can
           # never authenticate and never mutates state (signInWithPassword only reads).
           EMAIL="auth-canary-invalid@careerpin.app"
-          PW="wic1296-synthetic-canary-not-a-real-password"
+          PW="wic1296-synthetic-canary-not-a-real-password" # secret-scan:allow — deliberately-invalid synthetic canary credential (WIC-1296); it can never authenticate and is not a real secret
 
           echo "Probing ${URL} with invalid canary credentials"
           RESP=$(curl -sS -m 25 -w $'\n%{http_code}' \
