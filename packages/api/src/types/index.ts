@@ -114,6 +114,55 @@ export interface ActivityItem {
   timestamp: string;
 }
 
+/**
+ * A single application referenced by the dashboard attention block.
+ *
+ * Deliberately minimal: the dashboard only needs enough to label and link a row,
+ * never the full DTO (`jobDescription` in particular can be very large).
+ */
+export interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Full-table aggregates behind the Dashboard's "Attention Required" and
+ * "Quick Wins" cards.
+ *
+ * Every `counts` field is computed over *all* of the user's applications, not
+ * over a page of them. `samples` are short top-N lists used to render
+ * individual action rows; a sample list being shorter than its count is
+ * expected and is not truncation of the count.
+ */
+export interface DashboardAttention {
+  /** Days without an update after which a non-terminal application is stale. */
+  staleThresholdDays: number;
+  /** Days after which a `saved` application counts as not-yet-submitted. */
+  savedThresholdDays: number;
+  counts: {
+    /** `phone_screen` + `interview`. */
+    interviewing: number;
+    /** Non-terminal and not updated within `staleThresholdDays`. */
+    stale: number;
+    /** `applied`/`phone_screen`/`interview` and not updated within `staleThresholdDays`. */
+    staleActive: number;
+    /** Non-terminal and missing a job description. */
+    missingJobDescription: number;
+    /** `saved` and created more than `savedThresholdDays` ago. */
+    staleSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];
+    staleActive: AttentionApplication[];
+    missingJobDescription: AttentionApplication[];
+    staleSaved: AttentionApplication[];
+  };
+}
+
 export interface ResumeDTO {
   id: string;
   fileName: string;

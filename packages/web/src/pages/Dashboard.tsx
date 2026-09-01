@@ -3,21 +3,19 @@ import { DashboardStats } from '../components/DashboardStats';
 import { DashboardResumeWidget } from '../components/DashboardResumeWidget';
 import { AttentionCard } from '../components/AttentionCard';
 import { QuickWins } from '../components/QuickWins';
-import { useApplications } from '../hooks/useApplications';
 import { useDashboard } from '../hooks/useDashboard';
 import { useResumes } from '../hooks/useResumes';
 import type { ApplicationStatus } from '../types/application';
 import { asRatio } from '../types/units';
 
 export function Dashboard() {
-  const { data: applications = [], isLoading: applicationsLoading } = useApplications();
   const { data: dashboardData, isLoading: dashboardLoading } = useDashboard();
   const { data: resumes = [], isLoading: resumesLoading } = useResumes();
 
-  const loading = applicationsLoading || dashboardLoading || resumesLoading;
+  const loading = dashboardLoading || resumesLoading;
 
   const stats = dashboardData?.stats || {
-    total: applications.length,
+    total: 0,
     byStatus: {} as Record<ApplicationStatus, number>,
     appliedThisWeek: 0,
     appliedThisMonth: 0,
@@ -47,11 +45,11 @@ export function Dashboard() {
       </div>
 
       <div className="mb-6">
-        <QuickWins applications={applications} />
+        <QuickWins attention={dashboardData?.attention} />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <AttentionCard applications={applications} />
+        <AttentionCard attention={dashboardData?.attention} />
 
         <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
           <div className="mb-4 flex items-center justify-between">

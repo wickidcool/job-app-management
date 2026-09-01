@@ -168,11 +168,54 @@ export interface ActivityItem {
 }
 
 /**
+ * A single application referenced by the dashboard attention block.
+ *
+ * Deliberately minimal: enough to label and link a row, never the full
+ * application (`jobDescription` in particular can be very large).
+ */
+export interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+}
+
+/**
+ * Full-table aggregates behind the Dashboard's "Attention Required" and
+ * "Quick Wins" cards.
+ *
+ * Every `counts` field is computed server-side over *all* of the user's
+ * applications, never over a page of them. `samples` are short top-N lists used
+ * to render individual action rows; a sample list shorter than its count is
+ * expected and does not mean the count is truncated.
+ */
+export interface DashboardAttention {
+  staleThresholdDays: number;
+  savedThresholdDays: number;
+  counts: {
+    interviewing: number;
+    stale: number;
+    staleActive: number;
+    missingJobDescription: number;
+    staleSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];
+    staleActive: AttentionApplication[];
+    missingJobDescription: AttentionApplication[];
+    staleSaved: AttentionApplication[];
+  };
+}
+
+/**
  * Dashboard Response
  */
 export interface DashboardResponse {
   stats: DashboardStats;
   recentActivity: ActivityItem[];
+  attention: DashboardAttention;
 }
 
 /**
