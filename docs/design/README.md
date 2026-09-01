@@ -163,7 +163,9 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 **Contents:**
 - The `<Page> — Careerpin` pattern, taken from the already-shipping marketing site
-- Mechanism: route-table `title` field + a `useDocumentTitle()` hook for the six dynamic routes
+- Mechanism as shipped: the title table in `packages/web/src/constants/title.ts`, applied by one
+  effect (`components/RouteTitle.tsx`), plus a `useDocumentTitle()` hook the six dynamic routes and
+  `/login` call themselves — see §9 for why this is not a `title` field on the route table
 - The full per-route title table, measured against the tree
 - Which `<h1>` the title mirrors when a modal renders one too
 - Four pre-existing heading defects found during the audit, filed separately
@@ -173,6 +175,9 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 - Product name and separator live in exactly one module
 - Opening a modal never changes the title
 - Consumes ROUTE_HEADING_OUTLINE.md; its table is downstream of that document
+- **Implemented** (§9). A `<Route>` added with no title fails CI —
+  `packages/web/src/test/route-title-coverage.test.ts` pairs `App.tsx`'s declared paths against
+  the title table in both directions
 
 ---
 
