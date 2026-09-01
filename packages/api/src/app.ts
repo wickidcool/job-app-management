@@ -21,6 +21,7 @@ import { httpsRedirect, securityHeaders } from './middleware/security.js';
 import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
+import { withConnectBudget } from './db/connect-budget.js';
 
 /**
  * Extensions the asset pipeline actually serves. A dotted path outside this set is a
@@ -104,7 +105,13 @@ export function buildApp() {
     let db: 'ok' | 'not_applicable' | string = 'not_applicable';
     if (hyperdrive || hasDbUrl) {
       try {
-        await getDb().execute(sql`SELECT 1`);
+        // WIC-1916: bound the probe on a wall clock and tear the pool down on
+        // failure. Without this, a `DATABASE_URL`-only prod (no Hyperdrive) would
+        // let the `SELECT 1` spin postgres-js's ceiling-less initial-dial loop and
+        // report the opaque "Too many subrequests" after 8–14s instead of the real
+        // connect error — and would trip the isolate breaker so sibling requests in
+        // the same warm Worker fail fast rather than each re-draining the budget.
+        await withConnectBudget(() => getDb().execute(sql`SELECT 1`));
         db = 'ok';
       } catch (err) {
         db = err instanceof Error ? err.message : String(err);

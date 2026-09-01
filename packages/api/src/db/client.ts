@@ -2,6 +2,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { getConfig } from '../config.js';
 import { getRequestContext } from './context.js';
+import {
+  DbUnreachableError,
+  connectBreakerReason,
+  isConnectBreakerOpen,
+} from './connect-budget.js';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _sql: ReturnType<typeof postgres> | null = null;
@@ -41,6 +46,19 @@ export function getDb() {
   if (ctx?.env?.DATABASE_URL) {
     // Workers (production): direct Supabase connection — one connection per request,
     // reused across service calls within the same request via the context cache.
+    //
+    // WIC-1916 interim bound: this branch has no Hyperdrive to proxy the connect,
+    // so a refusing host would send postgres-js into its ceiling-less initial-dial
+    // loop and drain the subrequest budget. If the isolate breaker is open, a
+    // recent request already proved the DB unreachable — fail fast here, before
+    // opening a single socket, so we neither waste subrequests nor swallow the
+    // budget the failure telemetry needs. Removed entirely once prod has a
+    // HYPERDRIVE binding (ADR-007 / WIC-1473), which takes the branch above.
+    if (isConnectBreakerOpen()) {
+      throw new DbUnreachableError(
+        `Database unreachable (connect breaker open): ${connectBreakerReason()}`
+      );
+    }
     if (!ctx.sql) {
       ctx.sql = postgres(ctx.env.DATABASE_URL, {
         ...WORKERS_CONNECTION_OPTIONS,

@@ -2,6 +2,7 @@
 import { buildApp } from './app.js';
 import { runWithEnv } from './db/context.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
+import { tripConnectBreaker } from './db/connect-budget.js';
 import type { Env } from './types/env.js';
 
 const app = buildApp();
@@ -22,6 +23,13 @@ export default {
         // the budget does not refill mid-invocation. Answer on the first failure
         // so the response itself still fits in what is left.
         if (isSubrequestExhaustion(err)) {
+          // WIC-1916: a general (non-/health) endpoint just drained the budget on
+          // the direct-DATABASE_URL path. We are now outside the request's
+          // AsyncLocalStorage scope so that pool is unreachable to end here — but
+          // trip the isolate breaker so the *next* request in this warm Worker
+          // short-circuits at getDb() instead of repeating the drain. Reset happens
+          // on the next successful probe (see withConnectBudget).
+          tripConnectBreaker('subrequest budget exhausted on direct DB connect');
           return new Response(
             JSON.stringify({
               error: {

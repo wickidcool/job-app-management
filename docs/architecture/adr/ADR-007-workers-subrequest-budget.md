@@ -271,6 +271,21 @@ Note the discriminator is the **`db` field**, not the HTTP status: `/health`
 returns 503 both before and after this change, so accept recovery only on
 `db == "ok"`.
 
+> **Correction (WIC-1916, 2026-09-01) — the private-CA hypothesis above is
+> almost certainly a dead end; do not spend remediation on CA trust.** The
+> hypothesis requires the Workers TLS stack to *ignore* `rejectUnauthorized:
+> false`. But `postgres@3.4.9` `src/connection.js:283-284` sets
+> `rejectUnauthorized = false` for `ssl` in `{'require','allow','prefer'}`, and
+> the prod path passes `ssl: 'require'` (`db/client.ts`). Certificate
+> verification is therefore *off* on this path by construction, so a CA that
+> cannot be chained to a public root cannot be what fails these dials. The dials
+> fail for a transport reason (host unreachable / connection refused), and the
+> amplifier — the part this repo can bound and the part that turns a connect
+> failure into a whole-budget outage — is the **ceiling-less initial-connect
+> retry** (`connection.js`: `if (initial) return reconnect()`, `setTimeout(
+> connect, 0)`), independent of TLS. See `db/connect-budget.ts` for the interim
+> bound; the durable fix remains option 1 below.
+
 ### The decision left for the board
 
 1. **Give prod a Hyperdrive binding, as preview has.** Hyperdrive terminates the
