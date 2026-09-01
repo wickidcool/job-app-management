@@ -20,7 +20,7 @@ import { authMiddleware } from './middleware/auth.js';
 import { httpsRedirect, securityHeaders } from './middleware/security.js';
 import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
-import { isHyperdriveTimeout } from './db/hyperdrive.js';
+import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
 
 /**
  * Extensions the asset pipeline actually serves. A dotted path outside this set is a
@@ -188,6 +188,11 @@ export function buildApp() {
   app.onError((err, c) => {
     // Re-throw so worker.ts can retry with a fresh Hyperdrive connection.
     if (isHyperdriveTimeout(err)) throw err;
+
+    // Also re-throw when the invocation ran out of subrequests, so worker.ts
+    // answers 503 once instead of this handler reporting an opaque 500 on every
+    // DB-backed endpoint. It is an availability failure, not a bug in the route.
+    if (isSubrequestExhaustion(err)) throw err;
 
     if (err instanceof AppError) {
       return c.json(
