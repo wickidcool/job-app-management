@@ -25,13 +25,16 @@ import { NOT_FOUND_COPY } from '../pages/NotFound.copy';
  * evidence rather than parking a WCAG A item behind a branding thread. If the board or
  * the Copywriter lands elsewhere, this constant is the only line that moves.
  *
- * It has *not* displaced the old name everywhere. `index.html` and Login's `<h2>` — the
- * two places §2 named — now read from here, but `Job Application Manager` survives as
- * prose in `components/onboarding/OnboardingModal.tsx` (the step-1 headline) and in
- * `components/QuickReferenceExport.tsx` (the exported interview sheet's footer, so it
- * reaches printed output). Neither renames mechanically — "Welcome to Your Careerpin"
- * does not read — so both are the Copywriter's call and are recorded in the spec's §9.
- * `jobtrail`, in the root `package.json` and the deploy target, is not user-facing.
+ * It has now displaced the old name at all four user-facing sites. Beyond `index.html`
+ * and Login's `<h2>` — the two places §2 named — the Copywriter / Editor ruled the
+ * remaining two on 2026-09-01 under WIC-1950, and both read from here:
+ * `components/onboarding/OnboardingModal.tsx` renders `Welcome to Careerpin` (not
+ * "Welcome to Your Careerpin"; a brand name does not take the possessive), and
+ * `components/QuickReferenceExport.tsx` renders `Generated with Careerpin • {date}` with
+ * no URL — that footer is the export modal's on-screen preview, not printed output, which
+ * is assembled server-side in `exportInterviewPrep`. The reasoning is in
+ * `docs/design/CONTENT_STYLE.md` under Exception 1. `jobtrail`, in the root
+ * `package.json` and the deploy target, is not user-facing.
  */
 export const PRODUCT_NAME = 'Careerpin';
 

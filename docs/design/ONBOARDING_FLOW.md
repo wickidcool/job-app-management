@@ -2,7 +2,7 @@
 
 ## Overview
 
-The onboarding flow guides new users through their first experience with the Job Application Manager, ensuring they understand core features and complete essential setup tasks before accessing the main application.
+The onboarding flow guides new users through their first experience with Careerpin, ensuring they understand core features and complete essential setup tasks before accessing the main application.
 
 **Primary Goal:** Get users from "empty state" to "first application ready" with minimal friction.
 
@@ -516,7 +516,7 @@ flowchart TD
 
 ### Step 1: Welcome
 
-**Title:** Welcome to Your Job Application Manager
+**Title:** Welcome to Careerpin
 
 **Description:**
 Let's get you set up in just a few minutes. We'll help you:
@@ -714,7 +714,7 @@ Your resume is uploaded and you're ready to start tracking applications.
 │                      [Hero Illustration]                       │
 │                        📊 📋 📈                                │
 │                                                                │
-│            Welcome to Your Job Application Manager            │
+│                      Welcome to Careerpin                      │
 │                                                                │
 │              Let's get you set up in just a few minutes.      │
 │                          We'll help you:                       │
@@ -793,8 +793,7 @@ Your resume is uploaded and you're ready to start tracking applications.
 │    [Hero Illustration]    │
 │         📊 📋            │
 │                           │
-│   Welcome to Your Job     │
-│   Application Manager     │
+│   Welcome to Careerpin    │
 │                           │
 │   Let's get you set up in │
 │   just a few minutes.     │
@@ -885,7 +884,7 @@ Your resume is uploaded and you're ready to start tracking applications.
   aria-labelledby="onboarding-title"
   aria-describedby="onboarding-description"
 >
-  <h2 id="onboarding-title">Welcome to Your Job Application Manager</h2>
+  <h2 id="onboarding-title">Welcome to Careerpin</h2>
   <p id="onboarding-description">Let's get you set up...</p>
   
   <!-- Progress Indicator -->

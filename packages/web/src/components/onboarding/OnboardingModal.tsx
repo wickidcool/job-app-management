@@ -11,6 +11,7 @@ import { useCreateApplication } from '../../hooks/useApplications';
 import type { Resume } from '../../services/api';
 import type { UpdatePersonalInfoRequest } from '../../services/api/types';
 import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
+import { PRODUCT_NAME } from '../../constants/title';
 
 const STEP_LABELS = [
   'Welcome',
@@ -327,7 +328,9 @@ export function OnboardingModal() {
               <OnboardingStep
                 stepNumber={1}
                 totalSteps={totalSteps}
-                title="Welcome to Your Job Application Manager"
+                // WIC-1950: not "Welcome to Your Careerpin" — the possessive was doing the
+                // old descriptive name's job, and a brand name does not take it.
+                title={`Welcome to ${PRODUCT_NAME}`}
                 description="Let's get you set up in just a few minutes. We'll help you:"
                 canProceed={true}
                 onNext={() => handleCompleteStep(1)}
