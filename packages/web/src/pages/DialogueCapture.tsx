@@ -2,7 +2,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WizardContainer, type ProjectFile } from '../components/wizard';
 import { useCreateProjectFile } from '../hooks/useProjects';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
-import type { ProjectData } from '../components/wizard';
 
 /**
  * The wizard names itself by variant in `WizardContainer.tsx:398-401`. Mirrored here
@@ -26,7 +25,6 @@ export function DialogueCapture() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const variant = (searchParams.get('variant') as 'create' | 'enrich' | 'correct') || 'create';
-  const existingFileId = searchParams.get('fileId') || undefined;
   const createProjectFile = useCreateProjectFile();
 
   useDocumentTitle(WIZARD_VARIANT_TITLES[variant] ?? WIZARD_VARIANT_TITLES.create);
@@ -57,28 +55,9 @@ export function DialogueCapture() {
     navigate('/projects');
   };
 
-  const handleSaveDraft = (draftData: Partial<ProjectData>) => {
-    // Save draft to localStorage for now
-    // In the future, this could be saved to .draft files via API
-    const draftKey = `dialogue-wizard-draft-${variant}${existingFileId ? `-${existingFileId}` : ''}`;
-    localStorage.setItem(
-      draftKey,
-      JSON.stringify({
-        data: draftData,
-        timestamp: new Date().toISOString(),
-      })
-    );
-    console.log('Draft saved:', draftKey);
-  };
-
   return (
     <div className="min-h-screen bg-neutral-900 bg-opacity-50">
-      <WizardContainer
-        variant={variant}
-        onComplete={handleComplete}
-        onCancel={handleCancel}
-        onSaveDraft={handleSaveDraft}
-      />
+      <WizardContainer variant={variant} onComplete={handleComplete} onCancel={handleCancel} />
     </div>
   );
 }
