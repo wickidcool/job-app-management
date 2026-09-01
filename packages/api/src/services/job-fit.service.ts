@@ -1,4 +1,5 @@
-import { desc } from 'drizzle-orm';
+import { desc, eq, isNull } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { lookup } from 'node:dns/promises';
 import { getDb } from '../db/client.js';
 import { techStackTags, jobFitTags, quantifiedBullets } from '../db/schema.js';
@@ -571,7 +572,47 @@ export function computeRecommendation(
   return 'low_fit';
 }
 
-function computeSummary(
+/**
+ * The sentence rendered directly beneath the fit level on `JobFitAnalysis`.
+ *
+ * Two vocabulary rules bind this function, both decided in WIC-1301 and
+ * specified in `docs/design/DESIGN_SYSTEM.md` ("Fit Level Summary"):
+ *
+ * 1. **The summary never restates the verdict.** The fit level label above it
+ *    (`FIT_LEVEL_LABELS`, WIC-1288) is the only place the verdict is worded.
+ *    `strong_fit` used to open "Strong match — ", which both duplicated the
+ *    "Strong fit" label three lines above it *and* borrowed "match", the noun
+ *    the per-skill sections own ("Strong Matches (N)"), to mean something else:
+ *    a whole-application verdict rather than one skill's `matchType`. The two
+ *    also carry different numbers — `matchCount` counts required strong *and*
+ *    partial matches, while the heading counts every strong match including
+ *    nice-to-haves — so "Strong match — you meet 5 of 6" could sit above
+ *    "Strong Matches (7)". The e2e fixture happened to make them agree, which
+ *    is what kept it invisible. **The verdict axis owns "fit"; the match
+ *    classification axis owns "match".** Here, "match" is only ever the verb
+ *    counting skills, which is the same axis the sections use.
+ *
+ * 2. **The trailing clause is a caveat, so the top rung has none.** The ladder
+ *    reads: nothing to add / within reach / a stretch / not yet. `moderate_fit`
+ *    previously had no clause at all, which left the ladder's weakest joint —
+ *    "Possible fit" vs "Stretch" — to be ordered by two labels that do not
+ *    reliably order themselves ("possible" is the weakest modality word in
+ *    English; "a stretch role" is idiomatically aspirational).
+ *
+ * A clause may not assert coverage the gap sentence then contradicts.
+ * `strong_fit` admits one critical required gap (`computeRecommendation`), so
+ * "your profile covers the core requirements" would render immediately above
+ * " Gap in AWS." Clauses state the verdict's stance, never a fact about the
+ * data — which is also why they stay true when `gaps` is empty.
+ *
+ * Magnitude adjectives are unavailable here: gap severity owns
+ * `critical`/`moderate`/`minor` and confidence owns `high`/`medium`/`low`
+ * (DESIGN_SYSTEM.md → "Scale Vocabulary").
+ *
+ * Exported for unit testing — every other surface that asserts these strings
+ * is a mocked fixture, which is precisely how the collision above survived.
+ */
+export function computeSummary(
   recommendation: FitRecommendation | null,
   strongMatches: FitMatchDTO[],
   partialMatches: FitMatchDTO[],
@@ -594,9 +635,9 @@ function computeSummary(
 
   switch (recommendation) {
     case 'strong_fit':
-      return `Strong match — you meet ${matchCount} of ${totalRequired} required skills.${gapStr}`;
-    case 'moderate_fit':
       return `You match ${matchCount} of ${totalRequired} required skills.${gapStr}`;
+    case 'moderate_fit':
+      return `You match ${matchCount} of ${totalRequired} required skills. This role is within reach.${gapStr}`;
     case 'stretch':
       return `You match ${matchCount} of ${totalRequired} required skills. This role may be a stretch.${gapStr}`;
     case 'low_fit':
@@ -610,11 +651,35 @@ function gapSeverity(jdTerm: string, isRequired: boolean): 'critical' | 'moderat
   return 'moderate';
 }
 
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+/**
+ * Owner predicates for the three catalog tables this endpoint reads (WIC-1435) —
+ * mirror of `bulletOwnerScope` in `interviewPrep.service.ts` / `resume-variant.
+ * service.ts` (WIC-1449). Unscoped, the analysis was computed over the union of
+ * every user's catalog and returned other users' `rawText` — the user-authored
+ * accomplishment sentence, which names employers and metrics — verbatim in
+ * `recommendedStarEntries`. RLS does not backstop it: the Worker is not the
+ * `authenticated` role and never sets a JWT claim, so `auth.uid()` is NULL and
+ * `0002_rls_current_schema.sql`'s policies never apply.
+ *
+ * Never `undefined` — an absent caller id scopes to `IS NULL` rather than failing
+ * open to the whole table. All three columns are `user_id uuid NOT NULL`
+ * (`schema.ts:221`, `:243`, `:265`), so unlike the nullable tables elsewhere in
+ * the codebase there is no legacy-null cohort for `IS NULL` to reach: the
+ * anonymous local-dev caller gets zero rows on all three reads, which is the
+ * `catalogEmpty` EC-1 response rather than a global one.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function analyzeJobFit(
   input: AnalyzeJobFitInput,
-  clientId: string = 'default'
+  clientId: string = 'default',
+  userId?: string
 ): Promise<{
   response: AnalyzeJobFitResponse;
   rateLimitHeaders: { remaining: number; reset: number };
@@ -675,9 +740,17 @@ export async function analyzeJobFit(
   let techTags, jfTags, bullets;
   try {
     [techTags, jfTags, bullets] = await Promise.all([
-      db.select().from(techStackTags).orderBy(desc(techStackTags.mentionCount)),
-      db.select().from(jobFitTags).orderBy(desc(jobFitTags.mentionCount)),
-      db.select().from(quantifiedBullets),
+      db
+        .select()
+        .from(techStackTags)
+        .where(ownerScope(techStackTags, userId))
+        .orderBy(desc(techStackTags.mentionCount)),
+      db
+        .select()
+        .from(jobFitTags)
+        .where(ownerScope(jobFitTags, userId))
+        .orderBy(desc(jobFitTags.mentionCount)),
+      db.select().from(quantifiedBullets).where(ownerScope(quantifiedBullets, userId)),
     ]);
   } catch (error) {
     throw new AppError(

@@ -1,3 +1,5 @@
+import type { Ratio } from './units';
+
 /**
  * Application Status Type
  * Represents the current stage of a job application
@@ -41,7 +43,8 @@ export interface Application {
 export interface DashboardStats {
   total: number;
   appliedThisWeek: number;
-  responseRate: number; // 0-100
+  /** Share of applications that drew a response, as a ratio in [0, 1]. `0.75` means 75%. */
+  responseRate: Ratio;
   inReview: number; // phone_screen + interview count
 }
 

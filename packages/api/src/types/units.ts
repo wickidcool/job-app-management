@@ -86,6 +86,22 @@ export function percent(n: number): Percent {
 }
 
 /**
+ * Tag a plain number as a {@link Ratio} without checking it.
+ *
+ * Use this only where a value genuinely enters the type system for the first time — a literal
+ * default, a test fixture, a value a caller has already proven. Every such call is an unchecked
+ * assertion that the number really is in `[0, 1]`, so keep them few and keep them obvious.
+ *
+ * It is the fourth and weakest of the constructors, and the choice between them is the whole
+ * point: `ratio()` throws on a bad value, `clampRatio()` folds one into range, `ratioFromWire()`
+ * validates at a trust boundary, and this one asserts. Prefer any of the other three wherever the
+ * value could actually be wrong — reach for `asRatio` when checking a literal `0` would be noise.
+ */
+export function asRatio(value: number): Ratio {
+  return value as Ratio;
+}
+
+/**
  * Brand `n` as a ratio, clamping instead of throwing. For values from a source that is expected
  * to drift slightly out of range — floating-point accumulation, or an LLM asked for a score.
  * `NaN` clamps to `0`; a caller that would rather know should use `ratio()`.
