@@ -100,6 +100,7 @@ import re
 import socket
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -287,18 +288,171 @@ LIMIT 25
 """
 
 
+# PostHog runs the SAME HogQL two ways, and the difference is not latency -- it is the
+# ClickHouse `max_execution_time` the query is submitted under (read straight out of the
+# `clickhouse` field each response echoes back):
+#
+#     sync   POST /query/                          -> max_execution_time=10
+#     async  POST /query/ {"refresh":"force_async"} -> max_execution_time=600
+#
+# 60x. On 2026-09-01 the sync leg began returning `504 Gateway Timeout` for every query
+# against this project that touches `events` -- including a bare `SELECT count() FROM
+# events` on a project holding *six* lifetime events. `SELECT 1` still answered in 322ms,
+# so this is not auth, not the network and not our predicate: the events-table read no
+# longer finishes inside the 10s sync budget. The async leg answered the identical
+# aggregate query correctly (organic=0, synthetic=6, lifetime=6).
+#
+# Why that mattered enough to fix rather than wait out: with only the sync leg, `run()`
+# raised, main() printed CHECK FAILED and returned **1**. Exit 1 is the fail-safe "not
+# evidence either way" code, which is honest -- but it is also what this watcher would
+# have returned on the day a real first user arrived. The detector could not fire. A
+# watcher that cannot distinguish "no traffic" from "cannot see" is not armed, and this
+# one is the sole trigger for releasing the WIC-1024 hold.
+#
+# So: sync first (322ms when it works, and it is the cheaper call), async only on the
+# faults that mean "no answer, but the question was fine". Everything else propagates
+# untouched -- a 401 or a malformed-HogQL 400 gets the same answer from the async leg and
+# retrying it would only burn the budget before failing identically.
+# The sync leg's ClickHouse budget is 10s (above), so a sync call still unanswered at 20s
+# is hung in the gateway, not computing -- it will never return a result. Waiting the old
+# 60s just spent 40s that the async leg needs. Measured 2026-09-01: every sync success was
+# sub-second, every sync failure ran to the full timeout. There is no middle.
+SYNC_TIMEOUT_SECONDS = 20.0
+
+# The async SUBMIT is itself flaky while PostHog is degraded, and flaky in a shape worth
+# naming: measured 3 consecutive submits of the same query at 40s / 40s / **0.27s**. A good
+# submit is sub-second; a bad one hangs to the timeout and never recovers. That is a dead
+# connection, not a slow queue, so the remedy is a short timeout and another try -- not a
+# longer wait. Retries are near-free (0.27s when they work) and this is the single point
+# where the whole fallback can fail closed.
+ASYNC_SUBMIT_TIMEOUT_SECONDS = 25.0
+ASYNC_SUBMIT_ATTEMPTS = 3
+ASYNC_POLL_SECONDS = 5.0
+ASYNC_BUDGET_SECONDS = 240.0
+
+
+def _query_url(suffix=""):
+    return f"{HOST}/api/projects/{PROJECT}/query/{suffix}"
+
+
+def _auth_headers(key):
+    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+def should_retry_async(exc):
+    """Does `exc` mean the sync leg never got an answer to an otherwise-good query?
+
+    Deliberately narrow. HTTPError is tested BEFORE URLError because it subclasses it,
+    and TimeoutError before OSError for the same reason -- order is load-bearing here.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        # 408/502/503/504 are the gateway saying "I gave up waiting", not "your query is
+        # wrong". 500 is deliberately NOT here: a ClickHouse-side query error surfaces as
+        # 500 and is perfectly reproducible on the async leg.
+        return exc.code in (408, 502, 503, 504)
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, (socket.timeout, TimeoutError))
+    return False
+
+
+def _run_sync(query, key):
+    req = urllib.request.Request(
+        _query_url(),
+        data=json.dumps({"query": {"kind": "HogQLQuery", "query": query}}).encode(),
+        headers=_auth_headers(key),
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=SYNC_TIMEOUT_SECONDS) as resp:
+        return json.load(resp)
+
+
+def _async_submit(query, key):
+    """POST the query on the async leg and return its query id, retrying a hung submit.
+
+    Only the *submit* is retried, and only on the retryable transport faults. A submit is
+    idempotent in the sense that matters here -- a duplicate merely queues a second
+    read-only aggregate -- whereas a poll failure is handled by the budget loop instead.
+    """
+    last = None
+    for attempt in range(1, ASYNC_SUBMIT_ATTEMPTS + 1):
+        req = urllib.request.Request(
+            _query_url(),
+            data=json.dumps(
+                {"query": {"kind": "HogQLQuery", "query": query}, "refresh": "force_async"}
+            ).encode(),
+            headers=_auth_headers(key),
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=ASYNC_SUBMIT_TIMEOUT_SECONDS) as resp:
+                status = (json.load(resp) or {}).get("query_status") or {}
+        except (urllib.error.URLError, OSError) as exc:
+            if not should_retry_async(exc) or attempt == ASYNC_SUBMIT_ATTEMPTS:
+                raise
+            last = exc
+            print(
+                f"(async submit attempt {attempt}/{ASYNC_SUBMIT_ATTEMPTS} failed: {exc}; retrying)",
+                file=sys.stderr,
+            )
+            continue
+        query_id = status.get("id")
+        if query_id:
+            return query_id
+        raise RuntimeError("async query submit returned no query id")
+    raise RuntimeError(f"async submit exhausted {ASYNC_SUBMIT_ATTEMPTS} attempts: {last}")
+
+
+def _run_async(query, key, budget=ASYNC_BUDGET_SECONDS):
+    """Submit on the 600s async leg and poll to completion.
+
+    Returns the same `{"columns": [...], "results": [...]}` shape as `_run_sync`, so both
+    call sites in main() are indifferent to which leg answered. Every failure path raises
+    something inside QUERY_FAULTS, so an async fault still lands on exit 1 (fail-safe) and
+    never on a false "no organic traffic".
+    """
+    query_id = _async_submit(query, key)
+    deadline = time.monotonic() + budget
+    while True:
+        if time.monotonic() >= deadline:
+            # RuntimeError is in QUERY_FAULTS -> exit 1. A watcher that hangs past its
+            # heartbeat is worse than one that reports it could not see.
+            raise RuntimeError(
+                f"async query {query_id} did not finish within {budget:.0f}s"
+            )
+        time.sleep(ASYNC_POLL_SECONDS)
+        poll = urllib.request.Request(_query_url(f"{query_id}/"), headers=_auth_headers(key))
+        with urllib.request.urlopen(poll, timeout=60) as resp:
+            status = (json.load(resp) or {}).get("query_status") or {}
+        if not status.get("complete"):
+            continue
+        if status.get("error"):
+            raise RuntimeError(f"async query failed: {status.get('error_message')}")
+        results = status.get("results")
+        if not results:
+            # Same shape of lie as a 200 with no "columns" -- KeyError, per QUERY_FAULTS.
+            raise KeyError("results")
+        return results
+
+
 def run(query):
     key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
     if not key:
         raise RuntimeError("POSTHOG_PERSONAL_API_KEY is not set")
-    req = urllib.request.Request(
-        f"{HOST}/api/projects/{PROJECT}/query/",
-        data=json.dumps({"query": {"kind": "HogQLQuery", "query": query}}).encode(),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.load(resp)
+    try:
+        return _run_sync(query, key)
+    # HTTPError and socket.timeout both land here: HTTPError subclasses URLError, and
+    # TimeoutError subclasses OSError. Narrower than QUERY_FAULTS on purpose -- and
+    # QUERY_FAULTS is not yet defined at this point in the file anyway.
+    except (urllib.error.URLError, OSError) as exc:
+        if not should_retry_async(exc):
+            raise
+        print(
+            f"(sync query leg unavailable: {exc}; retrying on the async leg)",
+            file=sys.stderr,
+        )
+        return _run_async(query, key)
 
 
 # Every fault class a `run()` round-trip can raise, as ONE named tuple used by BOTH call
@@ -718,6 +872,67 @@ def selftest_query_faults():
     return failures
 
 
+# Which sync faults hand off to the async leg, and which must propagate untouched. The
+# `False` rows are the load-bearing half: a fallback that triggers on everything would
+# turn a 401 into a 240s stall before failing with the same error, on every heartbeat.
+ASYNC_DISPATCH_CASES = [
+    ("HTTP 504 Gateway Timeout", urllib.error.HTTPError(HOST, 504, "Gateway Timeout", {}, None), True),
+    ("HTTP 502 Bad Gateway", urllib.error.HTTPError(HOST, 502, "Bad Gateway", {}, None), True),
+    ("HTTP 503 Service Unavailable", urllib.error.HTTPError(HOST, 503, "Service Unavailable", {}, None), True),
+    ("HTTP 408 Request Timeout", urllib.error.HTTPError(HOST, 408, "Request Timeout", {}, None), True),
+    ("bare socket read timeout", socket.timeout("The read operation timed out"), True),
+    ("URLError wrapping a timeout", urllib.error.URLError(socket.timeout("timed out")), True),
+    # Everything below reproduces identically on the async leg -- do not spend the budget.
+    ("HTTP 401 Unauthorized", urllib.error.HTTPError(HOST, 401, "Unauthorized", {}, None), False),
+    ("HTTP 400 malformed HogQL", urllib.error.HTTPError(HOST, 400, "Bad Request", {}, None), False),
+    ("HTTP 500 ClickHouse query error", urllib.error.HTTPError(HOST, 500, "Internal Server Error", {}, None), False),
+    ("DNS resolution failure", urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), False),
+    ("TLS bad certificate", urllib.error.URLError(ssl.SSLError(1, "bad server certificate")), False),
+    ("peer reset the connection", ConnectionResetError(104, "Connection reset by peer"), False),
+]
+
+
+def selftest_async_dispatch():
+    """Assert run() hands off to the async leg on exactly the right faults.
+
+    Both legs are stubbed, so this measures run()'s dispatch DECISION and nothing else --
+    no network, and the helper never calls the real _run_sync/_run_async. That matters for
+    the same reason WIC-1680's test drives main(): asserting against `should_retry_async`
+    directly would be circular, passing against whatever predicate the code happens to
+    hold. Here the observable is which leg produced the returned body.
+    """
+    failures = 0
+    sentinel = {"columns": ["from_async"], "results": [[1]]}
+    real_sync, real_async = _run_sync, _run_async
+    # Both legs are stubbed, so the value is never used -- but run() checks for the key
+    # before dispatching, and an unset key would short-circuit every case into RuntimeError.
+    had_key = "POSTHOG_PERSONAL_API_KEY" in os.environ
+    os.environ.setdefault("POSTHOG_PERSONAL_API_KEY", "selftest-stub-key")
+    try:
+        for label, exc, want_async in ASYNC_DISPATCH_CASES:
+            calls = []
+            globals()["_run_sync"] = lambda _q, _k, _e=exc: _raise(_e)
+            globals()["_run_async"] = lambda _q, _k, *_a, **_kw: (
+                calls.append("async"),
+                sentinel,
+            )[1]
+            try:
+                body = run("SELECT 1")
+                got = "fell back to async" if body is sentinel and calls else "returned without async"
+                ok = want_async and body is sentinel
+            except BaseException as raised:  # noqa: BLE001 -- propagation is the assertion
+                got = f"propagated {type(raised).__name__}"
+                ok = (not want_async) and raised is exc and not calls
+            failures += 0 if ok else 1
+            want = "fell back to async" if want_async else f"propagated {type(exc).__name__}"
+            print(f"  [{'PASS' if ok else 'FAIL'}] async dispatch, {label}: got {got}, want {want}")
+    finally:
+        globals()["_run_sync"], globals()["_run_async"] = real_sync, real_async
+        if not had_key:
+            os.environ.pop("POSTHOG_PERSONAL_API_KEY", None)
+    return failures
+
+
 def selftest():
     """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
     failures = 0
@@ -737,12 +952,14 @@ def selftest():
             print(f"         wanted substring: {want!r}")
     failures += selftest_probe_faults()
     failures += selftest_query_faults()
+    failures += selftest_async_dispatch()
     total = (
         len(HEALTH_CASES)
         + len(EDGE_CASES)
         + len(probe_fault_cases())
         + 2 * len(QUERY_FAULT_CASES)
         + len(AGGREGATE_ONLY_FAULTS)
+        + len(ASYNC_DISPATCH_CASES)
     )
     print(f"\n{total - failures}/{total} cases pass.")
     return 1 if failures else 0
