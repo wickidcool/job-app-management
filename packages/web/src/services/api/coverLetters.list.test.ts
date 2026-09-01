@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { APIClient } from './apiClient';
 import { CoverLetterService } from './coverLetters';
-import { COVER_LETTER_PAGE_MAX } from '../../constants/coverLetterMatch';
+import { TARGETED_LIST_PAGE_MAX } from '../../constants/applicationMatch';
 
 /**
  * WIC-1533 — the second half of the page-cap guard.
  *
  * `ApplicationDetail.coverLetters.test.tsx` proves the *page* asks for
- * `limit: COVER_LETTER_PAGE_MAX`. This proves that asking for it actually puts
+ * `limit: TARGETED_LIST_PAGE_MAX`. This proves that asking for it actually puts
  * `limit=100` on the wire, rather than the parameter being accepted by a type
  * and dropped somewhere between the service and the query string.
  *
@@ -47,7 +47,7 @@ afterEach(() => {
 
 describe('coverLetterService.list — page size reaches the request', () => {
   it('sends the requested limit as a query parameter', async () => {
-    await makeService().list({ company: 'Acme', limit: COVER_LETTER_PAGE_MAX });
+    await makeService().list({ company: 'Acme', limit: TARGETED_LIST_PAGE_MAX });
 
     const url = new URL(fetchMock.mock.calls[0]![0] as string);
     expect(url.pathname).toBe('/api/cover-letters');
@@ -72,12 +72,12 @@ describe('coverLetterService.list — page size reaches the request', () => {
   /**
    * The constant is the endpoint's documented maximum
    * (`listQuerySchema`: `.max(100)`). If someone raises it chasing the residual
-   * described in `coverLetterMatch.ts`, every request 400s at runtime while the
+   * described in `applicationMatch.ts`, every request 400s at runtime while the
    * suite stays green — so pin it here, where the value is about to be
    * serialised into a request the server validates.
    */
   it('requests no more than the endpoint accepts', () => {
-    expect(COVER_LETTER_PAGE_MAX).toBeLessThanOrEqual(100);
-    expect(COVER_LETTER_PAGE_MAX).toBeGreaterThan(20);
+    expect(TARGETED_LIST_PAGE_MAX).toBeLessThanOrEqual(100);
+    expect(TARGETED_LIST_PAGE_MAX).toBeGreaterThan(20);
   });
 });

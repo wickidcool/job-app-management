@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { FilterOptions } from './FilterPanel';
 import type { ApplicationStatus } from '../types/application';
 import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
+import { SAVED_FILTERS_KEY } from '../services/appStorage';
 
 interface SavedFilterShortcutsProps {
   onApplyFilter: (filters: FilterOptions) => void;
@@ -14,8 +15,6 @@ interface FilterShortcut {
   filters: FilterOptions;
   isPredefined: boolean;
 }
-
-const SAVED_FILTERS_KEY = 'wic-saved-filters';
 
 const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
   {

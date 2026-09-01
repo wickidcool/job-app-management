@@ -13,10 +13,16 @@ import { _resetJwksCache } from '../src/middleware/auth.js';
  * literally `c.get('userId') ?? undefined`, which laundered a null owner into an
  * optional argument and pushed the decision down into the predicate.
  *
- * `requireOwner` is the single place that absence is turned into an error. These
- * tests drive the real Hono app with a JWT that verifies but carries no `sub`
- * claim — the WIC-1554 case, where `middleware/auth.ts` resolves `userId` to
- * `null` — and assert two things per entry point:
+ * `requireOwner` is the single place that absence is turned into an error.
+ * `requireOwner.ts` names two callers that reach it with no owner: a token that
+ * verifies but carries no `sub`, and the local dev bypass (neither
+ * `SUPABASE_URL` nor `SUPABASE_JWT_SECRET` configured). WIC-1554 closed the
+ * first one at `middleware/auth.ts` itself — such a token is now rejected
+ * `401 UNAUTHORIZED` before any route runs, so `requireOwner` never sees it.
+ * The bypass is the one path still reaching this guard, and is what these
+ * tests drive: the real Hono app with neither Supabase var set, which
+ * `middleware/auth.ts` resolves to `userId: null` and lets through. Two
+ * things are asserted per entry point:
  *
  *   1. the response is 401 `OWNER_REQUIRED`, and
  *   2. **the service was never called at all**.
@@ -173,7 +179,6 @@ const GUARDED = [
 describe('requireOwner rejects an owner-less request before any read or write', () => {
   const originalEnv = process.env;
   let app: ReturnType<typeof buildApp>;
-  let subless: Record<string, string>;
   let valid: Record<string, string>;
 
   beforeEach(async () => {
@@ -184,15 +189,6 @@ describe('requireOwner rejects an owner-less request before any read or write', 
     app = buildApp();
 
     const encoded = new TextEncoder().encode(JWT_SECRET);
-    // Verifies against the secret, but carries no `sub`. `middleware/auth.ts`
-    // resolves this to `userId: null` (WIC-1554) — an authenticated caller with
-    // no identity, which is precisely what the old `?? undefined` laundered.
-    const noSub = await new SignJWT({})
-      .setProtectedHeader({ alg: 'HS256' })
-      .setIssuedAt()
-      .setExpirationTime('1h')
-      .sign(encoded);
-    subless = { 'content-type': 'application/json', authorization: `Bearer ${noSub}` };
 
     const withSub = await new SignJWT({ sub: '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60' })
       .setProtectedHeader({ alg: 'HS256' })
@@ -208,10 +204,23 @@ describe('requireOwner rejects an owner-less request before any read or write', 
     _resetJwksCache();
   });
 
-  it.each(GUARDED)('$name rejects a sub-less caller and calls nothing', async (entry) => {
-    const response = await app.request(entry.path, {
+  it.each(GUARDED)('$name rejects an owner-less caller and calls nothing', async (entry) => {
+    // Neither Supabase var set: `middleware/auth.ts` bypasses auth entirely and
+    // resolves `userId: null` (the local-dev case `requireOwner.ts` still
+    // guards — a sub-less-but-signed token is now rejected one layer up, by
+    // `middleware/auth.ts` itself, before any route or `requireOwner` runs).
+    // `getConfig()` is a module-level singleton, so the bypass env must be in
+    // effect for the whole request, not just around building the app.
+    const bypassEnv = { ...originalEnv };
+    delete bypassEnv.SUPABASE_URL;
+    delete bypassEnv.SUPABASE_JWT_SECRET;
+    process.env = bypassEnv;
+    _resetConfig();
+    const bypassApp = buildApp();
+
+    const response = await bypassApp.request(entry.path, {
       method: entry.method,
-      headers: subless,
+      headers: { 'content-type': 'application/json' },
       ...(entry.body === undefined ? {} : { body: JSON.stringify(entry.body) }),
     });
 
