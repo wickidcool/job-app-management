@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { LOGIN_TITLE, PRODUCT_NAME } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 type AuthMode = 'login' | 'register';
 
@@ -14,6 +16,10 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // `/login` is in the outer <Routes>, above ProtectedRoute, so the shell's `RouteTitle`
+  // is not mounted for it — this page sets its own (ROUTE_TITLE_CONVENTION.md §5).
+  useDocumentTitle(LOGIN_TITLE);
 
   useEffect(() => {
     if (user) {
@@ -57,9 +63,11 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Job Application Manager
-          </h2>
+          {/* The product name, from the one constant that also builds every page title.
+              Was the hardcoded "Job Application Manager" — a third name for a product the
+              public site and the production host both call Careerpin
+              (docs/design/ROUTE_TITLE_CONVENTION.md §2). */}
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">{PRODUCT_NAME}</h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             {mode === 'login' ? 'Sign in to manage your job applications' : 'Create an account'}
           </p>

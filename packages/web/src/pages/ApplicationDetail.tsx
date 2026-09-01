@@ -14,6 +14,8 @@ import { WorkflowChecklist } from '../components/WorkflowChecklist';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useCoverLetters } from '../hooks/useCoverLetters';
 import { COVER_LETTER_PAGE_MAX, coverLettersForApplication } from '../constants/coverLetterMatch';
+import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
@@ -23,6 +25,11 @@ export function ApplicationDetail() {
 
   // Fetch data using React Query
   const { data: application, isLoading: loading } = useApplication(id);
+
+  // Mirrors the page <h1> (`application.jobTitle`). The fallback covers the loading and
+  // not-found renders, so the tab never reads `undefined — Careerpin` and never keeps the
+  // previous route's title (docs/design/ROUTE_TITLE_CONVENTION.md §3).
+  useDocumentTitle(application?.jobTitle || DYNAMIC_TITLE_FALLBACKS.application);
 
   // Cover letters written for this application. The endpoint has no
   // `applicationId` filter — no such column exists — so `company` narrows

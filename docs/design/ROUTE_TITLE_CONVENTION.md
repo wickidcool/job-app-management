@@ -2,8 +2,10 @@
 
 **Issue:** WIC-1089 (split out of WIC-1046) · ported to `docs/design/` by **WIC-1582**
 **Author:** UI/UX Developer
-**Status:** design complete, ready for Frontend implementation
-**Measured against:** `main` @ `f457cc3`, 2026-08-27
+~~**Status:** design complete, ready for Frontend implementation~~
+**Status:** implemented — see §9, and the modules named there, for what actually shipped.
+**Measured against:** `main` @ `f457cc3`, 2026-08-27; §5 re-measured and §9 written against
+`main` @ `6196dc3d`, 2026-09-01.
 **Depends on:** [`ROUTE_HEADING_OUTLINE.md`](./ROUTE_HEADING_OUTLINE.md) — this document is a
 *consumer* of it, not a peer. See §0.3.
 
@@ -271,3 +273,49 @@ it and this cannot bite you.
 - [`CONTENT_STYLE.md`](./CONTENT_STYLE.md) — casing of the underlying strings (§4).
 - [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) — WCAG 2.4.2 context, and the standing note that none of it is CI-enforced.
 - [`COMPONENT_SPECS.md`](./COMPONENT_SPECS.md) §10 → "Heading level" — *"The page `<h1>` names the route"*, the rule §3.1 leans on.
+
+## 9. What shipped, and where it deviates from §3 and §7
+
+Implemented 2026-09-01 against `main` @ `6196dc3d`. Recorded here rather than by editing §3
+and §7 in place, so the deviations stay auditable — same convention the WIC-1582 port used.
+
+| Concern | Module |
+|---|---|
+| `PRODUCT_NAME`, `TITLE_SEPARATOR`, `formatTitle`, the §5 table | `packages/web/src/constants/title.ts` |
+| The hook (§3's three behaviours) | `packages/web/src/hooks/useDocumentTitle.ts` |
+| The one effect in the shell | `packages/web/src/components/RouteTitle.tsx` |
+| The 404's copy, so its title is read and not retyped | `packages/web/src/pages/NotFound.copy.ts` |
+
+**Four deviations, each with its reason.**
+
+1. **The title table is not a `title` field on the route table (§3, AC8).** It could not be.
+   `packages/web/src/test/route-integrity.test.ts` reads `App.tsx` as raw source and parses
+   `path="…" element={<X` out of the JSX, in both directions — link→route and route→link.
+   Converting the `<Route>` elements into a data array so they could carry a `title` field
+   would leave that audit matching almost nothing and passing vacuously, trading a live guard
+   for a stylistic preference. The table therefore lives in `constants/title.ts`.
+2. **AC8 is enforced by CI, not by review.** §7 AC8 accepted that "co-location is the
+   mechanism" and that a lint rule was not required. Co-location is what deviation 1 gives up,
+   so it is replaced by something stronger rather than weaker:
+   `packages/web/src/test/route-title-coverage.test.ts` asserts that the set of paths declared
+   on a `<Route>` in `App.tsx` is exactly the set accounted for in `constants/title.ts`, in
+   both directions. Adding a route without a title fails the build; so does leaving a title
+   behind for a route that was deleted.
+3. **`/login` is in `HOOK_TITLED_ROUTES`, though its heading is not dynamic.** §5 lists it
+   separately because it is not in the §5 table proper. Mechanically it belongs with the six:
+   it sits in the *outer* `<Routes>`, above `ProtectedRoute`, so the shell that applies the
+   table is never mounted for it and the page must call the hook itself.
+4. **`constants/title.ts`, not `lib/title.ts` as §2 wrote.** There is no `src/lib/` in this
+   package; `src/constants/` is the existing home for exactly this shape (a constant plus its
+   formatter plus a co-located `.test.ts`).
+
+**§6.1's second finding is now half-fixed, and deliberately only half.** `/login`'s `<h2>` was
+the product name; it is now `{PRODUCT_NAME}`, so the stale `Job Application Manager` is gone
+from the last place a user could read it. It is still an `<h2>` with no `<h1>` above it — the
+heading-structure half is a `ROUTE_HEADING_OUTLINE.md` call, not this document's, and is left
+where §6.1 filed it.
+
+**AC7 is enforced structurally.** Rather than open each dialog and assert the title held still,
+the coverage test asserts that `useDocumentTitle` is called only from pages and from
+`RouteTitle`. If no overlay can call it, no overlay can move the title. That also covers
+`QuickReferenceExport` (§6.4) without depending on how the heading question there is settled.

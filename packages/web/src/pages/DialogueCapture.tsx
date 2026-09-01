@@ -1,7 +1,22 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WizardContainer, type ProjectFile } from '../components/wizard';
 import { useCreateProjectFile } from '../hooks/useProjects';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { ProjectData } from '../components/wizard';
+
+/**
+ * The wizard names itself by variant in `WizardContainer.tsx:399-401`. Mirrored here
+ * rather than read from the container because the variant is a *route* concern — it comes
+ * off the query string — and because the container renders that string as a
+ * `Dialog.Title`, which `ROUTE_TITLE_CONVENTION.md` §3.1 otherwise forbids from touching
+ * `document.title`. That rule is about an overlay opening *on top of* a route; here the
+ * dialog is the whole route, so the route still owes the user a title.
+ */
+const WIZARD_VARIANT_TITLES: Record<'create' | 'enrich' | 'correct', string> = {
+  create: 'New Project',
+  enrich: 'Enrich Project',
+  correct: 'Correct Project',
+};
 
 /**
  * DialogueCapture Page
@@ -13,6 +28,8 @@ export function DialogueCapture() {
   const variant = (searchParams.get('variant') as 'create' | 'enrich' | 'correct') || 'create';
   const existingFileId = searchParams.get('fileId') || undefined;
   const createProjectFile = useCreateProjectFile();
+
+  useDocumentTitle(WIZARD_VARIANT_TITLES[variant] ?? WIZARD_VARIANT_TITLES.create);
 
   const handleComplete = async (generatedFile: ProjectFile) => {
     try {

@@ -105,6 +105,38 @@ Two invariants that the entries around this one depend on were carried correctly
 - **Six negative controls, all measured, all discriminating**, on the two files together (13 cases green unmodified): deleting the notice reds 3; printing `rawApplications.length` where `totalCount` belongs reds 1; the `totalCount` drift reds 1; hardcoding `truncated: false` in the updater reds 1; dropping `updatedAt` reds 1; and weakening the seed back to `totalCount: applications.length, truncated: false` reds 2 — the last of those is the control on the fixture itself, so the property that makes the other five capable of failing cannot be removed silently.
 - **Test-only — no production file is modified by this change.**
 
+
+### Added — every route now sets its own `document.title` (2026-09-01)
+
+`docs/design/ROUTE_TITLE_CONVENTION.md` has specified this since 2026-08-19 and was ported into
+the repo on 2026-08-27, but **nothing had ever implemented it**: `grep -rn "document.title"
+packages/web/src/` returned nothing at all, and all 31 in-app routes plus `/login` shared the one
+static `<title>` in `index.html`. Every browser tab, history entry, bookmark and window-switcher
+row named every screen identically — the textbook WCAG **2.4.2 Page Titled (Level A)** failure for
+a single-page app, and the reason `Ctrl/Cmd+H` could not be used to get back to an application.
+
+- **The title mirrors the route's `<h1>` verbatim** (§0.3), so titles inherit whatever the casing
+  standard lands on and cannot drift from the heading independently. The strings were re-measured
+  against the tree rather than copied from the doc: every one is stable, but **every line number in
+  §5 had moved** in the five days since the port.
+- `PRODUCT_NAME`/`formatTitle` live in one module, so the brand is a one-line change. `index.html`
+  and `Login.tsx`'s `<h2>` — the last two user-visible places that still said `Job Application
+  Manager` — now read **Careerpin**, which is what the marketing site and the production host say.
+- **The 404's title is read from its copy block, never retyped.** `NotFound.copy.ts` is a new module
+  for exactly that: the separator is a typographic em dash and the apostrophe in "couldn't" is a
+  straight `'`, so a title retyped from the design doc's prose disagrees with the heading in a way
+  that is invisible on the page and fails only in an exact-match assertion.
+- **A `<Route>` added with no title fails the build.** The convention's AC8 asked only that this be
+  "visible in review", on the strength of co-locating a `title` field with the path. That was not
+  available: `route-integrity.test.ts` parses `App.tsx` as raw source, so converting the route table
+  to a data array would have left that audit matching nothing and passing vacuously — trading a live
+  guard for a stylistic one. `route-title-coverage.test.ts` pairs the declared paths against the
+  title table in both directions instead, which is stricter than review, not weaker.
+- 47 unit cases across four files, each negative-controlled: writing the title during render instead
+  of in an effect, dropping the restore-on-unmount, adding an untitled `<Route>`, and unmounting
+  `RouteTitle` from the shell each fail the suite. The last of those is the one that matters — the
+  other three files all pass with the mechanism deleted from `App.tsx`.
+
 ### Fixed — Moving a Kanban card between columns shows the move immediately (2026-08-26)
 
 `useUpdateApplicationStatus` has carried an optimistic-update block since it was written, and none of it ever ran. `onMutate` snapshotted with `queryClient.getQueryData(applicationKeys.lists())`, but `lists()` is the *prefix* `['applications', 'list']` — a list query registers under `list(filters)` = `[...lists(), filters]`, one entry per filter combination the app has rendered. `getQueryData` and `setQueryData` are exact-match; prefix matching is `getQueriesData` / `setQueriesData`. So the snapshot was always `undefined`, the `if` guarding the patch never fired, and the paired `setQueryData(lists(), …)` would have written to a key nothing reads. Dragging a card between columns had no optimistic feedback at all: the board only moved once the request round-tripped and `onSettled` refetched. The `onError` rollback was dead for the same reason (WIC-1497).
