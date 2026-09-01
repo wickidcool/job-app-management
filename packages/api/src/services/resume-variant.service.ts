@@ -1,7 +1,9 @@
-import { eq, ilike, or, desc, and, sql, inArray, notInArray } from 'drizzle-orm';
+import { eq, ilike, or, desc, and, sql, inArray, notInArray, isNull } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
+import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import {
   resumeVariants,
   quantifiedBullets,
@@ -28,6 +30,58 @@ import {
   NotFoundError,
   VersionConflictError,
 } from '../types/index.js';
+
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+/**
+ * Owner predicate for any table this service reads (WIC-1601).
+ *
+ * Returned **unconditionally**, never `undefined` and never omitted, because the
+ * two failure modes this closes are different and both were live:
+ *
+ * 1. *No owner term at all.* Every read of `resumes` and `tech_stack_tags` here
+ *    was keyed on a caller-supplied id alone. `generateResumeVariant` turned
+ *    that into an existence oracle over both tables and then persisted the
+ *    foreign `baseResumeId` onto the variant, and `getResumeVariant` read it
+ *    back out as another user's `fileName`. RLS is not a backstop: the policies
+ *    in `0002_rls_current_schema.sql` are `TO authenticated USING (auth.uid() =
+ *    user_id)`, but the Worker connects over a raw `postgres://` string and
+ *    never sets a JWT claim, so `auth.uid()` is NULL and they never apply.
+ *
+ * 2. *The absent-caller fail-open.* The owner-bearing predicates were all
+ *    `userId ? and(idTerm, ownerTerm) : idTerm` — the idiom WIC-1482 records on
+ *    `fetchStarEntries` and WIC-1500 found reachable in a fully-configured
+ *    deployment through a `sub`-less JWT. Under ADR-003 an anonymous caller is
+ *    a legitimate local-dev case, but the honest reading of "anonymous" is
+ *    *the rows nobody owns*, not *every row*.
+ *
+ * `IS NULL` is therefore what an absent caller scopes to, and what that selects
+ * depends on the table:
+ *
+ * - `resume_variants.user_id` is nullable and the insert path writes
+ *   `userId ?? null`, so anonymous rows genuinely exist and are exactly what
+ *   comes back. Local dev is unchanged.
+ * - `resumes.user_id` is nullable for the same reason.
+ * - `tech_stack_tags.user_id` and `quantified_bullets.user_id` are `.notNull()`
+ *   since migration `0017_enforce_userid_not_null.sql` (pre-existing NULLs
+ *   rewritten to the `00000000-…-0` placeholder, then `SET NOT NULL`), so
+ *   `IS NULL` selects the empty set. That is deliberate: an anonymous caller
+ *   gets nothing rather than everything, and the read's caller must be prepared
+ *   for it. The `userId ?? null` insert path that once justified a nullable
+ *   reading is dead for the same reason — post-0017 it is rejected with `23502`.
+ *   Do not cite `personal-info.service.ts:34` as precedent either:
+ *   `personalInfo.userId` is nullable, so `IS NULL` genuinely selects that
+ *   table's anonymous rows; here it selects none.
+ *
+ * `quantified_bullets` is the case WIC-1449 landed a dedicated `bulletOwnerScope`
+ * for. That helper is gone: it was this function with the table pre-applied, and
+ * one predicate with one name is the point. `rawText` is the user-authored
+ * accomplishment sentence and is returned verbatim to the caller and persisted
+ * into `resume_variants.content`, so every read of that table must carry this.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
 
 // ── DTO mappers ───────────────────────────────────────────────────────────────
 
@@ -182,7 +236,7 @@ export async function generateResumeVariant(
     const [baseResume] = await db
       .select()
       .from(resumes)
-      .where(eq(resumes.id, input.baseResumeId))
+      .where(and(eq(resumes.id, input.baseResumeId), ownerScope(resumes, userId)))
       .limit(1);
     if (!baseResume) {
       throw new ResumeVariantError(
@@ -198,10 +252,16 @@ export async function generateResumeVariant(
   if (input.selectedBullets && input.selectedBullets.length > 0) {
     const allBulletIds = input.selectedBullets.flatMap((s) => s.bulletIds);
     if (allBulletIds.length > 0) {
+      // Scoped too, not just the catalog read below: unscoped this both confirms
+      // the existence of another user's bullet id and, because the selection is
+      // later intersected with the caller-scoped catalog, silently yields an
+      // empty resume instead of the BULLET_NOT_FOUND this branch exists to raise.
       const foundBullets = await db
         .select({ id: quantifiedBullets.id })
         .from(quantifiedBullets)
-        .where(inArray(quantifiedBullets.id, allBulletIds));
+        .where(
+          and(ownerScope(quantifiedBullets, userId), inArray(quantifiedBullets.id, allBulletIds))
+        );
       const foundIds = new Set(foundBullets.map((b) => b.id));
       const invalidIds = allBulletIds.filter((id) => !foundIds.has(id));
       if (invalidIds.length > 0) {
@@ -220,7 +280,9 @@ export async function generateResumeVariant(
     const foundTags = await db
       .select({ id: techStackTags.id })
       .from(techStackTags)
-      .where(inArray(techStackTags.id, input.selectedTechTags));
+      .where(
+        and(inArray(techStackTags.id, input.selectedTechTags), ownerScope(techStackTags, userId))
+      );
     const foundIds = new Set(foundTags.map((t) => t.id));
     const invalidIds = input.selectedTechTags.filter((id) => !foundIds.has(id));
     if (invalidIds.length > 0) {
@@ -266,8 +328,11 @@ export async function generateResumeVariant(
       impactCategory: quantifiedBullets.impactCategory,
     })
     .from(quantifiedBullets)
+    .where(ownerScope(quantifiedBullets, userId))
     .limit(200);
 
+  // Evaluated over the caller's catalog, so UC-6's empty-state is reachable for a
+  // user with no bullets even when other users have some.
   if (allBullets.length === 0) {
     throw new ResumeVariantError(
       'CATALOG_EMPTY',
@@ -507,9 +572,7 @@ export async function getResumeVariant(
   baseResume?: { id: string; fileName: string };
 }> {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
-    : eq(resumeVariants.id, id);
+  const whereClause = and(eq(resumeVariants.id, id), ownerScope(resumeVariants, userId));
   const [row] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Resume variant');
 
@@ -517,6 +580,10 @@ export async function getResumeVariant(
   const usedIds = (content.experience ?? []).flatMap((e) => (e.bullets ?? []).map((b) => b.id));
   let usedBullets: UsedBulletDTO[] = [];
   if (usedIds.length > 0) {
+    // `usedIds` comes out of the variant's own persisted `content`, which for any
+    // variant generated before this fix can already name another user's bullets.
+    // Scoping the re-hydration stops those ids resolving back to foreign
+    // `rawText` on every GET; it does not clean the rows (see AC-7 follow-up).
     const rows = await db
       .select({
         id: quantifiedBullets.id,
@@ -524,7 +591,7 @@ export async function getResumeVariant(
         impactCategory: quantifiedBullets.impactCategory,
       })
       .from(quantifiedBullets)
-      .where(inArray(quantifiedBullets.id, usedIds));
+      .where(and(ownerScope(quantifiedBullets, userId), inArray(quantifiedBullets.id, usedIds)));
     usedBullets = rows.map((b) => ({
       id: b.id,
       rawText: b.rawText,
@@ -536,10 +603,14 @@ export async function getResumeVariant(
 
   let baseResume: { id: string; fileName: string } | undefined;
   if (row.baseResumeId) {
+    // `baseResumeId` was written unscoped before this change, so a variant the
+    // caller genuinely owns can still name another user's resume. Fixing the
+    // write does not clean what it already wrote (WIC-1437), so the read carries
+    // the predicate too and a foreign base degrades to `undefined`.
     const [br] = await db
       .select({ id: resumes.id, fileName: resumes.fileName })
       .from(resumes)
-      .where(eq(resumes.id, row.baseResumeId))
+      .where(and(eq(resumes.id, row.baseResumeId), ownerScope(resumes, userId)))
       .limit(1);
     if (br) baseResume = br;
   }
@@ -562,14 +633,12 @@ export async function listResumeVariants(
 ): Promise<{ variants: ResumeVariantSummaryDTO[]; nextCursor?: string }> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 20, 100);
-  const offset = params.cursor
-    ? parseInt(Buffer.from(params.cursor, 'base64url').toString('utf-8'), 10)
-    : 0;
+  const offset = parseCursor(params.cursor);
 
-  const conditions: ReturnType<typeof eq>[] = [];
-  if (userId) {
-    conditions.push(eq(resumeVariants.userId, userId) as any);
-  }
+  // Unconditional, not `if (userId)`: the owner term is the one condition that
+  // must survive an absent caller, and pushing it conditionally is how the array
+  // form hid the same fail-open the ternaries above carried.
+  const conditions: ReturnType<typeof eq>[] = [ownerScope(resumeVariants, userId) as any];
   if (params.status === 'draft' || params.status === 'finalized') {
     conditions.push(eq(resumeVariants.status, params.status as any));
   }
@@ -609,7 +678,7 @@ export async function listResumeVariants(
 
   return {
     variants: result.map(toSummaryDTO),
-    nextCursor: hasMore ? Buffer.from(String(offset + limit)).toString('base64url') : undefined,
+    nextCursor: hasMore ? encodeCursor(offset + limit) : undefined,
   };
 }
 
@@ -629,20 +698,16 @@ export async function updateResumeVariant(
   if (input.title !== undefined) updates.title = input.title;
   if (input.status !== undefined) updates.status = input.status;
 
-  const whereClause = userId
-    ? and(
-        eq(resumeVariants.id, id),
-        eq(resumeVariants.version, input.version),
-        eq(resumeVariants.userId, userId)
-      )
-    : and(eq(resumeVariants.id, id), eq(resumeVariants.version, input.version));
+  const whereClause = and(
+    eq(resumeVariants.id, id),
+    eq(resumeVariants.version, input.version),
+    ownerScope(resumeVariants, userId)
+  );
 
   const [row] = await db.update(resumeVariants).set(updates).where(whereClause).returning();
 
   if (!row) {
-    const existingWhere = userId
-      ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
-      : eq(resumeVariants.id, id);
+    const existingWhere = and(eq(resumeVariants.id, id), ownerScope(resumeVariants, userId));
     const [existing] = await db.select().from(resumeVariants).where(existingWhere).limit(1);
     if (!existing) throw new NotFoundError('Resume variant');
     throw new VersionConflictError();
@@ -655,9 +720,7 @@ export async function updateResumeVariant(
 
 export async function deleteResumeVariant(id: string, userId?: string): Promise<void> {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
-    : eq(resumeVariants.id, id);
+  const whereClause = and(eq(resumeVariants.id, id), ownerScope(resumeVariants, userId));
   const [existing] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Resume variant');
   await db.delete(resumeVariants).where(whereClause);
@@ -676,9 +739,7 @@ export async function reviseResumeVariant(
   atsScore?: number;
 }> {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
-    : eq(resumeVariants.id, id);
+  const whereClause = and(eq(resumeVariants.id, id), ownerScope(resumeVariants, userId));
   const [existing] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Resume variant');
 
@@ -779,6 +840,7 @@ Rules:
   const usedIds = (newContent.experience ?? []).flatMap((e) => (e.bullets ?? []).map((b) => b.id));
   let usedBullets: UsedBulletDTO[] = [];
   if (usedIds.length > 0) {
+    // Same re-hydration hazard as `getResumeVariant` — scoped for the same reason.
     const bulletRows = await db
       .select({
         id: quantifiedBullets.id,
@@ -786,7 +848,7 @@ Rules:
         impactCategory: quantifiedBullets.impactCategory,
       })
       .from(quantifiedBullets)
-      .where(inArray(quantifiedBullets.id, usedIds));
+      .where(and(ownerScope(quantifiedBullets, userId), inArray(quantifiedBullets.id, usedIds)));
     usedBullets = bulletRows.map((b) => ({
       id: b.id,
       rawText: b.rawText,
@@ -808,7 +870,7 @@ Rules:
 
 export async function suggestBullets(
   input: SuggestBulletsInput,
-  _userId?: string
+  userId?: string
 ): Promise<{
   suggestions: BulletSuggestionDTO[];
   totalCatalogBullets: number;
@@ -826,9 +888,17 @@ export async function suggestBullets(
 
   const db = getDb();
 
+  // Named `bulletScope`, not `ownerScope`: WIC-1601 introduced a module-scope
+  // `ownerScope(table, userId)` and a local of the same name would shadow it for
+  // the whole function body. Both reads below must carry this, including the
+  // `excludeBulletIds` branch — an owner term in only one arm of that ternary is
+  // the WIC-1601 defect.
+  const bulletScope = ownerScope(quantifiedBullets, userId);
+
   const [{ count: totalCatalogBullets }] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
-    .from(quantifiedBullets);
+    .from(quantifiedBullets)
+    .where(bulletScope);
 
   const allBullets = await db
     .select({
@@ -840,8 +910,8 @@ export async function suggestBullets(
     .from(quantifiedBullets)
     .where(
       input.excludeBulletIds?.length
-        ? notInArray(quantifiedBullets.id, input.excludeBulletIds)
-        : undefined
+        ? and(bulletScope, notInArray(quantifiedBullets.id, input.excludeBulletIds))
+        : bulletScope
     )
     .limit(500);
 
@@ -891,9 +961,7 @@ export async function exportResumeVariant(
   userId?: string
 ): Promise<{ buffer: Buffer; filename: string; contentType: string; pageCount: number }> {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(resumeVariants.id, id), eq(resumeVariants.userId, userId))
-    : eq(resumeVariants.id, id);
+  const whereClause = and(eq(resumeVariants.id, id), ownerScope(resumeVariants, userId));
   const [row] = await db.select().from(resumeVariants).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Resume variant');
 

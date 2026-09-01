@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getConfig } from '../config.js';
 import { AppError } from '../types/index.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -27,7 +28,7 @@ export const authRoutes = new Hono<AppEnv>()
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const parsed = registerSchema.safeParse(await c.req.json());
+    const parsed = registerSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       throw new AppError('VALIDATION_ERROR', 'Invalid request body', parsed.error.flatten(), 400);
     }
@@ -63,7 +64,7 @@ export const authRoutes = new Hono<AppEnv>()
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const parsed = loginSchema.safeParse(await c.req.json());
+    const parsed = loginSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       throw new AppError('VALIDATION_ERROR', 'Invalid request body', parsed.error.flatten(), 400);
     }

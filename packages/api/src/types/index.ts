@@ -104,6 +104,55 @@ export interface ActivityItem {
   timestamp: string;
 }
 
+/**
+ * A single application referenced by the dashboard attention block.
+ *
+ * Deliberately minimal: the dashboard only needs enough to label and link a row,
+ * never the full DTO (`jobDescription` in particular can be very large).
+ */
+export interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Full-table aggregates behind the Dashboard's "Attention Required" and
+ * "Quick Wins" cards.
+ *
+ * Every `counts` field is computed over *all* of the user's applications, not
+ * over a page of them. `samples` are short top-N lists used to render
+ * individual action rows; a sample list being shorter than its count is
+ * expected and is not truncation of the count.
+ */
+export interface DashboardAttention {
+  /** Days without an update after which a non-terminal application is stale. */
+  staleThresholdDays: number;
+  /** Days after which a `saved` application counts as not-yet-submitted. */
+  savedThresholdDays: number;
+  counts: {
+    /** `phone_screen` + `interview`. */
+    interviewing: number;
+    /** Non-terminal and not updated within `staleThresholdDays`. */
+    stale: number;
+    /** `applied`/`phone_screen`/`interview` and not updated within `staleThresholdDays`. */
+    staleActive: number;
+    /** Non-terminal and missing a job description. */
+    missingJobDescription: number;
+    /** `saved` and created more than `savedThresholdDays` ago. */
+    staleSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];
+    staleActive: AttentionApplication[];
+    missingJobDescription: AttentionApplication[];
+    staleSaved: AttentionApplication[];
+  };
+}
+
 export interface ResumeDTO {
   id: string;
   fileName: string;
@@ -497,7 +546,42 @@ export class CoverLetterError extends AppError {
 // ============================================================================
 
 export type ActiveStatus = 'saved' | 'applied' | 'phone_screen' | 'interview';
-export type FitTier = 'strong_fit' | 'moderate_fit' | 'weak_fit' | 'not_analyzed';
+
+/**
+ * The fit verdict for one application, as reported across a whole pipeline.
+ *
+ * **`FitTier` is `FitRecommendation` plus the two states an analysis result can
+ * be in when there is no verdict.** It is written as a union of the UC-3 type on
+ * purpose (WIC-1298): a report groups applications by the judgement UC-3 made,
+ * so the two must not be able to drift. Add a member to `FitRecommendation` and
+ * it appears here automatically — and `FIT_TIER_ORDER` in `reports.service.ts`
+ * fails to compile until it is ranked.
+ *
+ * Until WIC-1298 this was its own four-member vocabulary — `strong_fit |
+ * moderate_fit | weak_fit | not_analyzed` — which agreed with
+ * `FitRecommendation` at the top and diverged at the bottom, with no mapping
+ * written down anywhere. Two things were wrong with it:
+ *
+ * - **`weak_fit` collapsed `stretch` into `low_fit`.** `stretch` is not a
+ *   magnitude: it fires on a *seniority* mismatch even at a good skill match
+ *   (`computeRecommendation` in `job-fit.service.ts`). Reporting that as "weak"
+ *   tells the user their skills are short when the finding was that the level is
+ *   wrong — the opposite action. `stretch` and `low_fit` are now distinct tiers.
+ * - **`not_analyzed` absorbed `recommendation: null`.** "No analysis has ever
+ *   run" and "an analysis ran and could not score" are different facts and want
+ *   different prompts. The latter is now `unscored`.
+ *
+ * `recommendationToFitTier()` in `reports.service.ts` is the single place the
+ * two vocabularies meet. Both are wire values: changing a member versions
+ * `GET /api/reports/by-fit-tier` and `POST /api/catalog/job-fit/analyze`.
+ * Display labels are decoupled (`packages/web/src/constants/fitLevel.ts`).
+ */
+export type FitTier =
+  | FitRecommendation
+  /** An analysis ran but produced no verdict (`recommendation: null`). */
+  | 'unscored'
+  /** No fit analysis has ever been run for this application. */
+  | 'not_analyzed';
 
 export interface PipelineApplication {
   id: string;
