@@ -4,14 +4,32 @@ import { matchRoutes } from 'react-router-dom';
 import appSource from '../App.tsx?raw';
 
 /**
- * A static audit of in-app navigation: every internal path the UI can send a user to
- * must be matched by a concrete route in App.tsx.
+ * A static audit of in-app navigation, in both directions:
  *
- * This exists because WIC-1032 shipped a "Go to Dashboard" button pointing at
+ *  - link -> route: every internal path the UI can send a user to must be matched by a
+ *    concrete route in App.tsx.
+ *  - route -> link: every route declared in App.tsx must have at least one inbound link
+ *    site somewhere in the app, unless it is a `<Navigate>` redirect.
+ *
+ * The first exists because WIC-1032 shipped a "Go to Dashboard" button pointing at
  * `/dashboard`, which no route matched — the user landed on an empty content area.
  * Nothing in the type system or the linter can see that; only a run-time click could,
  * and clicking it in Playwright costs a dev server, an API and a database. Reading the
  * source and matching it against the route table costs nothing and runs in Lint & Test.
+ *
+ * The second exists because the first cannot see the converse. An orphan route — a page
+ * that is built and mounted with no button anywhere pointing at it — produces no link
+ * site, so the link -> route assertion has nothing to look at and stays green. That class
+ * had produced four cards on this project (WIC-109, WIC-110, WIC-1428, WIC-1530) and
+ * never once produced a guard; WIC-1531 is the guard.
+ *
+ * Two limits, so this is not over-trusted:
+ *
+ *  - It is static. A target computed at run time (`navigate(returnTo)`) is invisible to
+ *    it — the same limitation the link -> route direction already documents and accepts.
+ *  - It proves a link exists *in source*, not that a user can ever see it. A link inside
+ *    a permanently false conditional, or on a page that is itself unreachable, satisfies
+ *    it. This reduces the orphan class; it does not eliminate it.
  */
 
 // Link targets that are known-dead today. Each entry must name the ticket that owns
@@ -49,6 +67,32 @@ function declaredRoutePaths(source: string): string[] {
     .filter((path): path is string => Boolean(path));
 
   return [...new Set(paths)].filter((path) => path !== '*' && path !== '/*');
+}
+
+/**
+ * The component each `<Route>` renders, keyed by its declared `path`.
+ *
+ * Only used to spot `<Navigate>` — a redirect-only route exists precisely to absorb
+ * traffic the app does *not* generate (bookmarks, stale external links, renamed paths),
+ * so requiring it to have an inbound link would be backwards. Reading the element out of
+ * the source keeps that exemption self-evident in App.tsx rather than in a hand-kept
+ * allowlist here, which would need its own staleness guard.
+ */
+function declaredRouteElements(source: string): Record<string, string> {
+  const elements: Record<string, string> = {};
+
+  for (const chunk of source.split('<Route').slice(1)) {
+    const path = /\bpath="([^"]+)"/.exec(chunk)?.[1];
+    // Chunks end at the next `<Route`, so the first `element={<X` in one is that route's
+    // own — no nested route's element can be read as this one's.
+    const element = /\belement=\{\s*<\s*([A-Za-z][A-Za-z0-9_]*)/.exec(chunk)?.[1];
+
+    if (path && element) {
+      elements[path] = element;
+    }
+  }
+
+  return elements;
 }
 
 /** Where a link target was written, for a failure message that points at the file. */
@@ -96,10 +140,33 @@ function toConcretePathname(raw: string): string {
     .replace(/^$/, '/');
 }
 
+/**
+ * Strip comments before scanning. A link that has been commented out is not a link: the
+ * button is gone from the UI and the page it reached is orphaned, which is precisely the
+ * class the route -> link audit exists to catch (WIC-1428/WIC-1530). `collectLinkSites`
+ * regexes over raw source, so without this a commented-out link still credits its route —
+ * deleting a link is caught, but commenting the *same* link out is not, even though the
+ * user-visible outcome (button gone, page unreachable) is identical. That is the single
+ * most common way a page actually becomes orphaned, and it is cheap to exclude.
+ *
+ * The `[^:'"`\\]` guard on the line-comment rule keeps `https://` and `to="//x"` from
+ * being eaten. It is a lexer-free approximation: a `//` inside a string literal that is
+ * not preceded by `:` could over-strip, which is why the two block/JSX forms run first.
+ * Measured on the tree at introduction: 0 of 152 link sites sat inside a comment, so this
+ * changes no baseline credit — it only closes the fail-open (WIC-1560).
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ') // {/* JSX comment */}
+    .replace(/\/\*[\s\S]*?\*\//g, ' ') //          /* block comment */
+    .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1'); //  // line comment
+}
+
 function collectLinkSites(sources: Record<string, string>): LinkSite[] {
   const sites: LinkSite[] = [];
 
-  for (const [file, source] of Object.entries(sources)) {
+  for (const [file, rawSource] of Object.entries(sources)) {
+    const source = stripComments(rawSource);
     for (const pattern of LINK_PATTERNS) {
       for (const match of source.matchAll(pattern)) {
         const raw = match[1];
@@ -109,6 +176,38 @@ function collectLinkSites(sources: Record<string, string>): LinkSite[] {
   }
 
   return sites;
+}
+
+/**
+ * The inverse join of the link -> route audit: which declared routes no link resolves to.
+ *
+ * A link is credited to the route `matchRoutes` actually picks for it, not to every route
+ * it could conceivably match. That matters because React Router ranks by specificity, so
+ * `/resumes/exports` is credited to the static route and `/resumes/x/exports` to the
+ * parameterized one — using the same matcher as the forward assertion keeps the two
+ * directions from disagreeing about what a link means.
+ *
+ * `KNOWN_DEAD_LINKS` is deliberately not consulted here, and cannot weaken this: an entry
+ * on that list either still matches no route — in which case it credits nothing — or the
+ * route has since been added, in which case the link is live and crediting it is right.
+ *
+ * Kept as a pure function of its three inputs so the capability check below can drive it
+ * with a synthetic route table rather than re-implementing the join.
+ */
+function orphanRoutePaths(
+  paths: string[],
+  linkPathnames: string[],
+  elementByPath: Record<string, string>
+): string[] {
+  const table = paths.map((path) => ({ path }));
+
+  const linked = new Set(
+    linkPathnames
+      .map((pathname) => matchRoutes(table, pathname)?.at(-1)?.route.path)
+      .filter((path): path is string => Boolean(path))
+  );
+
+  return paths.filter((path) => elementByPath[path] !== 'Navigate' && !linked.has(path));
 }
 
 // Every source file in the app, minus the tests themselves — this file lists dead paths
@@ -126,6 +225,7 @@ const appSources = Object.fromEntries(
 );
 
 const routePaths = declaredRoutePaths(appSource);
+const routeElements = declaredRouteElements(appSource);
 const routes = routePaths.map((path) => ({ path }));
 const linkSites = collectLinkSites(appSources);
 
@@ -190,6 +290,105 @@ describe('in-app navigation targets', () => {
       `These link targets match no route in App.tsx:\n${report}\n\n` +
         `Add the missing <Route>, fix the link, or — if it is a known defect owned by ` +
         `another ticket — add it to KNOWN_DEAD_LINKS with that ticket's number.`
+    ).toEqual([]);
+  });
+
+  // The mirror of the "is capable of failing" test above, for the route -> link
+  // direction. The join is driven with a synthetic route table so this proves the real
+  // function reports an orphan, rather than asserting a parallel re-implementation of it.
+  it('the orphan audit is capable of failing — an unlinked route is reported', () => {
+    expect(
+      orphanRoutePaths(['/linked', '/orphan'], ['/linked'], {
+        '/linked': 'LinkedPage',
+        '/orphan': 'OrphanPage',
+      })
+    ).toEqual(['/orphan']);
+  });
+
+  // Commenting the entry point out is the most common way a page becomes orphaned, and
+  // the user-visible outcome is identical to deleting it. `collectLinkSites` regexes over
+  // source, so it must not credit a route from a link that is commented out — otherwise
+  // JSX-commenting the sole `<Link>` to a page silently reverts its entry point (the exact
+  // regression WIC-1530 added a guard against) and this audit stays green. FO-B/FO-C.
+  it('does not credit a route from a commented-out link', () => {
+    const source = [
+      '<Link to="/live">Live</Link>',
+      '// <Link to="/line-commented">Gone</Link>',
+      '{/* <Link to="/jsx-commented">Gone</Link> */}',
+      '/* to="/block-commented" */',
+      // A live link on a line that also contains a `://` URL: the line-comment guard must
+      // not treat the `//` in `https://` as a comment and strip `/guarded` after it.
+      'const api = "https://example.com"; go(<Link to="/guarded">G</Link>);',
+    ].join('\n');
+
+    const collected = collectLinkSites({ 'x.tsx': source }).map((site) => site.raw);
+
+    expect(collected).not.toContain('/line-commented');
+    expect(collected).not.toContain('/jsx-commented');
+    expect(collected).not.toContain('/block-commented');
+    // Live links survive, including the one guarded from the `https://` false positive.
+    expect(collected.sort()).toEqual(['/guarded', '/live']);
+  });
+
+  it('credits a link to the route it resolves to, including parameterized ones', () => {
+    expect(
+      orphanRoutePaths(['/things', '/things/:id'], ['/things', '/things/x'], {
+        '/things': 'ThingsList',
+        '/things/:id': 'ThingDetail',
+      })
+    ).toEqual([]);
+
+    // A link to the list must not be credited to the detail route just because the
+    // matcher could have reached it — otherwise an orphan detail page reads as linked.
+    expect(
+      orphanRoutePaths(['/things', '/things/:id'], ['/things'], {
+        '/things': 'ThingsList',
+        '/things/:id': 'ThingDetail',
+      })
+    ).toEqual(['/things/:id']);
+  });
+
+  it('exempts <Navigate> routes, and only because App.tsx says <Navigate>', () => {
+    // Derived, not hand-listed: these two are exempt because the source renders
+    // `<Navigate>` there. Rewrite either to render a page and it stops being exempt.
+    expect(routeElements['/dashboard']).toBe('Navigate');
+    expect(routeElements['/reports/pipeline']).toBe('Navigate');
+    expect(routeElements['/']).toBe('Dashboard');
+
+    expect(orphanRoutePaths(['/redirect'], [], { '/redirect': 'Navigate' })).toEqual([]);
+    expect(orphanRoutePaths(['/redirect'], [], { '/redirect': 'SomePage' })).toEqual(['/redirect']);
+  });
+
+  // Guards the element extraction the same way the route/link extraction is guarded: if
+  // the regex stopped matching, every route would look like a non-`<Navigate>` route and
+  // the exemption would silently vanish (noisy), or — worse — a rename could make
+  // everything look exempt. Pin both the coverage and the shape.
+  it('reads an element for every declared route', () => {
+    const missing = routePaths.filter((path) => !routeElements[path]);
+    expect(missing, `No element parsed for: ${missing.join(', ')}`).toEqual([]);
+
+    const redirects = routePaths.filter((path) => routeElements[path] === 'Navigate');
+    expect(redirects.length).toBeGreaterThan(0);
+    expect(redirects.length).toBeLessThan(routePaths.length);
+  });
+
+  it('has no route without an inbound link', () => {
+    const orphans = orphanRoutePaths(
+      routePaths,
+      linkSites.map((site) => site.path),
+      routeElements
+    );
+
+    const report = orphans.map((path) => `  ${path}  (<${routeElements[path]} />)`).join('\n');
+
+    expect(
+      orphans,
+      `These routes are declared in App.tsx but nothing in the app links to them:\n` +
+        `${report}\n\n` +
+        `A route no button reaches is a page no user can find. Add the entry point, or ` +
+        `remove the route. There is deliberately no allowlist: the only exemption is a ` +
+        `route whose element is <Navigate>, which is a redirect and is meant to absorb ` +
+        `traffic the app does not generate.`
     ).toEqual([]);
   });
 });
