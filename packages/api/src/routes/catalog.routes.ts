@@ -20,7 +20,9 @@ import {
   listThemes,
 } from '../services/catalog.service.js';
 import { analyzeJobFit, listJobFitAnalyses } from '../services/job-fit.service.js';
+import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -154,26 +156,21 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listDiffsSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const { diffs } = await listDiffs(parsed.data, c.get('userId') ?? undefined);
-    return c.json(diffs);
+    return c.json(await listDiffs(parsed.data, c.get('userId') ?? undefined));
   })
   .get('/catalog/diffs/:id', async (c) => {
     const diff = await getDiff(c.req.param('id'), c.get('userId') ?? undefined);
     return c.json(diff);
   })
   .post('/catalog/generate-diff', async (c) => {
-    const parsed = generateDiffSchema.safeParse(await c.req.json());
+    const parsed = generateDiffSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const diff = await generateDiff(
-      parsed.data.sourceType,
-      parsed.data.sourceId,
-      c.get('userId') ?? undefined
-    );
+    const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId, requireOwner(c));
     return c.json(diff, 201);
   })
   .post('/catalog/diffs/:id/apply', async (c) => {
-    const parsed = applyDiffSchema.safeParse(await c.req.json());
+    const parsed = applyDiffSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     const result = await applyDiff(c.req.param('id'), parsed.data, c.get('userId') ?? undefined);
@@ -184,7 +181,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   .post('/catalog/diffs/:id/resolve', async (c) => {
-    const parsed = resolveDiffItemSchema.safeParse(await c.req.json());
+    const parsed = resolveDiffItemSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     const result = await resolveDiffItem(
@@ -199,17 +196,16 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listCompaniesSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const { companies } = await listCompanies(parsed.data, c.get('userId') ?? undefined);
-    return c.json(companies);
+    return c.json(await listCompanies(parsed.data, c.get('userId') ?? undefined));
   })
   .post('/catalog/companies/merge', async (c) => {
-    const parsed = mergeEntitiesSchema.safeParse(await c.req.json());
+    const parsed = mergeEntitiesSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     const result = await mergeCompanies(
       parsed.data.sourceCompanyIds,
       parsed.data.targetCompanyId,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json(result);
   })
@@ -237,8 +233,7 @@ export const catalogRoutes = new Hono<AppEnv>()
           400
         );
       }
-      const { tags } = await listJobFitTags(parsed.data, c.get('userId') ?? undefined);
-      return c.json(tags);
+      return c.json(await listJobFitTags(parsed.data, c.get('userId') ?? undefined));
     } else if (type === 'tech-stack') {
       if (
         parsed.data.category &&
@@ -256,8 +251,7 @@ export const catalogRoutes = new Hono<AppEnv>()
           400
         );
       }
-      const { tags } = await listTechStackTags(parsed.data, c.get('userId') ?? undefined);
-      return c.json(tags);
+      return c.json(await listTechStackTags(parsed.data, c.get('userId') ?? undefined));
     } else {
       return c.json(
         { error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } },
@@ -267,25 +261,17 @@ export const catalogRoutes = new Hono<AppEnv>()
   })
   .post('/catalog/tags/:type/merge', async (c) => {
     const type = c.req.param('type');
-    const parsed = mergeTagsSchema.safeParse(await c.req.json());
+    const parsed = mergeTagsSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
     if (type === 'job-fit') {
       return c.json(
-        await mergeJobFitTags(
-          parsed.data.sourceTagIds,
-          parsed.data.targetTagId,
-          c.get('userId') ?? undefined
-        )
+        await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId, requireOwner(c))
       );
     } else if (type === 'tech-stack') {
       return c.json(
-        await mergeTechStackTags(
-          parsed.data.sourceTagIds,
-          parsed.data.targetTagId,
-          c.get('userId') ?? undefined
-        )
+        await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId, requireOwner(c))
       );
     } else {
       return c.json(
@@ -299,16 +285,16 @@ export const catalogRoutes = new Hono<AppEnv>()
     const id = c.req.param('id');
 
     if (type === 'job-fit') {
-      const parsed = updateJobFitTagSchema.safeParse(await c.req.json());
+      const parsed = updateJobFitTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-      const tag = await updateJobFitTag(id, parsed.data, c.get('userId') ?? undefined);
+      const tag = await updateJobFitTag(id, parsed.data, requireOwner(c));
       return c.json(tag);
     } else if (type === 'tech-stack') {
-      const parsed = updateTechStackTagSchema.safeParse(await c.req.json());
+      const parsed = updateTechStackTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-      const tag = await updateTechStackTag(id, parsed.data, c.get('userId') ?? undefined);
+      const tag = await updateTechStackTag(id, parsed.data, requireOwner(c));
       return c.json(tag);
     } else {
       return c.json(
@@ -322,8 +308,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listBulletsSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const { bullets } = await listBullets(parsed.data, c.get('userId') ?? undefined);
-    return c.json(bullets);
+    return c.json(await listBullets(parsed.data, c.get('userId') ?? undefined));
   })
   // ── STAR Catalog Entries ───────────────────────────────────────────────────
   .get('/star-entries', async (c) => {
@@ -335,12 +320,11 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listThemesSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const { themes } = await listThemes(parsed.data, c.get('userId') ?? undefined);
-    return c.json(themes);
+    return c.json(await listThemes(parsed.data, c.get('userId') ?? undefined));
   })
   // ── Job Fit Analysis ────────────────────────────────────────────────────────
   .post('/catalog/job-fit/analyze', async (c) => {
-    const parsed = analyzeJobFitSchema.safeParse(await c.req.json());
+    const parsed = analyzeJobFitSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
@@ -348,6 +332,9 @@ export const catalogRoutes = new Hono<AppEnv>()
       c.req.header('cf-connecting-ip') ||
       c.req.header('x-forwarded-for')?.split(',')[0] ||
       'unknown';
+    // `clientIp` is the rate-limit bucket key, not an identity. The catalog reads
+    // are scoped by the caller id, which every sibling route on this router
+    // already threads (WIC-1435).
     const { response, rateLimitHeaders } = await analyzeJobFit(
       parsed.data,
       clientIp,

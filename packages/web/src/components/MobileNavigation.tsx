@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useRouteUnmatched } from '../contexts/RouteMatchContext';
 
 interface MobileNavigationProps {
   applicationCount?: number;
@@ -9,9 +10,23 @@ interface MobileNavigationProps {
 export function MobileNavigation({ applicationCount, exportCount }: MobileNavigationProps) {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+  const unmatched = useRouteUnmatched();
 
   const toggleMenu = () => setIsOpen(!isOpen);
   const closeMenu = () => setIsOpen(false);
+
+  // Was inlined identically at all four call sites below. Hoisted so the
+  // unmatched-route suppression (WIC-1053) is stated once: a path that matched no
+  // route is not inside any drawer entry, whatever prefix it happens to share.
+  const isActive = (path: string) => {
+    if (unmatched) {
+      return false;
+    }
+    if (location.pathname === path) {
+      return true;
+    }
+    return path !== '/' && location.pathname.startsWith(path);
+  };
 
   const primaryNavItems = [
     { icon: '📋', label: 'Dashboard', path: '/' },
@@ -38,6 +53,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
   const toolsNavItems = [
     { icon: '📚', label: 'Catalog', path: '/catalog' },
     { icon: '🔍', label: 'Job Fit Analysis', path: '/job-fit-analysis' },
+    { icon: '✉️', label: 'Cover Letters', path: '/cover-letters' },
   ];
 
   const settingsNavItem = { icon: '⚙️', label: 'Settings', path: '/settings' };
@@ -94,8 +110,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
                         to={item.path}
                         onClick={closeMenu}
                         className={`flex items-center justify-between rounded-lg px-4 py-3 ${
-                          location.pathname === item.path ||
-                          (item.path !== '/' && location.pathname.startsWith(item.path))
+                          isActive(item.path)
                             ? 'bg-primary-50 text-primary-600'
                             : 'text-neutral-700 hover:bg-neutral-100'
                         }`}
@@ -125,8 +140,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
                           to={item.path}
                           onClick={closeMenu}
                           className={`flex items-center justify-between rounded-lg px-4 py-3 ${
-                            location.pathname === item.path ||
-                            (item.path !== '/' && location.pathname.startsWith(item.path))
+                            isActive(item.path)
                               ? 'bg-primary-50 text-primary-600'
                               : 'text-neutral-700 hover:bg-neutral-100'
                           }`}
@@ -157,8 +171,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
                           to={item.path}
                           onClick={closeMenu}
                           className={`flex items-center justify-between rounded-lg px-4 py-3 ${
-                            location.pathname === item.path ||
-                            (item.path !== '/' && location.pathname.startsWith(item.path))
+                            isActive(item.path)
                               ? 'bg-primary-50 text-primary-600'
                               : 'text-neutral-700 hover:bg-neutral-100'
                           }`}
@@ -180,8 +193,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
                         to={settingsNavItem.path}
                         onClick={closeMenu}
                         className={`flex items-center justify-between rounded-lg px-4 py-3 ${
-                          location.pathname === settingsNavItem.path ||
-                          location.pathname.startsWith(settingsNavItem.path)
+                          isActive(settingsNavItem.path)
                             ? 'bg-primary-50 text-primary-600'
                             : 'text-neutral-700 hover:bg-neutral-100'
                         }`}

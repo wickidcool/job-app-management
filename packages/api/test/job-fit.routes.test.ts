@@ -1,5 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
+import { _resetConfig } from '../src/config.js';
 
 vi.mock('../src/services/job-fit.service.js', () => ({
   analyzeJobFit: vi.fn(),
@@ -50,10 +52,6 @@ import * as jobFitService from '../src/services/job-fit.service.js';
 import { JobFitInputError, RateLimitError } from '../src/types/index.js';
 
 const mockAnalysisResponse = {
-  // WIC-1652: the analysis is persisted, so it has an identity and an owner.
-  id: '01JQ0000000000000000000001',
-  applicationId: 'app-1',
-  fitScore: 62,
   recommendation: 'moderate_fit' as const,
   summary: 'You match 4 of 6 required skills. This role is within reach.',
   confidence: 'high' as const,
@@ -118,11 +116,6 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     const body = await res.json();
     expect(body.recommendation).toBe('moderate_fit');
     expect(body.parsedJd.seniority).toBe('senior');
-    // Before WIC-1652 the response was unaddressable: no id reached the client,
-    // so `jobFitAnalysisId` on the generation endpoints was unpopulatable.
-    expect(body.id).toBe('01JQ0000000000000000000001');
-    expect(body.applicationId).toBe('app-1');
-    expect(body.fitScore).toBe(62);
     expect(res.headers.get('x-ratelimit-remaining')).toBe('29');
     expect(res.headers.get('x-ratelimit-reset')).toBe('1714045860');
   });
@@ -266,6 +259,9 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       headers: { 'Content-Type': 'application/json' },
     });
 
+    // No Supabase config in this suite, so `authMiddleware` sets `userId` to
+    // null and the caller id arrives as `undefined` — which the service scopes
+    // to `IS NULL`, not to the whole table (WIC-1435).
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
       { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
       expect.any(String),
@@ -275,6 +271,50 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       // produces — the identity is passed through, not defaulted.
       undefined
     );
+  });
+});
+
+// The service-level predicates are only as good as the identity the entry point
+// carries, so the route's own threading is pinned separately (WIC-1435). Before
+// the fix this handler passed the client IP and stopped there, while the route
+// directly above it on the same router already threaded `c.get('userId')`.
+describe('POST /api/catalog/job-fit/analyze — caller identity', () => {
+  const originalEnv = process.env;
+  const SUB = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+  const TEST_JWT_SECRET = 'super-secret-jwt-key-for-testing-only-32-chars!!';
+
+  beforeEach(() => {
+    process.env = { ...originalEnv, SUPABASE_JWT_SECRET: TEST_JWT_SECRET };
+    _resetConfig();
+    vi.clearAllMocks();
+    vi.mocked(jobFitService.analyzeJobFit).mockResolvedValue({
+      response: mockAnalysisResponse,
+      rateLimitHeaders: { remaining: 29, reset: 1714045860 },
+    });
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    _resetConfig();
+  });
+
+  it("passes the authenticated caller's id as the third argument", async () => {
+    const token = await new SignJWT({ sub: SUB })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(TEST_JWT_SECRET));
+
+    const res = await buildApp().request('/api/catalog/job-fit/analyze', {
+      method: 'POST',
+      body: JSON.stringify({
+        jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.',
+      }),
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(jobFitService.analyzeJobFit).mock.calls[0][2]).toBe(SUB);
   });
 });
 

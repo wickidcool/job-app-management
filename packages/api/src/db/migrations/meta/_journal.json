@@ -136,10 +136,17 @@
       "breakpoints": true
     },
     {
-      "idx": 22,
+      "idx": 20,
       "version": "7",
-      "when": 1777627458000,
-      "tag": "0022_job_fit_analyses",
+      "when": 1777620258000,
+      "tag": "0020_prep_relevance_score_pct",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777623858000,
+      "tag": "0021_job_fit_analyses",
       "breakpoints": true
     }
   ]

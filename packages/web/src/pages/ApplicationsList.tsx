@@ -6,7 +6,9 @@ import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
-import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useApplicationCollection, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useDebounce } from '../hooks/useDebounce';
+import { filterByDateRange } from '../utils/dateRangeFilter';
 import { parseStatusParam } from '../constants/applicationStatus';
 import type { Application, ApplicationStatus } from '../types/application';
 
@@ -64,22 +66,37 @@ export function ApplicationsList() {
     }
   }
 
+  // `filters` updates on every keystroke so that `FilterPanel` can stay controlled (it
+  // holds no state of its own — see WIC-1612), so the debounce that used to live inside
+  // the panel lives here instead: between the committed filter state and the API, which
+  // is the only place that actually needed protecting from a request per character.
+  const debouncedSearch = useDebounce(filters.search, 300);
+
   // Convert FilterOptions to API filter format
   const apiFilters = useMemo(
     () => ({
       status: filters.status,
-      search: filters.search,
+      search: debouncedSearch,
       // API only supports single company partial match, not multiple exact matches
       // We'll handle multiple companies via client-side filtering
       company: undefined,
     }),
-    [filters.status, filters.search]
+    [filters.status, debouncedSearch]
   );
 
-  const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
+  const { data: collection, isLoading } = useApplicationCollection(apiFilters);
+  // Memoised so the `?? []` fallback does not hand a fresh array to the
+  // downstream useMemo deps on every render.
+  const rawApplications = useMemo(() => collection?.applications ?? [], [collection]);
+  // The service pages `GET /api/applications` to exhaustion; `truncated` is only
+  // set if it ran out of page budget first. Say so rather than presenting a
+  // prefix of the account as if it were the whole thing.
+  const isPartialView = collection?.truncated ?? false;
   const updateStatusMutation = useUpdateApplicationStatus();
 
-  // Client-side filtering for multiple companies and activeOnly (API doesn't support these)
+  // Client-side filtering for multiple companies, activeOnly and the date range — none
+  // of which `/applications` supports as a query parameter. Every row already carries
+  // `createdAt` and `appliedAt`, so the date window needs no API change (WIC-1613).
   const applications = useMemo(() => {
     let filtered = rawApplications;
 
@@ -91,8 +108,10 @@ export function ApplicationsList() {
       filtered = filtered.filter((app) => ACTIVE_STATUSES.includes(app.status));
     }
 
+    filtered = filterByDateRange(filtered, filters.dateRange);
+
     return filtered;
-  }, [rawApplications, filters.company, filters.activeOnly]);
+  }, [rawApplications, filters.company, filters.activeOnly, filters.dateRange]);
 
   // Pipeline stats for the summary bar
   const pipelineStats = useMemo(() => calculatePipelineStats(rawApplications), [rawApplications]);
@@ -135,6 +154,16 @@ export function ApplicationsList() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
       </div>
+
+      {isPartialView && (
+        <div
+          role="status"
+          className="mb-6 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm text-warning-800"
+        >
+          Showing the first {rawApplications.length} of {collection?.totalCount} applications. The
+          counts below cover only what is shown — narrow the filters to see the rest.
+        </div>
+      )}
 
       {/* Pipeline Stats Summary */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">

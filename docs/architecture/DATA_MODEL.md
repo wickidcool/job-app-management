@@ -221,7 +221,7 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;
+  responseRate: number; // 0-1 — a ratio, not a percentage (see API_CONTRACTS.md)
 }
 ```
 
@@ -947,7 +947,7 @@ Interview prep records store generated preparation materials for upcoming interv
 │ FK │ interview_prep_id       │ TEXT              │ NOT NULL, references  │
 │ FK │ star_entry_id           │ TEXT              │ NOT NULL, catalog ref │
 │    │ themes                  │ JSONB             │ classified themes     │
-│    │ relevance_score         │ INTEGER           │ 0-100 from analysis   │
+│    │ relevance_score_pct     │ INTEGER           │ 0-100 pct (ADR-008 §4)│
 │    │ one_min_version         │ TEXT              │ time-boxed summary    │
 │    │ two_min_version         │ TEXT              │ time-boxed summary    │
 │    │ five_min_version        │ TEXT              │ full story version    │
@@ -1068,7 +1068,7 @@ CREATE TABLE interview_prep_stories (
   interview_prep_id     TEXT NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
   star_entry_id         TEXT NOT NULL,  -- References catalog quantified_bullets or STAR entries
   themes                JSONB NOT NULL DEFAULT '[]',
-  relevance_score       INTEGER NOT NULL CHECK (relevance_score >= 0 AND relevance_score <= 100),
+  relevance_score_pct   INTEGER NOT NULL CHECK (relevance_score_pct >= 0 AND relevance_score_pct <= 100),
   one_min_version       TEXT NOT NULL,
   two_min_version       TEXT NOT NULL,
   five_min_version      TEXT NOT NULL,
@@ -1290,7 +1290,7 @@ export const interviewPrepStories = pgTable('interview_prep_stories', {
     .references(() => interviewPreps.id, { onDelete: 'cascade' }),
   starEntryId: text('star_entry_id').notNull(),
   themes: jsonb('themes').notNull().default([]),
-  relevanceScore: integer('relevance_score').notNull(),
+  relevanceScorePct: integer('relevance_score_pct').notNull(),
   oneMinVersion: text('one_min_version').notNull(),
   twoMinVersion: text('two_min_version').notNull(),
   fiveMinVersion: text('five_min_version').notNull(),
@@ -1349,7 +1349,7 @@ CREATE TABLE interview_prep_stories (
   interview_prep_id     TEXT NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
   star_entry_id         TEXT NOT NULL,
   themes                JSONB NOT NULL DEFAULT '[]',
-  relevance_score       INTEGER NOT NULL CHECK (relevance_score >= 0 AND relevance_score <= 100),
+  relevance_score_pct   INTEGER NOT NULL CHECK (relevance_score_pct >= 0 AND relevance_score_pct <= 100),
   one_min_version       TEXT NOT NULL,
   two_min_version       TEXT NOT NULL,
   five_min_version      TEXT NOT NULL,

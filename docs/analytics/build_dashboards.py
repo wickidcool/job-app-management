@@ -15,14 +15,20 @@ applied in memory on the way out.
 Usage
 -----
     export POSTHOG_PERSONAL_API_KEY=phx_...
-    python3 docs/analytics/build_dashboards.py --dry-run   # validate only, no writes
-    python3 docs/analytics/build_dashboards.py             # create/update for real
+    python3 docs/analytics/build_dashboards.py --check-scopes  # is the grant in place?
+    python3 docs/analytics/build_dashboards.py --dry-run       # validate only, no writes
+    python3 docs/analytics/build_dashboards.py                 # create/update for real
 
 --dry-run needs only read scope (`query:read`) and re-executes every query node
 against the live project -- HogQL tables and the native FunnelsQuery/RetentionQuery
 insights alike -- so it proves the payloads before anything is written.
 The real run additionally needs `insight:read`, `insight:write`, `dashboard:read`,
 `dashboard:write` on project 551963.
+
+--check-scopes probes for exactly those four and exits (0 granted / 2 missing) without
+running a query or writing anything. Use it -- not --dry-run -- to verify a scope grant:
+--dry-run reports "scopes present (read)" and exits 0 even with no insight/dashboard
+scope at all, because it never probes those endpoints.
 
 Synthetic exclusion (WIC-1667)
 ------------------------------
@@ -180,12 +186,33 @@ def _sql_tokens(sql: str):
     the token sits in, so a ")" reports the depth of the scope it closes. String literals
     are skipped whole -- an event name like 'resume_upload_completed' must never be read
     as a keyword.
+
+    Comments are skipped whole for the same reason (WIC-1664). A `)` inside `/* ... */`
+    used to decrement `depth`, which desyncs every scope after it and lands the injected
+    predicate *inside* the comment -- where it is silently discarded while this function
+    still reports a filtered site. That is the silent-unfiltered-tile outcome the whole
+    mechanism exists to prevent, so comments are masked rather than parsed.
     """
     depth = 0
     i = 0
     n = len(sql)
     while i < n:
         char = sql[i]
+        if sql.startswith("--", i):
+            newline = sql.find("\n", i)
+            i = n if newline == -1 else newline
+            continue
+        if sql.startswith("/*", i):
+            close = sql.find("*/", i + 2)
+            # An unterminated block comment is never valid input, and swallowing it to
+            # end-of-string reproduces the silent-unfilter signature: the WHERE body reads
+            # to EOF, the predicate lands inside the never-closed comment, and the emitted
+            # SQL is unbalanced but inject_hogql still reports one filtered site. Fail
+            # closed rather than emit a wrong-but-plausible tile (WIC-1844).
+            if close == -1:
+                fail("unterminated block comment (`/*` with no `*/`) in a query being filtered")
+            i = close + 2
+            continue
         if char in "'\"":
             quote = char
             i += 1
@@ -260,6 +287,7 @@ def inject_hogql(sql: str, predicate: str) -> tuple[str, int]:
 
         cond_start = tokens[where][1]
         cond_end = len(sql)
+        cond_tokens = 0
         for j in range(where + 1, len(tokens)):
             js, _je, jtoken, jdepth = tokens[j]
             if jtoken == ")" and jdepth == depth:
@@ -268,10 +296,19 @@ def inject_hogql(sql: str, predicate: str) -> tuple[str, int]:
             if jdepth == depth and jtoken in _WHERE_END:
                 cond_end = js
                 break
+            cond_tokens += 1
         condition = sql[cond_start:cond_end].strip()
-        if not condition:
-            fail("empty WHERE condition while injecting the synthetic exclusion")
-        edits.append((cond_start, cond_end, f" ({condition})\n  AND NOT ({predicate})\n"))
+        # `condition` is the raw substring, so a body that is only a comment (`WHERE
+        # -- all`) is a non-empty string yet carries no real tokens -- it would wrap to
+        # `WHERE ()`, empty parens and invalid SQL. Masking comments is exactly what
+        # `_sql_tokens` already did, so count what it yielded rather than trusting the
+        # substring's truthiness, which the old `if not condition` guard did (WIC-1844).
+        if not condition or cond_tokens == 0:
+            fail("empty WHERE condition (only whitespace or comments) while injecting the synthetic exclusion")
+        # The closing paren goes on its own line, not straight after `condition`. A WHERE
+        # body ending in a `-- ...` comment would otherwise swallow it, leaving the paren
+        # commented out and the SQL unbalanced (WIC-1664).
+        edits.append((cond_start, cond_end, f" (\n{condition}\n)\n  AND NOT ({predicate})\n"))
 
     for start, end, text in reversed(edits):  # right-to-left keeps earlier offsets valid
         sql = sql[:start] + text + sql[end:]
@@ -417,6 +454,12 @@ def main() -> int:
         help="validate payloads and re-execute every query node; write nothing",
     )
     parser.add_argument(
+        "--check-scopes",
+        action="store_true",
+        help="check for the insight/dashboard scopes the real build needs, then exit; "
+             "writes nothing and runs no queries. Exits 0 when granted, 2 when not.",
+    )
+    parser.add_argument(
         "--no-exclusion",
         action="store_true",
         help="build WITHOUT the probe-registry exclusion (pre-WIC-1667 behaviour; "
@@ -427,6 +470,13 @@ def main() -> int:
     api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
     if not api_key:
         fail("POSTHOG_PERSONAL_API_KEY is not set")
+
+    # The scope-grant acceptance test. `--dry-run` deliberately passes need_write=False, so it
+    # never probes insights/ or dashboards/ and prints "OK scopes present (read)" whether or not
+    # the grant landed — it cannot be used to verify one (WIC-1547).
+    if args.check_scopes:
+        preflight(PostHog(api_key), need_write=True)
+        return 0
 
     # deepcopy so the exclusion is applied to this run's objects only -- the payload file
     # on disk stays unfiltered, which is the point (see the module docstring).

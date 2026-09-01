@@ -1,5 +1,20 @@
 import { useState } from 'react';
 import type { CatalogEntry } from '../services/api/types';
+import { formatRatioAsPercent, ratio } from '../types/units';
+
+/**
+ * An entry is "recommended" at 80% relevance or better.
+ *
+ * `CatalogEntry.relevanceScore` is a ratio in `[0, 1]` (ADR-008 §1), so the threshold is
+ * `0.8`, not `80`. It used to be `80`: no ratio can ever reach it, so the Recommended
+ * section was structurally always empty and every badge rendered `0.85%` (WIC-1521 / the
+ * latent instance ADR-008 §Context records). It never fired in production only because
+ * the sole producer — `catalog.service.ts` — still hardcodes `relevanceScore: undefined`.
+ *
+ * Declared through `ratio()` so the constant is range-checked once, at module load, and
+ * carries the `Ratio` brand rather than being a bare number that means nothing on its own.
+ */
+const RECOMMENDED_MIN_RELEVANCE = ratio(0.8);
 
 interface StarEntryPickerProps {
   entries: CatalogEntry[];
@@ -21,8 +36,14 @@ export function StarEntryPicker({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
-  const recommendedEntries = entries.filter((e) => e.relevanceScore && e.relevanceScore >= 80);
-  const otherEntries = entries.filter((e) => !e.relevanceScore || e.relevanceScore < 80);
+  // `!= null` rather than a truthiness test: `0` is a legitimate relevance ratio, and a
+  // truthy check would silently reclassify it as "unscored".
+  const recommendedEntries = entries.filter(
+    (e) => e.relevanceScore != null && e.relevanceScore >= RECOMMENDED_MIN_RELEVANCE
+  );
+  const otherEntries = entries.filter(
+    (e) => e.relevanceScore == null || e.relevanceScore < RECOMMENDED_MIN_RELEVANCE
+  );
 
   const handleToggle = (id: string) => {
     if (selectedIds.includes(id)) {
@@ -186,9 +207,15 @@ function StarEntryCard({ entry, isSelected, onToggle, showRelevance }: StarEntry
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
             <h4 className="font-medium text-gray-900">{entry.title}</h4>
-            {showRelevance && entry.relevanceScore && (
+            {/*
+              `!= null`, not truthiness: a `0` score would otherwise make this expression
+              evaluate to `0`, which React renders as a literal "0" next to the title. Not
+              reachable today — `showRelevance` is only true inside Recommended, and no
+              recommended entry can score 0 — so it is defensive, not a fixed defect.
+            */}
+            {showRelevance && entry.relevanceScore != null && (
               <span className="px-2 py-1 text-xs font-semibold bg-green-100 text-green-800 rounded">
-                {entry.relevanceScore}%
+                {formatRatioAsPercent(entry.relevanceScore)}
               </span>
             )}
           </div>

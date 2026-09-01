@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { lookup } from 'node:dns/promises';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
@@ -692,6 +693,29 @@ function gapSeverity(jdTerm: string, isRequired: boolean): 'critical' | 'moderat
   return 'moderate';
 }
 
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+/**
+ * Owner predicates for the three catalog tables this endpoint reads (WIC-1435) —
+ * mirror of `bulletOwnerScope` in `interviewPrep.service.ts` / `resume-variant.
+ * service.ts` (WIC-1449). Unscoped, the analysis was computed over the union of
+ * every user's catalog and returned other users' `rawText` — the user-authored
+ * accomplishment sentence, which names employers and metrics — verbatim in
+ * `recommendedStarEntries`. RLS does not backstop it: the Worker is not the
+ * `authenticated` role and never sets a JWT claim, so `auth.uid()` is NULL and
+ * `0002_rls_current_schema.sql`'s policies never apply.
+ *
+ * Never `undefined` — an absent caller id scopes to `IS NULL` rather than failing
+ * open to the whole table. All three columns are `user_id uuid NOT NULL`
+ * (`schema.ts:221`, `:243`, `:265`), so unlike the nullable tables elsewhere in
+ * the codebase there is no legacy-null cohort for `IS NULL` to reach: the
+ * anonymous local-dev caller gets zero rows on all three reads, which is the
+ * `catalogEmpty` EC-1 response rather than a global one.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function analyzeJobFit(
@@ -763,9 +787,17 @@ export async function analyzeJobFit(
   let techTags, jfTags, bullets;
   try {
     [techTags, jfTags, bullets] = await Promise.all([
-      db.select().from(techStackTags).orderBy(desc(techStackTags.mentionCount)),
-      db.select().from(jobFitTags).orderBy(desc(jobFitTags.mentionCount)),
-      db.select().from(quantifiedBullets),
+      db
+        .select()
+        .from(techStackTags)
+        .where(ownerScope(techStackTags, userId))
+        .orderBy(desc(techStackTags.mentionCount)),
+      db
+        .select()
+        .from(jobFitTags)
+        .where(ownerScope(jobFitTags, userId))
+        .orderBy(desc(jobFitTags.mentionCount)),
+      db.select().from(quantifiedBullets).where(ownerScope(quantifiedBullets, userId)),
     ]);
   } catch (error) {
     throw new AppError(
