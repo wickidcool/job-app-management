@@ -703,38 +703,22 @@ interface ActivityItem {
 
 ### Cover Letters (Read-Only Reference)
 
-These endpoints reference existing cover letter functionality.
+`GET /cover-letters` is specified once, under
+[Cover Letter Generation (UC-4)](#cover-letter-generation-uc-4) → **List Cover Letters**.
 
-#### List Cover Letters
+This section previously carried a second, contradictory declaration of the same endpoint:
+it advertised only `search` and `limit`, and a `CoverLetterSummary` with a
+`keywords: string[]` the API has never returned and without `status`, `targetCompany`,
+`targetRole`, `tone` or `lengthVariant`, all of which it does return. The web client's
+`CoverLetterSummary` was written from *this* copy rather than the accurate one, so the
+frontend type declared the phantom `keywords` field and omitted the two fields that relate
+a letter to the application it was written for — which is what made
+`/cover-letters/:id` look unreachable from `ApplicationDetail` (WIC-1533).
 
-```
-GET /cover-letters
-```
-
-Returns available cover letters for linking to applications.
-
-**Query Parameters**:
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `search` | string | No | Search in keywords/content |
-| `limit` | number | No | Max results (default: 20) |
-
-**Response**: `200 OK`
-
-```typescript
-interface ListCoverLettersResponse {
-  coverLetters: CoverLetterSummary[];
-}
-
-interface CoverLetterSummary {
-  id: string;
-  title: string;              // Generated or user-provided
-  keywords: string[];         // Extracted keywords
-  createdAt: string;          // ISO 8601
-  preview: string;            // First 200 chars
-}
-```
+A duplicated declaration is worse than a missing one: both copies look authoritative, and
+the reader who finds the stale one first has no signal to keep looking. The pointer above
+replaces it deliberately, rather than the two copies being re-synchronised, so there is
+exactly one place to change when the endpoint changes.
 
 ---
 
