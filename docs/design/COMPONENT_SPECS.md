@@ -429,12 +429,25 @@ interface DashboardStatsProps {
   stats: {
     total: number;
     appliedThisWeek: number;
-    responseRate: number; // 0-100
+    responseRate: Ratio; // 0-1 — a ratio, NOT a percentage
     inReview: number; // phone_screen + interview count
   };
   loading?: boolean;
 }
 ```
+
+> **Unit of `responseRate`: a ratio in [0, 1]** — `0.75` means 75%. The source of
+> record for this unit is
+> [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md)
+> (`GET /dashboard`), which is also what the API ships. The API sends the ratio
+> unchanged and **the presentation layer converts**, matching the convention UC-3
+> already uses for `relevanceScore`.
+>
+> This spec previously said `0-100`, contradicting API_CONTRACTS. Nothing adapted
+> between the two, so the component ran `Math.round(0.75)` and the "Response" card
+> could only ever read "0%" or "1%" (WIC-1514). The unit is now branded as `Ratio`
+> in `packages/web/src/types/units.ts`; convert with `toPercent(...)` at the render
+> site.
 
 ### Layout
 
