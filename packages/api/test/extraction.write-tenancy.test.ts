@@ -1,5 +1,15 @@
-// WIC-1613 — the catalog write path in `extraction.service.ts` carries no owner
-// term at all, and the tree-wide fail-open audit cannot see it.
+// WIC-1623 — the catalog write path in `extraction.service.ts` carried no owner
+// term at all, and the tree-wide fail-open audit could not see it. This file is
+// the standing regression guard for the fix that closed it.
+//
+// ⚠️ HOW TO READ A GREEN RUN. Everything under "What this file proves" describes
+// the **defect**, written in the present tense of the tree it was found on. On
+// today's tree all four UPDATEs are owner-scoped — the `eq(*.userId, userId)`
+// term sits at `extraction.service.ts` :68, :98, :125 and :176 — and all seven
+// cases pass. **Green here means the cross-tenant write is closed, not live.**
+// The case names below are phrased for the property
+// held rather than for the defect, so the `vitest` reporter cannot be read
+// backwards; they used to assert the negation of what they check (WIC-1928).
 //
 // ## What this file proves
 //
@@ -36,7 +46,7 @@
 // present in scope, and the write leaks anyway. That is the same quantifier bug
 // AC-T0 was written to close in AC-T1..AC-T7, reproduced one level up.
 //
-// ## Why this is live, and not gated on the local-dev bypass
+// ## Why it was live, and not gated on the local-dev bypass
 //
 // The rest of the fail-open cohort needs `userId` to be absent, which
 // `middleware/auth.ts` only permits when both `SUPABASE_URL` and
@@ -49,8 +59,10 @@
 // `catalog.service.ts` has a **second, owner-scoped copy** of these same four
 // updates at :657, :692, :722 and :773, each with `const whereClause = userId ?
 // and(slug, owner) : slug` and `.where(whereClause)`. Those four are in the
-// audit's table. The fix landed on that copy and not on this one, so the tree
-// carries a scoped and an unscoped implementation of the same four writes.
+// audit's table. The earlier fix had landed on that copy and not on this one, so
+// the tree carried a scoped and an unscoped implementation of the same four
+// writes. WIC-1623 closed that gap on the `extraction.service.ts` copy; both are
+// owner-scoped today, which is the state the seven cases below pin.
 //
 // ## How this file is built
 //
@@ -64,11 +76,11 @@
 //
 // ## Measured, at named shas
 //
-// The four `admits a foreign tenant's row` cases are the defect, so they are
+// The four per-table `UPDATE is owner-scoped` cases are the detector, so they are
 // **RED without the fix and GREEN with it**. Both directions were run, because
 // green alone would not show this file tracks anything:
 //
-//   origin/main  6704836  (QA's baseline, WIC-1613)   4 failed | 3 passed
+//   origin/main  6704836  (QA's baseline, WIC-1623)   4 failed | 3 passed
 //   origin/main  cc0ab98  (re-measured on landing)    4 failed | 3 passed
 //   this branch  (fix applied)                        7 passed
 //
@@ -86,6 +98,11 @@
 // Landed alongside the fix in WIC-1623. The file is named for the *write* path
 // specifically because `extraction.tenancy.test.ts` already exists next to it and
 // covers the same service through PGlite; this one is the clause-level detector.
+//
+// Provenance: **WIC-1623** (the four UPDATE clauses pinned here), **WIC-1404** /
+// **WIC-1406** (the tenancy family this belongs to), **WIC-1928** (this naming
+// pass). It is *not* WIC-1613 — that is "US-6.3 filter by date", a real but
+// unrelated card that a one-digit typo used to point every reader at.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { eq, and } from 'drizzle-orm';
 import { companyCatalog, techStackTags, jobFitTags, recurringThemes } from '../src/db/schema.js';
@@ -213,7 +230,10 @@ async function runPipeline(text: string) {
   return stub;
 }
 
-describe('extraction.service catalog writes are not owner-scoped (WIC-1613)', () => {
+// Names below state the property being HELD, never the defect. A case named for
+// the defect prints a green tick next to "cross-tenant write is live", which is
+// the reading of `vitest` output this file exists to serve (WIC-1928).
+describe('extraction.service catalog writes are owner-scoped (WIC-1623)', () => {
   beforeEach(() => {
     stub = makeStub(fixtures());
   });
@@ -235,7 +255,7 @@ describe('extraction.service catalog writes are not owner-scoped (WIC-1613)', ()
   ];
 
   for (const { table, column } of CASES) {
-    it(`${table} UPDATE admits a foreign tenant's row (WHERE ${column} alone)`, async () => {
+    it(`${table} UPDATE is owner-scoped: rejects a foreign tenant's row (not WHERE ${column} alone)`, async () => {
       const s = await runPipeline(PROBE_TEXT);
       const rec = s.updates.filter((u) => u.table === table);
       if (rec.length === 0) {
