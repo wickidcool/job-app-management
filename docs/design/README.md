@@ -101,7 +101,7 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 ### 5. [Accessibility](./ACCESSIBILITY.md)
 **Purpose:** Ensure WCAG 2.1 Level AA compliance for inclusive design.
 
-> **Aspiration, not a verified property.** Nothing in CI checks any of it — no `eslint-plugin-jsx-a11y`, `axe`, `pa11y` or Lighthouse budget exists in the repo (`main` @ `6911bcb`), and a heading-order scan finds a majority of pages violating SC 1.3.1. Read this document as a hand-checked standard until **WIC-1483** lands a mechanism; ACCESSIBILITY.md carries the detail.
+> **Partly enforced, and still short of the document's scope.** ~~Nothing in CI checks any of it — no `eslint-plugin-jsx-a11y`, `axe`, `pa11y` or Lighthouse budget exists in the repo (`main` @ `6911bcb`)~~ — **superseded 2026-09-01.** WIC-1483 landed the mechanism as `f3ed4e39`: `eslint-plugin-jsx-a11y` at `flatConfigs.strict` runs in `Lint & Test`, shrink-only behind a frozen 47-finding baseline. **`axe`, `pa11y` and a Lighthouse budget are still absent**, and a per-file lint rule cannot see heading order, so the SC 1.3.1 finding stands — a heading-order scan still finds a majority of pages violating it. Read this document as a hand-checked standard everywhere outside the five build-failing checks; ACCESSIBILITY.md carries the detail and the exact boundary.
 
 **Contents:**
 - Keyboard navigation patterns (global & component-specific)
@@ -163,7 +163,9 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 
 **Contents:**
 - The `<Page> — Careerpin` pattern, taken from the already-shipping marketing site
-- Mechanism: route-table `title` field + a `useDocumentTitle()` hook for the six dynamic routes
+- Mechanism as shipped: the title table in `packages/web/src/constants/title.ts`, applied by one
+  effect (`components/RouteTitle.tsx`), plus a `useDocumentTitle()` hook the six dynamic routes and
+  `/login` call themselves — see §9 for why this is not a `title` field on the route table
 - The full per-route title table, measured against the tree
 - Which `<h1>` the title mirrors when a modal renders one too
 - Four pre-existing heading defects found during the audit, filed separately
@@ -173,6 +175,9 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 - Product name and separator live in exactly one module
 - Opening a modal never changes the title
 - Consumes ROUTE_HEADING_OUTLINE.md; its table is downstream of that document
+- **Implemented** (§9). A `<Route>` added with no title fails CI —
+  `packages/web/src/test/route-title-coverage.test.ts` pairs `App.tsx`'s declared paths against
+  the title table in both directions
 
 ---
 
@@ -195,6 +200,31 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 - Discarding via `Escape`, the header close button, or navigating away must confirm when dirty
 - Confirm copy must state plainly that nothing was saved — users saw "Save Draft" for months
 - The confirm is a nested dialog inside the wizard dialog; `MODAL_FOCUS_MANAGEMENT_SPEC.md` applies
+
+---
+
+### 11. [Saved Filter Shortcut Naming](./SAVED_FILTER_SHORTCUT_NAMING.md)
+**Purpose:** WIC-1775 ruling on what a filter shortcut's label may claim.
+
+**Key Requirements:**
+- A shortcut label names what the filter **selects**, never a time window it does not apply
+- `Interviews This Week` → `Interviewing`; `Recently Applied` → `Applied`, on both surfaces
+- Labels live in one constant (`constants/filterShortcuts.ts`); a time word in any of them fails a test
+- A shortcut whose destination ignores its filter must be **wired up**, not just renamed —
+  `/applications?status=` was read by nothing until this ruling
+
+### 12. [Salary Filter Ruling](./SALARY_FILTER_RULING_WIC1731.md)
+**Purpose:** WIC-1731 ruling on whether the never-built salary filter in COMPONENT_SPECS §6 is wanted.
+
+**Key Requirements:**
+- Salary filtering is **dropped**, not deferred — there is no build card and it is not a backlog item
+- Salary is captured and displayed as **free text** (`salary_range TEXT`); the spec's range slider
+  had no numeric field to drive it, and `salaryMin`/`salaryMax` were the only numbers in the repo
+- Revisiting it is a **data-model change first** (structured bounds + currency + period), not a
+  filter-panel task
+- Scope is the *filter* only: salary stays on the form, the card, the detail and reports views
+- Deleting an unbuilt clause from an accepted spec **requires a recorded ruling** — an unexplained
+  deletion is how `FilterOptions.dateRange` read as delivered for four months (WIC-1613)
 
 ---
 
@@ -307,7 +337,9 @@ Based on the design specs, consider these libraries:
 
 ### Post-MVP (Phase 2+)
 - ⏳ Dark mode support (tokens prepared, not implemented)
-- ⏳ Advanced filters (salary range, date range sliders)
+- ❌ Salary range filter — **dropped**, see [SALARY_FILTER_RULING_WIC1731.md](./SALARY_FILTER_RULING_WIC1731.md).
+  Not a backlog item: salary is stored as free text, so this is a data-model change before it is a UI task.
+- ✅ Date range filter — shipped (WIC-1613); specified in COMPONENT_SPECS.md §6.
 - ⏳ Customizable kanban columns
 - ⏳ Bulk actions (multi-select cards)
 - ⏳ Export data (CSV, PDF)

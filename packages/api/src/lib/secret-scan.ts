@@ -83,6 +83,16 @@ export const PATTERNS: SecretPattern[] = [
     description: 'Twilio API key SID (SK…)',
   },
   {
+    name: 'supabase-secret-key',
+    regex: /\bsb_secret_[A-Za-z0-9_-]{20,}\b/g,
+    description: 'Supabase secret API key (sb_secret_…) — the WIC-902 leak shape',
+  },
+  {
+    name: 'supabase-publishable-key',
+    regex: /\bsb_publishable_[A-Za-z0-9_-]{20,}\b/g,
+    description: 'Supabase publishable API key (sb_publishable_…)',
+  },
+  {
     name: 'cloudflare-api-token',
     regex: /\bcfut_[A-Za-z0-9_-]{20,}\b/g,
     description: 'Cloudflare API token (cfut_…)',

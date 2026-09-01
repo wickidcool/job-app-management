@@ -14,10 +14,12 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:rls": "node scripts/apply-rls.mjs",
     "db:rls:verify": "node scripts/verify-rls.mjs",
+    "storage:migrate-project-keys": "node scripts/migrate-project-storage-keys.mjs",
     "db:push": "drizzle-kit push",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "audit:star-leak": "node scripts/audit-foreign-star-text.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

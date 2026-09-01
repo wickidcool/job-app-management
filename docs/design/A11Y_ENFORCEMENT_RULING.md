@@ -157,6 +157,17 @@ they do see. This is the mechanism **WIC-1675** ("rendered heading-outline enfor
 across every render branch") is asking for, and it argues that WIC-1675 should be implemented *as*
 an axe-core adoption rather than as a second bespoke utility.
 
+> ⚠️ **Outcome note, 2026-09-01 (`22e60707`) — WIC-1675 shipped, and it shipped the way this
+> subsection argued against.** Recorded here as fact, not as a ruling: `586712c2` (PR #299) landed
+> `src/test/routeOutline.render.test.tsx`, which renders all 30 routes across 4 branches and
+> asserts the outline using the **existing bespoke utility** `src/test/headingOutline.ts`
+> (`findOutlineSkips`). **`axe-core` is still not a dependency** — it appears in no `package.json`
+> and no workflow references it — so §4.3's precondition ("only after axe is green") has not been
+> met either. The blind spot §4.2 identifies is nonetheless closed *in practice*: the sweep reads
+> the computed DOM, so expression-built headings are visible to it. **What this note does not
+> decide is whether Ruling 2 is thereby satisfied, superseded, or still outstanding** — that is an
+> architectural call, not a documentation one, and it is routed to the Architect as **WIC-1945**.
+
 ### 4.3 Retire `prohibitedName.ts` — but only after axe is green
 
 `src/test/prohibitedName.ts` is a hand-rolled stand-in for `aria-prohibited-attr`, written when

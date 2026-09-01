@@ -91,6 +91,16 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
+  /**
+   * Share of applications that drew a response, as a **ratio in [0, 1]**,
+   * rounded to two decimal places. `0.75` means 75%.
+   *
+   * The ratio is the contract (`docs/architecture/API_CONTRACTS.md`,
+   * `GET /dashboard`) and consumers convert for display. Do not scale to 0-100
+   * here: the web client brands this field as `Ratio` and multiplies by 100 at
+   * its render site, so a percentage sent from here renders 100x too large
+   * (WIC-1514).
+   */
   responseRate: number;
 }
 
@@ -102,6 +112,55 @@ export interface ActivityItem {
   fromStatus?: ApplicationStatus;
   toStatus: ApplicationStatus;
   timestamp: string;
+}
+
+/**
+ * A single application referenced by the dashboard attention block.
+ *
+ * Deliberately minimal: the dashboard only needs enough to label and link a row,
+ * never the full DTO (`jobDescription` in particular can be very large).
+ */
+export interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Full-table aggregates behind the Dashboard's "Attention Required" and
+ * "Quick Wins" cards.
+ *
+ * Every `counts` field is computed over *all* of the user's applications, not
+ * over a page of them. `samples` are short top-N lists used to render
+ * individual action rows; a sample list being shorter than its count is
+ * expected and is not truncation of the count.
+ */
+export interface DashboardAttention {
+  /** Days without an update after which a non-terminal application is stale. */
+  staleThresholdDays: number;
+  /** Days after which a `saved` application counts as not-yet-submitted. */
+  savedThresholdDays: number;
+  counts: {
+    /** `phone_screen` + `interview`. */
+    interviewing: number;
+    /** Non-terminal and not updated within `staleThresholdDays`. */
+    stale: number;
+    /** `applied`/`phone_screen`/`interview` and not updated within `staleThresholdDays`. */
+    staleActive: number;
+    /** Non-terminal and missing a job description. */
+    missingJobDescription: number;
+    /** `saved` and created more than `savedThresholdDays` ago. */
+    staleSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];
+    staleActive: AttentionApplication[];
+    missingJobDescription: AttentionApplication[];
+    staleSaved: AttentionApplication[];
+  };
 }
 
 export interface ResumeDTO {

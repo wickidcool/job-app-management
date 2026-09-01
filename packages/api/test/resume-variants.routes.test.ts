@@ -1,5 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildApp } from '../src/app.js';
+import {
+  buildAuthedApp,
+  resetAuthEnv,
+  TEST_USER_ID,
+  type AuthedApp,
+} from './helpers/authed-app.js';
 
 vi.mock('../src/services/resume-variant.service.js', () => ({
   generateResumeVariant: vi.fn(),
@@ -93,11 +99,17 @@ const mockSummary = {
 };
 
 describe('Resume Variants Routes', () => {
-  let app: ReturnType<typeof buildApp>;
+  // Authenticated: these routes call `requireOwner`, so an owner-less request
+  // is a 401 and never reaches the service (WIC-1638). See helpers/authed-app.
+  let app: AuthedApp;
 
-  beforeEach(() => {
-    app = buildApp();
+  beforeEach(async () => {
+    app = await buildAuthedApp();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetAuthEnv();
   });
 
   // ── POST /api/resume-variants/generate ────────────────────────────────────
@@ -199,7 +211,7 @@ describe('Resume Variants Routes', () => {
 
       expect(variantService.listResumeVariants).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'draft', company: 'Acme', limit: 10 }),
-        undefined
+        TEST_USER_ID
       );
     });
   });
@@ -267,7 +279,7 @@ describe('Resume Variants Routes', () => {
       const res = await app.request('/api/resume-variants/01HZ_VAR_001', { method: 'DELETE' });
 
       expect(res.status).toBe(204);
-      expect(variantService.deleteResumeVariant).toHaveBeenCalledWith('01HZ_VAR_001', undefined);
+      expect(variantService.deleteResumeVariant).toHaveBeenCalledWith('01HZ_VAR_001', TEST_USER_ID);
     });
 
     it('returns 404 when variant not found', async () => {

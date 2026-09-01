@@ -79,6 +79,21 @@ import {
  * one predicate with one name is the point. `rawText` is the user-authored
  * accomplishment sentence and is returned verbatim to the caller and persisted
  * into `resume_variants.content`, so every read of that table must carry this.
+ *
+ * `userId` stays optional here and the fallback stays with it (WIC-1764). WIC-1638
+ * made the owner *required* on the bullet-catalog path and deleted the equivalent
+ * branch from the `bulletOwnerScope` this replaced — but that helper served one
+ * `.notNull()` table, and this one also serves `resume_variants` and `resumes`,
+ * which are nullable and whose insert paths write `userId ?? null`. Requiring the
+ * owner here would break the ADR-003 local-dev anonymous path and the entry points
+ * in this file that still take `userId?: string`.
+ *
+ * WIC-1638's guarantee is therefore carried where it holds without that cost:
+ * `requireOwner(c)` rejects an absent owner at the route edge with `401
+ * OWNER_REQUIRED`, and `generateResumeVariant` / `getResumeVariant` /
+ * `reviseResumeVariant` / `suggestBullets` take `userId: string`. The `IS NULL`
+ * branch is unreachable from those paths, and fail-closed on `quantified_bullets`
+ * regardless. Do not "finish the job" by making `userId` required here.
  */
 function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
@@ -229,7 +244,7 @@ function extractKeywords(jdText: string): string[] {
 
 export async function generateResumeVariant(
   input: GenerateResumeVariantInput,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
@@ -602,7 +617,7 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
 
 export async function getResumeVariant(
   id: string,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
@@ -773,7 +788,7 @@ export async function deleteResumeVariant(id: string, userId?: string): Promise<
 export async function reviseResumeVariant(
   id: string,
   input: ReviseResumeVariantInput,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   changesApplied: string[];
@@ -912,7 +927,7 @@ Rules:
 
 export async function suggestBullets(
   input: SuggestBulletsInput,
-  userId?: string
+  userId: string
 ): Promise<{
   suggestions: BulletSuggestionDTO[];
   totalCatalogBullets: number;
