@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
@@ -82,6 +82,49 @@ async function expectPath(path: string) {
 // assertion pass whether the click navigated or did nothing at all.
 const START_PATH = '/onboarding';
 
+// WIC-1830. A promise the test settles by hand, so completeOnboarding() can be held
+// mid-flight while the router's path is inspected.
+function deferred() {
+  let settle!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  return { promise, settle };
+}
+
+// Asserts handleFinishAndGo()'s *ordering*, not merely its two effects.
+//
+// The previous form of these tests clicked, then asserted completeOnboarding had been
+// called and the path had changed. Both assertions are after-the-fact, so they hold
+// just as well for `navigate(to); await completeOnboarding()` as for the correct
+// `await completeOnboarding(); navigate(to)` — the reversed implementation passed the
+// whole file 15/15. The name said "before"; nothing measured it.
+//
+// Holding completeOnboarding unresolved makes the order observable. Both halves are
+// load-bearing:
+//   - the held half fails if navigate() runs first;
+//   - the settled half fails if it never runs at all. Without it, "navigated too
+//     early" is caught but "never navigated" reads as success.
+async function expectFinishesBeforeNavigating(buttonName: RegExp, path: string) {
+  const gate = deferred();
+  const completeOnboarding = vi.fn().mockReturnValue(gate.promise);
+  mockOnboarding({ completeOnboarding });
+  renderModal();
+
+  await userEvent.click(screen.getByRole('button', { name: buttonName }));
+
+  // completeOnboarding() is in flight and unresolved, so a correct implementation
+  // cannot have navigated yet.
+  expect(completeOnboarding).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('location').textContent).toBe(START_PATH);
+
+  await act(async () => {
+    gate.settle();
+  });
+
+  await expectPath(path);
+}
+
 function renderModal() {
   // MemoryRouter is load-bearing now: PR #82 (WIC-1032) landed, so the step-6
   // shortcuts — and step 5's primary CTA — navigate via useNavigate(), which throws
@@ -130,25 +173,13 @@ describe('OnboardingModal — completion step', () => {
   // shortcuts now go through handleFinishAndGo() — so they are written out here, as
   // the note they replaced instructed.
   it('finishes onboarding before the "Go to Dashboard" shortcut navigates', async () => {
-    const { completeOnboarding } = mockOnboarding();
-    renderModal();
-
-    await userEvent.click(screen.getByRole('button', { name: /go to dashboard/i }));
-
-    expect(completeOnboarding).toHaveBeenCalledTimes(1);
     // "/" and not "/dashboard": the Dashboard is mounted at the index route.
     // Distinguishable from "never navigated" only because START_PATH is not "/".
-    await expectPath('/');
+    await expectFinishesBeforeNavigating(/go to dashboard/i, '/');
   });
 
   it('finishes onboarding before the "View Applications" shortcut navigates', async () => {
-    const { completeOnboarding } = mockOnboarding();
-    renderModal();
-
-    await userEvent.click(screen.getByRole('button', { name: /view applications/i }));
-
-    expect(completeOnboarding).toHaveBeenCalledTimes(1);
-    await expectPath('/applications');
+    await expectFinishesBeforeNavigating(/view applications/i, '/applications');
   });
 });
 
