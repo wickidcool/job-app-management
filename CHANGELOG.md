@@ -23,6 +23,13 @@ All notable changes to the Job Application Manager are documented here.
 - **No API, schema or wire change.** Web only.
 - Known residue, recorded rather than folded in: `ApplicationDetail` is `WorkflowChecklist`'s only render site and still passes none of `hasFitAnalysis`, `hasResumeVariant` or `fitScore`, so those two rows remain permanently incomplete on the same mechanism this entry fixes for the third — tracked as WIC-1536.
 
+### Fixed — The two WIC-1568 upload-limit trip-wires are resolved and now guard (2026-09-01)
+
+`packages/web/src/test/upload-limit-drift.test.ts` carried two `it.fails` trip-wires — one for the onboarding upload zone's 5MB-vs-10MB drift (WIC-1382, PR #143), one for `ONBOARDING_FLOW.md` quoting 5MB (WIC-1436, PR #150) — each documented "when it merges, delete `.fails`". Both PRs merged; the markers did not get deleted at the time, so `npm run test` reported 2 failures on a clean `main` (`Error: Expect test to fail`, vitest's message when an `it.fails` body stops failing).
+
+- Both `it.fails` converted to plain `it`, and their doc comments trimmed to drop the now-stale "when it merges" forward reference.
+- No production code changed. Test-only.
+
 ### Fixed — The STAR entry picker read a `[0, 1]` relevance score as `0-100` (2026-08-26)
 
 `StarEntryPicker` split its "Recommended (from fit analysis)" section on `relevanceScore >= 80` and rendered the badge as `{relevanceScore}%`. Both are the `0-100` reading. `CatalogEntry.relevanceScore` is the **job-fit population**, a ratio in `[0, 1]` (ADR-008 §1, `packages/api/src/types/index.ts` → `CatalogEntryDTO`). The defect never fired only because the field's sole producer, `catalog.service.ts`, still hardcodes `relevanceScore: undefined`. On the day the job-fit path populates it, no entry could clear `0.85 >= 80`, so the Recommended section would have been **structurally always empty**, and any badge that did render would have read `0.85%` (WIC-1521, the latent instance recorded in ADR-008 §Context).
