@@ -54,15 +54,20 @@ const WHEN = new Date('2026-01-01T00:00:00.000Z');
 /**
  * `createdAt` is the one exception, and it is a string.
  *
- * It is the only date field with two *incompatible* callers rather than two compatible
- * ones. `coverLettersForApplication` sorts with `b.createdAt.localeCompare(a.createdAt)`,
- * which a `Date` does not have — and because that runs during render, a `Date` here
- * throws inside `ApplicationDetail` and fails the whole sweep, not one route.
+ * It is the only date field whose callers disagree. `coverLettersForApplication` sorts
+ * with `b.createdAt.localeCompare(a.createdAt)`, which a `Date` does not have, while
+ * `updatedAt`'s readers call `.toLocaleDateString()`, which a string does not have.
  *
- * A string is safe for everyone else: unlike `updatedAt`, **every** reader of `createdAt`
+ * A string is the right side to land on for two reasons. It matches the real contract —
+ * `CoverLetterSummary.createdAt` is declared `string` in `services/api/types`. And it is
+ * safe for every other reader: unlike `updatedAt`, **every** consumer of `createdAt`
  * wraps it (`new Date(letter.createdAt)` in `CoverLettersList`, `ApplicationDetail`,
- * `ResumeVariantCard`, `QuickWins`, `CatalogBrowseView`). It also matches the real
- * contract — `CoverLetterSummary.createdAt` is declared `string` in `services/api/types`.
+ * `ResumeVariantCard`, `QuickWins`, `CatalogBrowseView`).
+ *
+ * Honest limit: this is latent today, not exercised. `payload()` supplies a single row,
+ * and `Array.prototype.sort` never invokes its comparator on one element, so a `Date`
+ * here still passes. It starts mattering the moment the fixture grows a second row —
+ * which is exactly when the throw would be most confusing to diagnose.
  */
 const WHEN_ISO = WHEN.toISOString();
 
@@ -81,11 +86,14 @@ const ROW: Record<string, unknown> = {
   jobTitle: 'Staff Engineer',
   company: 'Acme',
   companyName: 'Acme',
-  // `coverLettersForApplication` keeps only letters whose target matches the
-  // application's `company`/`jobTitle`, so these have to agree with the two fields above.
-  // If they disagree the filter returns `[]` and `/applications/:id` renders its "no
-  // letters yet" state on the `loaded` branch — measuring the empty path twice and the
-  // populated one never.
+  // Required, not decorative: `coverLettersForApplication` runs during
+  // `ApplicationDetail`'s render and calls `.trim()` on both, so omitting either throws
+  // and fails the whole sweep. (Verified by mutation — deleting these two lines reds it.)
+  //
+  // Their *values* match `company`/`jobTitle` above so the filter keeps the row and the
+  // `loaded` branch renders the populated path. Note that only the presence is enforced:
+  // a mismatch here would still pass, quietly rendering the "no letters yet" state on
+  // `loaded` and measuring the empty path twice.
   targetCompany: 'Acme',
   targetRole: 'Staff Engineer',
   location: 'Remote',
