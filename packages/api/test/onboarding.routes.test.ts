@@ -6,6 +6,14 @@ import { _resetJwksCache } from '../src/middleware/auth.js';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
+// Spread the real module first, then override only the functions. A factory that
+// enumerates exports by hand is an allowlist: it silently drops every export added
+// later, and the drop surfaces as a 500 rather than a missing-mock error at the call
+// site. That is not hypothetical — `ONBOARDING_STEP_FLAG_PAIRS` is read by
+// routes/onboarding.ts while the Zod schema is being *built*, so an omitted export
+// makes `for...of undefined` throw before any test body runs. The two changes that
+// collide here never touched the same file, so the merge was textually clean and both
+// branches were green alone. Spreading keeps the next added export from repeating it.
 vi.mock('../src/services/onboarding.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/onboarding.service.js')>()),
   getOnboardingStatus: vi.fn(),

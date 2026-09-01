@@ -62,11 +62,52 @@ function listTestFiles(): string[] {
  * contain nested parens, so a lazy `.*?` would truncate them and silently
  * classify a hand-enumerated factory as safe.
  */
+/**
+ * Blanks out comments and string bodies while preserving every byte offset, so
+ * the scan below sees only real code. Offsets are preserved deliberately: line
+ * numbers and the factory slice are both taken against the ORIGINAL source, so
+ * a length-changing strip would misreport both.
+ *
+ * Without this the opener regex matches `vi.mock('...')` written inside prose —
+ * two such mentions in `dashboard.service.test.ts` and
+ * `interview-prep-relevance-pct.test.ts` describe what *another* file does, and
+ * were reported as hand-enumerated factories with no factory at all.
+ */
+function blankNonCode(source: string): string {
+  const out = source.split('');
+  let i = 0;
+  const blank = (from: number, to: number) => {
+    for (let k = from; k < to && k < out.length; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  while (i < source.length) {
+    const c = source[i];
+    const n = source[i + 1];
+    if (c === '/' && n === '/') {
+      const end = source.indexOf('\n', i);
+      blank(i, end === -1 ? source.length : end);
+      i = end === -1 ? source.length : end;
+    } else if (c === '/' && n === '*') {
+      const end = source.indexOf('*/', i + 2);
+      blank(i, end === -1 ? source.length : end + 2);
+      i = end === -1 ? source.length : end + 2;
+    } else if (c === "'" || c === '"' || c === '`') {
+      let k = i + 1;
+      while (k < source.length && source[k] !== c) k += source[k] === '\\' ? 2 : 1;
+      i = k + 1;
+    } else {
+      i++;
+    }
+  }
+  return out.join('');
+}
+
 function findMockSites(file: string, source: string): MockSite[] {
   const sites: MockSite[] = [];
+  // Scan code-only text; slice factories from the real source (offsets match).
+  const scan = blankNonCode(source);
   const opener = /vi\.mock\(\s*(['"])(.*?)\1/g;
   let m: RegExpExecArray | null;
-  while ((m = opener.exec(source)) !== null) {
+  while ((m = opener.exec(scan)) !== null) {
     const open = source.indexOf('(', m.index);
     let depth = 0;
     let i = open;

@@ -87,7 +87,7 @@ export function ReportsStale() {
       {applications.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white p-8 text-center">
           <div className="text-4xl mb-4">✅</div>
-          <h3 className="text-lg font-semibold text-neutral-900">No stale applications found</h3>
+          <h2 className="text-lg font-semibold text-neutral-900">No stale applications found</h2>
           <p className="mt-2 text-sm text-neutral-600">
             All your applications have been updated within {staleThreshold} days. Your pipeline is
             active!
@@ -109,9 +109,9 @@ export function ReportsStale() {
                     </span>
                     <StatusBadge status={app.status as ApplicationStatus} />
                   </div>
-                  <h3 className="text-lg font-semibold text-neutral-900">
+                  <h2 className="text-lg font-semibold text-neutral-900">
                     {app.jobTitle} @ {app.company}
-                  </h3>
+                  </h2>
                   {app.contact && (
                     <p className="mt-1 text-sm text-neutral-600">
                       <span className="font-medium">Contact:</span> {app.contact}
