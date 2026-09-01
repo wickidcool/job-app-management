@@ -145,6 +145,41 @@ WIC-238 AC-10 requires that a user with at least one resume or one application i
 - **The test double binds results to the table read, not to the call index (WIC-1371).** Counting selects proves *how many* tables were consulted but not *which*, and the old stub's `from`/`where` discarded their arguments — so a probe of the wrong table simply drew the next queued row and the suite stayed green. `stubDb` is keyed by table name: a declared `[]` means "probed, found nothing", an undeclared table throws on read, and every `where` argument is rendered to `column op ?` plus its bound values so a predicate can be asserted directly. Assertions are on the actual read sequence, e.g. `['onboarding_status', 'resumes']`, and on the rendered predicate each read carried. Measured against four mutations of `hasExistingWork`: swapping the two probe tables (now 11 failures), probing `resumes` twice and never `applications`, and scoping the resume probe by `id` instead of `user_id` (6) all passed 11/11 under the positional stub and all fail now; dropping the `.where()` outright was already caught, but as a `TypeError` rather than as a missing predicate.
 - **The two WIC-1354 tests that pinned the gap are replaced by tests that pin the fix.** The `it.fails` AC-10 case is now a passing assertion, and the sentinel that asserted "consults only `onboarding_status`" — true of the defect — is now a per-scenario read-sequence assertion: `['onboarding_status']` for a completed user, `[…, 'resumes']` when a resume short-circuits, all three for a user with no row and no history, and all three for a mid-flow user (history *is* consulted mid-flow, just bounded by `started_at`). Because the double resolves a declared table's rows whatever the predicate says, no read sequence can see that bound: the `started_at` scoping is asserted directly as a rendered predicate, `(resumes.user_id = ? and resumes.uploaded_at < ?)` on the engaged path against a bare `user_id = ?` on the pristine one. Reversal-checked in five directions — restoring the unconditional `return true` on the engaged branch fails 5 tests, dropping the `started_at` bound fails 3, bounding the pristine/no-row branch too fails 4, bounding the resume probe on the wrong column fails 3, and the table/column mutations above fail 6–11. 18 tests in this file, and the whole API suite green.
 
+
+### Docs — ROUTE_HEADING_OUTLINE.md's rule for new routes was wrong for a modal-bodied route, and the outline helper could not see it (2026-09-01)
+
+`ROUTE_HEADING_OUTLINE.md` §5 rule 1 says the page file owns the route's `<h1>`. On a route whose
+body is an **always-open** Radix dialog — `/projects/new/dialogue`, `/applications/new` — that is
+wrong: `Dialog.Content` calls `hideOthers()`, which marks everything outside the portal
+`aria-hidden="true"`, and the page file is outside the portal for the entire life of the route. An
+`<h1>` placed there per rule 1 reaches no screen reader at all.
+
+- **§5 gains rule 7**, qualifying rule 1 rather than editing it, per this document's convention of
+  marking corrections inline. On a modal-bodied route the `<h1>` goes on the dialog title
+  (`<Dialog.Title asChild><h1>…</h1></Dialog.Title>`), so the title and the route heading are one
+  node and Radix's accessible-name wiring is preserved. `WizardContainer` and `ApplicationForm` are
+  the two instances; the recognition test is a page component whose single child hardcodes
+  `<Dialog.Root open>` with no `modal={false}`.
+- **`getOutline` now reads the accessibility tree, not the DOM** — it skips any heading inside an
+  `aria-hidden="true"` or `inert` subtree. Without this the helper counted the hidden `<h1>` and
+  scored the rule-1 non-fix green, which is the failure mode WIC-1483 named: a mechanism that
+  certifies the wrong fix is not enforcement.
+- **`closest()`, not `getAttribute()` — measured, and this is the whole trap.** `hideOthers()` marks
+  the page's *ancestor*; the `<h1>` itself has `aria-hidden === null`. The obvious node-level filter
+  is a silent no-op that leaves the positive control fully green, so writing the check the obvious
+  way would have reproduced the very class of non-fix it was added to catch.
+- **What bites is the "opens at exactly one `<h1>`" assertion, not the skip assertion.** With the
+  page `<h1>` out of the accessibility tree the route reads `h2 -> h3`, which contains no skip —
+  `findOutlineSkips` returns `[]` either way.
+- **Positive control, and zero cost today.** Applying the rule-1 non-fix to `/applications/new` and
+  deleting its four `MISSING_H1` lines — the fix that inventory's ratchet invites — passes 10/10
+  unfiltered and reds on all four branches filtered. The filter itself reds nothing that exists:
+  19/19 on the WIC-1675 sweep, 43/43 across every `getOutline` consumer on `main`. It is a tripwire,
+  not a migration.
+- Three tests pin it in `headingOutline.test.tsx`, including the real Radix shape rather than a
+  synthetic `aria-hidden`, so the cover fails if Radix ever stops hiding the page. All three fail
+  against both the unfiltered helper and the naive node-level filter.
+
 ### Fixed — The route-integrity allowlist had gone entirely dead (2026-08-26)
 
 Merging current `main` into this branch after PRs #82 and #87 landed made all four `KNOWN_DEAD_LINKS` entries stale at once, in two different ways: `/dashboard` and `/resumes/${resume.id}/exports` became genuinely routed, and the `/applications/${id}/prep/practice` and `/resume-manager` link sites were deleted outright. The list is now empty (WIC-1213).
