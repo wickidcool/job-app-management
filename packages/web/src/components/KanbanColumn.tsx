@@ -54,7 +54,15 @@ export function KanbanColumn({
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xl">{column.icon}</span>
-          <h3 className="font-semibold text-gray-900">{column.title}</h3>
+          {/* h2, not h3 (WIC-1563). The only host is KanbanBoard, which owns no heading
+              of its own, so this sits directly under the page <h1> — `ApplicationsList`'s
+              "Applications". At h3 the column titles skipped a level, and the card titles
+              below them were h3 as well, making every card a structural *sibling* of its
+              own column rather than a child. Column at h2 restores h1 -> h2 -> h3, which
+              is the nesting a screen-reader user moves between columns with.
+              Corrected in place rather than behind a `headingLevel` prop: this component
+              has a single call site, which is the boundary COMPONENT_SPECS §10 draws. */}
+          <h2 className="font-semibold text-gray-900">{column.title}</h2>
         </div>
         <span className="text-sm font-medium text-gray-500 bg-white px-2 py-0.5 rounded-full">
           {applications.length}

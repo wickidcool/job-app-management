@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { applicationService } from '../services/api';
+import type { ApplicationCollection } from '../services/api/applicationService';
 import type { Application, ApplicationFormData, ApplicationStatus } from '../types/application';
 
 /**
@@ -13,17 +14,38 @@ export const applicationKeys = {
   detail: (id: string) => [...applicationKeys.details(), id] as const,
 };
 
-/**
- * Fetch all applications
- */
-export function useApplications(filters?: {
+type ApplicationFilters = {
   status?: ApplicationStatus[];
   company?: string;
   search?: string;
-}) {
+};
+
+/**
+ * Fetch every application matching `filters`, together with the metadata needed
+ * to tell a complete result from a partial one.
+ *
+ * Use this over {@link useApplications} on any surface that renders a count, a
+ * total, or a "nothing to see here" conclusion — `truncated` is the only signal
+ * that the list is a prefix rather than the whole set.
+ */
+export function useApplicationCollection(filters?: ApplicationFilters) {
   return useQuery({
     queryKey: applicationKeys.list(filters),
-    queryFn: () => applicationService.getAll(filters),
+    queryFn: () => applicationService.getAllPaged(filters),
+  });
+}
+
+/**
+ * Fetch all applications.
+ *
+ * Shares a cache entry with {@link useApplicationCollection} — same query key,
+ * same fetch — and just projects out the rows.
+ */
+export function useApplications(filters?: ApplicationFilters) {
+  return useQuery({
+    queryKey: applicationKeys.list(filters),
+    queryFn: () => applicationService.getAllPaged(filters),
+    select: (collection) => collection.applications,
   });
 }
 
@@ -99,19 +121,21 @@ export function useUpdateApplicationStatus() {
       await queryClient.cancelQueries({ queryKey: applicationKeys.detail(id) });
 
       // Snapshot previous values
-      const previousApplications = queryClient.getQueryData<Application[]>(applicationKeys.lists());
+      const previousApplications = queryClient.getQueryData<ApplicationCollection>(
+        applicationKeys.lists()
+      );
       const previousApplication = queryClient.getQueryData<Application>(applicationKeys.detail(id));
 
       // Optimistically update to the new value
       if (previousApplications) {
-        queryClient.setQueryData<Application[]>(
-          applicationKeys.lists(),
-          previousApplications.map((app) =>
+        queryClient.setQueryData<ApplicationCollection>(applicationKeys.lists(), {
+          ...previousApplications,
+          applications: previousApplications.applications.map((app) =>
             app.id === id
               ? { ...app, status, updatedAt: new Date(), version: app.version + 1 }
               : app
-          )
-        );
+          ),
+        });
       }
 
       if (previousApplication) {

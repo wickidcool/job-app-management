@@ -143,6 +143,18 @@ describe('Auth Middleware', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ status: 'ok' });
     });
+
+    // WIC-1296 regression guard: /api/health must be a REAL liveness check, not the
+    // auth middleware's blanket 401. Before the fix, an uptime probe pointed at
+    // /api/health always saw 401 and could never register a database outage. It must
+    // now answer 200 with a DB status even with no Authorization header while auth is on.
+    it('does not protect the /api/health endpoint', async () => {
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+      const app = buildApp();
+      const res = await app.request('/api/health', { method: 'GET' });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ status: 'ok' });
+    });
   });
 
   describe('ES256 / JWKS path', () => {
