@@ -8,6 +8,16 @@ interface WorkflowChecklistProps {
   hasFitAnalysis?: boolean;
   fitScore?: number;
   hasCoverLetter?: boolean;
+  /**
+   * The letter the "Cover Letter" step was completed by, if there is one.
+   *
+   * A completed step drops its link (`link: hasX ? undefined : …`), which is
+   * right for a step whose only link is "go create one" but wrong here: the
+   * artefact the step produced has a detail page, and this is the natural place
+   * to reach it. Supplying the id repoints the row at `/cover-letters/:id`
+   * instead of leaving a finished step inert (WIC-1533).
+   */
+  coverLetterId?: string;
   hasResumeVariant?: boolean;
 }
 
@@ -26,6 +36,7 @@ export function WorkflowChecklist({
   hasFitAnalysis = false,
   fitScore,
   hasCoverLetter = false,
+  coverLetterId,
   hasResumeVariant = false,
 }: WorkflowChecklistProps) {
   const items: ChecklistItem[] = [
@@ -40,7 +51,11 @@ export function WorkflowChecklist({
       label: 'Cover Letter',
       completed: hasCoverLetter,
       recommended: hasFitAnalysis && !hasCoverLetter,
-      link: hasCoverLetter ? undefined : `/cover-letters/new?appId=${applicationId}`,
+      link: hasCoverLetter
+        ? coverLetterId
+          ? `/cover-letters/${coverLetterId}`
+          : undefined
+        : `/cover-letters/new?appId=${applicationId}`,
     },
     {
       label: 'Tailored Resume',

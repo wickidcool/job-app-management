@@ -251,12 +251,25 @@ export interface CoverLetterVariant {
   emphasis: CoverLetterEmphasis;
 }
 
+/**
+ * Mirrors the API's `CoverLetterSummaryDTO` (`packages/api/src/types/index.ts`), which is
+ * what `GET /api/cover-letters` returns for each row. Keep the two in step: they are
+ * separate `interface` declarations in separate packages, so `tsc` cannot compare them and
+ * drift here is silent. This type previously declared a `keywords: string[]` the API has
+ * never sent, and omitted `targetCompany`/`targetRole` — the only fields that relate a
+ * letter back to the application it was written for (WIC-1533).
+ */
 export interface CoverLetterSummary {
   id: string;
+  status: 'draft' | 'finalized';
   title: string;
-  keywords: string[];
-  createdAt: string;
+  targetCompany: string;
+  targetRole: string;
+  tone: CoverLetterTone;
+  lengthVariant: CoverLetterLength;
   preview: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CoverLetterResult {
@@ -270,6 +283,7 @@ export interface CoverLetterResult {
 
 export interface ListCoverLettersResponse {
   coverLetters: CoverLetterSummary[];
+  nextCursor?: string;
 }
 
 /**
