@@ -2,8 +2,10 @@
 
 **Issue:** WIC-1089 (split out of WIC-1046) · ported to `docs/design/` by **WIC-1582**
 **Author:** UI/UX Developer
-**Status:** design complete, ready for Frontend implementation
-**Measured against:** `main` @ `f457cc3`, 2026-08-27
+~~**Status:** design complete, ready for Frontend implementation~~
+**Status:** implemented — see §9, and the modules named there, for what actually shipped.
+**Measured against:** `main` @ `f457cc3`, 2026-08-27; §5 re-measured and §9 written against
+`main` @ `6196dc3d`, 2026-09-01.
 **Depends on:** [`ROUTE_HEADING_OUTLINE.md`](./ROUTE_HEADING_OUTLINE.md) — this document is a
 *consumer* of it, not a peer. See §0.3.
 
@@ -119,15 +121,15 @@ Two options were on the table in WIC-1089. Neither is sufficient alone.
 
 | Route | Heading source | Title |
 |---|---|---|
-| `/applications/:id` | `application.jobTitle` (`ApplicationDetail.tsx:113`) | `{jobTitle} — Careerpin` |
-| `/projects/:projectId` | `projectName` (`ProjectDetail.tsx:40`) | `{projectName} — Careerpin` |
-| `/projects/:projectId/files/:fileName` | `fileName` (`ProjectFileEditor.tsx:66`) | `{fileName} — Careerpin` |
-| `/resume-variants/:id` | `variant.title` (`ResumeVariantDetail.tsx:163`) | `{variant.title} — Careerpin` |
+| `/applications/:id` | `application.jobTitle` (`ApplicationDetail.tsx:147`) | `{jobTitle} — Careerpin` |
+| `/projects/:projectId` | `projectName` (`ProjectDetail.tsx:46`) | `{projectName} — Careerpin` |
+| `/projects/:projectId/files/:fileName` | `fileName` (`ProjectFileEditor.tsx:73`) | `{fileName} — Careerpin` |
+| `/resume-variants/:id` | `variant.title` (`ResumeVariantDetail.tsx:170`) | `{variant.title} — Careerpin` |
 
 Plus two routes whose heading changes by *stage* or *variant* rather than by params:
 
-- `/job-fit-analysis` renders `Job Fit Analysis` at input (`JobFitAnalysis.tsx:460`) and `Job Fit Analysis Results` after submit (`:148`).
-- `/projects/new/dialogue` renders `New Project`, `Enrich Project` or `Correct Project` depending on `variant` (`WizardContainer.tsx:386-390`).
+- `/job-fit-analysis` renders `Job Fit Analysis` at input (`JobFitAnalysis.tsx:481`) and `Job Fit Analysis Results` after submit (`:169`).
+- `/projects/new/dialogue` renders `New Project`, `Enrich Project` or `Correct Project` depending on `variant` (`WizardContainer.tsx:398-401`).
 
 **So: build both.** The route table is the mechanism; `useDocumentTitle` is the primitive it calls, exported for the six dynamic routes to call directly. A route with a `title` field gets it applied by the shell; a route without one is expected to call the hook itself.
 
@@ -141,7 +143,7 @@ Three behaviours the hook must have:
 
 §0.3 says "the page's `<h1>`", which was unambiguous when every route had at most one. It no longer is:
 
-- **`/applications/:id/prep` renders a second `<h1>`** — `QuickReferenceExport.tsx:89`
+- **`/applications/:id/prep` renders a second `<h1>`** — `QuickReferenceExport.tsx:107`
   (`Interview quick reference`) inside a `fixed inset-0 … z-50` export modal, rendered only when
   `showExportModal` is true (`InterviewPrepPage.tsx:363`). The route's own `<h1>` is
   `InterviewPrepPage.tsx:263` (`Interview Preparation`).
@@ -162,35 +164,36 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 
 | Path | Page title | Source (verified `f457cc3`) |
 |---|---|---|
-| `/` | `Dashboard` | `Dashboard.tsx:38` |
-| `/applications` | `Applications` | `ApplicationsList.tsx:113` |
+| `/` | `Dashboard` | `Dashboard.tsx:37` |
+| `/applications` | `Applications` | `ApplicationsList.tsx:155` |
 | `/applications/new` | `New Application` | **new copy** — page has no `<h1>` (§6.1) |
-| `/applications/:id` | `{jobTitle}` | `ApplicationDetail.tsx:113`, dynamic; fallback `Application` |
+| `/applications/:id` | `{jobTitle}` | `ApplicationDetail.tsx:147`, dynamic; fallback `Application` |
 | `/applications/:id/prep` | `Interview Preparation` | `InterviewPrepPage.tsx:263` — *not* the modal `<h1>` (§3.1) |
 | `/reports` | `Reports` | `Reports.tsx:49` |
 | `/reports/needs-action` | `Needs Action` | `ReportsNeedsAction.tsx:76` |
 | `/reports/stale` | `Stale Applications` | `ReportsStale.tsx:41` |
 | `/reports/closed-loop` | `Closed Loop Analysis` | `ReportsClosedLoop.tsx:113` |
-| `/reports/by-fit-tier` | `By Fit Tier` | `ReportsByFitTier.tsx:101` |
-| `/resumes` | `Resume Manager` | `ResumeManager.tsx:94` |
+| `/reports/by-fit-tier` | `By Fit Tier` | `ReportsByFitTier.tsx:227` |
+| `/resumes` | `Resume Manager` | `ResumeManager.tsx:119` |
 | `/resumes/upload` | `Upload Resume` | `ResumeUpload.tsx:35` |
 | `/resumes/exports` | `Resume Exports` | `ResumeExports.tsx:52` |
 | `/resumes/:resumeId/exports` | `Resume Exports` | **added 2026-08-27** — same component, `resumeId` optional (`ResumeExports.tsx:12`); route absent from the 2026-08-19 table |
 | `/catalog` | `Master Catalog Index` | `CatalogBrowse/CatalogBrowseView.tsx:116` |
-| `/job-fit-analysis` | `Job Fit Analysis` → `Job Fit Analysis Results` | `JobFitAnalysis.tsx:460` / `:148`, stage-dependent (§3) — ~~`:462` / `:144`~~ |
+| `/job-fit-analysis` | `Job Fit Analysis` → `Job Fit Analysis Results` | `JobFitAnalysis.tsx:481` / `:169`, stage-dependent (§3) — ~~`:462` / `:144`~~ |
+| `/cover-letters` | `Cover Letters` | `CoverLettersList.tsx:54` — **added 2026-08-27** by **WIC-1533**, the route's first standing entry point; sibling of `/resume-variants` below |
 | `/cover-letters/new` | `Generate Cover Letter` | `CoverLetterNew.tsx:47` — ~~`CoverLetterGenerator.tsx:181`~~, moved to a page `<h1>` by **WIC-1571** |
-| `/cover-letters/:id` | `Cover Letter` | `CoverLetterDetail.tsx:104` |
-| `/outreach/new` | `Compose Outreach Message` | `OutreachNew.tsx:29` |
+| `/cover-letters/:id` | `Cover Letter` | `CoverLetterDetail.tsx:114` |
+| `/outreach/new` | `Compose Outreach Message` | `OutreachNew.tsx:30` |
 | `/resume-variants` | `Resume Variants` | `ResumeVariantsList.tsx:44` |
 | `/resume-variants/new` | `Generate Resume Variant` | `ResumeVariantNew.tsx:114` |
-| `/resume-variants/:id` | `{variant.title}` | `ResumeVariantDetail.tsx:163`, dynamic; fallback `Resume Variant` |
-| `/projects` | `Projects` | `ProjectsList.tsx:59` |
-| `/projects/new/dialogue` | `New Project` / `Enrich Project` / `Correct Project` | `WizardContainer.tsx:386-390`, varies by wizard variant (§3) |
-| `/projects/:projectId` | `{projectName}` | `ProjectDetail.tsx:40`, dynamic; fallback `Project` |
-| `/projects/:projectId/files/:fileName` | `{fileName}` | `ProjectFileEditor.tsx:66`, dynamic; fallback `Project File` |
+| `/resume-variants/:id` | `{variant.title}` | `ResumeVariantDetail.tsx:170`, dynamic; fallback `Resume Variant` |
+| `/projects` | `Projects` | `ProjectsList.tsx:107` |
+| `/projects/new/dialogue` | `New Project` / `Enrich Project` / `Correct Project` | `WizardContainer.tsx:398-401`, varies by wizard variant (§3) |
+| `/projects/:projectId` | `{projectName}` | `ProjectDetail.tsx:46`, dynamic; fallback `Project` |
+| `/projects/:projectId/files/:fileName` | `{fileName}` | `ProjectFileEditor.tsx:73`, dynamic; fallback `Project File` |
 | `/settings` | `Settings` | `Settings.tsx:29` |
-| `/login` | `Sign In` | **new copy** — page has only an `<h2>`, and it is the product name (§6.1) |
-| `*` (NotFound) | `That page couldn't be found` | `NotFound.tsx:94` ← `COPY.heading` — ~~`Page not found`~~, corrected 2026-08-27 |
+| `/login` | `Sign In` | **new copy** — the heading is the *product* name, not the screen's (§6.1). ~~page has only an `<h2>`~~ — WIC-1675 AC-3 made it an `<h1>`; the copy objection is unchanged, so the title does not mirror it (§9) |
+| `*` (NotFound) | `That page couldn't be found` | `NotFound.copy.ts:18` ← `NOT_FOUND_COPY.heading` — ~~`NotFound.tsx:94`~~ moved 2026-09-01 (§9); ~~`Page not found`~~, corrected 2026-08-27 |
 
 > **The 404 row is the one to read twice.** The 2026-08-19 table said `Page not found`, and §7 AC5
 > told the implementer to assert exactly `Page not found — Careerpin`. The shipped `<h1>` is
@@ -216,7 +219,7 @@ These are pre-existing and none of them should grow this PR. **All four re-verif
 ### 6.1 Two routes render no `<h1>` at all — *still true*
 
 - **`/applications/new`** — `pages/ApplicationNew.tsx` has no heading, and `components/ApplicationForm.tsx`'s highest is an `<h3>` (`:382`). The route paints a form with no heading of any level.
-- **`/login`** — `pages/Login.tsx:60` is an `<h2>` with no `<h1>` above it, and its text is the product name rather than a description of the screen.
+- **`/login`** — ~~`pages/Login.tsx:60` is an `<h2>` with no `<h1>` above it, and its text is~~ **partly fixed since.** WIC-1675 AC-3 promoted the heading to an `<h1>`, so the missing-`<h1>` half is closed. What remains is the copy: its text is still the product name rather than a description of the screen, which is why §5 gives this route new copy.
 
 Both are WCAG-adjacent (1.3.1 heading structure) and both are why §5 needs new copy for those two rows. A route that cannot name itself is a route the user cannot orient on.
 
@@ -224,7 +227,7 @@ Both are WCAG-adjacent (1.3.1 heading structure) and both are why §5 needs new 
 
 ### 6.2 `/job-fit-analysis` loses its `<h1>` in two states — *still true*
 
-`JobFitAnalysis.tsx:104` (`Analyzing Job Fit...`) and `:414` (`Analysis Failed`) are `<h2>`s rendered *instead of* the `<h1>`, not below it. So the page has no `<h1>` while analysing and no `<h1>` when analysis fails — the error state in particular is one a user needs to orient in. Should be an `<h1>`, or the `<h1>` should be persistent with the stage message below it.
+`JobFitAnalysis.tsx:129` (`Analyzing Job Fit...`) and `:414` (`Analysis Failed`) are `<h2>`s rendered *instead of* the `<h1>`, not below it. So the page has no `<h1>` while analysing and no `<h1>` when analysis fails — the error state in particular is one a user needs to orient in. Should be an `<h1>`, or the `<h1>` should be persistent with the stage message below it.
 
 **Interaction with this document:** those two states are exactly when §3 behaviour 2 applies. Whatever the heading fix is, the title must not sit at `Job Fit Analysis Results` while the screen says `Analysis Failed`.
 
@@ -270,3 +273,71 @@ it and this cannot bite you.
 - [`CONTENT_STYLE.md`](./CONTENT_STYLE.md) — casing of the underlying strings (§4).
 - [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) — WCAG 2.4.2 context, and the standing note that none of it is CI-enforced.
 - [`COMPONENT_SPECS.md`](./COMPONENT_SPECS.md) §10 → "Heading level" — *"The page `<h1>` names the route"*, the rule §3.1 leans on.
+
+## 9. What shipped, and where it deviates from §3 and §7
+
+Implemented 2026-09-01 against `main` @ `6196dc3d`. Recorded here rather than by editing §3
+and §7 in place, so the deviations stay auditable — same convention the WIC-1582 port used.
+
+| Concern | Module |
+|---|---|
+| `PRODUCT_NAME`, `TITLE_SEPARATOR`, `formatTitle`, the §5 table | `packages/web/src/constants/title.ts` |
+| The hook (§3's three behaviours) | `packages/web/src/hooks/useDocumentTitle.ts` |
+| The one effect in the shell | `packages/web/src/components/RouteTitle.tsx` |
+| The 404's copy, so its title is read and not retyped | `packages/web/src/pages/NotFound.copy.ts` |
+
+**Four deviations, each with its reason.**
+
+1. **The title table is not a `title` field on the route table (§3, AC8).** It could not be.
+   `packages/web/src/test/route-integrity.test.ts` reads `App.tsx` as raw source and parses
+   `path="…" element={<X` out of the JSX, in both directions — link→route and route→link.
+   Converting the `<Route>` elements into a data array so they could carry a `title` field
+   would leave that audit matching almost nothing and passing vacuously, trading a live guard
+   for a stylistic preference. The table therefore lives in `constants/title.ts`.
+2. **AC8 is enforced by CI, not by review.** §7 AC8 accepted that "co-location is the
+   mechanism" and that a lint rule was not required. Co-location is what deviation 1 gives up,
+   so it is replaced by something stronger rather than weaker:
+   `packages/web/src/test/route-title-coverage.test.ts` asserts that the set of paths declared
+   on a `<Route>` in `App.tsx` is exactly the set accounted for in `constants/title.ts`, in
+   both directions. Adding a route without a title fails the build; so does leaving a title
+   behind for a route that was deleted.
+3. **`/login` is in `HOOK_TITLED_ROUTES`, though its heading is not dynamic.** §5 lists it
+   separately because it is not in the §5 table proper. Mechanically it belongs with the six:
+   it sits in the *outer* `<Routes>`, above `ProtectedRoute`, so the shell that applies the
+   table is never mounted for it and the page must call the hook itself.
+4. **`constants/title.ts`, not `lib/title.ts` as §2 wrote.** There is no `src/lib/` in this
+   package; `src/constants/` is the existing home for exactly this shape (a constant plus its
+   formatter plus a co-located `.test.ts`).
+
+**§6.1's second finding is now fully fixed — by two hands, independently.** This work replaced the
+login heading's hardcoded product name with `{PRODUCT_NAME}`; **WIC-1675 AC-3, on `main`, promoted
+that same heading from `<h2>` to `<h1>`**, which is the heading-structure half this document had
+deliberately left to `ROUTE_HEADING_OUTLINE.md`. The two changes collided in the merge and the
+resolution takes both: an `<h1>`, whose text is `{PRODUCT_NAME}`.
+
+> **`/login` is the one route where "the title mirrors the `<h1>`" is deliberately not applied.**
+> It now *has* an `<h1>`, so §0.3 would say its title should be that heading verbatim — which
+> yields `Careerpin — Careerpin`. §6.1's actual complaint survives the level fix untouched: the
+> heading names the **product**, not the screen. So the route keeps §5's new copy, `Sign In`. If
+> the login heading is ever reworded to describe the screen, `LOGIN_TITLE` should be deleted and
+> the route moved onto the ordinary rule.
+
+> **Correction to §2 — `index.html` and `Login.tsx` were not the only two.** §2 says the stale
+> product name lives in "`index.html` title and the `<h2>` on `pages/Login.tsx:60`". Measured
+> 2026-09-01, two more user-visible occurrences exist and were **not** touched by this work:
+> `components/onboarding/OnboardingModal.tsx:330` (`title="Welcome to Your Job Application
+> Manager"`, the onboarding step-1 headline) and `components/QuickReferenceExport.tsx:201`
+> (`Generated with Job Application Manager`, in the footer of the exported interview sheet — so it
+> reaches printed and shared output).
+>
+> Both are **prose, not titles**, and neither renames mechanically: "Welcome to Your Careerpin"
+> does not read. Renaming them is a copy decision belonging to the Copywriter/Editor, and §2 itself
+> flags the name to that role "for confirmation, not for permission". They are therefore recorded
+> here rather than changed, so that the next reader does not repeat §2's count. Anyone completing
+> the rename should also check `packages/web/src/components/index.ts` and
+> `services/api/index.ts`, where it survives in comments only.
+
+**AC7 is enforced structurally.** Rather than open each dialog and assert the title held still,
+the coverage test asserts that `useDocumentTitle` is called only from pages and from
+`RouteTitle`. If no overlay can call it, no overlay can move the title. That also covers
+`QuickReferenceExport` (§6.4) without depending on how the heading question there is settled.

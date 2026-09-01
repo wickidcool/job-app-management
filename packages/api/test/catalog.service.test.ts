@@ -8,8 +8,16 @@ vi.mock('../src/services/extraction.service.js', () => ({
 
 import { getDb } from '../src/db/client.js';
 import { processCatalogChange } from '../src/services/extraction.service.js';
+import type { ListDiffsOptions } from '../src/services/catalog.service.js';
 import {
   generateDiff,
+  listBullets,
+  listCompanies,
+  listDiffs,
+  listJobFitTags,
+  listStarEntries,
+  listTechStackTags,
+  listThemes,
   mergeCompanies,
   mergeJobFitTags,
   mergeTechStackTags,
@@ -122,10 +130,36 @@ function expectScopedTo(clause: unknown, userId: string, table: string, ids: str
   expectIds(sql, params, table, ids);
 }
 
-/** The clause carries no tenancy term at all (single-user / local mode). */
-function expectUnscoped(clause: unknown, table: string, ids: string[]) {
+/**
+ * The clause STILL carries a tenancy term when the owner is absent (WIC-1638).
+ *
+ * This replaces the old `expectUnscoped`, which asserted the opposite — that an
+ * absent owner dropped the `user_id` term and left a bare id match. That was the
+ * documented "single-user mode" posture, and it is exactly the fail-open shape
+ * ADR-010 D2 retires: a caller who reached these services with no resolved owner
+ * (a `sub`-less JWT, per WIC-1554) got an unscoped read and an unscoped delete.
+ *
+ * The owner is now `userId: string`, so absence is a type error at every real
+ * call site and is rejected once at the route edge by `requireOwner`. These
+ * tests smuggle `undefined` past the type deliberately, to pin the runtime
+ * behaviour of the predicate itself rather than trusting the compiler.
+ *
+ * Drizzle renders `eq(col, undefined)` as a real `"t"."user_id" = $n` term and
+ * binds the absent value through as a parameter. Every `user_id` in these tables
+ * is a non-null uuid (migration `0017` rewrote the NULLs to the sentinel and set
+ * NOT NULL), so an equality against an absent value cannot match any stored row
+ * — the operation fails closed rather than reading or deleting across tenants.
+ *
+ * Asserting the term is *present, and bound to something no row can equal* is
+ * what kills the mutant that restores `userId ? and(id, owner) : eq(id)`: under
+ * that mutation the term disappears entirely and the id match runs unscoped.
+ */
+function expectFailsClosedOnAbsentOwner(clause: unknown, table: string, ids: string[]) {
   const { sql, params } = queryFor(clause);
-  expect(sql).not.toContain('user_id');
+  expect(sql).toContain(`"${table}"."user_id" = $`);
+  // The bound owner is the absent one, not some real tenant's id.
+  expect(params).toContain(undefined);
+  expect(params).not.toContain(CALLER);
   expectIds(sql, params, table, ids);
 }
 
@@ -406,13 +440,32 @@ describe('mergeJobFitTags', () => {
 // authenticated user who knew a ULID could fold another user's companies into a
 // target (soft-deleting the sources) or hard-delete another user's tags.
 //
-// The fix mirrors `resolveDiffItem`: scope on userId when there is one, and
-// leave the predicate alone when there is not, so single-user/local mode
-// (SUPABASE_JWT_SECRET unset -> userId null) keeps working unchanged. These
-// tests assert on the rendered SQL rather than on call counts, so removing the
-// tenancy term fails them.
+// The first fix mirrored `resolveDiffItem`: scope on userId when there is one,
+// and leave the predicate alone when there is not, so single-user/local mode
+// (SUPABASE_JWT_SECRET unset -> userId null) kept working unchanged.
+//
+// WIC-1638 retires that second half. The owner-absent branch was not serving
+// local dev so much as preserving a cross-tenant fallback for any caller who
+// arrived without a resolved owner — including a JWT that verifies but carries
+// no `sub` claim (WIC-1554). Per ADR-010 D2 the owner is now required
+// (`userId: string`), absence is rejected once at the route edge by
+// `requireOwner`, and local dev gets a real owner rather than an absence (D3).
+//
+// These tests assert on the rendered SQL rather than on call counts, so removing
+// the tenancy term fails them.
 
 const CALLER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+
+/**
+ * An owner that is absent at run time despite the `userId: string` signature.
+ *
+ * The cast is the point of the test, not a shortcut around it: `requireOwner`
+ * makes this unreachable through the routes, but the services are exported and
+ * `middleware/auth.ts` can still resolve `userId` to `null` (WIC-1554). These
+ * tests pin what the predicate does if one ever arrives, rather than relying on
+ * the compiler to prove it cannot.
+ */
+const ABSENT_OWNER = undefined as unknown as string;
 
 describe('merge tenancy scoping', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -448,19 +501,30 @@ describe('merge tenancy scoping', () => {
       );
     });
 
-    it('leaves the predicates unscoped in single-user mode', async () => {
+    it('keeps every predicate scoped when the owner is absent, so nothing matches', async () => {
       const { selectWhere, txUpdateWhere } = stubDb([
         [companyRow()],
         [companyRow({ id: '01HZ_CO_002' })],
         [companyRow()],
       ]);
 
-      await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', undefined);
+      await mergeCompanies(['01HZ_CO_002'], '01HZ_CO_001', ABSENT_OWNER);
 
-      expectUnscoped(selectWhere.mock.calls[0][0], 'company_catalog', ['01HZ_CO_001']);
-      expectUnscoped(selectWhere.mock.calls[1][0], 'company_catalog', ['01HZ_CO_002']);
-      expectUnscoped(txUpdateWhere.mock.calls[0][0], 'company_catalog', ['01HZ_CO_001']);
-      expectUnscoped(txUpdateWhere.mock.calls[1][0], 'company_catalog', ['01HZ_CO_002']);
+      // Reads and writes alike keep the tenancy term. Before WIC-1638 all four
+      // of these lost it, so an owner-less merge folded and soft-deleted rows
+      // across every tenant.
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[0][0], 'company_catalog', [
+        '01HZ_CO_001',
+      ]);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[1][0], 'company_catalog', [
+        '01HZ_CO_002',
+      ]);
+      expectFailsClosedOnAbsentOwner(txUpdateWhere.mock.calls[0][0], 'company_catalog', [
+        '01HZ_CO_001',
+      ]);
+      expectFailsClosedOnAbsentOwner(txUpdateWhere.mock.calls[1][0], 'company_catalog', [
+        '01HZ_CO_002',
+      ]);
     });
   });
 
@@ -505,19 +569,21 @@ describe('merge tenancy scoping', () => {
       await expect(merge(['01HZ_TAG_002'], '01HZ_TAG_001', CALLER)).rejects.toThrow(NotFoundError);
     });
 
-    it('leaves the predicates unscoped in single-user mode', async () => {
+    it('keeps every predicate scoped when the owner is absent, so nothing matches', async () => {
       const { selectWhere, txUpdateWhere, txDeleteWhere } = stubDb([
         [tagRow()],
         [tagRow({ id: '01HZ_TAG_002' })],
         [tagRow()],
       ]);
 
-      await merge(['01HZ_TAG_002'], '01HZ_TAG_001', undefined);
+      await merge(['01HZ_TAG_002'], '01HZ_TAG_001', ABSENT_OWNER);
 
-      expectUnscoped(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
-      expectUnscoped(selectWhere.mock.calls[1][0], table, ['01HZ_TAG_002']);
-      expectUnscoped(txUpdateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
-      expectUnscoped(txDeleteWhere.mock.calls[0][0], table, ['01HZ_TAG_002']);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[1][0], table, ['01HZ_TAG_002']);
+      expectFailsClosedOnAbsentOwner(txUpdateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      // The delete is the unrecoverable one — tags have no soft-delete. Before
+      // WIC-1638 an owner-less merge hard-deleted by bare id.
+      expectFailsClosedOnAbsentOwner(txDeleteWhere.mock.calls[0][0], table, ['01HZ_TAG_002']);
     });
   });
 });
@@ -544,7 +610,7 @@ describe.each([
   beforeEach(() => vi.clearAllMocks());
 
   /** Render the source read — the second select — for a given call. */
-  async function sourceRead(sourceIds: string[], userId?: string) {
+  async function sourceRead(sourceIds: string[], userId: string) {
     const { selectWhere } = stubDb([[row()], sourceIds.map((id) => row({ id })), [row()]]);
     await merge(sourceIds, 'TARGET', userId);
     return queryFor(selectWhere.mock.calls[1][0]);
@@ -567,16 +633,20 @@ describe.each([
     expect(params).toEqual(['A', CALLER]);
   });
 
-  it('renders an IN list in single-user mode too', async () => {
-    const { sql, params } = await sourceRead(['A', 'B'], undefined);
+  it('renders an IN list, still scoped, when the owner is absent', async () => {
+    // WIC-1638: this used to render a bare `"t"."id" in ($1, $2)` — the tenancy
+    // term was dropped entirely, so an owner-less merge selected sources across
+    // every tenant. The term is now unconditional and binds null, which matches
+    // nothing.
+    const { sql, params } = await sourceRead(['A', 'B'], ABSENT_OWNER);
 
-    expect(sql).toBe(`"${table}"."id" in ($1, $2)`);
-    expect(params).toEqual(['A', 'B']);
+    expect(sql).toBe(`("${table}"."id" in ($1, $2) and "${table}"."user_id" = $3)`);
+    expect(params).toEqual(['A', 'B', undefined]);
   });
 
-  it('never emits ANY(( in any mode', async () => {
+  it('never emits ANY(( with or without an owner', async () => {
     for (const ids of [['A', 'B'], ['A']]) {
-      for (const caller of [CALLER, undefined]) {
+      for (const caller of [CALLER, ABSENT_OWNER]) {
         expect((await sourceRead(ids, caller)).sql).not.toContain('ANY(');
       }
     }
@@ -820,13 +890,13 @@ describe('tag update tenancy scoping', () => {
       expectScopedTo(selectWhere.mock.calls[0][0], CALLER, table, ['01HZ_TAG_001']);
     });
 
-    it('leaves both predicates unscoped in single-user mode', async () => {
+    it('keeps both predicates scoped when the owner is absent, so nothing matches', async () => {
       const { selectWhere, updateWhere } = stubDb([[tagRow()]], [[tagRow()]]);
 
-      await update('01HZ_TAG_001', patch, undefined);
+      await update('01HZ_TAG_001', patch, ABSENT_OWNER);
 
-      expectUnscoped(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
-      expectUnscoped(updateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectFailsClosedOnAbsentOwner(selectWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
+      expectFailsClosedOnAbsentOwner(updateWhere.mock.calls[0][0], table, ['01HZ_TAG_001']);
     });
   });
 });
@@ -860,22 +930,27 @@ function diffRow(overrides: Record<string, unknown> = {}) {
 
 /**
  * generateDiff's lookup keys on trigger_source + trigger_id, never on a diff id,
- * so expectScopedTo/expectUnscoped do not apply here — expectIds would demand a
- * `"catalog_diffs"."id" = ` term this predicate is not supposed to carry.
- * Assert the same two halves explicitly rather than reintroducing an optional
- * `ids`, which is exactly the one-sided escape hatch those helpers refuse.
+ * so expectScopedTo / expectFailsClosedOnAbsentOwner do not apply here —
+ * expectIds would demand a `"catalog_diffs"."id" = ` term this predicate is not
+ * supposed to carry. Assert the same two halves explicitly rather than
+ * reintroducing an optional `ids`, which is exactly the one-sided escape hatch
+ * those helpers refuse.
+ *
+ * `userId` is required: the tenancy term is now unconditional (WIC-1638), so
+ * there is no caller that legitimately expects it to be absent. Pass `undefined`
+ * to assert the owner-absent case, where the term is present but binds a value
+ * no stored row can equal.
  */
-function expectDiffLookup(clause: unknown, opts: { userId?: string; triggerId: string }) {
+function expectDiffLookup(
+  clause: unknown,
+  opts: { userId: string | undefined; triggerId: string }
+) {
   const { sql, params } = queryFor(clause);
   expect(sql).toContain('"catalog_diffs"."trigger_source" = $');
   expect(sql).toContain('"catalog_diffs"."trigger_id" = $');
   expect(params).toContain(opts.triggerId);
-  if (opts.userId === undefined) {
-    expect(sql).not.toContain('user_id');
-  } else {
-    expect(sql).toContain('"catalog_diffs"."user_id" = $');
-    expect(params).toContain(opts.userId);
-  }
+  expect(sql).toContain('"catalog_diffs"."user_id" = $');
+  expect(params).toContain(opts.userId);
 }
 
 describe('generateDiff tenancy', () => {
@@ -912,14 +987,20 @@ describe('generateDiff tenancy', () => {
     });
   });
 
-  it('leaves the lookup unscoped in single-user mode', async () => {
+  it('keeps the lookup scoped when the owner is absent, so nothing matches', async () => {
     const { selectWhere } = stubDiffDb([diffRow()]);
 
-    await generateDiff('resume', '01HZ_RESUME_001', undefined);
+    await generateDiff('resume', '01HZ_RESUME_001', ABSENT_OWNER);
 
-    expectDiffLookup(selectWhere.mock.calls[0][0], { triggerId: '01HZ_RESUME_001' });
+    // WIC-1638: the `if (userId)` guard around this term is gone, so the lookup
+    // can no longer fall through to whichever diff is newest for the trigger id
+    // regardless of owner.
+    expectDiffLookup(selectWhere.mock.calls[0][0], {
+      userId: undefined,
+      triggerId: '01HZ_RESUME_001',
+    });
     expect(vi.mocked(processCatalogChange).mock.calls[0][0]).toMatchObject({
-      metadata: { userId: null },
+      metadata: { userId: undefined },
     });
   });
 
@@ -929,5 +1010,390 @@ describe('generateDiff tenancy', () => {
     await expect(generateDiff('resume', '01HZ_RESUME_001', CALLER)).rejects.toThrow(
       new NotFoundError('CatalogDiff')
     );
+  });
+});
+
+// ── WIC-1407: listDiffs tenancy ───────────────────────────────────────────────
+// GET /api/catalog/diffs already scopes to the caller in the service, but
+// nothing pinned it: deleting `eq(catalogDiffs.userId, userId)` from listDiffs
+// left this file and catalog.routes.test.ts at 80/80 green, so a regression
+// that lets any caller page another user's diffs would ship unnoticed.
+//
+// The predicate is a compound — tenancy AND status — and the assertions below
+// match the whole rendered clause rather than one conjunct. Asserting a single
+// half is what let four mutations survive in WIC-1378, and `params` alone never
+// says which *column* a value was bound to; pinning the exact SQL alongside the
+// exact params does, by position.
+
+/** db double for a paged list: select().from().where().orderBy().limit().offset(). */
+function stubPagedListDb(rows: unknown[]) {
+  const where = vi.fn();
+  const offset = vi.fn().mockResolvedValue(rows);
+  const orderBy = vi.fn().mockReturnValue({ limit: vi.fn().mockReturnValue({ offset }) });
+  where.mockReturnValue({ orderBy });
+  const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere: where };
+}
+
+/** As stubPagedListDb, but the page actually honours the where-clause. */
+function stubPagedOwnedRow(row: { userId: string }) {
+  const offset = vi.fn();
+  const where = vi.fn((clause: unknown) => {
+    const { sql, params } = queryFor(clause);
+    const visible = !sql.includes('user_id') || params.includes(row.userId);
+    offset.mockResolvedValueOnce(visible ? [row] : []);
+    return { orderBy: () => ({ limit: () => ({ offset }) }) };
+  });
+  const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere: where };
+}
+
+const SCOPED_DIFF_CLAUSE = '("catalog_diffs"."user_id" = $1 and "catalog_diffs"."status" = $2)';
+
+describe('listDiffs tenancy', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ['the default pending filter', {} as ListDiffsOptions, 'pending'],
+    ['an explicit status filter', { status: 'approved' } as ListDiffsOptions, 'approved'],
+  ])('scopes the page to the caller alongside %s', async (_name, opts, status) => {
+    const { selectWhere } = stubPagedListDb([]);
+
+    await listDiffs(opts, CALLER);
+
+    // Both conjuncts, table-qualified, with each value pinned to the column
+    // that binds it: $1 is the tenancy term, $2 the status term. A mutation
+    // that drops either half — or swaps which column a value lands on —
+    // changes one of these two lines.
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
+    expect(params).toEqual([CALLER, status]);
+  });
+
+  it('binds the caller it was handed, not a fixed owner', async () => {
+    const { selectWhere } = stubPagedListDb([]);
+
+    await listDiffs({}, OTHER_USER);
+
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
+    expect(params).toEqual([OTHER_USER, 'pending']);
+  });
+
+  it('leaves the page unscoped in single-user mode', async () => {
+    const { selectWhere } = stubPagedListDb([]);
+
+    await listDiffs({}, undefined);
+
+    // No tenancy term — and the status half survives its removal, which a bare
+    // `not.toContain('user_id')` would not have shown.
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe('"catalog_diffs"."status" = $1');
+    expect(params).toEqual(['pending']);
+  });
+
+  it("does not page another user's diffs", async () => {
+    // The exploit itself, not just the shape of the SQL: stubPagedListDb
+    // resolves its canned rows whatever predicate it is handed, so only a
+    // double that honours the clause can show that dropping the tenancy term
+    // makes a foreign diff readable.
+    const { selectWhere } = stubPagedOwnedRow(diffRow({ userId: OTHER_USER, status: 'pending' }));
+
+    const { diffs } = await listDiffs({}, CALLER);
+
+    expect(diffs).toEqual([]);
+    expect(selectWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it("does page the caller's own diffs", async () => {
+    // Positive direction. Without this, stubPagedOwnedRow's
+    // `params.includes(row.userId)` term is dead code: a double that returned
+    // [] unconditionally would satisfy the negative test above vacuously.
+    const row = diffRow({ userId: CALLER, status: 'pending' });
+    stubPagedOwnedRow(row);
+
+    const { diffs } = await listDiffs({}, CALLER);
+
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0]).toMatchObject({ id: row.id });
+  });
+});
+
+// ── WIC-1418: the remaining catalog list* tenancy predicates ─────────────────
+// Same defect class as WIC-1378 / WIC-1380 / WIC-1407, six more instances.
+// Measured on this tree (baseline 540 passed / 24 files): deleting the
+// `if (userId) conditions.push(eq(<table>.userId, userId))` line from any one of
+// listCompanies, listJobFitTags, listTechStackTags, listBullets, listThemes —
+// or the `.where(userId ? ... : undefined)` in listStarEntries — left the whole
+// @wic/api suite green. Every one of the six is reachable: catalog.routes.ts
+// wires them at :192, :230, :249, :315, :320 and :328 respectively, each passing
+// `c.get('userId')`, so a regression on any of them is a cross-tenant read of
+// another user's catalog page.
+//
+// (The originating card listed the last two as `listQuantifiedBullets` /
+// `listRecurringThemes` and called them unrouted. Neither name exists; the real
+// functions are `listBullets` / `listThemes` and both are routed. `listStarEntries`
+// is a sixth instance the card did not enumerate.)
+//
+// Three rules carried over from the earlier cards, all load-bearing here:
+//   1. Assert the WHOLE rendered clause with `toBe`. These predicates are
+//      compound, and pinning only the tenancy conjunct is what let four
+//      mutations survive in WIC-1378.
+//   2. Assert the exact `params` with `toEqual`, so each value is pinned to the
+//      column that binds it *by position*. `params.toContain(userId)` never says
+//      which column filtered — an `eq(<table>.id, userId)` mutation keeps the
+//      params identical and only moves the column name in the SQL.
+//   3. Use the table-qualified column name. The in-file `expectScopedTo` helper
+//      matches the unqualified `"user_id"` substring and is cross-table-blind
+//      (a known WIC-1378 finding), so these assert exact SQL instead of reusing it.
+//
+// Both directions share one option set per case, so the only difference between
+// `scopedSql` and `unscopedSql` is the tenancy term itself — which also pins that
+// the *other* conjuncts survive its removal in single-user mode.
+
+function bulletRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '01HZ_BULLET_001',
+    userId: CALLER,
+    sourceType: 'resume',
+    sourceId: '01HZ_RESUME_001',
+    rawText: 'Cut p95 checkout latency by 38%',
+    actionVerb: 'Cut',
+    metricType: 'percentage',
+    metricValue: '38',
+    isApproximate: false,
+    secondaryMetricType: null,
+    secondaryMetricValue: null,
+    impactCategory: 'performance',
+    extractedAt: new Date('2026-06-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function themeRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '01HZ_THEME_001',
+    userId: CALLER,
+    themeSlug: 'platform-migration',
+    displayName: 'Platform migration',
+    occurrenceCount: 4,
+    sourceIds: ['01HZ_RESUME_001'],
+    exampleExcerpts: [] as string[],
+    isCoreStrength: true,
+    isHistorical: false,
+    lastSeenAt: new Date('2026-06-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+interface PagedTenancyCase {
+  /** Service under test, invoked with one fixed option set and a varying caller. */
+  run: (userId?: string) => Promise<Record<string, unknown>>;
+  /** Key the page comes back under, e.g. `companies`. */
+  itemsKey: string;
+  /** Whole rendered clause when a caller is supplied; $1 is always the tenancy term. */
+  scopedSql: string;
+  /** Params after $1 — the surviving conjuncts, in bind order. */
+  scopedTail: unknown[];
+  /** Whole rendered clause in single-user mode, and its params. */
+  unscopedSql: string;
+  unscopedParams: unknown[];
+  /** A row owned by `userId`, shaped for this function's DTO mapper. */
+  ownedRow: (userId: string) => { userId: string; id: string };
+}
+
+const PAGED_TENANCY_CASES: Record<string, PagedTenancyCase> = {
+  listCompanies: {
+    run: (userId) => listCompanies({}, userId),
+    itemsKey: 'companies',
+    scopedSql: '("company_catalog"."user_id" = $1 and "company_catalog"."is_deleted" = $2)',
+    scopedTail: [false],
+    unscopedSql: '"company_catalog"."is_deleted" = $1',
+    unscopedParams: [false],
+    ownedRow: (userId) => companyRow({ userId }) as { userId: string; id: string },
+  },
+  listJobFitTags: {
+    run: (userId) =>
+      listJobFitTags({ category: 'industry', needsReview: true, search: 'x' }, userId),
+    itemsKey: 'tags',
+    scopedSql:
+      '("job_fit_tags"."user_id" = $1 and "job_fit_tags"."category" = $2 and ' +
+      '"job_fit_tags"."needs_review" = $3 and "job_fit_tags"."display_name" ilike $4)',
+    scopedTail: ['industry', true, '%x%'],
+    unscopedSql:
+      '("job_fit_tags"."category" = $1 and "job_fit_tags"."needs_review" = $2 and ' +
+      '"job_fit_tags"."display_name" ilike $3)',
+    unscopedParams: ['industry', true, '%x%'],
+    ownedRow: (userId) => tagRow({ userId }) as { userId: string; id: string },
+  },
+  listTechStackTags: {
+    run: (userId) => listTechStackTags({ category: 'language', needsReview: true }, userId),
+    itemsKey: 'tags',
+    scopedSql:
+      '("tech_stack_tags"."user_id" = $1 and "tech_stack_tags"."category" = $2 and ' +
+      '"tech_stack_tags"."needs_review" = $3)',
+    scopedTail: ['language', true],
+    unscopedSql: '("tech_stack_tags"."category" = $1 and "tech_stack_tags"."needs_review" = $2)',
+    unscopedParams: ['language', true],
+    ownedRow: (userId) =>
+      tagRow({ userId, category: 'language' }) as { userId: string; id: string },
+  },
+  listBullets: {
+    run: (userId) => listBullets({ impactCategory: 'revenue', sourceId: 'S1' }, userId),
+    itemsKey: 'bullets',
+    scopedSql:
+      '("quantified_bullets"."user_id" = $1 and "quantified_bullets"."impact_category" = $2 and ' +
+      '"quantified_bullets"."source_id" = $3)',
+    scopedTail: ['revenue', 'S1'],
+    unscopedSql:
+      '("quantified_bullets"."impact_category" = $1 and "quantified_bullets"."source_id" = $2)',
+    unscopedParams: ['revenue', 'S1'],
+    ownedRow: (userId) => bulletRow({ userId }) as { userId: string; id: string },
+  },
+  listThemes: {
+    run: (userId) => listThemes({ coreOnly: true }, userId),
+    itemsKey: 'themes',
+    scopedSql:
+      '("recurring_themes"."user_id" = $1 and "recurring_themes"."is_core_strength" = $2 and ' +
+      '"recurring_themes"."is_historical" = $3)',
+    scopedTail: [true, false],
+    unscopedSql:
+      '("recurring_themes"."is_core_strength" = $1 and "recurring_themes"."is_historical" = $2)',
+    unscopedParams: [true, false],
+    ownedRow: (userId) => themeRow({ userId }) as { userId: string; id: string },
+  },
+};
+
+describe.each(Object.entries(PAGED_TENANCY_CASES))('%s tenancy', (_fn, tc) => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('scopes the page to the caller alongside every other filter', async () => {
+    const { selectWhere } = stubPagedListDb([]);
+
+    await tc.run(CALLER);
+
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe(tc.scopedSql);
+    expect(params).toEqual([CALLER, ...tc.scopedTail]);
+  });
+
+  it('binds the caller it was handed, not a fixed owner', async () => {
+    const { selectWhere } = stubPagedListDb([]);
+
+    await tc.run(OTHER_USER);
+
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe(tc.scopedSql);
+    expect(params).toEqual([OTHER_USER, ...tc.scopedTail]);
+  });
+
+  it('leaves the page unscoped in single-user mode, other filters intact', async () => {
+    const { selectWhere } = stubPagedListDb([]);
+
+    await tc.run(undefined);
+
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe(tc.unscopedSql);
+    expect(params).toEqual(tc.unscopedParams);
+  });
+
+  it("does not page another user's rows", async () => {
+    // The exploit itself, not just the shape of the SQL: stubPagedListDb resolves
+    // its canned rows whatever predicate it is handed, so only a double that
+    // honours the clause shows that dropping the tenancy term makes a foreign
+    // row readable.
+    const { selectWhere } = stubPagedOwnedRow(tc.ownedRow(OTHER_USER));
+
+    const page = await tc.run(CALLER);
+
+    expect(page[tc.itemsKey]).toEqual([]);
+    expect(selectWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it("does page the caller's own rows", async () => {
+    // Positive direction — keeps the negative test above from passing vacuously
+    // against an always-empty harness.
+    const row = tc.ownedRow(CALLER);
+    stubPagedOwnedRow(row);
+
+    const page = await tc.run(CALLER);
+
+    expect(page[tc.itemsKey]).toHaveLength(1);
+    expect((page[tc.itemsKey] as { id: string }[])[0]).toMatchObject({ id: row.id });
+  });
+});
+
+// listStarEntries takes no options and has a shorter chain — select().from()
+// .where().orderBy() with no limit/offset — so it needs its own doubles. Its
+// tenancy term is also the *only* predicate, which means single-user mode passes
+// `undefined` to .where() rather than a narrowed clause.
+
+/** db double for listStarEntries: select().from().where().orderBy(). */
+function stubStarEntriesDb(rows: unknown[]) {
+  const where = vi.fn().mockReturnValue({ orderBy: vi.fn().mockResolvedValue(rows) });
+  const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere: where };
+}
+
+/** As stubStarEntriesDb, but the read actually honours the where-clause. */
+function stubStarEntriesOwnedRow(row: { userId: string }) {
+  const where = vi.fn((clause: unknown) => {
+    const visible =
+      clause === undefined ||
+      (() => {
+        const { sql, params } = queryFor(clause);
+        return !sql.includes('user_id') || params.includes(row.userId);
+      })();
+    return { orderBy: vi.fn().mockResolvedValue(visible ? [row] : []) };
+  });
+  const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
+  vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+  return { selectWhere: where };
+}
+
+describe('listStarEntries tenancy', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ['the caller', () => CALLER],
+    ['a different caller', () => OTHER_USER],
+  ])('scopes the STAR read to %s', async (_name, who) => {
+    const { selectWhere } = stubStarEntriesDb([]);
+
+    await listStarEntries(who());
+
+    const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
+    expect(sql).toBe('"quantified_bullets"."user_id" = $1');
+    expect(params).toEqual([who()]);
+  });
+
+  it('passes no predicate at all in single-user mode', async () => {
+    const { selectWhere } = stubStarEntriesDb([]);
+
+    await listStarEntries(undefined);
+
+    // Not a narrowed clause — literally `.where(undefined)`, since tenancy is
+    // this query's only filter.
+    expect(selectWhere).toHaveBeenCalledTimes(1);
+    expect(selectWhere.mock.calls[0][0]).toBeUndefined();
+  });
+
+  it("does not return another user's STAR entries", async () => {
+    stubStarEntriesOwnedRow(bulletRow({ userId: OTHER_USER }));
+
+    expect(await listStarEntries(CALLER)).toEqual([]);
+  });
+
+  it("does return the caller's own STAR entries", async () => {
+    const row = bulletRow({ userId: CALLER });
+    stubStarEntriesOwnedRow(row);
+
+    const entries = await listStarEntries(CALLER);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ id: row.id });
   });
 });

@@ -77,11 +77,12 @@ Display key metrics at a glance.
 
 ```tsx
 import { DashboardStats } from './components';
+import { asRatio } from '../types/units';
 
 const stats = {
   total: 24,
   appliedThisWeek: 8,
-  responseRate: 33,
+  responseRate: asRatio(0.33), // ratio in 0-1, renders as "33%"
   inReview: 3,
 };
 
@@ -96,6 +97,12 @@ const stats = {
 
 - `stats`: Object with `total`, `appliedThisWeek`, `responseRate`, `inReview` (required)
 - `loading`: boolean (default: false)
+
+`responseRate` is a **`Ratio` in [0, 1]**, not a percentage — `0.33` renders as
+"33%". That is the unit the API ships (`GET /dashboard`, see
+`docs/architecture/API_CONTRACTS.md`); the component converts with `toPercent`.
+Values arriving from the API are already `Ratio`-typed, so `asRatio` is only
+needed for literals like the one above.
 
 ---
 
