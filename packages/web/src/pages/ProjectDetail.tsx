@@ -69,7 +69,7 @@ export function ProjectDetail() {
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">📄</span>
                   <div>
-                    <h3 className="font-semibold text-neutral-900">{file.fileName}</h3>
+                    <h2 className="font-semibold text-neutral-900">{file.fileName}</h2>
                     <p className="mt-1 text-sm text-neutral-600">
                       {(file.size / 1024).toFixed(1)} KB
                     </p>

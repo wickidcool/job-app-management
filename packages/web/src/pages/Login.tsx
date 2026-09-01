@@ -63,12 +63,21 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          {/* The product name, from the one constant that also builds every page title.
-              Was the hardcoded "Job Application Manager" — a third name for a product the
-              public site and the production host both call Careerpin
+          {/* The page h1. `/login` sits outside the app chrome — it is the one route
+              `ProtectedRoute` does not wrap — so there is no ancestor heading for an h2
+              to belong to, and as an h2 this route had no h1 at all (WIC-1675 AC-3).
+
+              Its text is the product name, from the one constant that also builds every
+              page title. Was the hardcoded "Job Application Manager" — a third name for a
+              product the public site and the production host both call Careerpin
               (docs/design/ROUTE_TITLE_CONVENTION.md §2). Two prose occurrences of the old
-              name remain elsewhere in the app and are the Copywriter's call; see §9. */}
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">{PRODUCT_NAME}</h2>
+              name remain elsewhere in the app and are the Copywriter's call; see §9.
+
+              Note this heading is the one place the "title mirrors the h1" rule is
+              deliberately not applied: mirroring it would yield "Careerpin — Careerpin".
+              The route's title is the new copy `Sign In` instead, because this h1 names
+              the product rather than the screen — ROUTE_TITLE_CONVENTION.md §5 and §6.1. */}
+          <h1 className="mt-6 text-center text-3xl font-extrabold text-gray-900">{PRODUCT_NAME}</h1>
           <p className="mt-2 text-center text-sm text-gray-600">
             {mode === 'login' ? 'Sign in to manage your job applications' : 'Create an account'}
           </p>

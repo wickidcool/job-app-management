@@ -192,7 +192,7 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 | `/projects/:projectId` | `{projectName}` | `ProjectDetail.tsx:46`, dynamic; fallback `Project` |
 | `/projects/:projectId/files/:fileName` | `{fileName}` | `ProjectFileEditor.tsx:73`, dynamic; fallback `Project File` |
 | `/settings` | `Settings` | `Settings.tsx:29` |
-| `/login` | `Sign In` | **new copy** — page has only an `<h2>`, and it is the product name (§6.1) |
+| `/login` | `Sign In` | **new copy** — the heading is the *product* name, not the screen's (§6.1). ~~page has only an `<h2>`~~ — WIC-1675 AC-3 made it an `<h1>`; the copy objection is unchanged, so the title does not mirror it (§9) |
 | `*` (NotFound) | `That page couldn't be found` | `NotFound.copy.ts:18` ← `NOT_FOUND_COPY.heading` — ~~`NotFound.tsx:94`~~ moved 2026-09-01 (§9); ~~`Page not found`~~, corrected 2026-08-27 |
 
 > **The 404 row is the one to read twice.** The 2026-08-19 table said `Page not found`, and §7 AC5
@@ -219,7 +219,7 @@ These are pre-existing and none of them should grow this PR. **All four re-verif
 ### 6.1 Two routes render no `<h1>` at all — *still true*
 
 - **`/applications/new`** — `pages/ApplicationNew.tsx` has no heading, and `components/ApplicationForm.tsx`'s highest is an `<h3>` (`:382`). The route paints a form with no heading of any level.
-- **`/login`** — `pages/Login.tsx:60` is an `<h2>` with no `<h1>` above it, and its text is the product name rather than a description of the screen.
+- **`/login`** — ~~`pages/Login.tsx:60` is an `<h2>` with no `<h1>` above it, and its text is~~ **partly fixed since.** WIC-1675 AC-3 promoted the heading to an `<h1>`, so the missing-`<h1>` half is closed. What remains is the copy: its text is still the product name rather than a description of the screen, which is why §5 gives this route new copy.
 
 Both are WCAG-adjacent (1.3.1 heading structure) and both are why §5 needs new copy for those two rows. A route that cannot name itself is a route the user cannot orient on.
 
@@ -309,10 +309,18 @@ and §7 in place, so the deviations stay auditable — same convention the WIC-1
    package; `src/constants/` is the existing home for exactly this shape (a constant plus its
    formatter plus a co-located `.test.ts`).
 
-**§6.1's second finding is now half-fixed, and deliberately only half.** `/login`'s `<h2>` was
-the product name; it is now `{PRODUCT_NAME}`. It is still an `<h2>` with no `<h1>` above it — the
-heading-structure half is a `ROUTE_HEADING_OUTLINE.md` call, not this document's, and is left
-where §6.1 filed it.
+**§6.1's second finding is now fully fixed — by two hands, independently.** This work replaced the
+login heading's hardcoded product name with `{PRODUCT_NAME}`; **WIC-1675 AC-3, on `main`, promoted
+that same heading from `<h2>` to `<h1>`**, which is the heading-structure half this document had
+deliberately left to `ROUTE_HEADING_OUTLINE.md`. The two changes collided in the merge and the
+resolution takes both: an `<h1>`, whose text is `{PRODUCT_NAME}`.
+
+> **`/login` is the one route where "the title mirrors the `<h1>`" is deliberately not applied.**
+> It now *has* an `<h1>`, so §0.3 would say its title should be that heading verbatim — which
+> yields `Careerpin — Careerpin`. §6.1's actual complaint survives the level fix untouched: the
+> heading names the **product**, not the screen. So the route keeps §5's new copy, `Sign In`. If
+> the login heading is ever reworded to describe the screen, `LOGIN_TITLE` should be deleted and
+> the route moved onto the ordinary rule.
 
 > **Correction to §2 — `index.html` and `Login.tsx` were not the only two.** §2 says the stale
 > product name lives in "`index.html` title and the `<h2>` on `pages/Login.tsx:60`". Measured
