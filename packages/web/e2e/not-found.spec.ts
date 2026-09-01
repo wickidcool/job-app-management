@@ -65,6 +65,34 @@ test.describe('NotFound catch-all route', () => {
     await expect(page.getByText('404', { exact: true })).toBeVisible();
   });
 
+  test('titles the tab with the same heading the page shows (WIC-1089)', async ({ page }) => {
+    await page.goto('/this-route-does-not-exist');
+
+    // Not hand-typed: the apostrophe in "couldn't" is a straight U+0027 and the separator
+    // is a real em dash U+2014, and `toHaveTitle(string)` is an exact match — so a title
+    // retyped from the design doc's prose (which uses U+2019) fails here. Read from the
+    // rendered <h1> instead, which also pins the actual guarantee: title and heading name
+    // the same screen. See docs/design/ROUTE_TITLE_CONVENTION.md §0.3 and §7.
+    const heading = await page.getByRole('heading', { level: 1 }).textContent();
+    await expect(page).toHaveTitle(`${heading} — Careerpin`);
+  });
+
+  test('restores a route title after navigating back off the 404 (WIC-1089 AC3)', async ({
+    page,
+  }) => {
+    await page.goto('/reports/stale');
+    await expect(page).toHaveTitle('Stale Applications — Careerpin');
+
+    await page.goto('/nope-not-a-route');
+    await expect(page).toHaveTitle(/Careerpin$/);
+    await expect(page).not.toHaveTitle('Stale Applications — Careerpin');
+
+    // The stale-title defect, in the direction a user actually hits it: back out of the
+    // 404 and the tab must name where you landed, not where you just were.
+    await page.goBack();
+    await expect(page).toHaveTitle('Stale Applications — Careerpin');
+  });
+
   test('names the path that was not found', async ({ page }) => {
     await page.goto('/reports/typo-in-this-link');
 
