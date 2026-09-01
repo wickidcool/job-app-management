@@ -19,11 +19,29 @@
  *   - Caps inside attribute values such as `aria-label={`${x} ACTION`}`, which are
  *     unreachable from CSS and were ChangeActionBadge's worst instance (WIC-1185).
  *   - Caps in strings that reach JSX through a variable or a config object.
+ *   - Caps containing `$` — see the CAPS_PATTERN note below.
  * Widening to those is deliberately deferred; see WIC-1209 / WIC-1192.
+ *
+ * Every claim above about what this rule does and does not catch is pinned by
+ * src/test/caps-rule.test.ts, which lints synthetic snippets through the real resolved
+ * config. That file is the only thing standing between a silently-dead rule and a green
+ * CI run — caps-baseline.test.ts cannot tell the two apart (WIC-1903).
  */
 
-// Per WIC-1209 / §5b of WIREFRAME_CASING_TRIAGE_WIC1195.md.
-const CAPS_PATTERN = /^[A-Z][A-Z0-9 &:'-]{3,}$/;
+// Per WIC-1209 / §5b of WIREFRAME_CASING_TRIAGE_WIC1195.md, widened by WIC-1262.
+//
+// The original class admitted only space, `&`, `:`, `'` and `-`, so any other
+// punctuation dropped the string out of the rule entirely — a single trailing period
+// was enough, and 8 of 9 realistic shouted headings escaped. The punctuation below is
+// the measured closure of that gap; it adds no false positive anywhere in `src/**`.
+//
+// `-` is written first so it cannot form a range; the two dashes are spelled as `\u`
+// escapes because en dash and em dash are indistinguishable by eye in source.
+const CAPS_PATTERN = /^[A-Z][-A-Z0-9 &:'?!.,()/\u2013\u2014]{3,}$/;
+// `$` is deliberately NOT in the class: it risks matching currency-and-caps fragments,
+// and `SALARY: $120K RANGE` is rarer than the punctuation cases (WIC-1262). The gap is
+// pinned as a test case rather than left implicit, so widening it is a deliberate act.
+
 // Guard against noise like "A & B" / "A - B": require a real caps word somewhere.
 const HAS_CAPS_WORD = /[A-Z]{2,}/;
 
