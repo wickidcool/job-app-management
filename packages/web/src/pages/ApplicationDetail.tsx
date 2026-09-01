@@ -12,6 +12,8 @@ import { StatusDropdown } from '../components/StatusDropdown';
 import { ApplicationForm } from '../components/ApplicationForm';
 import { WorkflowChecklist } from '../components/WorkflowChecklist';
 import { Breadcrumb } from '../components/Breadcrumb';
+import { useCoverLetters } from '../hooks/useCoverLetters';
+import { COVER_LETTER_PAGE_MAX, coverLettersForApplication } from '../constants/coverLetterMatch';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
@@ -21,6 +23,31 @@ export function ApplicationDetail() {
 
   // Fetch data using React Query
   const { data: application, isLoading: loading } = useApplication(id);
+
+  // Cover letters written for this application. The endpoint has no
+  // `applicationId` filter — no such column exists — so `company` narrows
+  // server-side (an `ilike '%…%'`, so it over-matches) and
+  // `coverLettersForApplication` makes the company+role match exact. See
+  // `constants/coverLetterMatch.ts` for why the association has to be
+  // reconstructed at all (WIC-1533).
+  //
+  // `limit` is the endpoint's maximum page (server default is 20) and is
+  // load-bearing, not a round number. The server filter is a *substring* match
+  // on company, so every letter for every other role at this company competes
+  // for the same page; the exact predicate below runs after that page is
+  // chosen and cannot recover a row the server never sent. At the default 20 a
+  // user with 20 newer letters for other roles at this company sees "No cover
+  // letters yet for this role" and an unticked checklist — this card's own
+  // defect, re-created at the tail. Residual: it still fails above 100.
+  const { data: companyCoverLetters = [] } = useCoverLetters(
+    { company: application?.company, limit: COVER_LETTER_PAGE_MAX },
+    { enabled: !!application }
+  );
+  const coverLetters = application
+    ? coverLettersForApplication(companyCoverLetters, application)
+    : [];
+  const latestCoverLetter = coverLetters[0];
+
   const updateStatusMutation = useUpdateApplicationStatus();
   const updateMutation = useUpdateApplication();
   const deleteMutation = useDeleteApplication();
@@ -156,7 +183,47 @@ export function ApplicationDetail() {
             applicationId={id!}
             status={application.status}
             hasJobDescription={!!application.jobDescription}
+            hasCoverLetter={coverLetters.length > 0}
+            coverLetterId={latestCoverLetter?.id}
           />
+        </div>
+
+        {/* Cover Letters */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Cover Letters</h2>
+            <Link
+              to={`/cover-letters/new?appId=${id}`}
+              className="text-sm font-medium text-blue-600 hover:text-blue-700"
+            >
+              Write a new one
+            </Link>
+          </div>
+          {coverLetters.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No cover letters yet for this role. Generating one from here keeps it linked to this
+              application.
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {coverLetters.map((letter) => (
+                <li key={letter.id} className="py-3 first:pt-0 last:pb-0">
+                  <Link
+                    to={`/cover-letters/${letter.id}`}
+                    className="group flex items-baseline justify-between gap-4 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    <span className="text-sm font-medium text-blue-600 group-hover:text-blue-700 group-hover:underline">
+                      {letter.title}
+                    </span>
+                    <span className="flex-shrink-0 text-xs text-gray-500">
+                      {letter.status === 'draft' ? 'Draft' : 'Finalized'} ·{' '}
+                      {formatDistanceToNow(new Date(letter.createdAt), { addSuffix: true })}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* Details Grid */}
