@@ -462,8 +462,9 @@ contradict the heading above it.
 fails `npm run typecheck` naming the offending word if a fit label ever reuses one. Adding a member
 to either scale extends the guard automatically. Extend the same guard before introducing a third
 scale to this screen — in particular, the fit-quality colour ramp still open in
-`JOBFIT_CAPS_DECISION_WIC1122.md` §3a should not be designed against labels that have not passed
-it.
+`JOBFIT_CAPS_DECISION_WIC1122.md` §3 should not be designed against labels that have not passed
+it. *(Correction, 2026-08-30: this cited `§3a`, a section label that document has never had. Its
+sections are `## 3.` and `### 3.1`; the preconditions this sentence is one of are in §3.1.)*
 
 ---
 
