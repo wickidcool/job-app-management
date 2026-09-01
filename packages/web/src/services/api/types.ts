@@ -251,12 +251,25 @@ export interface CoverLetterVariant {
   emphasis: CoverLetterEmphasis;
 }
 
+/**
+ * Mirrors the API's `CoverLetterSummaryDTO` (`packages/api/src/types/index.ts`), which is
+ * what `GET /api/cover-letters` returns for each row. Keep the two in step: they are
+ * separate `interface` declarations in separate packages, so `tsc` cannot compare them and
+ * drift here is silent. This type previously declared a `keywords: string[]` the API has
+ * never sent, and omitted `targetCompany`/`targetRole` — the only fields that relate a
+ * letter back to the application it was written for (WIC-1533).
+ */
 export interface CoverLetterSummary {
   id: string;
+  status: 'draft' | 'finalized';
   title: string;
-  keywords: string[];
-  createdAt: string;
+  targetCompany: string;
+  targetRole: string;
+  tone: CoverLetterTone;
+  lengthVariant: CoverLetterLength;
   preview: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CoverLetterResult {
@@ -270,6 +283,7 @@ export interface CoverLetterResult {
 
 export interface ListCoverLettersResponse {
   coverLetters: CoverLetterSummary[];
+  nextCursor?: string;
 }
 
 /**
@@ -389,7 +403,17 @@ export interface CatalogEntry {
   result: string;
   tags: string[];
   timeframe?: string;
-  relevanceScore?: number; // For fit analysis context
+  /**
+   * How relevant this entry is to the job under analysis. A ratio in `[0, 1]` per ADR-008 §1 —
+   * this entry belongs to the job-fit population (`packages/api/src/types/index.ts` →
+   * `CatalogEntryDTO`), whose producers all emit `Math.round(x * 100) / 100`. Populated only
+   * when the list is fetched in a fit-analysis context; `undefined` otherwise.
+   *
+   * Branded so it cannot be assigned to a `Percent` sink. Note that the brand does not stop
+   * `score >= 80` or `{score}%` — arithmetic and rendering both erase it — so the unit is
+   * *also* pinned by `StarEntryPicker.test.tsx`.
+   */
+  relevanceScore?: Ratio;
   relevanceReasoning?: string;
 }
 
