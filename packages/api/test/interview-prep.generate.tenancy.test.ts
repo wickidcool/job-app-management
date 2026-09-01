@@ -156,7 +156,7 @@ vi.mock('@anthropic-ai/sdk', () => {
                   {
                     starEntryId: 'bullet_caller',
                     themes: ['leadership'],
-                    relevanceScore: 90,
+                    relevanceScorePct: 90,
                     oneMinVersion: 'one',
                     twoMinVersion: 'two',
                     fiveMinVersion: 'five',
@@ -222,7 +222,7 @@ const DDL = `
     interview_prep_id text NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
     star_entry_id text NOT NULL,
     themes jsonb NOT NULL DEFAULT '[]'::jsonb,
-    relevance_score integer NOT NULL,
+    relevance_score_pct integer NOT NULL,
     one_min_version text NOT NULL,
     two_min_version text NOT NULL,
     five_min_version text NOT NULL,
