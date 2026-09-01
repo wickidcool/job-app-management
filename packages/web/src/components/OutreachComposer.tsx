@@ -4,6 +4,12 @@ import { useGenerateOutreach } from '../hooks/useCoverLetters';
 
 interface OutreachComposerProps {
   platform: OutreachPlatform;
+  /**
+   * A finished cover letter to draw the message's content from. One of this,
+   * `fitAnalysisId`, or `selectedStarEntryIds` must reach the API or it rejects the
+   * request with `JOB_CONTEXT_REQUIRED` (cover-letter.service.ts `generateOutreach`).
+   */
+  coverLetterId?: string;
   fitAnalysisId?: string;
   prefillContext?: {
     company: string;
@@ -31,6 +37,7 @@ const PLATFORM_LIMITS = {
 
 export function OutreachComposer({
   platform: initialPlatform,
+  coverLetterId,
   fitAnalysisId,
   prefillContext,
   onComplete,
@@ -81,6 +88,7 @@ export function OutreachComposer({
         targetCompany: company,
         targetRole: jobTitle,
         targetName: contact,
+        coverLetterId,
         jobFitAnalysisId: useFitAnalysis ? fitAnalysisId : undefined,
       });
 

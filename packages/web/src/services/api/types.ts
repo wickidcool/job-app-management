@@ -295,6 +295,12 @@ export interface GenerateCoverLetterResponse {
     id: string;
     title: string;
     content: string;
+    // Both are NOT NULL on `cover_letters` and are mapped unconditionally by the API's
+    // `toDTO` (cover-letter.service.ts), so they are always present on the wire. They
+    // were simply missing from this type, which is why nothing downstream could read
+    // the letter's own job context (WIC-1530).
+    targetCompany: string;
+    targetRole: string;
     tone: CoverLetterTone;
     lengthVariant: CoverLetterLength;
     emphasis: CoverLetterEmphasis;
@@ -316,20 +322,12 @@ export interface ReviseCoverLetterRequest {
 }
 
 export interface ReviseCoverLetterResponse {
-  coverLetter: {
-    id: string;
-    title: string;
-    content: string;
-    tone: CoverLetterTone;
-    lengthVariant: CoverLetterLength;
-    emphasis: CoverLetterEmphasis;
-    wordCount: number;
-    selectedStarEntryIds: string[];
-    status: 'draft' | 'finalized';
-    version: number;
-    createdAt: string;
-    updatedAt: string;
-  };
+  // `POST /cover-letters/:id/revise` and `POST /cover-letters` return the same server
+  // shape — both map the row through `toDTO`. This was a second, hand-copied
+  // declaration of it, which is how it came to be missing `targetCompany`/`targetRole`
+  // while the generate response was corrected (WIC-1530). Referencing the one
+  // declaration keeps the two from drifting apart again.
+  coverLetter: GenerateCoverLetterResponse['coverLetter'];
 }
 
 export interface UpdateCoverLetterRequest {
