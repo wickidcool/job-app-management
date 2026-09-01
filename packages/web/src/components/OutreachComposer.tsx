@@ -4,6 +4,12 @@ import { useGenerateOutreach } from '../hooks/useCoverLetters';
 
 interface OutreachComposerProps {
   platform: OutreachPlatform;
+  /**
+   * A finished cover letter to draw the message's content from. One of this,
+   * `fitAnalysisId`, or `selectedStarEntryIds` must reach the API or it rejects the
+   * request with `JOB_CONTEXT_REQUIRED` (cover-letter.service.ts `generateOutreach`).
+   */
+  coverLetterId?: string;
   fitAnalysisId?: string;
   prefillContext?: {
     company: string;
@@ -31,6 +37,7 @@ const PLATFORM_LIMITS = {
 
 export function OutreachComposer({
   platform: initialPlatform,
+  coverLetterId,
   fitAnalysisId,
   prefillContext,
   onComplete,
@@ -81,6 +88,7 @@ export function OutreachComposer({
         targetCompany: company,
         targetRole: jobTitle,
         targetName: contact,
+        coverLetterId,
         jobFitAnalysisId: useFitAnalysis ? fitAnalysisId : undefined,
       });
 
@@ -126,7 +134,11 @@ export function OutreachComposer({
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="bg-white border rounded-lg p-6 space-y-6">
-        <h2 className="text-2xl font-bold text-gray-900">Compose Outreach Message</h2>
+        {/*
+          No heading names this panel. It is the sole body of /outreach/new, whose page <h1>
+          already says "Compose Outreach Message" — see docs/design/ROUTE_HEADING_OUTLINE.md.
+          The sections below start at <h2> because the page <h1> is their parent.
+        */}
 
         {/* Platform Selection */}
         <div>
@@ -151,7 +163,7 @@ export function OutreachComposer({
 
         {/* Context */}
         <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-          <h3 className="font-semibold text-gray-900">Context</h3>
+          <h2 className="font-semibold text-gray-900">Context</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Company</label>

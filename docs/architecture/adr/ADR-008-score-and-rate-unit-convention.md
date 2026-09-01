@@ -116,8 +116,14 @@ export type Ratio = number & { readonly __unit: 'ratio-0-1' };
 export type Percent = number & { readonly __unit: 'percent-0-100' };
 ```
 
-with explicit, checked constructors and one conversion in each direction
-(`packages/api/src/types/units.ts`, mirrored at `packages/web/src/types/units.ts`). `Ratio` and
+with explicit constructors and one conversion in each direction
+(`packages/api/src/types/units.ts`, mirrored at `packages/web/src/types/units.ts`). Three of the
+four constructors check: `ratio()` throws, `clampRatio()` folds into range, and `ratioFromWire()`
+validates at a trust boundary. The fourth, `asRatio()`, deliberately does not — it is a bare
+assertion for values entering the type system for the first time, where checking a literal `0`
+would be noise. It is the weakest of the four and the one to reach for last; WIC-1514 arrived
+through an *unbranded* passthrough, not a mis-asserted one, so the assertion is a cost the
+convention accepts rather than a hole it leaves open. `Ratio` and
 `Percent` are then mutually non-assignable, and a bare `number` is assignable to neither — so a
 conversion has to be written down. The reverse direction stays open on purpose: both brands
 remain assignable *to* `number`, which is what keeps ordinary arithmetic working (and is also
