@@ -19,8 +19,8 @@ import { ApplicationsList } from './ApplicationsList';
  * together.
  *
  * These assert the filter handed to the data layer rather than the rendered rows, so the
- * test pins the actual contract (`useApplications` receives the statuses) and does not
- * depend on fixture data flowing through Kanban rendering.
+ * test pins the actual contract (`useApplicationCollection` receives the statuses) and
+ * does not depend on fixture data flowing through Kanban rendering.
  */
 
 interface ApiFilters {
@@ -29,13 +29,13 @@ interface ApiFilters {
   company?: string;
 }
 
-const useApplications = vi.fn((filters?: ApiFilters) => {
+const useApplicationCollection = vi.fn((filters?: ApiFilters) => {
   void filters;
-  return { data: [] as unknown[], isLoading: false };
+  return { data: { applications: [], totalCount: 0, truncated: false }, isLoading: false };
 });
 
 vi.mock('../hooks/useApplications', () => ({
-  useApplications: (filters?: ApiFilters) => useApplications(filters),
+  useApplicationCollection: (filters?: ApiFilters) => useApplicationCollection(filters),
   useUpdateApplicationStatus: () => ({ mutate: vi.fn() }),
 }));
 
@@ -48,14 +48,14 @@ function renderAt(path: string) {
 }
 
 function lastStatusFilter(): string[] | undefined {
-  const calls = useApplications.mock.calls;
+  const calls = useApplicationCollection.mock.calls;
   expect(calls.length).toBeGreaterThan(0);
   return calls[calls.length - 1]?.[0]?.status;
 }
 
 describe('ApplicationsList — ?status= query parameter', () => {
   beforeEach(() => {
-    useApplications.mockClear();
+    useApplicationCollection.mockClear();
   });
 
   it('applies the multi-status filter the command palette links with', () => {

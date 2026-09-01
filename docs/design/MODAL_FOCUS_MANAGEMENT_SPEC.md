@@ -1,7 +1,8 @@
 # Modal focus management — design spec
 
 **Author:** UI/UX Developer · **Original date:** 2026-08-19 · **Amended:** 2026-08-25 (WIC-1295,
-WIC-1320), 2026-08-26 (WIC-1467), 2026-08-29 (WIC-1670 — §5.3)
+WIC-1320), 2026-08-26 (WIC-1467), 2026-08-29 (WIC-1670 — §5.3), **2026-08-31 (WIC-1902 — shipped;
+§0, §1, §2, §5, §5.3, §8, §10 re-measured at `c74cd2f1`)**
 **Ported into the repo and re-measured against `a59b869`:** 2026-08-27 (WIC-1626, part 2 of WIC-1582)
 **This file is the canonical copy.** The UI/UX agent's workspace holds a frozen pre-port original;
 amend here.
@@ -19,34 +20,44 @@ amend here.
 
 ## 0. Status — read this first
 
-> ### ⚠️ The original document's status line was false, and this port corrects it
+> ### ✅ This specification has now shipped in full (2026-08-31, WIC-1902)
 >
-> The workspace copy headed the hook section **"`useDialogFocusRestore` (shipped, PR #97)"** and
-> described the hook in the present tense throughout. **Re-measured at `a59b869`:**
+> **Re-measured at `c74cd2f1`.** All three implementing PRs merged on 2026-08-30/31 and are
+> ancestors of `main`:
 >
-> - `packages/web/src/hooks/useDialogFocusRestore.ts` — **does not exist.**
-> - `grep -rn "useDialogFocusRestore\|fallbackRef\|RESTORE_WATCH_MS" packages/web/src/` — **no
->   matches anywhere in the tree.**
-> - **PR #97 is OPEN.** So are **PR #95** (the `ConfirmationModal` fix) and **PR #115**
->   (the `ResumeManager` fallback).
+> | PR | lands | merge commit |
+> |---|---|---|
+> | #95 | `ConfirmationModal` — the destructive-delete gate (§3) | `e45cb04` |
+> | #97 | the other five dialogs, and `useDialogFocusRestore` itself (§5) | `ed71ed5` |
+> | #115 | the `ResumeManager` fallback — `restoreFocusTo` (§5.3) | `bf8c8b3` |
 >
-> Nothing in this specification has shipped. The section is retitled **"Hook contract —
-> `useDialogFocusRestore` (specified; PR #97 open, not merged)"** and its tense corrected.
+> - `packages/web/src/hooks/useDialogFocusRestore.ts` — **exists**, added by `ed71ed5`.
+> - `useDialogFocusRestore` / `fallbackRef` / `RESTORE_WATCH_MS` — **18 / 6 / 3** occurrences under
+>   `packages/web/src`, against "no matches anywhere in the tree" before.
+> - **All six dialogs of §2 are migrated** to `@radix-ui/react-dialog`, and there are **8**
+>   `useDialogFocusRestore(` call sites across those six components.
 >
-> **Do not write a bare PR state into a design document.** "(shipped, PR #97)" was written when #97
-> looked imminent and rotted the moment it did not merge. Cite a **commit** for anything claimed as
-> shipped; a PR number is a claim about the future. This is the same failure mode the WIC-1582 audit
-> was filed to find, caught here in this document's own header.
+> #### The correction the previous status block asked for, applied to itself
+>
+> That block was written to fix a header reading *"(shipped, PR #97)"* while nothing had shipped, and
+> it drew the right rule: **cite a commit for anything claimed as shipped; a PR number is a claim
+> about the future.** It then recorded its own finding as *"PR #97 is OPEN"* — a bare PR state, the
+> very thing it had just prohibited — so it rotted the moment #97 merged, in the opposite direction.
+>
+> **A PR number is unstable in both directions.** "Open" decays into a denial of shipped behaviour
+> exactly as fast as "shipped" decays into an overclaim, and the denial is the more expensive of the
+> two: an overclaim invites a reader to check, while a denial tells them not to bother looking. Every
+> shipped claim in this document is now pinned to a merge commit.
 
-| Part of this spec | State at `a59b869` |
+| Part of this spec | State at `c74cd2f1` |
 |---|---|
-| §2 audit — all six hand-rolled dialogs non-compliant | **Still entirely accurate.** Zero of the six import `@radix-ui/react-dialog`; zero handle `Escape`. |
-| §4 decision — migrate to Radix rather than write a trap | **Unimplemented.** PR #95 / #97 open. |
-| §5 hook contract — `useDialogFocusRestore` | **Unimplemented.** File absent; PR #97 open. Re-measured at `d2cd7b3` (2026-08-29): still absent, still open. |
-| §5.3 obligation — *when* `restoreFocusTo` is required | **Normative and in force**, and enforced by `docs/design/confirmation-modal-focus-audit.py` in `Lint & Test` — but the audit is **dormant until the prop exists** (PR #115) and says so on every run. |
+| §2 audit — all six hand-rolled dialogs non-compliant | ~~Still entirely accurate.~~ **Closed at `ed71ed5`.** All six now import `@radix-ui/react-dialog` and mount `Root`+`Portal`+`Overlay`+`Content`+`Title`; `Escape`, focus trap, focus-in-on-open and scroll lock come with the primitive. The table is kept below as the **record of what was fixed**, not as a live finding. |
+| §4 decision — migrate to Radix rather than write a trap | **Implemented** at `e45cb04` (`ConfirmationModal`) and `ed71ed5` (the other five). |
+| §5 hook contract — `useDialogFocusRestore` | **Implemented** at `ed71ed5`. 8 call sites across the six components; `RESTORE_WATCH_MS` and the two-mechanism capture below are in the shipped hook. |
+| §5.3 obligation — *when* `restoreFocusTo` is required | **Normative, in force, and now ARMED.** `docs/design/confirmation-modal-focus-audit.py` no longer prints its dormancy `NOTICE`: at `c74cd2f1` it reports `ConfirmationModal focus restore OK — 1 call site(s) declared`. The green check on this rule is load-bearing as of `bf8c8b3`. |
 | §6 **Rule — app-level live regions belong outside `#root`** | **Normative and in force.** Also stated in `ACCESSIBILITY.md` §Live Regions. |
 | §6.2 the `EmptyState` consequence | **Closed** — fixed on `main` by WIC-1155. |
-| §9 docs follow-up — the checked box in `ACCESSIBILITY.md` | ~~**Still outstanding.**~~ **Closed at `0e5d97a` (2026-08-29):** the box now reads `- [ ]` and cites §5. Re-measuring it found **all six** Phase 1 boxes wrong; all six are now unchecked with their measurement inline. |
+| §9 docs follow-up — the checked box in `ACCESSIBILITY.md` | ~~**Still outstanding.**~~ **Closed at `0e5d97a` (2026-08-29):** the box was flipped to `- [ ]` and cites §5. Re-measuring it found **all six** Phase 1 boxes wrong. **Now `- [x]` again at `c74cd2f1` (WIC-1902)** — this time on a measurement, having met the two conditions that list's own gate note set. The other five remain unchecked. |
 
 ---
 
@@ -54,17 +65,25 @@ amend here.
 
 `docs/design/ACCESSIBILITY.md` **already specifies** modal behaviour — focus trap, `Escape` to
 close, focus moved in on open, focus restored to the trigger on close (§Modals, and §Focus
-Management Patterns at `:290`). **Zero of the six hand-rolled dialogs in `packages/web` implement
-any of it.** That same document marks `- [x] Focus management in modals` as shipped
-(`ACCESSIBILITY.md:640`). It is not shipped.
+Management Patterns). ~~**Zero of the six hand-rolled dialogs in `packages/web` implement any of
+it.**~~ **All six implement it as of `ed71ed5` (2026-08-30).**
 
-This is **compliance with a rule that already exists** — it does not depend on any pending board or
-design call, and there is already a correct in-repo precedent to copy.
+This was **compliance with a rule that already existed** — it did not depend on any pending board or
+design call, and there was already a correct in-repo precedent to copy.
+
+> **Status, 2026-08-31 (WIC-1902).** This section describes the *problem this document was written
+> to solve*, in the tense it was written in, because §2's audit is the evidence for §4's decision and
+> reads as nonsense in the past tense. **The problem is fixed** — see §0 for the merge commits. Read
+> §§1–4 as the case for a migration that has since happened, and §§5–7 as the contract that governs
+> the code now in the tree.
 
 ## 2. Audit result — all six hand-rolled dialogs
 
 Measured by grep for `'Escape'`, `focus()`/focus-trap, `document.body.style` (scroll lock), and
-`role="dialog"`. **Re-measured at `a59b869`: unchanged — all six rows still hold.**
+`role="dialog"`. ~~**Re-measured at `a59b869`: unchanged — all six rows still hold.**~~
+**⚠️ This table is a historical record — every row was closed at `e45cb04` / `ed71ed5`.**
+
+The original finding, as it stood from 2026-08-19 to 2026-08-30:
 
 | File | `role="dialog"` | `Escape` | Focus trap | Focus restore | Scroll lock |
 |---|---|---|---|---|---|
@@ -75,18 +94,40 @@ Measured by grep for `'Escape'`, `focus()`/focus-trap, `document.body.style` (sc
 | `components/wizard/WizardContainer.tsx` | ⚠️ on backdrop | ❌ | ❌ | ❌ | ❌ |
 | `components/CatalogDiff/DiffReviewModal.tsx` | ⚠️ on backdrop | ❌ | ❌ | ❌ | ❌ |
 
+**Re-measured at `c74cd2f1`: all six files now mount the full Radix stack** — `Dialog.Root`,
+`Dialog.Portal`, `Dialog.Overlay`, `Dialog.Content` and `Dialog.Title` are present in every one, so
+every ❌ above is supplied by the primitive (§4.1). All six also consume `useDialogFocusRestore`,
+which is what carries the *restore* column beyond what Radix alone gives (§5).
+
+> **The `fixed inset-0` className survives the migration and is not a leftover.** A grep for the
+> hand-rolled overlay still hits all six files, but in every case it is now the `className` on
+> `<Dialog.Overlay>` rather than a bare `<div>`. **Grepping for the old markup is not a valid check
+> that the migration happened** — check which element carries the class.
+
 > **Line numbers deliberately dropped from this table in the port.** The workspace copy pinned each
 > row to a line (`ConfirmationModal.tsx:31`, and so on) measured on 2026-08-19. Those files have
 > since moved. The *file-level* finding is what is load-bearing and it re-measures cleanly; the line
 > numbers do not, and a table of stale anchors is worse than none.
 
-The three ❌ rows render a plain `<div className="fixed inset-0 …">`. To assistive tech that is a
-`<div>`. **Nothing announces that a dialog opened**, nothing scopes the reading order to it, and the
-page behind stays fully reachable by `Tab` and by the screen-reader virtual cursor.
+The three ❌ rows rendered a plain `<div className="fixed inset-0 …">`. To assistive tech that is a
+`<div>`. **Nothing announced that a dialog opened**, nothing scoped the reading order to it, and the
+page behind stayed fully reachable by `Tab` and by the screen-reader virtual cursor.
 
-⚠️ = `aria-modal="true"` sits on the full-viewport backdrop rather than the panel, so the "dialog"
-nominally includes the backdrop. Cosmetic next to the missing behaviour; the migration fixes it for
-free.
+⚠️ = `aria-modal="true"` sat on the full-viewport backdrop rather than the panel, so the "dialog"
+nominally included the backdrop. Cosmetic next to the missing behaviour; the migration fixed it for
+free — but **not** in the way this note originally implied.
+
+> **The migration did not move `aria-modal` to the panel. It deleted the attribute.** There is no
+> literal `aria-modal` anywhere in `packages/web/src` at `c74cd2f1`, and Radix does not add one:
+> `@radix-ui/react-dialog` calls `hideOthers()` from the `aria-hidden` package and marks every
+> sibling of the content `aria-hidden` instead, which its own source calls *"a better supported
+> equivalent to setting `aria-modal`"*.
+>
+> **This is the mechanism §6 exists to protect**, and the connection is easy to miss: because
+> modality is enforced by `aria-hidden` on everything outside the dialog, an `[aria-live]` region
+> mounted *inside* `#root` is hidden along with it — which is precisely the failure §6 rules
+> against. §6 is not an unrelated live-region convention that happens to sit in this document; it is
+> **a direct consequence of how Radix implements modality.** Do not "simplify" one without the other.
 
 ## 3. Worst case: the destructive-delete confirmation
 
@@ -181,14 +222,23 @@ Consequences:
 Because the damage happens *after* any single-shot decision point, the restore must be **watched**,
 not merely guarded.
 
-## 5. Hook contract — `useDialogFocusRestore` *(specified; PR #97 open, not merged)*
+## 5. Hook contract — `useDialogFocusRestore` *(shipped at `ed71ed5`)*
 
-> **Not shipped.** `packages/web/src/hooks/useDialogFocusRestore.ts` does not exist at `a59b869` and
-> no symbol named `useDialogFocusRestore`, `fallbackRef` or `RESTORE_WATCH_MS` appears anywhere
-> under `packages/web/src/`. This section is a **specification of intended behaviour**, written
-> against PR #97's implementation. See §0.
+> **Shipped.** `packages/web/src/hooks/useDialogFocusRestore.ts` exists as of `ed71ed5`
+> (2026-08-30), and `useDialogFocusRestore` / `fallbackRef` / `RESTORE_WATCH_MS` resolve to
+> **18 / 6 / 3** occurrences under `packages/web/src` — against "no matches anywhere in the tree"
+> when this section was written. There are **8** `useDialogFocusRestore(` call sites across the six
+> components of §2 (`OnboardingModal` accounts for three of them, one per dialog it hosts).
+>
+> ⚠️ **8 call sites, not 9.** A ninth `useDialogFocusRestore(` occurrence is the usage example inside
+> the hook's own docstring. **A symbol mention is not a call site** — grep `useDialogFocusRestore(`
+> and then subtract the definition's own documentation.
+>
+> This section is therefore a **description of code in the tree**, not a specification of intended
+> behaviour. It is still the contract of record: if the hook and this section disagree, that is a bug
+> in one of them, not a gap awaiting an implementation. See §0.
 
-Intended usage — spread the result onto `Dialog.Content`:
+Usage — spread the result onto `Dialog.Content`:
 
 ```tsx
 const focusRestore = useDialogFocusRestore({ fallbackRef });   // fallbackRef optional
@@ -339,18 +389,29 @@ is rejected — the exemption has to be a sentence a reviewer can disagree with.
   in this app; the script mechanises the one component with a uniform prop to grep for. The other
   five dialogs (§7) are on the author.
 - **It skips `*.test.tsx` / `*.spec.tsx` and `test/` and `e2e/` directories.**
-- **It is dormant until `restoreFocusTo` exists on the component.** At `d2cd7b3` the prop is not
-  declared — it lands with PR #115 — so the script prints a `NOTICE` naming every unenforced call
-  site and exits 0. It arms itself automatically on the commit that adds the prop. **Today's green
-  check on this rule therefore proves nothing**, by construction and on the record.
+- ~~**It is dormant until `restoreFocusTo` exists on the component.**~~ **It is ARMED as of
+  `bf8c8b3`.** The prop is now declared, so the script no longer prints its dormancy `NOTICE`:
+  it reports `ConfirmationModal focus restore OK — 1 call site(s) declared` and exits 0.
+  ⚠️ **The old text said "today's green check on this rule proves nothing, by construction and on
+  the record." That is no longer true, and leaving it would have taught a reader to discount a
+  signal that now carries real weight.**
 
-> **State at `d2cd7b3` (2026-08-29), re-measured for this amendment.** `restoreFocusTo` does not
-> exist on `main`: `ConfirmationModal.tsx` is still the hand-rolled `<div className="fixed inset-0
-> …">` of §2, `useDialogFocusRestore.ts` is still absent, and there is exactly **one**
-> `<ConfirmationModal` call site in the tree (`pages/ResumeManager.tsx:176`) — the one whose trigger
-> the action destroys. PR #95, #97 and #115 are all still open. This section is therefore a rule
-> written *ahead* of the mechanism it governs, deliberately: the audit is what makes it bind the
-> moment #115 lands, without anyone having to remember this document exists.
+> **State at `c74cd2f1` (2026-08-31), re-measured for this amendment.** `restoreFocusTo` is declared
+> at `ConfirmationModal.tsx:27` and passed at `ResumeManager.tsx:239`; `ConfirmationModal` is on
+> Radix and consumes `useDialogFocusRestore({ fallbackRef: restoreFocusTo })`. There is still
+> exactly **one** `<ConfirmationModal` call site in the tree — `pages/ResumeManager.tsx`, the one
+> whose trigger the action destroys — and it is the one the audit now enforces.
+>
+> ~~This section is a rule written *ahead* of the mechanism it governs.~~ **The rule and the
+> mechanism are now in step.**
+>
+> **The self-arming design worked exactly as specified, and that is worth recording.** §10 predicted
+> that after #115 the audit would print `ConfirmationModal focus restore OK — 1 call site(s)
+> declared`, and that *any other output* would mean "the prop landed under a different name and the
+> audit is watching nothing." It prints that string verbatim. A dormant check that names its own
+> arming condition, and a follow-up that writes down what the armed output must look like, together
+> turned "did the fix actually connect to the rule?" into a single command rather than a judgement
+> call — **nobody had to remember this document exists.**
 
 ## 6. Rule — app-level live regions belong **outside `#root`**
 
@@ -469,11 +530,14 @@ assertion goes unsound**, so any new background-hiding test should carry an empt
 
 ## 8. Sequencing and verification
 
-Suggested split — two PRs, so the destructive-action fix is not held up by the long tail:
+Suggested split — two PRs, so the destructive-action fix is not held up by the long tail. **Both
+landed; the split is recorded here because §5.3 and §6 cite the two halves separately.**
 
 1. **PR 1:** `ConfirmationModal.tsx` alone. Highest severity, smallest diff, zero caller changes.
-   *(This is PR #95 — open.)*
-2. **PR 2:** the other five. *(This is PR #97 — open.)*
+   *(This was PR #95 — merged at `e45cb04`.)*
+2. **PR 2:** the other five. *(This was PR #97 — merged at `ed71ed5`.)*
+
+The `ResumeManager` fallback that §5.3 governs followed as PR #115, merged at `bf8c8b3`.
 
 > **Added 2026-08-29 (WIC-1715) — PR 2 now gates a feature, not just an audit item.**
 > `OnboardingModal` is one of PR 2's five. The WIC-1715 ruling
@@ -487,6 +551,12 @@ Suggested split — two PRs, so the destructive-action fix is not held up by the
 > Stated here because the dependency runs the *other* way from where anyone would look
 > for it: nothing in #146 mentions focus management, and nothing in the audit table in
 > §2 suggests a feature is waiting on the `OnboardingModal` row.
+>
+> ✅ **The constraint held.** #97 merged 2026-08-30T20:58Z, #146 merged 2026-08-31T21:20Z — about
+> 24 hours apart, and `ed71ed5` is an ancestor of #146's merge commit `2513309d`. The onboarding
+> form never existed on `main` without the focus trap, so the hazard this note was written to
+> prevent did not ship. Kept as the record of a dependency that was correctly ordered, since
+> nothing in either PR's own diff would show it.
 
 > **The original sequencing note is spent.** It said `QuickReferenceExport.tsx` and
 > `ConfirmationModal.tsx` had "uncommitted edits in the shared working tree right now (the WIC-1127
@@ -508,6 +578,17 @@ Verify per dialog:
 > PR #85 lands". **That harness has since landed** — `packages/web` has Vitest + Testing Library, and
 > `EmptyState.test.tsx` and `NotFound.test.tsx` are in the tree. Items 1–5 are RTL-testable **now**
 > and should ship as regression tests with PR #95 / #97 rather than as a manual pass.
+>
+> ✅ **Automated — as Playwright E2E, not RTL.** `packages/web/e2e/modal-focus.spec.ts` and
+> `modal-focus-projects.spec.ts` cover all six items above, including the screen-reader ones this
+> checklist assumed a human would have to do: dialog announcement, `Tab` trapping, `Escape`, scroll
+> lock, background hidden from the virtual cursor, and the confirm-shaped restore of §4.1. **E2E was
+> the right level and the RTL prediction was wrong** — items 3 and 5 (`Escape` reaching the parent's
+> state, real scroll lock) depend on browser behaviour jsdom does not implement.
+>
+> ⚠️ **They cover 2 of the 6 dialogs** — `ConfirmationModal` (via `ResumeManager`) and
+> `ProjectsList`. The remaining four rely on the shared hook being shared, which is an argument from
+> construction, not a measurement. Widening the sweep is the open item in §10.
 
 ## 9. Docs follow-up — ~~still outstanding~~ **closed 2026-08-29**
 
@@ -530,18 +611,40 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
 > fact, not a claim about checklist semantics, so it no longer belonged with the behaviour PR.
 > Each box now carries its measurement inline.
 
+> **Re-checked `- [x]` at `c74cd2f1` (2026-08-31, WIC-1902) — the behaviour landed.** The box has
+> now been `- [x]` (wrongly), `- [ ]` (correctly), and `- [x]` again (correctly), which makes it a
+> useful worked example: **the tick mark carries no information, and only the measurement beside it
+> does.** It is checked now for the same reason it was unchecked then — someone read the tree.
+>
+> That round trip is also why the flip was cheap and safe the second time. `ACCESSIBILITY.md`'s
+> Phase-1 gate note had written down, *in advance*, the two conditions under which this box becomes
+> tickable — the Radix migration, and WIC-1181 separately — so re-checking it was a matter of
+> verifying two stated conditions rather than re-litigating what the box means. **A checklist item
+> that records what would make it true is worth several that merely record whether it is.**
+
 ## 10. Follow-ups
 
-- **Land PR #95 and PR #97.** Both open, both blocking every row of §2.
+- ~~**Land PR #95 and PR #97.** Both open, both blocking every row of §2.~~
+  **Done** — `e45cb04` and `ed71ed5`. PR #115 followed at `bf8c8b3`.
 - ~~**Flip `ACCESSIBILITY.md:640`** to `- [ ]`, or land the behaviour that makes it true.~~
   **Done at `0e5d97a`, 2026-08-29** — see §9. All six Phase 1 boxes were re-measured and unchecked,
-  not just this one.
-- **Convert §8's manual checklist to RTL regression tests** — the harness gap it was written around
-  has closed.
-- **Confirm `confirmation-modal-focus-audit.py` armed** on the commit that lands PR #115. The script
-  prints a `NOTICE` and passes while `restoreFocusTo` is undeclared; the first CI run after #115
-  merges should print `ConfirmationModal focus restore OK — 1 call site(s) declared` instead. If it
-  still prints the notice, the prop landed under a different name and the audit is watching nothing.
+  not just this one. **The behaviour then landed too, so that box is now `- [x]` on its merits**
+  (2026-08-31, WIC-1902) — the first checked box in that list to be earned rather than assumed.
+- ~~**Convert §8's manual checklist to RTL regression tests**~~ **Done as Playwright E2E**
+  (`modal-focus.spec.ts`, `modal-focus-projects.spec.ts`) — see §8. RTL was the wrong level for
+  three of the six items.
+- ~~**Confirm `confirmation-modal-focus-audit.py` armed** on the commit that lands PR #115.~~
+  ✅ **Confirmed at `c74cd2f1`.** It prints `ConfirmationModal focus restore OK — 1 call site(s)
+  declared` — the exact string this follow-up specified as the pass condition, so the prop did not
+  land under a different name and the audit is watching the thing it was built to watch.
+
+**Still open:**
+
+- **Extend the focus E2E sweep to the four uncovered dialogs** — `QuickReferenceExport`,
+  `OnboardingModal`, `WizardContainer`, `DiffReviewModal`. All four consume the same hook, so the
+  expected result is that they already pass; the point is that nothing currently *measures* it, and
+  "they share a hook" is an argument from construction. `OnboardingModal` is the one to do first: it
+  instantiates the hook three times (§5), the only dialog that does.
 
 ## 11. Related
 

@@ -6,12 +6,34 @@ import { getRequestContext } from './context.js';
 let _db: ReturnType<typeof drizzle> | null = null;
 let _sql: ReturnType<typeof postgres> | null = null;
 
+/**
+ * Connection options for both Workers paths.
+ *
+ * Every TCP connect postgres-js opens costs one subrequest, and the budget is
+ * per-invocation and shared with every other fetch() the request makes. Left at
+ * its defaults postgres-js will hold a pool of 10 and re-dial a dead host with
+ * backoff and no attempt ceiling, so a database that cannot be reached at all
+ * drains the budget before any handler gets to report why — which is how a
+ * connect failure turns into an opaque 500 on every endpoint at once, with the
+ * failure telemetry swallowed alongside it.
+ *
+ * `max: 1` makes the request context's "exactly one connection per request"
+ * comment true rather than aspirational, and `connect_timeout` bounds how long
+ * a single dial can sit on the budget. Together they cap the damage of an
+ * unreachable database at one wasted subrequest.
+ */
+const WORKERS_CONNECTION_OPTIONS = {
+  prepare: false,
+  max: 1,
+  connect_timeout: 5,
+} as const;
+
 export function getDb() {
   const ctx = getRequestContext();
   if (ctx?.env?.HYPERDRIVE) {
     // Workers (preview): Hyperdrive handles connection pooling.
     if (!ctx.sql) {
-      ctx.sql = postgres(ctx.env.HYPERDRIVE.connectionString, { prepare: false });
+      ctx.sql = postgres(ctx.env.HYPERDRIVE.connectionString, WORKERS_CONNECTION_OPTIONS);
     }
     return drizzle(ctx.sql as ReturnType<typeof postgres>);
   }
@@ -20,7 +42,10 @@ export function getDb() {
     // Workers (production): direct Supabase connection — one connection per request,
     // reused across service calls within the same request via the context cache.
     if (!ctx.sql) {
-      ctx.sql = postgres(ctx.env.DATABASE_URL, { prepare: false, ssl: 'require' });
+      ctx.sql = postgres(ctx.env.DATABASE_URL, {
+        ...WORKERS_CONNECTION_OPTIONS,
+        ssl: 'require',
+      });
     }
     return drizzle(ctx.sql as ReturnType<typeof postgres>);
   }
