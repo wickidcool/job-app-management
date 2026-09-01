@@ -127,6 +127,41 @@ UC-4's eight row-addressed handlers all scoped their lookup by `user_id`, so AC-
 - **`listCoverLetters` was the ninth owner-bearing site, and nothing reached it** — the mutation matrix above enumerated this file by the `and(id, owner)` call *shape*. `listCoverLetters` hoists its owner term into an array — `conditions.push(eq(coverLetters.userId, userId))`, applied later as `and(...conditions)` — so it matched no such grep and was never counted. Re-enumerating by the owner **column** finds it, and it survived a lone `and(...conditions)` -> `or(...conditions)` flip with the full suite green: with `?status=draft`, a caller would have received every user's draft letters. The service was already correct; nothing exercised it. `cover-letter.routes.test.ts` mocks the service wholesale, `pagination.test.ts` calls it with a cursor and no `userId` (so `conditions` is empty and the `and` is never built), and this suite's fake `db` could not reach it either, because the list path is `.orderBy().limit().offset()` and `limit` resolved straight to a promise. The stub now returns a chainable from `limit`, and four cases drive the real list path. Note the mutation only bites with a *second* condition present — `conditions.length === 1` short-circuits past the `and` — so a case that passes identity alone re-pins nothing; one case supplies a filter alongside it and another covers the single-condition branch.
 - **Re-measured at head `0f3dcde`, all ten mutants killed** — flipping each owner-bearing site **alone**: `:141` 9 failures, `:355` 1, `:411` 3, `:388` (owner term deleted) 4, `:446` 1, `:457` 1, `:472` 1, `:492` 1, `:621` 3, `:726` 1. Zero survivors. Two controls bound the matrix from both sides: a comment-only edit to the service kills 0 (so the suite is not merely failing on any edit), and the two `id + version` optimistic-locking predicates at `:451` and `:566` stay green (so the assertions target tenancy rather than over-fitting to every conjunction in the file). Line numbers here supersede the `:130`/`:342`/`:435`… tally in the bullet above, which predates the WIC-1482 commit that shifted the file.
 
+
+### Docs — five build-failing checks, not three: the a11y enforcement table after WIC-1483
+
+PR #226 merged as `f3ed4e39` and became the tip of `main`. Five places across `docs/design/` still
+asserted, in force, that it had not — `ACCESSIBILITY.md` in four (the enforcement note, the
+`npm run lint` claim, the Testing Checklist preamble, the Phase 1 note) and `README.md` in one. This
+is the stale-pointer class in its *denying* direction, which is the more expensive one: an overclaim
+invites a reader to check, a denial tells them not to bother looking.
+
+- **The enforcement table gains two rows and the count moves three → five.** The new rows are
+  `eslint-plugin-jsx-a11y` at `flatConfigs.strict` via `npm run lint`, and
+  `src/test/jsxA11yBaseline.test.ts` via `npm run test`. Both are steps in `Lint & Test`. The
+  resolved surface is **24 `error` / 8 `warn` / 2 `off`**, the 8 frozen at 47 findings across 22
+  files behind `--max-warnings 47`, so enforcement is shrink-only: the existing 47 pass, a 48th
+  fails.
+- **Half the ruled mechanism landed, and the note now says which half.** WIC-1192 ruled for
+  `jsx-a11y` *plus* `axe-core`; `axe-core` is still not a dependency anywhere in the tree, and
+  neither is `pa11y` or a Lighthouse budget. The replaced note claimed the mechanism was "decided
+  but not landed" — the opposite error, made from the same missing measurement.
+- **The prediction the old note left behind was half wrong, and re-deriving the mechanism caught
+  it.** It said boxes 2 and 4 of the Phase 1 checklist "become machine-checkable" once the config
+  landed, and that their hand counts should then be deleted. Box 2 is covered, though at a frozen
+  ceiling of 19 rather than the 28 the box counts. Box 4 is **not** covered: the rule that would
+  catch it, `control-has-associated-label`, is one of the two shipped deliberately `off`, and two of
+  its three named findings are exactly the two controls box 4 names. Deleting that count would have
+  traded a true hand measurement for a check that does not run.
+- **Source citations re-pinned.** 40 files under `packages/web/src` changed since the previous
+  measurement, retiring the note's "the tree is byte-identical, so no figure moved" premise. All
+  four `h1` → `h3` skips survive but three moved line. The `<h2>` in the `ApplicationsList` skip
+  belongs to `KanbanColumn.tsx:65`, not to `KanbanBoard` — `KanbanBoard.tsx` carries no heading at
+  all, which is itself why that skip is invisible to a per-file rule.
+
+Verified at `f3ed4e39`: all four `docs/design/` audits exit 0, and 422 code spans render-checked
+with zero unpaired delimiters.
+
 ### Docs — the modal focus spec and the a11y checklist both denied work that had already shipped (2026-08-31)
 
 `MODAL_FOCUS_MANAGEMENT_SPEC.md` and `ACCESSIBILITY.md` each asserted, in force, that none of the modal focus work existed. PRs #95, #97 and #115 had all merged by 2026-08-31 — `e45cb04`, `ed71ed5`, `bf8c8b3`, all ancestors of `main` — so both documents were describing a tree that no longer existed (WIC-1902).
