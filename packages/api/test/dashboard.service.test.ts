@@ -102,9 +102,8 @@ vi.mock('../src/db/client.js', () => ({
   closeDb: async () => {},
 }));
 
-const { getDashboardStats, UNSUBMITTED_THRESHOLD_DAYS } = await import(
-  '../src/services/dashboard.service.js'
-);
+const { getDashboardStats, UNSUBMITTED_THRESHOLD_DAYS } =
+  await import('../src/services/dashboard.service.js');
 const { DEFAULT_STALE_THRESHOLD_DAYS } = await import('../src/services/stale.js');
 const { applications } = await import('../src/db/schema.js');
 
@@ -354,7 +353,10 @@ describe('getDashboardStats — attention predicates', () => {
   it('stale sample leads with the most stale row', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(ids(attention.samples.stale)).toEqual(['applied-oldest', 'applied-stale-born-yesterday']);
+    expect(ids(attention.samples.stale)).toEqual([
+      'applied-oldest',
+      'applied-stale-born-yesterday',
+    ]);
   });
 
   /** Kills F: dropping `phone_screen` from INTERVIEWING_STATUSES empties it from the sample. */
