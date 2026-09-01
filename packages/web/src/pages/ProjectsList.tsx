@@ -7,6 +7,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useDialogFocusRestore } from '../hooks/useDialogFocusRestore';
+import { FOCUS_HANDOFF_TARGETS, useRouteFocusHandoff } from '../hooks/useRouteFocusHandoff';
 
 export function ProjectsList() {
   const navigate = useNavigate();
@@ -23,6 +24,10 @@ export function ProjectsList() {
   // The Project Name input carries `autoFocus`, so Radix never dispatches
   // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
   const focusRestore = useDialogFocusRestore({ fallbackRef: headerCreateRef });
+  // The dialogue wizard is a route, not a dialog rendered here, so nothing on this page
+  // is mounted when it closes and no ref can carry the restore. It hands focus back to
+  // this button by name instead — see `useRouteFocusHandoff` (WIC-1931).
+  const guidedCreateRef = useRouteFocusHandoff(FOCUS_HANDOFF_TARGETS.projectsGuidedCreate);
   // Focus restore and outcome announcement are two halves of the same
   // requirement, and the fallback above is exactly what makes the second half
   // load-bearing: on the create-success path focus lands on the *header*
@@ -111,6 +116,7 @@ export function ProjectsList() {
         </div>
         <div className="flex gap-3">
           <button
+            ref={guidedCreateRef}
             onClick={() => navigate('/projects/new/dialogue?variant=create')}
             className="rounded-md bg-success-600 px-4 py-2 text-sm font-medium text-white hover:bg-success-700 flex items-center gap-2"
           >

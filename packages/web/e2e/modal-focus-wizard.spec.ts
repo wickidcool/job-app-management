@@ -7,17 +7,18 @@ import { test, expect, type Page } from '@playwright/test';
  * consuming `useDialogFocusRestore` with no E2E focus coverage. Parity target is
  * `modal-focus.spec.ts`.
  *
- * **The trigger-restore assertion does not transfer, and is deliberately not faked.**
- * This dialog is a *route*: `DialogueCapture` at `/projects/new/dialogue` renders it with
- * `open` hardcoded, so it is opened by navigation rather than by a control, and closing it
- * calls `navigate('/projects')`. There is no trigger element to restore focus to — the
- * page that would own one is not even mounted — and `useDialogFocusRestore` correctly
- * declines to invent one, since its `focusin` capture rejects `document.body`. Asserting
- * that focus "returns" to something here would be a tautology dressed as coverage.
+ * **The trigger-restore assertion takes a different route here — it is not a ref.**
+ * This dialog is itself a *route*: `DialogueCapture` at `/projects/new/dialogue` renders it
+ * with `open` hardcoded, so it is opened by navigation rather than by a control, and closing
+ * it calls `navigate('/projects')`. Nothing on either page is mounted at the moment Radix
+ * restores focus, so `useDialogFocusRestore` — a ref-based mechanism on both its trigger and
+ * its `fallbackRef` path — cannot serve this shape and was inert here until WIC-1931. Focus
+ * is handed to the destination route *by name* instead (`useRouteFocusHandoff`), and the
+ * final `describe` below asserts the whole journey end to end.
  *
- * What replaces it is the assertion that actually matters on this shape: that dismissing
- * really does leave the wizard, i.e. the dismissal is wired to the router at all. That is
- * checked on both the Escape and the ✕ path.
+ * Alongside it, the assertion that matters on this shape independently of focus: that
+ * dismissing really does leave the wizard, i.e. the dismissal is wired to the router at
+ * all. That is checked on both the Escape and the ✕ path.
  *
  * Runs entirely on mocked API responses; no backend required.
  */
@@ -179,46 +180,40 @@ test.describe('WizardContainer — focus management', () => {
 });
 
 /**
- * The wizard's `useDialogFocusRestore` is inert, and closing strands focus on `<body>`.
+ * The full journey: open the wizard from `/projects`, dismiss it, land back on the button.
  *
- * Measured two ways while writing this file:
+ * **This block was pinned `test.fail()` when WIC-1925 wrote it, and the pin is gone because
+ * WIC-1931 fixed the behaviour, not because the assertion was weakened.** The assertion
+ * below is byte-for-byte the one that was failing; only `test.fail()` was deleted.
  *
- *  1. **Deletion control.** Removing `{...focusRestore}` from `WizardContainer.tsx`
- *     entirely leaves all nine tests above passing. Every other dialog in this sweep has
- *     a control that goes red — `QuickReferenceExport` and `DiffReviewModal` lose exactly
- *     four tests each, `OnboardingModal` exactly four. This one loses none, because there
- *     is nothing for the hook to do.
- *  2. **The real journey.** `/projects` → "Add New Project (Guided)" → Escape leaves
- *     `document.activeElement === document.body`.
+ * What was wrong, and why the obvious remedy did not apply: the only way into this dialog
+ * is `navigate('/projects/new/dialogue?variant=create')` from `ProjectsList`, so the
+ * trigger unmounts with the route on the way *in*, and the wizard navigates away again on
+ * the way *out*. Whichever element `useDialogFocusRestore` captured was detached by the
+ * time `onCloseAutoFocus` ran, `trigger?.isConnected` was false, there was no
+ * `fallbackRef`, and it returned without focusing anything — with Radix's own restore
+ * already suppressed, focus landed on `<body>`. §5.3 of
+ * `docs/design/MODAL_FOCUS_MANAGEMENT_SPEC.md` makes a fallback obligatory for this shape,
+ * but a `fallbackRef` cannot discharge it here: every candidate lives on the *other* route
+ * and is unmounted at that moment, so the ref would be `null`. The fix is the third option
+ * that section's rule allows — an explicit post-navigation focus target
+ * (`useRouteFocusHandoff`), carried in `location.state` and claimed by a callback ref on
+ * the destination.
  *
- * The cause is structural, not a wiring mistake. The only way into this dialog is
- * `navigate('/projects/new/dialogue?variant=create')` from `ProjectsList`, so the trigger
- * unmounts with the route on the way in, and the wizard navigates away again on the way
- * out. Whichever element the hook captured is detached by the time `onCloseAutoFocus`
- * runs, `trigger?.isConnected` is false, there is no `fallbackRef`, and it returns without
- * focusing anything. Radix's own restore was already suppressed. Focus lands on `<body>`.
+ * Two controls keep this honest, both re-run on the fix:
  *
- * That is the WIC-1141 failure class this hook exists to prevent, on a dialog everyone
- * reasonably assumed was covered *because* it consumes the hook — which is exactly the
- * "argument from construction" WIC-1925 was filed to replace with a measurement.
- *
- * Tracked as **WIC-1931**, and listed under `docs/design/MODAL_FOCUS_MANAGEMENT_SPEC.md`
- * §10 `Still open:`. The fix is a `fallbackRef` (or an explicit post-navigation focus
- * target on `/projects`), matching what WIC-1222 did for the `ProjectsList` create path —
- * §5.3 of that spec makes a fallback obligatory for exactly this shape.
- *
- * Marked `test.fail()` so it does not block CI while the fix is owned elsewhere, and so it
- * turns RED the moment the behaviour is fixed, forcing this note to be retired rather than
- * left as a stale accusation. **When WIC-1931 lands, delete the `test.fail()` call; the
- * body below is already the correct assertion.** Do not delete the test.
+ *  1. **Deletion control.** Dropping the handoff `state` from `DialogueCapture`'s
+ *     `onCancel` reds exactly this test and nothing else in the file — the nine tests
+ *     above stay green, exactly as they did when the defect was live. That is the
+ *     measurement that this block, and only this block, observes the fix.
+ *  2. **The one it replaces.** Removing `{...focusRestore}` from `WizardContainer.tsx`
+ *     used to cost **zero** tests here while costing four in each of the sweep's other
+ *     three dialogs. That is why the spread is gone from that file rather than left as
+ *     decoration: it was never doing anything, and its presence is what made this dialog
+ *     look covered.
  */
-test.describe('WizardContainer — focus is stranded on <body> after close', () => {
+test.describe('WizardContainer — focus returns across the route change', () => {
   test('closing the wizard returns focus to the control that opened it', async ({ page }) => {
-    test.fail(
-      true,
-      'The wizard is entered by navigation, so the captured trigger is detached by close time'
-    );
-
     await page.route(/\/api\/(?!.*\.tsx?$)/, (route) => {
       const url = route.request().url();
       const json = (body: unknown) =>
@@ -249,9 +244,11 @@ test.describe('WizardContainer — focus is stranded on <body> after close', () 
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/\/projects$/);
 
-    // Measured today: focus is on <body>. The scroll lock and `#root[aria-hidden]` are
-    // both released correctly, so this is the one piece of residue left behind, and the
-    // only one a sighted mouse user would never notice.
+    // Before WIC-1931 this was `<body>`: the scroll lock and `#root[aria-hidden]` were
+    // both released correctly, and this was the one piece of residue left behind — the
+    // only one a sighted mouse user would never notice. The button resolved here is a
+    // *new instance*, mounted by the destination route, which is precisely why no ref
+    // could have restored focus to it.
     await expect(page.getByRole('button', { name: /Add New Project \(Guided\)/i })).toBeFocused();
   });
 });

@@ -343,6 +343,48 @@ with the sharpenings below.
 > "no fallback needed" and "nobody considered it" are indistinguishable in a diff, and the second is
 > what shipped WIC-1181.
 
+#### 5.3.1 Amended 2026-09-01 (WIC-1931) — a dialog that **is a route** cannot discharge this with a ref
+
+The rule above is right, and `WizardContainer` meets its bar. But it could not be satisfied as
+written, and the shape of that failure is worth stating because §5.3 as originally adopted implied
+a `restoreFocusTo` ref was always *available* to pass.
+
+**The wizard is a route, not a dialog rendered by the page that triggers it.** `DialogueCapture` at
+`/projects/new/dialogue` renders `WizardContainer` with `open` hardcoded; the only way in is
+`navigate('/projects/new/dialogue?variant=create')` from `ProjectsList`, and every way out is
+another `navigate()`. So:
+
+1. the trigger unmounts on the way **in**, with its route;
+2. `onCloseAutoFocus` fires with `trigger.isConnected === false`;
+3. **and no `fallbackRef` can help** — every candidate lives on the *other* route and is unmounted
+   at that instant, so `fallbackRef.current` is `null`. §5.1 rule 1 ("the fallback must render on
+   both arms of the branch the action flips") generalises to: *the fallback must be mounted when
+   `onCloseAutoFocus` runs.* Across a route change nothing is.
+
+The element the user should land on is not the one they pressed — it is a **new instance of it**,
+mounted by the destination route *after* the navigation, and possibly several commits later
+(`ProjectsList` renders a loading skeleton until `useProjects()` resolves). A ref cannot name a node
+that does not exist yet.
+
+> **Extension to the rule.** For a dialog whose every exit is a route change, the obligation is
+> discharged by an **explicit post-navigation focus target**, not a ref: name the destination
+> control in `location.state` on the way out, and have that control claim it on arrival.
+> `packages/web/src/hooks/useRouteFocusHandoff.ts` is the mechanism; `DialogueCapture` →
+> `ProjectsList` is the one call site. Two properties are load-bearing and were measured, not
+> assumed:
+>
+> - **Claim it with a callback ref, not a mount effect.** The destination's first commit usually
+>   does not contain the control. An effect reading `ref.current` on mount reads `null` and focuses
+>   nothing — the original bug, reintroduced one layer up.
+> - **Consume the handoff once.** History state outlives its navigation, so an uncleared handoff
+>   yanks focus again on every Back into that entry and after a reload.
+>
+> `useDialogFocusRestore` is then **not** the mechanism for such a dialog, and should not be spread
+> onto it. On `WizardContainer` it was, and it was inert: deleting `{...focusRestore}` cost **zero**
+> tests, against exactly four for each of the sweep's other three dialogs (§10). Its presence is
+> what made this dialog look covered for as long as it did. Prefer a `focus-restore-exempt` comment
+> naming the real mechanism over a call that does nothing.
+
 **Three things that do *not* discharge the obligation.** All three were tried and measured:
 
 1. **An `isConnected` guard at restore time.** The node is still connected when the guard runs; it
@@ -645,10 +687,11 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
 
   **This follow-up predicted its own answer wrong, and that is the result worth keeping.** It said
   "all four consume the same hook, so the expected result is that they already pass." Three do.
-  **`WizardContainer` does not** — its `useDialogFocusRestore` is inert, and closing the wizard
-  strands focus on `<body>`. Filed as **WIC-1931**, pinned `test.fail()` in
-  `modal-focus-wizard.spec.ts`. The argument from construction was load-bearing and it was false, on
-  1 of 4. Do not retire a coverage gap on the strength of a shared dependency again.
+  **`WizardContainer` did not** — its `useDialogFocusRestore` was inert, and closing the wizard
+  stranded focus on `<body>`. Filed as **WIC-1931** and pinned `test.fail()` in
+  `modal-focus-wizard.spec.ts`; **fixed the same day — see the entry below.** The argument from
+  construction was load-bearing and it was false, on 1 of 4. Do not retire a coverage gap on the
+  strength of a shared dependency again.
 
   Measured with a **deletion control** on each dialog — removing `{...focusRestore}` from the
   component and re-running its spec. `QuickReferenceExport`, `DiffReviewModal` and `OnboardingModal`
@@ -656,14 +699,21 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
   does nothing there. A spec that stays green when the thing it tests is deleted is not coverage,
   and that control is what separated the two cases.
 
+- ~~**`WizardContainer` focus restore is inert — WIC-1931.**~~ **Fixed 2026-09-01.** The wizard is
+  entered by `navigate()` from `ProjectsList`, so the captured trigger unmounted on the way in and
+  was detached by close time; with no `fallbackRef`, nothing was focused and focus fell to `<body>`.
+  **A `fallbackRef` could not have discharged it either** — every candidate is on the other route
+  and unmounted at that instant. Fixed with an explicit post-navigation focus target
+  (`useRouteFocusHandoff`), and §5.3.1 above records the extension to the rule. The `test.fail()`
+  pin in `modal-focus-wizard.spec.ts` is deleted and its assertion is unchanged; `{...focusRestore}`
+  is gone from `WizardContainer.tsx`, where it was doing nothing.
+
+  **The self-arming pin worked as designed, and that is the second time §10 can say so.** The block
+  was written to turn RED on the fix rather than to describe the defect in prose, so the fix could
+  not land while leaving a stale accusation in the file — the note had to be retired to get green.
+
 **Still open:**
 
-- **`WizardContainer` focus restore is inert — WIC-1931.** Third instance of the WIC-1181 /
-  WIC-1222 class (`.focus()` on a detached trigger is a silent no-op). The wizard is entered by
-  `navigate()` from `ProjectsList`, so the captured trigger unmounts on the way in and is detached
-  by close time; there is no `fallbackRef`, so nothing is focused and focus falls to `<body>`. Per
-  §5.3 this dialog meets the bar where a fallback is **obligatory**. Pinned `test.fail()` rather
-  than asserted away — it turns RED when fixed, which is the signal to delete the pin.
 - **`OnboardingModal`'s nested confirms expose the panel behind them — WIC-1868** (open, backlog).
   Two `role="dialog"` elements are exposed at once and neither is `aria-hidden`; measured in
   Chromium here, matching the jsdom probe on that card and the in-code note at

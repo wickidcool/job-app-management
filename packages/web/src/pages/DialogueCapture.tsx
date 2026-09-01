@@ -1,6 +1,7 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WizardContainer, type ProjectFile } from '../components/wizard';
 import { useCreateProjectFile } from '../hooks/useProjects';
+import { FOCUS_HANDOFF_TARGETS, focusHandoffState } from '../hooks/useRouteFocusHandoff';
 import type { ProjectData } from '../components/wizard';
 
 /**
@@ -36,8 +37,15 @@ export function DialogueCapture() {
   };
 
   const handleCancel = () => {
-    // Navigate back to projects list
-    navigate('/projects');
+    // Navigate back to projects list, handing focus to the control that opened the
+    // wizard. Dismissing this dialog is a *route change*, so the trigger the user
+    // pressed is long unmounted by the time Radix restores focus and
+    // `useDialogFocusRestore` has nothing to focus — see `useRouteFocusHandoff`
+    // (WIC-1931). The button on the destination route is a new instance, so the
+    // target has to travel with the navigation.
+    navigate('/projects', {
+      state: focusHandoffState(FOCUS_HANDOFF_TARGETS.projectsGuidedCreate),
+    });
   };
 
   const handleSaveDraft = (draftData: Partial<ProjectData>) => {
