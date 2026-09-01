@@ -80,7 +80,13 @@ export function staleCutoff(
   now: Date = new Date()
 ): Date {
   const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - days);
+  // UTC, not local: `setDate`/`getDate` operate on the host's local calendar, so
+  // subtracting days across a DST transition shifts the result by the DST
+  // offset delta (an hour, in every zone that observes it) even though `days`
+  // itself never changes. `setUTCDate`/`getUTCDate` have no local offset to
+  // shift, so the cutoff is exactly `days * 86400000` ms earlier regardless of
+  // the process's `TZ`.
+  cutoff.setUTCDate(cutoff.getUTCDate() - days);
   return cutoff;
 }
 

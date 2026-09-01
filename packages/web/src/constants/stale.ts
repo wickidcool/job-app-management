@@ -50,7 +50,10 @@ export function staleCutoff(
   now: Date = new Date()
 ): Date {
   const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - days);
+  // UTC, not local — see the matching note in the API's `stale.ts`: `setDate`
+  // shifts the result across a DST boundary by the zone's offset delta, which
+  // `setUTCDate` cannot do.
+  cutoff.setUTCDate(cutoff.getUTCDate() - days);
   return cutoff;
 }
 
