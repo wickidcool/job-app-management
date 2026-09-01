@@ -71,7 +71,7 @@ const mockStory = {
   id: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1',
   starEntryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3C7',
   themes: ['technical', 'problem_solving'],
-  relevanceScore: 92,
+  relevanceScorePct: 92,
   oneMinVersion: 'Led API optimization that reduced response times by 40%.',
   twoMinVersion:
     'At Acme Corp, I identified performance bottlenecks in our API layer. I implemented query optimization and Redis caching, reducing response times by 40% and improving user satisfaction by 15%.',
@@ -449,7 +449,10 @@ describe('Interview Prep Routes', () => {
       stories.forEach((s: any) => {
         expect(Array.isArray(s.themes)).toBe(true);
         expect(s.themes.length).toBeGreaterThan(0);
-        expect(typeof s.relevanceScore).toBe('number');
+        // WIC-1520: this file mocks the whole service, so this assertion reads
+        // back `mockStory` above and cannot observe a rename in the service.
+        // The gate for that is `interview-prep-relevance-pct.test.ts`.
+        expect(typeof s.relevanceScorePct).toBe('number');
       });
     });
 

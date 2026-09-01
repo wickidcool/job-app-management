@@ -139,7 +139,7 @@ export function QuickReferenceExport({
                                 {story.starEntryId.substring(0, 50)}
                               </span>
                               <span className="text-xs text-gray-600">
-                                ({story.themes.join(', ')}, {story.relevanceScore}%)
+                                ({story.themes.join(', ')}, {story.relevanceScorePct}%)
                               </span>
                             </div>
                             <p className="text-sm text-gray-700">{story.oneMinVersion}</p>
