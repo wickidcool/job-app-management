@@ -5,17 +5,34 @@ import { AppError } from '../types/index.js';
 import * as onboardingService from '../services/onboarding.service.js';
 import { readJsonBody } from '../lib/request.js';
 
-const progressSchema = z.object({
-  currentStep: z
-    .enum(['welcome', 'personal_info', 'resume_upload', 'first_application', 'completed'])
-    .optional(),
-  personalInfoStepCompleted: z.boolean().optional(),
-  personalInfoStepSkipped: z.boolean().optional(),
-  resumeStepCompleted: z.boolean().optional(),
-  resumeStepSkipped: z.boolean().optional(),
-  applicationStepCompleted: z.boolean().optional(),
-  applicationStepSkipped: z.boolean().optional(),
-});
+const progressSchema = z
+  .object({
+    currentStep: z
+      .enum(['welcome', 'personal_info', 'resume_upload', 'first_application', 'completed'])
+      .optional(),
+    personalInfoStepCompleted: z.boolean().optional(),
+    personalInfoStepSkipped: z.boolean().optional(),
+    resumeStepCompleted: z.boolean().optional(),
+    resumeStepSkipped: z.boolean().optional(),
+    applicationStepCompleted: z.boolean().optional(),
+    applicationStepSkipped: z.boolean().optional(),
+  })
+  // WIC-1382 (D-5): a step is done, or skipped, or neither — never both. The service
+  // clears the counterpart whenever one flag is set, so a *sequence* of patches can no
+  // longer land both true. A single patch naming both as `true` is a different thing:
+  // it is contradictory on its face, and the honest answer is 400 rather than a silent
+  // precedence rule the caller never asked for.
+  .superRefine((patch, ctx) => {
+    for (const [completed, skipped] of onboardingService.ONBOARDING_STEP_FLAG_PAIRS) {
+      if (patch[completed] === true && patch[skipped] === true) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [skipped],
+          message: `A step cannot be both completed and skipped: ${completed} and ${skipped} were both true.`,
+        });
+      }
+    }
+  });
 
 export const onboardingRoutes = new Hono<AppEnv>()
   /**

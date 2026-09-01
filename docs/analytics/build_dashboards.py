@@ -15,14 +15,20 @@ applied in memory on the way out.
 Usage
 -----
     export POSTHOG_PERSONAL_API_KEY=phx_...
-    python3 docs/analytics/build_dashboards.py --dry-run   # validate only, no writes
-    python3 docs/analytics/build_dashboards.py             # create/update for real
+    python3 docs/analytics/build_dashboards.py --check-scopes  # is the grant in place?
+    python3 docs/analytics/build_dashboards.py --dry-run       # validate only, no writes
+    python3 docs/analytics/build_dashboards.py                 # create/update for real
 
 --dry-run needs only read scope (`query:read`) and re-executes every query node
 against the live project -- HogQL tables and the native FunnelsQuery/RetentionQuery
 insights alike -- so it proves the payloads before anything is written.
 The real run additionally needs `insight:read`, `insight:write`, `dashboard:read`,
 `dashboard:write` on project 551963.
+
+--check-scopes probes for exactly those four and exits (0 granted / 2 missing) without
+running a query or writing anything. Use it -- not --dry-run -- to verify a scope grant:
+--dry-run reports "scopes present (read)" and exits 0 even with no insight/dashboard
+scope at all, because it never probes those endpoints.
 
 Synthetic exclusion (WIC-1667)
 ------------------------------
@@ -448,6 +454,12 @@ def main() -> int:
         help="validate payloads and re-execute every query node; write nothing",
     )
     parser.add_argument(
+        "--check-scopes",
+        action="store_true",
+        help="check for the insight/dashboard scopes the real build needs, then exit; "
+             "writes nothing and runs no queries. Exits 0 when granted, 2 when not.",
+    )
+    parser.add_argument(
         "--no-exclusion",
         action="store_true",
         help="build WITHOUT the probe-registry exclusion (pre-WIC-1667 behaviour; "
@@ -458,6 +470,13 @@ def main() -> int:
     api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
     if not api_key:
         fail("POSTHOG_PERSONAL_API_KEY is not set")
+
+    # The scope-grant acceptance test. `--dry-run` deliberately passes need_write=False, so it
+    # never probes insights/ or dashboards/ and prints "OK scopes present (read)" whether or not
+    # the grant landed — it cannot be used to verify one (WIC-1547).
+    if args.check_scopes:
+        preflight(PostHog(api_key), need_write=True)
+        return 0
 
     # deepcopy so the exclusion is applied to this run's objects only -- the payload file
     # on disk stays unfiltered, which is the point (see the module docstring).
