@@ -16,6 +16,15 @@ All notable changes to the Job Application Manager are documented here.
 - **The cited WIC-1363 figures counted a cache, not conflicts.** "Of 30 open PRs, 25 touched CHANGELOG.md and 17 read CONFLICTING" was read off `mergeable`, which is sticky-dirty: once GitHub marks a PR conflicting, nothing re-evaluates it when the conflict leaves the base branch. Measured today at `main` `28e20cd` over all 73 open PRs, each replayed against its **own** base tip: 29 read `CONFLICTING`, **15 of them (52%) merge clean**, and of the 14 that genuinely conflict **zero conflict on `CHANGELOG.md`**. The real changelog-conflict backlog is 0. Those figures now carry the caveat and the re-measurement.
 - **The driver stays, and the entry that justifies it is now the measured one.** With union disabled at each PR's own base, 15 of 73 flip clean → conflict, and in all 15 the *only* conflicting file is `CHANGELOG.md`. `merge=union` is load-bearing for the local pre-merge sync; it is not a workaround for a GitHub flag, and the file no longer implies it was ever meant to prevent one.
 - **The operational guidance is unchanged, byte for byte** — "merge main in and push", "do not rebase a PR that others are stacked on", "keep BOTH entries, newest date first". It was correct and is exactly the procedure used to clear #190 and #209. What is added is how to check the claim yourself: read `refs/pull/N/merge` and confirm its first parent is the current base tip, or run a real merge at the PR's current base, and note that `--attr-source` is a **global** option that must precede `merge-tree` — placed after it git exits 129, and omitted it silently reads attributes from the working tree and prints a confident wrong answer.
+### Changed — Web reads the interview-prep relevance score as `relevanceScorePct` (2026-08-26)
+
+The interview-prep population is the one that deviates from ADR-008 §1: it is a `0-100` integer, persisted as an `integer` column and produced by an LLM prompt that asks for one. Per §2 it therefore carries its unit **in its name**. This is the frontend half of that rename; the wire change is WIC-1520.
+
+- **Six consumers renamed** — `types/interviewPrep.ts`, `STARStoryBank` (sort, badge, render), `QuestionsList`, `GapMitigationPanel`, `QuickReferenceExport`, `InterviewPrepPage`. All six were already *correct* as percent renders; they are renamed so the name carries the unit, not because they were wrong. `InterviewPrepPage`'s `>= 80` is right here — this population really is `0-100`.
+- **`PrepStory.relevanceScorePct` is typed `Percent`**, so it cannot be crossed with a job-fit `relevanceScore: Ratio`.
+- **Completeness is compiler-enforced, not grepped** — because the property no longer exists on `PrepStory`, any missed or reintroduced site is a `TS2551`. Measured by reverting one consumer: two errors, naming the replacement. No source-scanning drift test was added; it would restate what `tsc` already proves.
+- ⚠️ **Breaking wire change — do not merge before WIC-1520.** Until the API emits `relevanceScorePct`, these six sites read `undefined` and render `undefined%`.
+
 ### Fixed — Cover letters are reachable after they are generated (2026-08-26)
 
 `CoverLetterDetail` (`/cover-letters/:id`) was fully built and had no standing entry point. The only inbound navigation was the redirect `CoverLetterNew` fires on completion, and it sits on one branch of a conditional: with an application id it returns to `/applications/:id` instead. Two of the three routes into the generator set that id, so on those paths the detail page was never shown at all — and on the third it was available only in the seconds after generation. Navigate away and `.docx` export, delete, variant switching and the full preview became unreachable for the life of the letter (WIC-1533).
@@ -126,6 +135,41 @@ UC-4's eight row-addressed handlers all scoped their lookup by `user_id`, so AC-
 - **`listCoverLetters` was the ninth owner-bearing site, and nothing reached it** — the mutation matrix above enumerated this file by the `and(id, owner)` call *shape*. `listCoverLetters` hoists its owner term into an array — `conditions.push(eq(coverLetters.userId, userId))`, applied later as `and(...conditions)` — so it matched no such grep and was never counted. Re-enumerating by the owner **column** finds it, and it survived a lone `and(...conditions)` -> `or(...conditions)` flip with the full suite green: with `?status=draft`, a caller would have received every user's draft letters. The service was already correct; nothing exercised it. `cover-letter.routes.test.ts` mocks the service wholesale, `pagination.test.ts` calls it with a cursor and no `userId` (so `conditions` is empty and the `and` is never built), and this suite's fake `db` could not reach it either, because the list path is `.orderBy().limit().offset()` and `limit` resolved straight to a promise. The stub now returns a chainable from `limit`, and four cases drive the real list path. Note the mutation only bites with a *second* condition present — `conditions.length === 1` short-circuits past the `and` — so a case that passes identity alone re-pins nothing; one case supplies a filter alongside it and another covers the single-condition branch.
 - **Re-measured at head `0f3dcde`, all ten mutants killed** — flipping each owner-bearing site **alone**: `:141` 9 failures, `:355` 1, `:411` 3, `:388` (owner term deleted) 4, `:446` 1, `:457` 1, `:472` 1, `:492` 1, `:621` 3, `:726` 1. Zero survivors. Two controls bound the matrix from both sides: a comment-only edit to the service kills 0 (so the suite is not merely failing on any edit), and the two `id + version` optimistic-locking predicates at `:451` and `:566` stay green (so the assertions target tenancy rather than over-fitting to every conjunction in the file). Line numbers here supersede the `:130`/`:342`/`:435`… tally in the bullet above, which predates the WIC-1482 commit that shifted the file.
 
+
+### Docs — five build-failing checks, not three: the a11y enforcement table after WIC-1483
+
+PR #226 merged as `f3ed4e39` and became the tip of `main`. Five places across `docs/design/` still
+asserted, in force, that it had not — `ACCESSIBILITY.md` in four (the enforcement note, the
+`npm run lint` claim, the Testing Checklist preamble, the Phase 1 note) and `README.md` in one. This
+is the stale-pointer class in its *denying* direction, which is the more expensive one: an overclaim
+invites a reader to check, a denial tells them not to bother looking.
+
+- **The enforcement table gains two rows and the count moves three → five.** The new rows are
+  `eslint-plugin-jsx-a11y` at `flatConfigs.strict` via `npm run lint`, and
+  `src/test/jsxA11yBaseline.test.ts` via `npm run test`. Both are steps in `Lint & Test`. The
+  resolved surface is **24 `error` / 8 `warn` / 2 `off`**, the 8 frozen at 47 findings across 22
+  files behind `--max-warnings 47`, so enforcement is shrink-only: the existing 47 pass, a 48th
+  fails.
+- **Half the ruled mechanism landed, and the note now says which half.** WIC-1192 ruled for
+  `jsx-a11y` *plus* `axe-core`; `axe-core` is still not a dependency anywhere in the tree, and
+  neither is `pa11y` or a Lighthouse budget. The replaced note claimed the mechanism was "decided
+  but not landed" — the opposite error, made from the same missing measurement.
+- **The prediction the old note left behind was half wrong, and re-deriving the mechanism caught
+  it.** It said boxes 2 and 4 of the Phase 1 checklist "become machine-checkable" once the config
+  landed, and that their hand counts should then be deleted. Box 2 is covered, though at a frozen
+  ceiling of 19 rather than the 28 the box counts. Box 4 is **not** covered: the rule that would
+  catch it, `control-has-associated-label`, is one of the two shipped deliberately `off`, and two of
+  its three named findings are exactly the two controls box 4 names. Deleting that count would have
+  traded a true hand measurement for a check that does not run.
+- **Source citations re-pinned.** 40 files under `packages/web/src` changed since the previous
+  measurement, retiring the note's "the tree is byte-identical, so no figure moved" premise. All
+  four `h1` → `h3` skips survive but three moved line. The `<h2>` in the `ApplicationsList` skip
+  belongs to `KanbanColumn.tsx:65`, not to `KanbanBoard` — `KanbanBoard.tsx` carries no heading at
+  all, which is itself why that skip is invisible to a per-file rule.
+
+Verified at `f3ed4e39`: all four `docs/design/` audits exit 0, and 422 code spans render-checked
+with zero unpaired delimiters.
+
 ### Docs — the modal focus spec and the a11y checklist both denied work that had already shipped (2026-08-31)
 
 `MODAL_FOCUS_MANAGEMENT_SPEC.md` and `ACCESSIBILITY.md` each asserted, in force, that none of the modal focus work existed. PRs #95, #97 and #115 had all merged by 2026-08-31 — `e45cb04`, `ed71ed5`, `bf8c8b3`, all ancestors of `main` — so both documents were describing a tree that no longer existed (WIC-1902).
@@ -202,6 +246,15 @@ Mutating each of the 14 `user_id` predicates in `extraction.service.ts` **alone*
 - **`generate-diff` has a second source type, and only one was tested** — `generateDiffSchema` is `z.enum(['resume', 'application'])` (`catalog.routes.ts:35`), so the WIC-1406 tests covered half the endpoint. An application discloses which company the owner is applying to, the role and the location. Deleting the owner term on `getTextContent`'s applications read (`:559`) left the suite fully green; the foreign call now returns a diff object rather than rejecting, which is what the new test catches.
 - **The resume-path `company_catalog` dedup read was never executed** — every fixture logged `experienceEntries=0`, because `RESUME_TEXT` carries no `EXPERIENCE` heading and `extractExperienceEntries` requires one (`resume.service.ts:296`), so the loop containing `:672` never ran. The twin of the `job_fit_tags` gap recorded above, and found the same way. The new fixture supplies an `EXPERIENCE` heading — the run now logs `experienceEntries=1`, which is the reachability evidence, not an inference. With the owner term dropped, B's resume finds **A's** company row, concludes it already exists, and proposes no create, so B silently ends up with no row at all.
 - **Gated four ways, because a mutation matrix lies in three of them (WIC-1610)** — each mutant asserts the target line matched its expected text and changed on disk; that `passed + failed == 20`, so a mutant that fails to compile cannot read as a clean green; a predicted kill count; and *which* test went red. The last gate is load-bearing here: `:624` and `:672` are byte-identical lines, so a text-anchored edit would silently mutate the wrong one. Mutating `:624` kills a pre-existing AC-3 test and `:672` kills the new one — that they kill *different* tests is what proves the anchor landed. Measured at `e58322f`: baseline 20/20 green, `:559` and `:672` each kill exactly 1, and the `metadata: { userId }` line goes from 1 killed test to 2.
+
+
+### Docs — two design docs outside WIC-1902's scope still denied shipped focus management, and one of them forbade reporting it (2026-09-01)
+
+WIC-1902 corrected `MODAL_FOCUS_MANAGEMENT_SPEC.md` and `ACCESSIBILITY.md`, and re-checked the PR citations elsewhere in `docs/design/` — but only the ones naming PRs #226 and #260. Two more sat outside that sweep and were still asserting, in force, that PRs #95 / #97 / #115 had not landed.
+
+- **`DIALOGUE_CAPTURE_WIZARD.md` was the damaging one, because it carried an instruction rather than a status.** It told the reader `ConfirmationModal` declares "**no** `role="dialog"`, no `aria-modal`, no focus trap and no `restoreFocusTo`", that the audit "reports §5.3 as _not enforced_", and — normatively — that "this guard must not be reported as focus-managed until that lands." Every clause is false at `28e20cd4`: the component is a Radix dialog (`e45cb04`), so `role`, `aria-modal`, the trap and `Escape` come from the primitive; `restoreFocusTo` is declared at `ConfirmationModal.tsx:27` and feeds `useDialogFocusRestore({ fallbackRef })` at `:47`; and the audit is **armed**, printing `ConfirmationModal focus restore OK — 1 call site(s) declared` since `bf8c8b3`. A reader following it would have suppressed a true a11y claim.
+- **`ONBOARDING_FLOW.md` carried a sequencing requirement whose steps are both done** — "land #97 first, then #146 rebased on it". `OnboardingModal` traps focus as of `ed71ed5` and the quick-add landed at `2513309`. Struck rather than amended, because nothing actionable remains in it.
+- **This is the understating direction of the stale-pointer class**, the one WIC-1902 argued is the more expensive: an overclaim invites a reader to check, a denial tells them not to look. Corrections are struck inline per each document's own convention, and every shipped claim is pinned to a merge commit rather than a PR number — verified as an ancestor of `main`, which is how the first draft of this entry caught itself citing `1a4b992`, a branch-side merge, instead of `2513309`.
 
 ### Fixed — The six catalog list endpoints now return the documented envelope instead of a bare array (2026-08-26)
 
@@ -419,6 +472,17 @@ Every route read its body as `schema.safeParse(await c.req.json())`, with the `a
 - **Accessible names are read through jest-dom's `toHaveAccessibleName`, not `dom-accessibility-api` directly.** The latter is only a transitive dependency here, and its `package.json` `exports` block hides its own `.d.ts` from `tsc` — a direct import resolves to `any` and fails `tsc -b` under `noImplicitAny`, while passing an incremental local typecheck whose `.tsbuildinfo` predates the new file. Caught by CI on the first push of this branch; `tsc -b --force` is the check that reproduces it locally.
 - **`ChangeActionBadge` gets its regression cover retroactively.** PR #101 shipped with none available: `packages/web` had no unit-test harness on `main` at the time and the evidence was an out-of-tree axe-core run. The harness has since landed, so the assertions are backfilled here alongside the sibling fix rather than left as prose in a merged PR body.
 - **This class is invisible to `eslint-plugin-jsx-a11y`.** `role-supports-aria-props` only fires once an element _has_ a role, so a role-less element passes clean — confirmed in the WIC-1185 review against the strict ruleset, all 40 rules, zero findings. The lint rule tracked by WIC-1192 would not have caught either instance; these tests are the enforcement.
+
+### Changed — the interview-prep relevance score is `relevanceScorePct` on the wire and in the column (2026-08-30)
+
+`relevanceScore` named two populations at once: the job-fit / resume-variant one is a ratio in `[0, 1]` (the accepted UC-3 definition), and the interview-prep one is a 0-100 integer with no spec backing. ADR-008 §4 puts ratios at the API boundary and requires a deviating field to carry the unit **in its name**, so the interview-prep population is now `relevanceScorePct` end to end — `interview_prep_stories.relevance_score_pct` (migration `0020`), `PrepStoryDTO.relevanceScorePct`, the LLM prompt's JSON key, and the markdown export (WIC-1520, backend half of WIC-1516 AC-T3c).
+
+- **Renamed, not converted, and the migration is gated to prove it.** The column is `INTEGER` and the value is produced by a prompt asking for a `<0-100 integer>`, so converting would mean a column type change plus a value backfill — failure modes strictly worse than the naming problem. `ALTER TABLE ... RENAME COLUMN` moves no data and carries `NOT NULL` with it. The statement is wrapped in an `information_schema` guard so a re-run is a strict no-op rather than `column "relevance_score" does not exist`, and a test asserts the migration contains no `UPDATE` and no `ALTER COLUMN`.
+- **The rename passed the entire 753-test suite with no test edits at all — that was the finding, not the result.** Nothing in the suite observed this field. The one assertion naming it (`interview-prep.routes.test.ts:440`) sits behind a `vi.mock` of the whole service and reads back the test file's own fixture, so it stays green whichever name the service uses; it is structurally incapable of failing on this change. The new gates in `interview-prep-relevance-pct.test.ts` drive the **real** service through the WIC-1449 stub harness instead.
+- **Typed `Percent` *and* tested, because the brand does not reach any of these sites.** Per ADR-008 §3 the brand is checked on assignment only — arithmetic, template interpolation and `JSON.stringify` all erase it — so `relevanceScorePct: Percent` cannot defend the `[0, 100]` clamp or the `/100` export string. Both are pinned by test, along with a negative control that sends the **old** key and asserts the value does *not* arrive: without that direction, a service reading either name looks identical.
+- **Verified by an 11-mutant matrix, each gated on a predicted kill count.** Two predictions were wrong and the gate caught both. One is worth recording: mutating the clamp to `clampRatio(...)` — an identifier this module does not import — crashed at runtime rather than mutating semantics, killing 9 tests instead of 4 and *reading as stronger coverage*. A `passed+failed == baseline` gate does not see that, because all 16 tests still collect. Only the predicted-count gate does.
+- **`drizzle-kit generate` could not produce this migration**, so `0020` is hand-authored in the repo's house style and its `meta/_journal.json` entry (idx 20) is hand-maintained, per the WIC-930 convention. `meta/0001_snapshot.json` is an empty stub (`"tables": {}`) declaring version `"7"`, which the pinned drizzle-kit v0.21.4 rejects as unsupported, and none of the 19 preceding migrations carry drizzle's `--> statement-breakpoint` marker — this repo has never used the generator.
+- **`completeness` (0-100) is deliberately left alone**, as ADR-008 records under "Not addressed", and WIC-1514's files are untouched — that card owns them.
 
 ### Docs — onboarding step 5 is ruled back to an inline quick-add; the entry directly below is superseded in part (2026-08-29)
 
