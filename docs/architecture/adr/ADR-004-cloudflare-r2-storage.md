@@ -83,11 +83,23 @@ Use **Cloudflare R2** for production document storage with S3-compatible API.
 
 **Object Key Convention**:
 ```
-{userId}/{type}/{filename}
+{userId}/{type}/{filename}          documents  (storage.service.buildObjectKey)
+projects/{userId}/{slug}/{filename} project files      (project.service.projectFileKey)
+projects/{userId}/index.md          generated project index
 ```
 - `userId`: Supabase auth UUID, or `anon` for unauthenticated local dev
 - `type`: `resumes`, `resume-exports`, `cover-letters`
+- `slug`: project slug, unique **per user** (`idx_projects_user_slug`), not globally
 - `filename`: Original or generated filename
+
+The `userId` segment is mandatory in every key. Project files carried keys of
+`projects/{slug}/{filename}` until WIC-1433: migration 0017 replaced the global
+unique on `projects.slug` with a per-user composite, so a slug stopped
+identifying a project, and two users owning `acme-corp` shared one directory
+while every DB ownership guard still passed. **A key must be derived from
+whatever the ownership check was performed against** — if a guard asks
+`(slug, user_id)` and the key is built from `slug` alone, the guard is decorative.
+The local-filesystem backend mirrors the same layout under `{dataDir}/`.
 
 **Signed URL Security**:
 - Default expiry: 1 hour

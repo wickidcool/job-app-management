@@ -140,11 +140,9 @@ async function openPanelThenApplyShortcut(user: ReturnType<typeof userEvent.setu
   // initialisers read the fresh value and the bug would not reproduce.
   await user.click(screen.getByRole('button', { name: 'Show filters' }));
   await screen.findByRole('checkbox', { name: STATUS_CHECKBOX_LABELS.interview });
-  // Substring, not exact: the shortcut buttons prefix a decorative ✨ that is not
-  // aria-hidden, so the accessible name is "✨Interviewing" (tracked separately).
-  await user.click(
-    screen.getByRole('button', { name: new RegExp(FILTER_SHORTCUT_LABELS.interviewing) })
-  );
+  // Exact, not substring: the shortcut buttons prefix a decorative ✨ that WIC-1846 marked
+  // aria-hidden, so the accessible name is now the label alone.
+  await user.click(screen.getByRole('button', { name: FILTER_SHORTCUT_LABELS.interviewing }));
 }
 
 describe('/applications filter panel, driven by the real page (WIC-1612)', () => {
@@ -318,7 +316,7 @@ describe('/applications filter panel, driven by the real page (WIC-1612)', () =>
     await waitFor(() => expect(lastRequestedStatuses(requested)).toHaveLength(2));
 
     // A single resync-on-mount would pass the tests above and still fail here.
-    await user.click(screen.getByRole('button', { name: /Active Offers/ }));
+    await user.click(screen.getByRole('button', { name: FILTER_SHORTCUT_LABELS.activeOffers }));
 
     await waitFor(() => expect(lastRequestedStatuses(requested)).toEqual(['offer']));
     expect(checkedCheckboxNames()).toEqual([STATUS_CHECKBOX_LABELS.offer]);

@@ -8,11 +8,18 @@ import {
   useExportResumeVariant,
 } from '../hooks/useResumeVariants';
 import type { ExportResumeVariantRequest } from '../services/api/types';
+import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 export function ResumeVariantDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, isLoading, error } = useResumeVariant(id);
+
+  // Mirrors the page <h1> (`variant.title`). Read off `data?` rather than the
+  // `const { variant } = data` destructure below, which is unreachable until after the
+  // loading and error early-returns — the two renders the fallback exists for.
+  useDocumentTitle(data?.variant?.title || DYNAMIC_TITLE_FALLBACKS.resumeVariant);
   const updateVariant = useUpdateResumeVariant();
   const reviseVariant = useReviseResumeVariant();
   const exportVariant = useExportResumeVariant();

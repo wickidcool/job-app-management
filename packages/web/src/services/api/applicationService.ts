@@ -34,6 +34,35 @@ function transformAPIApplication(apiApp: APIApplication): Application {
 }
 
 /**
+ * Page size requested from the API. `GET /api/applications` caps `limit` at 100
+ * (`packages/api/src/routes/applications.ts`), so this is the largest legal page.
+ */
+export const APPLICATION_PAGE_SIZE = 100;
+
+/**
+ * Hard bound on how many pages `getAllPaged` will follow. At the maximum page
+ * size this is 5,000 applications — far beyond any realistic account, but it
+ * stops a bad `nextPage` cursor from looping forever. Hitting it sets
+ * `truncated`, which callers must surface rather than swallow.
+ */
+export const MAX_APPLICATION_PAGES = 50;
+
+/**
+ * A complete (or explicitly-incomplete) set of applications for a filter.
+ */
+export interface ApplicationCollection {
+  applications: Application[];
+  /** Rows the server reports for this filter, independent of how many were fetched. */
+  totalCount: number;
+  /**
+   * True when pagination stopped at `MAX_APPLICATION_PAGES` with a `nextPage`
+   * cursor still outstanding — i.e. `applications` is a prefix, not the whole set.
+   * Callers must render this rather than presenting a partial view as complete.
+   */
+  truncated: boolean;
+}
+
+/**
  * Application Service using real API
  * This service matches the interface of mockApplicationService
  * for easy drop-in replacement
@@ -45,14 +74,10 @@ export class ApplicationService {
     this.client = client;
   }
 
-  /**
-   * Get all applications
-   */
-  async getAll(filters?: {
-    status?: string[];
-    company?: string;
-    search?: string;
-  }): Promise<Application[]> {
+  private buildListQuery(
+    filters?: { status?: string[]; company?: string; search?: string },
+    page?: string
+  ): string {
     const params = new URLSearchParams();
 
     if (filters?.status && filters.status.length > 0) {
@@ -67,11 +92,68 @@ export class ApplicationService {
       params.append('search', filters.search);
     }
 
-    const queryString = params.toString();
-    const url = queryString ? `/applications?${queryString}` : '/applications';
+    params.append('limit', String(APPLICATION_PAGE_SIZE));
 
-    const response = await this.client.get<ListApplicationsResponse>(url);
-    return response.applications.map(transformAPIApplication);
+    if (page) {
+      params.append('page', page);
+    }
+
+    return `/applications?${params.toString()}`;
+  }
+
+  /**
+   * Get all applications, following `nextPage` to exhaustion.
+   *
+   * The API pages this endpoint (default 50, max 100) ordered by most-recently
+   * updated. Reading only the first page silently drops every older row, which
+   * is fatal for any caller asking an "oldest"/"how many in total" question.
+   * This follows the cursor instead, and reports via `truncated` when it could
+   * not finish rather than returning a partial set that looks complete.
+   */
+  async getAllPaged(filters?: {
+    status?: string[];
+    company?: string;
+    search?: string;
+  }): Promise<ApplicationCollection> {
+    const applications: Application[] = [];
+    let page: string | undefined;
+    let totalCount = 0;
+    let truncated = false;
+
+    for (let fetched = 0; fetched < MAX_APPLICATION_PAGES; fetched++) {
+      const response = await this.client.get<ListApplicationsResponse>(
+        this.buildListQuery(filters, page)
+      );
+
+      applications.push(...response.applications.map(transformAPIApplication));
+      totalCount = response.totalCount ?? applications.length;
+      page = response.nextPage;
+
+      if (!page) {
+        return { applications, totalCount, truncated };
+      }
+    }
+
+    // Ran out of page budget with a cursor still outstanding.
+    truncated = true;
+    return { applications, totalCount, truncated };
+  }
+
+  /**
+   * Get all applications.
+   *
+   * Convenience wrapper over {@link getAllPaged} for callers that only need the
+   * rows. Callers that render a count or a "nothing needs attention" conclusion
+   * should use `getAllPaged` (or the dashboard aggregates) so they can tell a
+   * complete answer from a partial one.
+   */
+  async getAll(filters?: {
+    status?: string[];
+    company?: string;
+    search?: string;
+  }): Promise<Application[]> {
+    const { applications } = await this.getAllPaged(filters);
+    return applications;
   }
 
   /**

@@ -209,7 +209,7 @@ interface UploadError {
 │    Drag & drop your resume      │
 │    or click to browse           │
 │                                 │
-│    Accepts: PDF, DOCX (max 5MB) │
+│   Accepts: PDF, DOCX (max 10MB) │
 └─────────────────────────────────┘
 ```
 
@@ -264,12 +264,32 @@ interface UploadError {
 #### Validation Rules
 
 ```typescript
+// in packages/web/src/components/onboarding/ResumeUploadZone.tsx
+import { MAX_RESUME_SIZE_BYTES } from '../../constants/upload'
+
 const VALIDATION = {
   acceptedFormats: ['.pdf', '.docx'],
-  maxSizeBytes: 5 * 1024 * 1024, // 5MB
+  maxSizeBytes: MAX_RESUME_SIZE_BYTES,
   minSizeBytes: 1024, // 1KB
 }
 ```
+
+> **Do not restate the size limit in this document.** It lives in code, in two
+> places that are pinned to each other:
+>
+> | side | constant | file |
+> |---|---|---|
+> | client | `MAX_RESUME_SIZE_BYTES` | `packages/web/src/constants/upload.ts` |
+> | server | `MAX_FILE_SIZE` | `packages/api/src/routes/resumes.ts` |
+>
+> Both are `10 * 1024 * 1024` (10MB), matching WIC-238 AC-3/AC-4.
+> `packages/web/src/constants/upload.drift.test.ts` reads the API constant and
+> fails the build if the two ever diverge. The wireframes below quote "10MB" for
+> readability only — if the constant changes, they are stale, not authoritative.
+>
+> This doc previously specified 5MB, which is where the client's 5MB limit came
+> from; it silently rejected files the server and the accepted criteria both
+> allowed (WIC-1382 / WIC-1436).
 
 ---
 
@@ -523,7 +543,7 @@ Your resume is the foundation of your profile. We'll extract your experience and
 
 **Validation:**
 - File format must be PDF or DOCX
-- File size must be < 5MB
+- File size must be <= 10MB (`MAX_RESUME_SIZE_BYTES`; see Validation Rules above)
 - Upload must succeed
 
 **Action:** [Continue →] (enabled after successful upload)
@@ -633,10 +653,16 @@ user on an *optional* step and invites the reading that footer [Next Step] will 
 
 **Focus trap — the objection that expires.** WIC-1689 declined to render a form inline
 because this dialog has no focus trap (`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2). That was true
-when written and is why the ruling did not exist earlier. **PR #97 (WIC-1141) migrates
+when written and is why the ruling did not exist earlier. ~~**PR #97 (WIC-1141) migrates
 `OnboardingModal` to a Radix `Dialog`**, which traps focus. So this is a **sequencing
 requirement, not a caveat**: land #97 first, then #146 rebased on it. Do not merge an inline
-form into an untrapped dialog — inputs are precisely the case §2 is about.
+form into an untrapped dialog — inputs are precisely the case §2 is about.~~
+**Expired as designed, 2026-09-01 (WIC-1902 residue).** The objection is gone and so is the
+sequencing requirement: `OnboardingModal` is a Radix `Dialog` and traps focus as of `ed71ed5`,
+and the quick-add landed on top of it at `2513309`. Both steps of the "land X, then Y" are
+done, so the paragraph is struck rather than amended — there is no remaining instruction in it.
+The rule it invoked still stands on its own terms (§2): do not put inputs in an untrapped
+dialog. This one is trapped.
 
 **Scope held.** The footer decline stays unconditional and writes
 `applicationStepSkipped: true` even if the form is open and half-typed. Discarding a partial
@@ -721,7 +747,7 @@ Your resume is uploaded and you're ready to start tracking applications.
 │   │      Drag & drop your resume                          │  │
 │   │      or click to browse                               │  │
 │   │                                                        │  │
-│   │      Accepts: PDF, DOCX (max 5MB)                     │  │
+│   │      Accepts: PDF, DOCX (max 10MB)                    │  │
 │   │                                                        │  │
 │   └────────────────────────────────────────────────────────┘  │
 │                                                                │
@@ -803,7 +829,7 @@ Your resume is uploaded and you're ready to start tracking applications.
 │  │  Tap to upload       ││
 │  │                       ││
 │  │  PDF or DOCX         ││
-│  │  (max 5MB)           ││
+│  │  (max 10MB)          ││
 │  │                       ││
 │  └───────────────────────┘│
 │                           │
@@ -878,7 +904,7 @@ Your resume is uploaded and you're ready to start tracking applications.
     aria-label="Upload resume: Drag and drop or click to browse"
     aria-describedby="upload-hint"
   >
-    <p id="upload-hint">Accepts PDF, DOCX (max 5MB)</p>
+    <p id="upload-hint">Accepts PDF, DOCX (max 10MB)</p>
   </div>
 </div>
 
@@ -1061,12 +1087,12 @@ if (!supportsDragDrop) {
 
 ### 4. Large File Handling
 
-**Scenario:** User uploads 50MB file (exceeds 5MB limit)
+**Scenario:** User uploads 50MB file (exceeds the 10MB limit)
 
 ```
 ┌───────────────────────────────────┐
 │   ⚠️  File too large              │
-│   Maximum size is 5MB             │
+│   Maximum size is 10MB            │
 │   Your file: resume.pdf (50.2MB) │
 │                                   │
 │   Tips:                           │
@@ -1141,35 +1167,55 @@ if (!supportsDragDrop) {
 
 ### Onboarding State Schema
 
+The shape below is the `onboarding_status` table in
+`packages/api/src/db/schema.ts` — one row per user, server-owned. It is the only
+persisted onboarding state that exists.
+
 ```typescript
-interface OnboardingState {
-  status: 'not_started' | 'in_progress' | 'completed' | 'dismissed'
-  currentStep: number
-  progress: {
-    welcomeViewed: boolean
-    resumeUploaded: boolean
-    resumeId?: string
-    tourCompleted: boolean
-    firstApplicationCreated: boolean
-  }
-  dismissCount: number
-  lastDismissedAt?: Date
-  completedAt?: Date
-  metadata: {
-    startedAt: Date
-    totalTimeSpent: number // seconds
-    deviceType: 'mobile' | 'tablet' | 'desktop'
-  }
+// packages/api/src/db/schema.ts — onboardingStatus
+interface OnboardingStatus {
+  id: string
+  userId: string
+  currentStep: 'welcome' | 'personal_info' | 'resume_upload' | 'first_application' | 'completed'
+
+  // Each step carries an exclusive completed/skipped pair. A step is never
+  // both; WIC-1382 fixed the client that used to set both flags at once.
+  personalInfoStepCompleted: boolean
+  personalInfoStepSkipped: boolean
+  resumeStepCompleted: boolean
+  resumeStepSkipped: boolean
+  applicationStepCompleted: boolean
+  applicationStepSkipped: boolean
+
+  startedAt: Date
+  completedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+  version: number // optimistic-concurrency counter, bumped on every write
 }
 ```
 
+> **Historical note (WIC-1436).** This section previously specified a different
+> `OnboardingState` with `welcomeViewed`, `tourCompleted`, `dismissCount` and
+> `lastDismissedAt`. None of those fields were ever built. There is no dismissal
+> counter and no "permanent hide" persistence — the dismissal behaviour sketched
+> earlier in this document is unimplemented design intent, not shipped state.
+
 ### Persistence Strategy
 
-- **localStorage:** Used for client-side progress tracking
-- **Backend API:** Sync state on completion or dismissal
-- **Conflict Resolution:** Server state wins on login
+- **Backend API:** the server row is the single source of truth. Every step
+  transition is a write; there is no local mirror to reconcile.
+- **No localStorage.** Onboarding progress is *not* persisted client-side.
+  `OnboardingModal` used to write an `onboarding_progress` key that nothing ever
+  read back — a write-only key that looked like resume-on-reload support and was
+  not. WIC-1382 (D-9) deleted it, and
+  `packages/web/src/components/onboarding/OnboardingModal.test.tsx` asserts the
+  key is never written. **Do not reintroduce it**; if client-side resume is
+  wanted, spec the read path first.
+- **Conflict Resolution:** the `version` column. A write carries the version it
+  read and fails with a version conflict if the row moved underneath it.
 
-**API Endpoints:**
+**API Endpoints** (`packages/api/src/routes/onboarding.ts`, mounted at `/api`):
 
 > The request shapes previously sketched here were never built, and one of the endpoints
 > (`POST /api/users/me/onboarding/dismiss`) does not exist. See
