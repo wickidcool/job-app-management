@@ -799,7 +799,7 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;     // 0-1, percentage of applications with response
+  responseRate: number;     // Ratio in [0,1] — applications with a response / applied. NOT a percentage; multiply at render
 }
 
 export interface ActivityItem {
