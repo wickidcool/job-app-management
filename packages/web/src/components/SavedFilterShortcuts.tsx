@@ -102,8 +102,19 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
     saveFilters(updated);
   };
 
+  // This gates "+ Save Current", and it has to agree with `FilterPanel`'s own
+  // `hasActiveFilters` — the two bars render inches apart, and WIC-1612 was largely
+  // about them disagreeing. WIC-1613 adds `dateRange`, without which a window the user
+  // had just set would be unsaveable while the panel below offered `Clear All` over
+  // filters this bar denied were active. `activeOnly` was missing for the same reason
+  // and is added with it.
   const hasActiveFilters = Boolean(
-    currentFilters.search || currentFilters.status?.length || currentFilters.company?.length
+    currentFilters.search ||
+    currentFilters.status?.length ||
+    currentFilters.company?.length ||
+    currentFilters.activeOnly ||
+    currentFilters.dateRange?.start ||
+    currentFilters.dateRange?.end
   );
 
   return (
@@ -165,7 +176,14 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
               onClick={() => handleApplyShortcut(shortcut)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 text-primary-700 rounded-md text-sm font-medium hover:bg-primary-100 transition-colors border border-primary-200"
             >
-              {shortcut.isPredefined && <span className="text-xs">✨</span>}
+              {/* Decorative only — `isPredefined` is already conveyed by the absence of the
+                  delete control. Without aria-hidden the emoji joins the button's accessible
+                  name and is announced before every label (WIC-1846). */}
+              {shortcut.isPredefined && (
+                <span className="text-xs" aria-hidden="true">
+                  ✨
+                </span>
+              )}
               {shortcut.name}
             </button>
             {!shortcut.isPredefined && (
