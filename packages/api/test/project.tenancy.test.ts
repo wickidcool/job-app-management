@@ -85,7 +85,7 @@ const {
   listProjects,
 } = await import('../src/services/project.service.js');
 const { projects } = await import('../src/db/schema.js');
-const { NotFoundError, ConflictError } = await import('../src/types/index.js');
+const { NotFoundError, ConflictError, AppError } = await import('../src/types/index.js');
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -343,5 +343,155 @@ describe('WIC-1433 — local filesystem backend', () => {
       expect((await listProjects(user)).map((p) => p.slug)).toEqual([]);
       await expect(getProjectBySlug('legacy-co', user)).rejects.toBeInstanceOf(NotFoundError);
     }
+  });
+});
+
+/**
+ * WIC-1901 — AC-T0: the *absent* owner.
+ *
+ * Every case above hands the service a real `userId`, so all of them pass with
+ * `projectScope`'s fail-open `else` branch (`eq(projects.slug, slug)`) still in
+ * place: that branch is only reachable when the owner is `undefined`. AC-T0
+ * (ADR-010) is the missing half — an **authenticated request whose owner did
+ * not resolve** must match **zero** rows, never "whichever tenant's row the
+ * planner reaches first".
+ *
+ * This is not a hypothetical input. `middleware/auth.ts` sets `userId` to
+ * `null` on two live paths: the local auth-bypass dev mode (`:29`, no Supabase
+ * config) *and* a fully verified JWT carrying no `sub` claim (`:62`, `:69` —
+ * `(payload.sub as string) ?? null`), which is production-reachable. The routes
+ * then pass `c.get('userId') ?? undefined` straight through.
+ *
+ * The fail-closed posture is expressed by **deleting** the absent-owner branch,
+ * not by re-predicating it to `isNull(projects.userId)`: migration 0017
+ * backfilled every NULL `user_id` with a placeholder UUID and set the column
+ * `NOT NULL`, so an `isNull` predicate is dead code that only *looks* like a
+ * tenancy guard. The DDL above mirrors that (`user_id UUID NOT NULL`).
+ */
+describe('WIC-1901 — AC-T0: an owner-less caller reaches no tenant’s row', () => {
+  /** Both tenants' rows, aged so a stray re-stamp is visible without racing the clock. */
+  const AGED = '2020-01-01T00:00:00Z';
+
+  async function seedAndAge() {
+    await seedBothUsers();
+    await client.exec(`UPDATE projects SET updated_at = '${AGED}';`);
+  }
+
+  it('AC-T0-1 — an owner-less file write re-stamps zero rows', async () => {
+    await seedAndAge();
+
+    // All three `touchProject` call sites, driven with no owner.
+    await updateProjectFile(SLUG, FILE, B_CONTENT, undefined);
+    await createProjectFile(SLUG, 'another.md', B_CONTENT, undefined);
+    await deleteProjectFile(SLUG, 'another.md', undefined);
+
+    const rows = await db.select().from(projects).where(eq(projects.slug, SLUG));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(
+        row.updatedAt.toISOString(),
+        `tenant ${row.userId} was re-stamped by a caller who owns no project`
+      ).toBe(new Date(AGED).toISOString());
+    }
+
+    // Control: the same call *with* an owner does re-stamp, so the assertion
+    // above is scoping and not a re-stamp that silently stopped happening.
+    await updateProjectFile(SLUG, FILE, B_CONTENT, USER_B);
+    expect((await rowFor(USER_B)).updatedAt.getTime()).toBeGreaterThan(new Date(AGED).getTime());
+    expect((await rowFor(USER_A)).updatedAt.toISOString()).toBe(new Date(AGED).toISOString());
+  });
+
+  it('AC-T0-2 — getProjectBySlug does not hand an owner-less caller a tenant’s row', async () => {
+    await seedBothUsers();
+
+    await expect(getProjectBySlug(SLUG, undefined)).rejects.toBeInstanceOf(NotFoundError);
+    // Control: the row is genuinely retrievable by its owner through this path.
+    await expect(getProjectBySlug(SLUG, USER_A)).resolves.toMatchObject({ fileCount: 1 });
+  });
+
+  it('AC-T0-3 — getOrCreateProjectBySlug binds an owner-less caller to nobody', async () => {
+    await seedBothUsers();
+    const aRow = await rowFor(USER_A);
+
+    // Unscoped this returned A's row, and every downstream write — resume upload
+    // (`resume.service.ts`), dialogue capture (`dialogue.service.ts`) — then
+    // landed in a project the caller does not own.
+    await expect(getOrCreateProjectBySlug(SLUG, 'Acme Corp', undefined)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    // ...and it did not create a row of its own either, so the failure is a
+    // rejection and not a silent third tenant.
+    const rows = await db.select().from(projects).where(eq(projects.slug, SLUG));
+    expect(rows.map((r) => r.id).sort()).toEqual([aRow.id, (await rowFor(USER_B)).id].sort());
+  });
+
+  it('AC-T0-4 — createProject rejects before the existence check, not after it', async () => {
+    await seedBothUsers();
+
+    // The discriminating assertion. The owner-less caller always ended in a
+    // rejection, so "it throws" proves nothing — *which* error it throws is the
+    // finding. Pre-fix the slug-only SELECT ran first and produced
+    // `409 Project with this slug already exists`, disclosing that some other
+    // tenant holds `acme-corp`. It must now be the 400, which discloses nothing.
+    await expect(createProject({ name: 'Acme Corp', slug: SLUG }, undefined)).rejects.toMatchObject(
+      { statusCode: 400 }
+    );
+    await expect(
+      createProject({ name: 'Acme Corp', slug: SLUG }, undefined)
+    ).rejects.not.toBeInstanceOf(ConflictError);
+
+    // Control: a slug no tenant holds takes the same 400 — i.e. the answer does
+    // not vary with another tenant's data, which is what makes it not an oracle.
+    await expect(
+      createProject({ name: 'Nobody Holds This', slug: 'nobody-holds-this' }, undefined)
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    // Control: within one owner the conflict still fires.
+    await expect(createProject({ name: 'Acme Corp', slug: SLUG }, USER_A)).rejects.toBeInstanceOf(
+      ConflictError
+    );
+    expect(AppError.name).toBe('AppError');
+  });
+});
+
+describe('WIC-1901 — AC-T0: single-user local dev is unchanged', () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    storageAvailable = false;
+    tmp = await fs.mkdtemp(join(tmpdir(), 'wic1901-'));
+    dataDir = tmp;
+  });
+
+  afterAll(async () => {
+    storageAvailable = true;
+  });
+
+  it('AC-T0-5 — the auth-bypass caller still owns its own `anon` tree', async () => {
+    // The local auth-bypass dev mode has no `userId` at all, so it can never
+    // hold a `projects` row: `createProject` has always rejected an owner-less
+    // caller with a 400 (`user_id` is `NOT NULL`), on `main` as much as here.
+    // Its projects are therefore *directories only* — the same un-rowed shape
+    // AC-14 exercises — living under `projects/anon/…` and reached through the
+    // filesystem fallback, which is owner-namespaced and untouched by this
+    // change. Fail-closing the DB reads removes cross-tenant reach, not dev
+    // behaviour, because there was never a dev row for the DB read to find.
+    await fs.mkdir(join(tmp, 'projects', 'anon', SLUG), { recursive: true });
+    await createProjectFile(SLUG, FILE, B_CONTENT, undefined);
+    expect(await fs.readFile(join(tmp, 'projects', 'anon', SLUG, FILE), 'utf-8')).toBe(B_CONTENT);
+    expect(await getProjectFile(SLUG, FILE, undefined)).toBe(B_CONTENT);
+    await expect(getProjectBySlug(SLUG, undefined)).resolves.toMatchObject({
+      slug: SLUG,
+      fileCount: 1,
+    });
+
+    // And a real tenant's row is still invisible to it: A's DB row exists and
+    // holds a different document, and neither the row nor the bytes leak.
+    await createProject({ name: 'Acme Corp', slug: SLUG }, USER_A);
+    await createProjectFile(SLUG, 'a-only.md', A_SECRET, USER_A);
+    const devView = await getProjectBySlug(SLUG, undefined);
+    expect(devView.id, 'the DB row must not be served to the owner-less caller').toBe(SLUG);
+    expect((await listProjectFiles(SLUG, undefined)).map((f) => f.fileName)).toEqual([FILE]);
   });
 });

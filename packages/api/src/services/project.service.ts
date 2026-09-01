@@ -88,11 +88,19 @@ function validateFileName(fileName: string): void {
  * The `where` every project row lookup and every project row write must carry.
  * Slug alone matches one row per user, so an unscoped predicate reaches (and,
  * for an UPDATE with no `LIMIT`, rewrites) every tenant holding that slug.
+ *
+ * WIC-1901 — `userId` is **required**. This used to fall back to `slug` alone
+ * when the owner was absent, which is fail-open: one UPDATE re-stamped every
+ * tenant's row and three SELECTs handed back whichever tenant's row sorted
+ * first. The absent-owner branch is *deleted* rather than re-predicated
+ * (ADR-010 / AC-T0): `isNull(projects.userId)` would be dead code — migration
+ * 0017 backfilled every NULL with a placeholder and set the column `NOT NULL` —
+ * and a predicate that can never match is a worse thing to maintain than no
+ * predicate at all. Each caller now decides what "no owner" means for it, in a
+ * `if (!userId)` guard that always exits.
  */
-function projectScope(slug: string, userId?: string) {
-  return userId
-    ? and(eq(projects.slug, slug), eq(projects.userId, userId))
-    : eq(projects.slug, slug);
+function projectScope(slug: string, userId: string) {
+  return and(eq(projects.slug, slug), eq(projects.userId, userId));
 }
 
 /**
@@ -114,14 +122,31 @@ async function assertProjectOwned(slug: string, userId?: string): Promise<void> 
 }
 
 /**
- * Re-stamp `updated_at` after a file mutation. Scoped: an UPDATE keyed on slug
- * alone carries no `LIMIT`, so before WIC-1433 one user saving a file re-stamped
- * *every* user's row holding that slug and reshuffled their `listProjects`
- * ordering (which sorts on `updatedAt DESC`).
+ * Re-stamp `updated_at` after a file mutation. The `where` must name the owner:
+ * migration 0017 replaced the global unique on `slug` with the composite
+ * `idx_projects_user_slug`, so a slug-only predicate legitimately matches one
+ * row per tenant holding that slug. An UPDATE carries no `LIMIT`, so before
+ * WIC-1676 one user saving a file re-stamped **every** such row and reshuffled
+ * those users' `listProjects` ordering, which sorts on `updatedAt DESC`. It
+ * fired unconditionally — a present owner did not help — which makes it worse
+ * than the fail-open predicates the WIC-1638 burndown covered.
+ *
+ * The owner is a required parameter, not an optional one (ADR-010 D2), so the
+ * absent-owner case is unrepresentable here and each caller resolves it with a
+ * fail-closed `if (!userId) return;` instead. Skipping the re-stamp is the safe
+ * side — a missed `updated_at` is a display-ordering artifact, where the
+ * slug-only predicate was a cross-tenant write. Rejecting the owner-less caller
+ * outright belongs with ADR-010 D1 (WIC-1554 / PR #210), which removes
+ * `userId: null` at the route edge; doing it here alone would 400 the local
+ * auth-bypass dev mode, where `middleware/auth.ts` still sets `userId` to
+ * `null` by design (ADR-003).
  */
-async function touchProject(slug: string, userId?: string): Promise<void> {
+async function touchProject(slug: string, userId: string): Promise<void> {
   const db = getDb();
-  await db.update(projects).set({ updatedAt: new Date() }).where(projectScope(slug, userId));
+  await db
+    .update(projects)
+    .set({ updatedAt: new Date() })
+    .where(and(eq(projects.slug, slug), eq(projects.userId, userId)));
 }
 
 // ── Local filesystem helpers (used only when R2 is not available) ────────────
@@ -198,13 +223,19 @@ export async function createProject(
     );
   }
 
+  // WIC-1901 — this guard used to sit *below* the existence check, so an
+  // owner-less caller ran a slug-only SELECT first and got `409 Project with
+  // this slug already exists` whenever *any* tenant held the slug. That is an
+  // existence oracle over other tenants' project names, and it fired on the way
+  // to a 400 the caller was going to get anyway. Rejecting first is fail-closed
+  // and strictly cheaper: the SELECT below now always names an owner.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to create a project', undefined, 400);
+  }
+
   const existing = await db.select().from(projects).where(projectScope(slug, userId)).limit(1);
   if (existing.length > 0) {
     throw new ConflictError('Project with this slug already exists');
-  }
-
-  if (!userId) {
-    throw new AppError('BAD_REQUEST', 'userId is required to create a project', undefined, 400);
   }
 
   // Create directory on local filesystem when R2 is not available
@@ -268,7 +299,16 @@ export async function getProject(projectId: string, userId?: string): Promise<Pr
 
 export async function getProjectBySlug(slug: string, userId?: string): Promise<ProjectMeta> {
   const db = getDb();
-  const [project] = await db.select().from(projects).where(projectScope(slug, userId)).limit(1);
+  // WIC-1901 — fail closed: a caller with no resolved owner owns no row, so the
+  // lookup is *skipped* rather than widened to slug alone. Unscoped it returned
+  // whichever tenant's row the planner reached first, with that row's id, name,
+  // description and fileCount. The local-FS fallback below still runs, and is
+  // itself owner-namespaced (`{dataDir}/projects/anon/…`) — that is the
+  // single-user auth-bypass dev path, and it is unreachable from production
+  // where `middleware/auth.ts` only yields a null owner for a `sub`-less JWT.
+  const [project] = userId
+    ? await db.select().from(projects).where(projectScope(slug, userId)).limit(1)
+    : [];
 
   if (project) {
     const fileCount = await getFileCount(project.userId, project.slug);
@@ -509,6 +549,8 @@ export async function updateProjectFile(
     await fs.writeFile(filePath, content, 'utf-8');
   }
 
+  // Fail closed: no owner, no re-stamp. See `touchProject`.
+  if (!userId) return;
   await touchProject(slug, userId);
 }
 
@@ -548,6 +590,8 @@ export async function createProjectFile(
     await fs.writeFile(filePath, content, 'utf-8');
   }
 
+  // Fail closed: no owner, no re-stamp. See `touchProject`.
+  if (!userId) return;
   await touchProject(slug, userId);
 }
 
@@ -575,6 +619,8 @@ export async function deleteProjectFile(
     }
   }
 
+  // Fail closed: no owner, no re-stamp. See `touchProject`.
+  if (!userId) return;
   await touchProject(slug, userId);
 }
 
@@ -630,6 +676,17 @@ export async function getOrCreateProjectBySlug(
   userId?: string
 ): Promise<ProjectMeta> {
   const db = getDb();
+  // WIC-1901 — fail closed: with no resolved owner there is no owned row to
+  // return, so delegate straight to `createProject`, which rejects the
+  // owner-less caller with the same 400 it always has. This is the sharpest of
+  // the three reads: unscoped it handed the caller *another* user's project row
+  // for the same slug, and it is the entry point for resume upload
+  // (`resume.service.ts:659,699`) and dialogue capture
+  // (`dialogue.service.ts:196`) — so everything downstream then wrote into a
+  // project the caller does not own. A deterministic 400 replaces a silent
+  // cross-tenant bind.
+  if (!userId) return createProject({ name: name || slug, slug }, userId);
+
   // Scoped. Unscoped, this handed the caller *another* user's project row for
   // the same slug — the entry point for resume upload and dialogue capture, so
   // everything downstream then wrote into a project the caller does not own.
