@@ -178,6 +178,7 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 | `/resumes/:resumeId/exports` | `Resume Exports` | **added 2026-08-27** — same component, `resumeId` optional (`ResumeExports.tsx:12`); route absent from the 2026-08-19 table |
 | `/catalog` | `Master Catalog Index` | `CatalogBrowse/CatalogBrowseView.tsx:116` |
 | `/job-fit-analysis` | `Job Fit Analysis` → `Job Fit Analysis Results` | `JobFitAnalysis.tsx:460` / `:148`, stage-dependent (§3) — ~~`:462` / `:144`~~ |
+| `/cover-letters` | `Cover Letters` | `CoverLettersList.tsx:54` — **added 2026-08-27** by **WIC-1533**, the route's first standing entry point; sibling of `/resume-variants` below |
 | `/cover-letters/new` | `Generate Cover Letter` | `CoverLetterNew.tsx:47` — ~~`CoverLetterGenerator.tsx:181`~~, moved to a page `<h1>` by **WIC-1571** |
 | `/cover-letters/:id` | `Cover Letter` | `CoverLetterDetail.tsx:104` |
 | `/outreach/new` | `Compose Outreach Message` | `OutreachNew.tsx:29` |

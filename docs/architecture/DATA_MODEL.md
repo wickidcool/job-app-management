@@ -221,7 +221,7 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;
+  responseRate: number; // 0-1 — a ratio, not a percentage (see API_CONTRACTS.md)
 }
 ```
 

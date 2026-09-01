@@ -141,7 +141,17 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;
+  /**
+   * Share of applications that drew a response, as a **ratio in [0, 1]** —
+   * `0.75` means 75%. Source of record for the unit is
+   * `docs/architecture/API_CONTRACTS.md` (`GET /dashboard`), which is what the
+   * API actually ships.
+   *
+   * Branded so it cannot be rendered as though it were already a percentage;
+   * convert with `toPercent` from `../../types/units` at the display site
+   * (WIC-1514).
+   */
+  responseRate: Ratio;
 }
 
 /**
@@ -158,11 +168,54 @@ export interface ActivityItem {
 }
 
 /**
+ * A single application referenced by the dashboard attention block.
+ *
+ * Deliberately minimal: enough to label and link a row, never the full
+ * application (`jobDescription` in particular can be very large).
+ */
+export interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+}
+
+/**
+ * Full-table aggregates behind the Dashboard's "Attention Required" and
+ * "Quick Wins" cards.
+ *
+ * Every `counts` field is computed server-side over *all* of the user's
+ * applications, never over a page of them. `samples` are short top-N lists used
+ * to render individual action rows; a sample list shorter than its count is
+ * expected and does not mean the count is truncated.
+ */
+export interface DashboardAttention {
+  staleThresholdDays: number;
+  savedThresholdDays: number;
+  counts: {
+    interviewing: number;
+    stale: number;
+    staleActive: number;
+    missingJobDescription: number;
+    staleSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];
+    staleActive: AttentionApplication[];
+    missingJobDescription: AttentionApplication[];
+    staleSaved: AttentionApplication[];
+  };
+}
+
+/**
  * Dashboard Response
  */
 export interface DashboardResponse {
   stats: DashboardStats;
   recentActivity: ActivityItem[];
+  attention: DashboardAttention;
 }
 
 /**
@@ -198,12 +251,25 @@ export interface CoverLetterVariant {
   emphasis: CoverLetterEmphasis;
 }
 
+/**
+ * Mirrors the API's `CoverLetterSummaryDTO` (`packages/api/src/types/index.ts`), which is
+ * what `GET /api/cover-letters` returns for each row. Keep the two in step: they are
+ * separate `interface` declarations in separate packages, so `tsc` cannot compare them and
+ * drift here is silent. This type previously declared a `keywords: string[]` the API has
+ * never sent, and omitted `targetCompany`/`targetRole` — the only fields that relate a
+ * letter back to the application it was written for (WIC-1533).
+ */
 export interface CoverLetterSummary {
   id: string;
+  status: 'draft' | 'finalized';
   title: string;
-  keywords: string[];
-  createdAt: string;
+  targetCompany: string;
+  targetRole: string;
+  tone: CoverLetterTone;
+  lengthVariant: CoverLetterLength;
   preview: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CoverLetterResult {
@@ -217,6 +283,7 @@ export interface CoverLetterResult {
 
 export interface ListCoverLettersResponse {
   coverLetters: CoverLetterSummary[];
+  nextCursor?: string;
 }
 
 /**
@@ -242,6 +309,12 @@ export interface GenerateCoverLetterResponse {
     id: string;
     title: string;
     content: string;
+    // Both are NOT NULL on `cover_letters` and are mapped unconditionally by the API's
+    // `toDTO` (cover-letter.service.ts), so they are always present on the wire. They
+    // were simply missing from this type, which is why nothing downstream could read
+    // the letter's own job context (WIC-1530).
+    targetCompany: string;
+    targetRole: string;
     tone: CoverLetterTone;
     lengthVariant: CoverLetterLength;
     emphasis: CoverLetterEmphasis;
@@ -263,20 +336,12 @@ export interface ReviseCoverLetterRequest {
 }
 
 export interface ReviseCoverLetterResponse {
-  coverLetter: {
-    id: string;
-    title: string;
-    content: string;
-    tone: CoverLetterTone;
-    lengthVariant: CoverLetterLength;
-    emphasis: CoverLetterEmphasis;
-    wordCount: number;
-    selectedStarEntryIds: string[];
-    status: 'draft' | 'finalized';
-    version: number;
-    createdAt: string;
-    updatedAt: string;
-  };
+  // `POST /cover-letters/:id/revise` and `POST /cover-letters` return the same server
+  // shape — both map the row through `toDTO`. This was a second, hand-copied
+  // declaration of it, which is how it came to be missing `targetCompany`/`targetRole`
+  // while the generate response was corrected (WIC-1530). Referencing the one
+  // declaration keeps the two from drifting apart again.
+  coverLetter: GenerateCoverLetterResponse['coverLetter'];
 }
 
 export interface UpdateCoverLetterRequest {
