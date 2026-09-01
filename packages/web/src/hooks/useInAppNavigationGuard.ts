@@ -40,8 +40,8 @@ import { useNavigationGuardControls } from '../contexts/CommandPaletteContext';
  *
  * NOT covered: browser back/forward, and any future programmatic `navigate()`
  * caller that does not consult `requestNavigation`. Neither can be intercepted
- * generically without migrating to a data router. Do not describe this guard as
- * total.
+ * generically without migrating to a data router — tracked as WIC-1924. Do not
+ * describe this guard as total.
  *
  * Modified clicks (new tab/window), `target="_blank"`, `download`, and
  * off-origin hrefs are deliberately left alone: none of them discard the
