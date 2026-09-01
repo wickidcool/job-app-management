@@ -4,16 +4,50 @@
 # Deliberately scoped to this one file — union resolves by concatenation with no
 # conflict, which is correct for a changelog and wrong for structured files.
 #
-# CAVEAT — this does NOT stop github.com from showing "This branch has conflicts".
-# Merge drivers are a local-checkout feature. GitHub computes PR mergeability
-# server-side with the default text driver and does not apply this rule, so a PR
-# that touches [Unreleased] flips to CONFLICTING as soon as another such PR
-# merges ahead of it. The driver makes the fix free; it does not prevent the flag.
+# The driver is LOAD-BEARING, and that much is measured. This repo's workflow
+# merges origin/main into each branch LOCALLY before the PR lands, and local git
+# demonstrably honours the driver. Measured 2026-09-01 at main 28e20cd across
+# all 73 open PRs, each replayed against its OWN base tip: 15 are clean with
+# union and conflict without it, and in all 15 the ONLY conflicting file is
+# CHANGELOG.md. Do not delete this line and do not migrate to changelog
+# fragments.
 #
-# Measured 2026-08-26 (WIC-1363): of 30 open PRs, 25 touched CHANGELOG.md and 17
-# read CONFLICTING — 15 of those 17 in both sets. On an 8-PR sample, CHANGELOG.md
-# conflicted under the default driver every time, and in 7 of the 8 it was the
-# *only* conflicting file, i.e. those PRs were otherwise clean.
+# CAVEAT — github.com may still show "This branch has conflicts". Two separate
+# reasons, and conflating them is what has repeatedly gone wrong here:
+#
+#   1. The mergeable flag is a STICKY-DIRTY CACHE. Once GitHub marks a PR
+#      CONFLICTING, nothing re-evaluates it when the conflict later leaves the
+#      base branch. Same 2026-09-01 sweep: 29 PRs read CONFLICTING and 15 of
+#      them (52%) merge clean at their current base. Of the 14 that genuinely
+#      conflict, ZERO conflict on CHANGELOG.md. So a red flag is an upper bound
+#      that decays — never report a changelog-conflict backlog from it.
+#
+#   2. Whether GitHub's SERVER applies this driver is UNMEASURED here, in both
+#      directions. This file used to assert "GitHub does not apply this rule"
+#      as settled fact; that is withdrawn (WIC-1904), as was the symmetric
+#      "38 of 38 proves it does" (WIC-1859). Both were base-coordinate
+#      artifacts — they replayed PRs against today's main rather than against
+#      the base GitHub actually used. The discriminating case (a PR GitHub
+#      computes clean while it genuinely conflicts without union AT THAT SAME
+#      BASE) is empty: all 15 union-dependent PRs above have a STALE
+#      refs/pull/N/merge whose first parent is not the current base tip, so
+#      they certify nothing either way. That is structural, not bad luck — the
+#      local pre-merge sync below resolves the union seam before GitHub's
+#      server merge ever sees it, so the case cannot arise in this workflow.
+#      Argue from neither direction.
+#
+# Earlier figures in this file (WIC-1363, 2026-08-26: "of 30 open PRs, 25
+# touched CHANGELOG.md and 17 read CONFLICTING") counted that sticky-dirty flag
+# rather than conflicts, and are superseded by the sweep above.
+#
+# To decide whether a PR really is mergeable, use ground truth, never the flag
+# alone: fetch refs/pull/N/merge and check it is a 2-parent commit with no
+# conflict markers AND that its first parent is the current base tip, or run a
+# real merge at the PR's current base in a throwaway worktree. If you use
+# `git merge-tree`, --attr-source is a GLOBAL option and must come before the
+# subcommand (`git --attr-source=<base> merge-tree ...`); placed after it, git
+# exits 129, and omitted entirely it reads attributes from the working tree and
+# measures nothing.
 #
 # So: do not go looking for a real conflict, and do not rebase a PR that others
 # are stacked on. Merge main in and push — the driver resolves it on the way
