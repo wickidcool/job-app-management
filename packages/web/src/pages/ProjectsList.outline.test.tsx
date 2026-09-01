@@ -52,6 +52,19 @@ function renderProjectsList() {
 }
 
 /**
+ * Headroom for the first `findBy*` in each file.
+ *
+ * Testing Library's `asyncUtilTimeout` defaults to **1000ms**, and this repo configures
+ * it nowhere. That is a different knob from vitest's `testTimeout`, which WIC-1889 (PR
+ * #322) raises to 15s — so that change does not cover this failure mode and this constant
+ * does not duplicate it. Measured here: under 12x CPU load on a cold cache the empty-branch
+ * query failed at 2279ms with `TestingLibraryElementError: Unable to find role="heading"`,
+ * i.e. it blew the 1000ms async-util budget while staying far inside the 5000ms test
+ * budget. The cost is the first test in a file paying module transform and import.
+ */
+const OUTLINE_QUERY_TIMEOUT = { timeout: 5_000 };
+
+/**
  * Each test spies on the real service rather than declaring a `vi.mock` factory that
  * lists the two methods this page happens to call today. A hand-enumerated factory is
  * an allowlist: it keeps passing when the page starts calling a third method, because
@@ -63,7 +76,7 @@ describe('ProjectsList heading outline', () => {
     vi.spyOn(projectService, 'listProjects').mockResolvedValue([]);
 
     const { container } = renderProjectsList();
-    await screen.findByRole('heading', { name: 'No documents found' });
+    await screen.findByRole('heading', { name: 'No documents found' }, OUTLINE_QUERY_TIMEOUT);
 
     const outline = getOutline(container);
     expect(findOutlineSkips(outline), describeOutline(outline)).toEqual([]);
@@ -83,7 +96,7 @@ describe('ProjectsList heading outline', () => {
     ]);
 
     const { container } = renderProjectsList();
-    await screen.findByRole('heading', { name: 'Acme Corp' });
+    await screen.findByRole('heading', { name: 'Acme Corp' }, OUTLINE_QUERY_TIMEOUT);
 
     const outline = getOutline(container);
     expect(findOutlineSkips(outline), describeOutline(outline)).toEqual([]);
