@@ -38,17 +38,33 @@
 #   `SUPABASE_POOLER_REGION` variables, which is everything needed to rebuild the
 #   transaction-pooler URL exactly the way deploy.yml already does.
 
-name: Supabase keep-alive
+name: Supabase keep-alive & prod auth canary
+
+# Two independent liveness touches share this workflow (WIC-1296 asked that the auth
+# probe fold in here rather than spawn a second cron file):
+#   * keepalive     — read-only `SELECT 1` every 3rd day, keeps the free-tier projects
+#                     out of the auto-pause window (WIC-1293).
+#   * auth-canary   — POSTs invalid canary credentials to prod `/api/auth/login` every
+#                     15 min and asserts a STRUCTURED rejection, catching the WIC-1281
+#                     total-auth outage that every existing monitor stayed green through.
+# Each job is gated on which schedule fired, so the 15-min cadence the canary needs does
+# NOT drag the keep-alive `SELECT 1` along with it.
 
 on:
   schedule:
     # 06:17 UTC, every third day. Offset off the hour to avoid the
     # top-of-hour scheduling congestion that delays GitHub cron runs.
+    # -> keepalive job only.
     - cron: '17 6 */3 * *'
+    # Every 15 minutes -> auth-canary job only. Prod auth was 100% down for hours
+    # under WIC-1281 with no monitor going red; ~15-min detection is the target.
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 concurrency:
-  group: supabase-keepalive
+  # Per-schedule group so a slow 3-day keep-alive never cancels or queues behind a
+  # 15-min canary (and vice versa). cancel-in-progress stays off: never kill a touch.
+  group: supabase-keepalive-${{ github.event.schedule || 'dispatch' }}
   cancel-in-progress: false
 
 permissions:
@@ -57,6 +73,10 @@ permissions:
 jobs:
   keepalive:
     name: keep-alive (${{ matrix.env }})
+    # Only the 3-day cron (and manual dispatch) — never the 15-min canary schedule.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '17 6 */3 * *'
     runs-on: ubuntu-latest
     strategy:
       # Never let one dead project stop the other from being kept alive.
@@ -140,3 +160,119 @@ jobs:
             echo "::error::${{ matrix.env }} (${PROJECT_REF}) keep-alive failed: ${OUT}"
           fi
           exit 1
+
+  # WIC-1296 / WIC-1284 — Synthetic production auth probe.
+  #
+  # WHY THIS EXISTS
+  #   Under WIC-1281 the production Supabase project paused and EVERY login broke,
+  #   yet not one monitor went red. The reason is structural: `GET /api/*` runs the
+  #   JWT auth middleware first and returns 401 *before* it ever touches Postgres, so
+  #   an authenticated health check can never observe a DB outage. This probe instead
+  #   exercises the one unauthenticated path that must reach Supabase — the login
+  #   handler — and asserts the DB actually answered.
+  #
+  # WHAT IT ASSERTS  (this is the whole point; read before editing)
+  #   A *healthy* invalid-credential login returns HTTP 401 with a STRUCTURED body:
+  #       {"error":{"code":"AUTH_ERROR","message":"Invalid login credentials"}}
+  #   That exact message only appears once Supabase has validated the credentials, so
+  #   it is proof the request reached a live database. During the WIC-1281 outage the
+  #   SAME endpoint returned 401 with an EMPTY "{}" message, because Supabase was
+  #   paused before it could validate. HTTP status is therefore NOT the discriminator
+  #   — the message text is. PASS iff `.error.message == "Invalid login credentials"`.
+  #   FAIL on anything else: empty/"{}" message, any 5xx, non-JSON, or an unreachable host.
+  #
+  # SAFETY
+  #   Invalid-credential login only. `signInWithPassword` is read-only; it never
+  #   creates an account and never mutates state. The canary account does not exist
+  #   and the password is deliberately wrong, so this can only ever be rejected. No
+  #   secret is required — a real credential would defeat the purpose.
+  auth-canary:
+    name: prod auth canary (invalid-credential login)
+    # Only the 15-min cron (and manual dispatch) — never the 3-day keep-alive schedule.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '*/15 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Probe prod /api/auth/login with invalid canary credentials
+        env:
+          # Prod base URL. Overridable via a repo variable; defaults to production.
+          PROD_BASE_URL: ${{ vars.PROD_BASE_URL || 'https://app.careerpin.app' }}
+        run: |
+          set -uo pipefail
+          # app.careerpin.app is the API Worker; the bare apex serves the marketing
+          # site and 405s POST /api/auth/login. Do not point the canary at the apex.
+          BASE="${PROD_BASE_URL:-https://app.careerpin.app}"
+          URL="${BASE%/}/api/auth/login"
+          # A non-existent canary account with a deliberately-wrong password. This can
+          # never authenticate and never mutates state (signInWithPassword only reads).
+          EMAIL="auth-canary-invalid@careerpin.app"
+          PW="wic1296-synthetic-canary-not-a-real-password" # secret-scan:allow — deliberately-invalid synthetic canary credential (WIC-1296); it can never authenticate and is not a real secret
+
+          echo "Probing ${URL} with invalid canary credentials"
+          RESP=$(curl -sS -m 25 -w $'\n%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST "$URL" \
+            --data "{\"email\":\"${EMAIL}\",\"password\":\"${PW}\"}" 2>/tmp/curl.err)
+          CURL_RC=$?
+          CODE=$(printf '%s' "$RESP" | tail -n1)
+          BODY=$(printf '%s' "$RESP" | sed '$d')
+          echo "curl rc=${CURL_RC} http=${CODE}"
+          echo "body=${BODY}"
+
+          if [ "$CURL_RC" -ne 0 ]; then
+            echo "::error::Prod auth canary could NOT reach ${URL} (curl rc=${CURL_RC}: $(cat /tmp/curl.err)). Production auth may be unreachable. See WIC-1281/WIC-1296."
+            exit 1
+          fi
+
+          if [ "${CODE:-0}" -ge 500 ]; then
+            echo "::error::Prod auth canary got HTTP ${CODE} from ${URL} — a 5xx means the auth stack itself is failing server-side. See WIC-1281/WIC-1296."
+            exit 1
+          fi
+
+          # Extract .error.message; exit 3 on non-JSON / unparseable body.
+          cat > "${RUNNER_TEMP:-/tmp}/parse_auth.py" <<'PY'
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+          except Exception:
+              sys.exit(3)
+          print((d.get("error") or {}).get("message", ""))
+          PY
+          MSG=$(printf '%s' "$BODY" | python3 "${RUNNER_TEMP:-/tmp}/parse_auth.py")
+          PARSE_RC=$?
+
+          if [ "$PARSE_RC" -eq 3 ]; then
+            echo "::error::Prod auth canary got a NON-JSON / unparseable body from ${URL} (http ${CODE}). Production auth is degraded — this is the WIC-1281 outage signature."
+            exit 1
+          fi
+
+          if [ "$MSG" = "Invalid login credentials" ]; then
+            echo "✅ Production auth is LIVE — structured rejection 'Invalid login credentials' at HTTP ${CODE}. The login path reached Supabase and it validated."
+            exit 0
+          fi
+
+          echo "::error::Prod auth canary FAILED: expected HTTP 401 with message 'Invalid login credentials' but got http=${CODE} message='${MSG}'. An empty/'{}'/AUTH_ERROR-without-validation body is the exact WIC-1281 signature — production auth may be DOWN and no other monitor catches this. See WIC-1296."
+          exit 1
+
+      - name: Surface a failure where a human will see it
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          TITLE="🔴 Prod auth canary FAILED — production login may be down"
+          BODY=$(printf 'The scheduled production auth canary failed.\n\nIt POSTs invalid canary credentials to `/api/auth/login` and expects the structured rejection `Invalid login credentials`, which only a live Supabase produces. A failure is the WIC-1281 total-auth-outage signature — and no other monitor catches it, because `GET /api/*` returns 401 before it touches Postgres.\n\nFailing run: %s\n\nRunbook: WIC-1296 / WIC-1281. A paused Supabase project can only be restored by the account owner in the console.' "$RUN_URL")
+          # Dedup: comment on the standing incident issue if one is already open,
+          # else open a fresh one. Avoids a new issue every 15 minutes during an outage.
+          EXISTING=$(gh issue list --state open --search "in:title \"Prod auth canary FAILED\"" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "${EXISTING:-}" ]; then
+            gh issue comment "$EXISTING" --body "$BODY" && echo "Commented on open incident issue #${EXISTING}"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" && echo "Opened a new incident issue"
+          fi

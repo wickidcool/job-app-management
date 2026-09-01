@@ -101,7 +101,7 @@ This directory contains comprehensive UI/UX design specifications for the Job Ap
 ### 5. [Accessibility](./ACCESSIBILITY.md)
 **Purpose:** Ensure WCAG 2.1 Level AA compliance for inclusive design.
 
-> **Aspiration, not a verified property.** Nothing in CI checks any of it — no `eslint-plugin-jsx-a11y`, `axe`, `pa11y` or Lighthouse budget exists in the repo (`main` @ `6911bcb`), and a heading-order scan finds a majority of pages violating SC 1.3.1. Read this document as a hand-checked standard until **WIC-1483** lands a mechanism; ACCESSIBILITY.md carries the detail.
+> **Partly enforced, and still short of the document's scope.** ~~Nothing in CI checks any of it — no `eslint-plugin-jsx-a11y`, `axe`, `pa11y` or Lighthouse budget exists in the repo (`main` @ `6911bcb`)~~ — **superseded 2026-09-01.** WIC-1483 landed the mechanism as `f3ed4e39`: `eslint-plugin-jsx-a11y` at `flatConfigs.strict` runs in `Lint & Test`, shrink-only behind a frozen 47-finding baseline. **`axe`, `pa11y` and a Lighthouse budget are still absent**, and a per-file lint rule cannot see heading order, so the SC 1.3.1 finding stands — a heading-order scan still finds a majority of pages violating it. Read this document as a hand-checked standard everywhere outside the five build-failing checks; ACCESSIBILITY.md carries the detail and the exact boundary.
 
 **Contents:**
 - Keyboard navigation patterns (global & component-specific)

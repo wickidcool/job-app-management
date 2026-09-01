@@ -100,12 +100,23 @@ Rules for the guard:
   `{isOpen, title, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel}` — so the
   copy above maps onto it directly, with `variant="danger"`.
 - **It is a dialog, so `MODAL_FOCUS_MANAGEMENT_SPEC.md` applies** — focus trap, `Escape` resolves
-  to "Keep editing", focus returns to the control that opened it. Be aware of what you are
+  to "Keep editing", focus returns to the control that opened it. ~~Be aware of what you are
   inheriting: at `bb21d20` `ConfirmationModal` declares **no** `role="dialog"`, no `aria-modal`,
   no focus trap and no `restoreFocusTo` (the repo's own `confirmation-modal-focus-audit.py`
   reports §5.3 as *not enforced* pending WIC-1181 / PR #115). Reusing it is still right — the fix
   belongs in the shared component, not in a wizard-local copy — but this guard must not be
-  reported as focus-managed until that lands.
+  reported as focus-managed until that lands.~~
+  **Corrected 2026-09-01 (WIC-1902 residue). Every clause of the struck text is now false, and it
+  carried a standing instruction, so it was not merely stale — it forbade reporting a capability
+  that had shipped.** Re-measured on `main` at `28e20cd4`: `ConfirmationModal` is a Radix dialog
+  (`Dialog.Root` / `Portal` / `Overlay` / `Content` / `Title` / `Description`), so `role="dialog"`,
+  `aria-modal`, the focus trap and `Escape` all come from the primitive; `restoreFocusTo` is
+  declared at `ConfirmationModal.tsx:27` and feeds `useDialogFocusRestore({ fallbackRef })` at
+  `:47`. The audit is **armed, not dormant** — it prints
+  `ConfirmationModal focus restore OK — 1 call site(s) declared`. Landed at `e45cb04`
+  (the component) and `bf8c8b3` (the `ResumeManager` fallback that arms the audit).
+  **So reuse it and report it as focus-managed.** The one obligation that does carry over is §5.3's:
+  if this guard's trigger can be destroyed by the action it confirms, pass `restoreFocusTo`.
 - **Nesting matters.** `WizardContainer` is itself `role="dialog" aria-modal="true"`, so this is
   a dialog inside a dialog: the focus-restore target is the wizard control that was activated,
   not the page beneath.

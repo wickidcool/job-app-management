@@ -2,6 +2,42 @@
 
 This document defines all reusable UI components with their states, variants, props, and behaviors.
 
+## Reading the props: score and rate units
+
+**Every normalized score, rate and proportion in a props interface below is a ratio in `[0, 1]`,
+and the component multiplies by 100 at render.** A prop that deviates carries `Pct` in its name.
+The convention is [ADR-008](../architecture/adr/ADR-008-score-and-rate-unit-convention.md) and its
+normative statement is the "Units: normalized scores and rates" section of
+[API_CONTRACTS.md](../architecture/API_CONTRACTS.md) — this document does not restate the rule,
+it obeys it.
+
+This is worth reading before you write a threshold or a `%`. Six of this document's own
+`relevanceScore` declarations were annotated `0-100` while shipped code produced `0-1`; five of
+them were simply wrong, and `StarEntryPicker`'s `>= 80` filter is the bug those comments
+authorised (WIC-1516). The rule of thumb:
+
+| You wrote | On a ratio prop, that means |
+|---|---|
+| `score >= 80` | never true — you want `>= 0.8` |
+| `{score}%` | renders `0.85%` — you want `{formatRatioAsPercent(score)}` |
+
+`packages/web/src/types/units.ts` exports `Ratio`, `Percent`, `toPercent` and
+`formatRatioAsPercent`.
+
+**Do not read the `Ratio` brand as covering the two mistakes in that table — it does not.**
+The brand catches *assignment*: a `Percent`, or a bare `number` off a wire parse, landing in a
+`Ratio` prop. Arithmetic and rendering erase it. `Ratio` is assignable to `number`, so
+`score >= 80` is a well-typed comparison and `{score}%` is a well-typed `ReactNode`; **both
+compile.** (Measured, not assumed — see ADR-008 §3.)
+
+So, concretely, for a prop you are writing:
+
+- **Render through `formatRatioAsPercent(score)`**, never a hand-written `* 100`. Routing the
+  render through a function that takes the brand is what makes a wrong-unit render a compile
+  error; the bare `{score}%` form gets you nothing.
+- **Write a test for every threshold.** `>= 0.8` vs `>= 80` is invisible to the compiler and
+  always will be. A test is the only thing holding that line.
+
 ## Reading the wireframes: casing
 
 The ASCII wireframes below depict **rendered output**, not source strings. An all-caps label in a
@@ -77,10 +113,12 @@ convention checks itself rather than only being looked up.
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | §13 `MODERATE FIT`                                                 | Runtime `.toUpperCase()` in `JobFitAnalysis.tsx`                                                                                             | WIC-1125, WIC-1288                |
 | StoryEditor / answer-composer `SITUATION` `TASK` `ACTION` `RESULT` | Wireframes depict an unbuilt component; `wizard/STARInput.tsx` ships different strings                                                       | Resolve when StoryEditor is built |
-| §26 `KEY PHRASES:` `REDIRECT TO:`                                  | `GapMitigationPanel.tsx:211/:227` still ships literal caps. De-shout the wireframe once the source lands, per rule 2 — no `uppercase` class. | WIC-1205 (PR #103)                |
 
 The QuickReferenceExport Main View, Mobile Preview and PDF Layout wireframes are no longer listed here:
 PR #98, PR #100 and PR #102 have all merged, so those lines now match the strings the component ships.
+The §26 `KEY PHRASES:` / `REDIRECT TO:` rows are likewise gone: this change ships the
+`GapMitigationPanel.tsx:211/:227` source fix, so per rule 3 the wireframe is de-shouted to match in the
+same commit rather than left marked against a merged ticket.
 
 ### Why this note is shaped this way
 
@@ -91,6 +129,12 @@ That produced four tickets finding the same defect further down the same file (W
 WIC-1187 → WIC-1195). It also stated that a shouted heading must always be de-shouted, which is too
 strong: a heading uppercased by a CSS class is correct, because the caps never reach the accessibility
 tree. Marking intent per line removes the derivation, and with it the recurrence (WIC-1195).
+
+The source-side half of this is enforced in CI by `local/no-literal-caps-jsx-text`
+(`packages/web/eslint-rules/no-literal-caps-jsx-text.js`, WIC-1209): a literal all-caps JSX text node
+fails lint, while mixed-case source plus a CSS `uppercase` class passes. See
+`CONTENT_STYLE.md` §"ALL CAPS is a typographic treatment, not casing" for the rule's scope and its
+three known blind spots.
 
 ---
 
@@ -421,12 +465,25 @@ interface DashboardStatsProps {
   stats: {
     total: number;
     appliedThisWeek: number;
-    responseRate: number; // 0-100
+    responseRate: Ratio; // 0-1 — a ratio, NOT a percentage
     inReview: number; // phone_screen + interview count
   };
   loading?: boolean;
 }
 ```
+
+> **Unit of `responseRate`: a ratio in [0, 1]** — `0.75` means 75%. The source of
+> record for this unit is
+> [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md)
+> (`GET /dashboard`), which is also what the API ships. The API sends the ratio
+> unchanged and **the presentation layer converts**, matching the convention UC-3
+> already uses for `relevanceScore`.
+>
+> This spec previously said `0-100`, contradicting API_CONTRACTS. Nothing adapted
+> between the two, so the component ran `Math.round(0.75)` and the "Response" card
+> could only ever read "0%" or "1%" (WIC-1514). The unit is now branded as `Ratio`
+> in `packages/web/src/types/units.ts`; convert with `toPercent(...)` at the render
+> site.
 
 ### Layout
 
@@ -1294,7 +1351,7 @@ interface CatalogMatch {
   type: 'skill' | 'experience' | 'achievement';
   catalogItemId: string;
   title: string;
-  matchConfidence: number; // 0-100
+  confidence: number; // Ratio in [0,1] — the API field is `confidence` (API_CONTRACTS.md:974). ADR-008 §4
   reasoning: string;
 }
 
@@ -1306,7 +1363,7 @@ interface Gap {
 
 interface STARRecommendation {
   experienceId: string;
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — job-fit population (ADR-008)
   reasoning: string;
 }
 
@@ -2486,7 +2543,7 @@ interface STAREntry {
   result: string;
   tags: string[];
   timeframe: string; // e.g., "Q3 2024"
-  relevanceScore?: number; // 0-100, from fit analysis
+  relevanceScore?: number; // Ratio in [0,1] — from fit analysis, so it is the job-fit population (ADR-008). Render as `Math.round(s * 100)`; a `>= 80` threshold is a bug, use `>= 0.8`
   relevanceReasoning?: string;
 }
 ```
@@ -2823,7 +2880,7 @@ interface ScoredBullet {
   company: string;
   timeframe: string;
   tags: string[];
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string;
   selected: boolean;
 }
@@ -3080,7 +3137,7 @@ interface ScoredBullet {
   company: string;
   timeframe: string;
   tags: string[];
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string;
   starEntry: {
     situation: string;
@@ -3425,7 +3482,7 @@ interface MarkdownResumePreviewProps {
 
 interface BulletTrace {
   starEntryId: string;
-  relevanceScore: number;
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   company: string;
   title: string;
 }
@@ -3714,7 +3771,7 @@ interface STARStory {
   id: string;
   title: string;
   themes: string[]; // 'leadership' | 'technical' | 'teamwork' | 'problem_solving' | 'communication' | 'innovation'
-  relevanceScore: number; // 0-100
+  relevanceScorePct: number; // Percent in [0,100], integer — interview-prep population, the one deviation (ADR-008 §4)
   situation: string;
   task: string;
   action: string;
@@ -3844,7 +3901,7 @@ type Theme = {
 - **ARIA Role:** `tablist` for themes, `listbox` for stories
 - **Tab Navigation:** Tab between theme tabs, Enter to select
 - **Arrow Keys:** Navigate between story cards
-- **Screen Reader:** "{title}, {relevanceScore}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
+- **Screen Reader:** "{title}, {relevanceScorePct}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
 
 ### Responsive Behavior
 
@@ -4117,10 +4174,10 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 │ │   directly, I've deployed containerized apps with       │ │
 │ │   Docker and worked closely with DevOps teams..."       │ │
 │ │                                                         │ │
-│ │   KEY PHRASES: "containerized applications",            │ │   ‹deferred›
+│ │   Key phrases: "containerized applications",            │ │
 │ │   "Docker experience", "DevOps collaboration"           │ │
 │ │                                                         │ │
-│ │   REDIRECT TO: Docker & CI/CD expertise                 │ │   ‹deferred›
+│ │   Redirect to: Docker & CI/CD expertise                 │ │
 │ │   [Copy Script] [Practice]                              │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────────────────┐ │
