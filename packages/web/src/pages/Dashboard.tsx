@@ -6,6 +6,7 @@ import { QuickWins } from '../components/QuickWins';
 import { useDashboard } from '../hooks/useDashboard';
 import { useResumes } from '../hooks/useResumes';
 import type { ApplicationStatus } from '../types/application';
+import { asRatio } from '../types/units';
 
 export function Dashboard() {
   const { data: dashboardData, isLoading: dashboardLoading } = useDashboard();
@@ -18,7 +19,7 @@ export function Dashboard() {
     byStatus: {} as Record<ApplicationStatus, number>,
     appliedThisWeek: 0,
     appliedThisMonth: 0,
-    responseRate: 0,
+    responseRate: asRatio(0),
   };
 
   const displayStats = {
