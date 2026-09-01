@@ -1,9 +1,16 @@
 import { Link } from 'react-router-dom';
-import { differenceInDays } from 'date-fns';
-import type { Application } from '../types/application';
+import type { DashboardAttention } from '../services/api/types';
 
 interface AttentionCardProps {
-  applications: Application[];
+  /**
+   * Server-computed aggregates over *every* application.
+   *
+   * This card must never derive its counts from a list of applications held by
+   * the client: `GET /api/applications` returns a page ordered by most-recently
+   * updated, so filtering it for the *least* recently updated rows drops exactly
+   * the ones this card exists to surface.
+   */
+  attention?: DashboardAttention;
 }
 
 interface AttentionItem {
@@ -14,64 +21,53 @@ interface AttentionItem {
   count?: number;
 }
 
-export function AttentionCard({ applications }: AttentionCardProps) {
+export function AttentionCard({ attention }: AttentionCardProps) {
   const items: AttentionItem[] = [];
+  const counts = attention?.counts;
+  const interviewCount = counts?.interviewing ?? 0;
+  const staleThresholdDays = attention?.staleThresholdDays ?? 7;
 
   // Check for upcoming interviews
-  const interviewApps = applications.filter(
-    (app) => app.status === 'interview' || app.status === 'phone_screen'
-  );
-
-  if (interviewApps.length > 0) {
+  if (interviewCount > 0) {
     items.push({
       type: 'critical',
       icon: '🔴',
-      message: `${interviewApps.length} interview${interviewApps.length > 1 ? 's' : ''} in progress`,
+      message: `${interviewCount} interview${interviewCount > 1 ? 's' : ''} in progress`,
       link: '/applications?status=interview,phone_screen',
-      count: interviewApps.length,
+      count: interviewCount,
     });
   }
 
-  // Check for stale applications (>7 days in same status)
-  const staleApps = applications.filter((app) => {
-    if (app.status === 'offer' || app.status === 'rejected' || app.status === 'withdrawn') {
-      return false; // Terminal statuses don't go stale
-    }
-    const daysSinceUpdate = differenceInDays(new Date(), new Date(app.updatedAt));
-    return daysSinceUpdate > 7;
-  });
+  // Check for stale applications (no update in the stale window)
+  const staleCount = counts?.stale ?? 0;
 
-  if (staleApps.length > 0) {
+  if (staleCount > 0) {
     items.push({
       type: 'warning',
       icon: '🟡',
-      message: `${staleApps.length} application${staleApps.length > 1 ? 's' : ''} need follow-up (>7 days)`,
+      message: `${staleCount} application${staleCount > 1 ? 's' : ''} need follow-up (>${staleThresholdDays} days)`,
       link: '/reports/stale',
-      count: staleApps.length,
+      count: staleCount,
     });
   }
 
   // Check for applications without job descriptions (can't do fit analysis)
-  const missingDescApps = applications.filter(
-    (app) =>
-      !app.jobDescription &&
-      app.status !== 'offer' &&
-      app.status !== 'rejected' &&
-      app.status !== 'withdrawn'
-  );
+  const missingDescCount = counts?.missingJobDescription ?? 0;
 
-  if (missingDescApps.length > 0 && missingDescApps.length <= 5) {
+  if (missingDescCount > 0 && missingDescCount <= 5) {
     items.push({
       type: 'warning',
       icon: '📝',
-      message: `${missingDescApps.length} application${missingDescApps.length > 1 ? 's' : ''} missing job description`,
+      message: `${missingDescCount} application${missingDescCount > 1 ? 's' : ''} missing job description`,
       link: '/applications',
-      count: missingDescApps.length,
+      count: missingDescCount,
     });
   }
 
-  // Success message when everything is in good shape
-  if (items.length === 0) {
+  // Success message when everything is in good shape.
+  // Only claim this once the aggregates have actually arrived — with no data
+  // there is nothing to be up to date about.
+  if (items.length === 0 && attention) {
     items.push({
       type: 'success',
       icon: '🟢',
@@ -131,7 +127,7 @@ export function AttentionCard({ applications }: AttentionCardProps) {
         ))}
       </div>
 
-      {interviewApps.length > 0 && (
+      {interviewCount > 0 && (
         <div className="mt-4">
           <Link
             to="/applications?status=interview"
