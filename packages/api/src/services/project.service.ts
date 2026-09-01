@@ -198,13 +198,18 @@ export async function createProject(
     );
   }
 
+  // WIC-1434 — the owner check runs *before* the existence check. Reversed, an
+  // owner-less create reached `projectScope(slug, undefined)`, which degrades to
+  // a slug-only match, and answered 409 "already exists" — disclosing that some
+  // other user holds this slug, to a caller who was going to be rejected anyway.
+  // The 400 is both the honest answer and the one that leaks nothing.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to create a project', undefined, 400);
+  }
+
   const existing = await db.select().from(projects).where(projectScope(slug, userId)).limit(1);
   if (existing.length > 0) {
     throw new ConflictError('Project with this slug already exists');
-  }
-
-  if (!userId) {
-    throw new AppError('BAD_REQUEST', 'userId is required to create a project', undefined, 400);
   }
 
   // Create directory on local filesystem when R2 is not available
@@ -624,16 +629,47 @@ export async function generateProjectIndex(
   return { path: indexKey, projectCount: allProjects.length };
 }
 
+/**
+ * Resolve the caller's project with this slug, creating it if they have none.
+ *
+ * `userId` is **required**, unlike everywhere else in this file. The other
+ * lookups fall back to a slug-only predicate when `userId` is absent, which is
+ * the deliberate local auth-bypass dev mode (`projectScope`, `assertProjectOwned`).
+ * That fallback is never correct *here*, and WIC-1434 is the proof:
+ * `createProject` is the only `insert(projects)` in the codebase and it rejects
+ * a missing `userId`, so every row in `projects` has a real owner. An
+ * owner-less call therefore has exactly two possible outcomes — the reuse
+ * branch hands back some authenticated user's row (their project id and file
+ * count, to a caller who is not them, and their project is then treated as the
+ * caller's for the rest of the request), or the create branch throws. Neither
+ * is a behaviour worth preserving, so the parameter is required and the
+ * predicate is spelled out rather than delegated to the conditional helper.
+ */
 export async function getOrCreateProjectBySlug(
   slug: string,
-  name?: string,
-  userId?: string
+  name: string | undefined,
+  userId: string
 ): Promise<ProjectMeta> {
+  // Belt and braces with the required type: this is reachable from JS callers
+  // and from a JWT whose `sub` claim is absent, where `userId` is `null` at
+  // runtime however the signature reads.
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to resolve a project by slug',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
-  // Scoped. Unscoped, this handed the caller *another* user's project row for
-  // the same slug — the entry point for resume upload and dialogue capture, so
-  // everything downstream then wrote into a project the caller does not own.
-  const [existing] = await db.select().from(projects).where(projectScope(slug, userId)).limit(1);
+  // Scoped, and deliberately not via `projectScope` — that helper degrades to a
+  // slug-only match on a falsy `userId`, which is the defect this function had.
+  const [existing] = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.slug, slug), eq(projects.userId, userId)))
+    .limit(1);
 
   if (existing) {
     const fileCount = await getFileCount(existing.userId, existing.slug);
