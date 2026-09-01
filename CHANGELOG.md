@@ -81,6 +81,36 @@ The Dashboard's "Attention Required" and "Quick Wins" cards derived every number
 - **Two behaviour changes worth noting:** the Quick Wins badge now counts every actionable application rather than the (≤5) rows on screen, and the sampled follow-up rows are ordered oldest-first, so the two most-stale applications surface rather than the two least-stale ones that happened to head the page.
 - **Regression coverage** — `Dashboard.attention.test.tsx` seeds 150 applications with 40 stale past the page boundary and asserts the card reports 40 (AC-N1c); it is red on the pre-fix tree, and its first case pins that the seed's first page contains zero stale rows, so the suite cannot pass for the wrong reason. Plus `applicationService.pagination.test.ts` (exhaustion, filter forwarding, visible truncation), `AttentionCard.test.tsx`, `QuickWins.test.tsx`, and `dashboard.routes.test.ts` for the wire contract. `dashboard.routes.test.ts` mocks the service module wholesale, though, so none of those execute the aggregation itself — inverting `lt` to `gte` on both thresholds compiles, would ship, and passed the entire gate while reporting the freshly-touched rows as the ones needing follow-up, which is this card's own defect one layer down. `dashboard.attention-conditions.test.ts` closes that: it lifts the predicates into an exported `buildAttentionConditions(now)` and pins them in two independent halves — the SQL each renders (the direction of every threshold comparison and the status set each count covers, via drizzle's own dialect, no database and no new dependency) and the wiring from predicate to reported field (a fake `db` that answers with a distinct count per predicate, so swapping two `countMatching` calls moves a number into the wrong field).
 
+
+### Docs — ACCESSIBILITY.md describes the accessibility linting that landed, instead of predicting it (2026-09-01)
+
+`eslint-plugin-jsx-a11y` merged in `f3ed4e3`. `docs/design/ACCESSIBILITY.md` went on asserting, in force and in six
+separate places, that no such config existed — the stale-pointer class in its denying direction, where the document
+tells a reader not to bother looking for a check that is already failing builds.
+
+- **The card reported four now-false passages; there are six.** The two it did not name are the two that matter most,
+  because they sit in the status block at the top of the file and are the flattest to quote: the header counted
+  *three* build-failing checks where there are now **five**, and the paragraph under it said `npm run lint` carries
+  "**no accessibility rules at all**" and that the plugin "is not a dependency". Both were simply untrue.
+  Re-derive a count before inheriting it, including from the ticket that asks you to fix it.
+- **Half of that sentence survived, and it is the half worth keeping.** `axe-core`, `pa11y` and a Lighthouse budget
+  are still absent from every `package.json`, so the withdrawal is scoped rather than wholesale: what landed is a
+  *static, per-file* lint, and nothing in the repo yet renders a page and inspects it. Contrast and screen-reader
+  items are exactly as unmeasured as before.
+- **A prediction about what a future commit will make checkable rots like a PR number does.** The Phase-1 note
+  promised that "boxes 2 and 4 become machine-checkable" once the config reached `main`, and told a later reader to
+  delete the hand counts at that point. Measured now: box 2's rule (`label-has-associated-control`) is live at
+  `warn` with **19** findings, but counts `<label>` associations where the box counts **28 of 98** unnamed controls
+  — a different denominator, not a replacement. Box 4 gained nothing at all: `control-has-associated-label` is one
+  of the **two rules deliberately `off`**, and run at `error` it reports **3** findings whose files include two of
+  the very controls box 4 names. The hand counts stayed, and the falsified prediction is recorded beside them.
+- **Layer 2 is still not on `main`, and its card says otherwise.** WIC-1675 reads `done` while PR #299 is open and
+  unmerged, so the document now cites the GitHub state and warns against reading the status field as a merge.
+
+Re-measured at `main` `2c3b1ba3` rather than taken from the merged PR: `npm run lint` reports 47 problems
+(0 errors, 47 warnings); the web suite is 46 files / 369 tests green; all four `docs/design/` audits exit 0.
+Prose and citations only — no source, config or test file is touched by this change.
+
 ### Tests — The Dashboard attention aggregates are now executed, not just described (2026-08-27)
 
 The `attention` block above is ~167 lines of aggregate SQL, and nothing in CI ran a line of it. `dashboard.routes.test.ts` opens with `vi.mock('../src/services/dashboard.service.js', ...)`, so it pins the route's JSON pass-through and stops there; `Dashboard.attention.test.tsx` computes its own expected counts in `seedDashboardResponse()` and hands them to a `fetch` stub, which tests the client beautifully and never reaches the server. The `40` that satisfies AC-N1c was a literal in a fixture at both layers. Measured: six independent mutations to `dashboard.service.ts`, each applied alone, left the whole suite green (WIC-1574).
