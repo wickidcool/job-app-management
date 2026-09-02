@@ -194,6 +194,58 @@ const mutants: Mutant[] = [
       'This is the exact mistake the PR #238 / #261 renumber can make.',
   },
   {
+    // WIC-1955, the headline case: a hand renumber that kept the old timestamp.
+    // This is PR #261's exact shape — `0022_enforce_catalog_diffs_userid_not_null`
+    // renumbered around #238's `0021_backfill_catalog_diffs_user_id` and carrying
+    // its `when`. Note what the OTHER checks say about this tree: nothing. idx is
+    // dense, tags are unique, prefixes agree, every file is on disk. Before this
+    // check existed the guard reported zero violations on it.
+    name: 'when ties the previous entry (renumbered without regenerating the timestamp)',
+    journalText: journalTextFor([
+      ...baseEntries,
+      {
+        idx: 4,
+        version: '7',
+        when: 1713369600000, // === idx 3's `when`
+        tag: '0004_enforce_catalog_diffs_userid_not_null',
+        breakpoints: true,
+      },
+    ]),
+    sqlFileNames: [...baseFiles, '0004_enforce_catalog_diffs_userid_not_null.sql'].sort(),
+    expected: [CHECKS.WHEN_SEQUENCE],
+    note:
+      'Only when-sequence, and that is the entire point: every idx/tag/file check passes, because a hand ' +
+      'renumber updates exactly the fields those checks look at. drizzle never reads idx, so on any database ' +
+      'that already applied 0003 this migration is skipped forever while db:migrate exits 0.',
+  },
+  {
+    // The same failure reached from the other direction. A tie is not the only
+    // way to lose a migration — anything that fails to exceed the running max
+    // does, and the strict `<` makes the two cases identical in production.
+    name: 'when goes backwards (non-monotonic, no tie)',
+    journalText: journalTextFor([
+      ...baseEntries,
+      { idx: 4, version: '7', when: 1713300000000, tag: '0004_later', breakpoints: true },
+    ]),
+    sqlFileNames: [...baseFiles, '0004_later.sql'].sort(),
+    expected: [CHECKS.WHEN_SEQUENCE],
+    note:
+      'when 1713300000000 is unique — no duplicate anywhere — but it is below idx 3s 1713369600000, so the ' +
+      'strict `<` gate fails exactly as a tie does. A duplicate-when check alone would miss this; the ' +
+      'invariant has to be strict monotonicity, not uniqueness.',
+  },
+  {
+    name: 'when is a string rather than a number',
+    journalText: baseJournalText.replace('"when": 1713369600000', '"when": "1713369600000"'),
+    sqlFileNames: baseFiles,
+    expected: [CHECKS.JOURNAL_PARSE],
+    note:
+      'Quoting the timestamp is a plausible hand edit and is fatal: drizzle compares Number(created_at) < when, ' +
+      'which is NaN for a string, and NaN is false against every operand — so the entry is skipped on every run, ' +
+      'fresh database included. Rejected at parse time rather than by when-sequence, since an unordered type ' +
+      'cannot be meaningfully compared against the running maximum.',
+  },
+  {
     name: 'journal is not valid JSON',
     journalText: baseJournalText.replace('"entries"', '"entries'),
     sqlFileNames: baseFiles,
@@ -213,6 +265,101 @@ describe.each(mutants)('mutant: $name', ({ journalText, sqlFileNames, expected, 
 it('every check the guard implements is exercised by at least one mutant', () => {
   const covered = new Set(mutants.flatMap((m) => m.expected));
   expect([...Object.values(CHECKS)].filter((c) => !covered.has(c))).toEqual([]);
+});
+
+// --- WIC-1955: an oracle that does not consult CHECKS ------------------------
+// The meta-assertion above iterates `CHECKS`, so it proves the matrix covers
+// the checks that *exist* — never that the checks that *need* to exist do. It
+// was green for the whole life of PR #338 with the `when` gap present, and it
+// would have stayed green if this fix had never been written. Self-consistency
+// is not coverage.
+//
+// This is the missing half, and it is deliberately phrased in terms of the
+// mechanism rather than a check id: a refactor that renames or deletes
+// WHEN_SEQUENCE fails here rather than silently disarming the guard.
+describe('the guard rejects every journal drizzle would skip a migration from', () => {
+  /**
+   * Model of `PgDialect.migrate()`. The gate — the newest applied `created_at`
+   * — is read ONCE, before the loop, so within a single deploy every entry is
+   * compared against the same pre-run value.
+   */
+  const applyOneDeploy = (entries: Entry[], appliedMax: number | null) => {
+    const applied: string[] = [];
+    let newMax = appliedMax;
+    for (const entry of entries) {
+      if (appliedMax === null || appliedMax < entry.when) {
+        applied.push(entry.tag);
+        newMax = newMax === null || entry.when > newMax ? entry.when : newMax;
+      }
+    }
+    return { applied, max: newMax };
+  };
+
+  /**
+   * Tags that never run, over every possible split of the journal into two
+   * deploys. A journal is safe only if no split loses anything — the boundary
+   * is whenever someone happened to merge, which nobody controls.
+   */
+  const tagsLostUnderSomeDeploySplit = (entries: Entry[]): string[] => {
+    const lost = new Set<string>();
+    for (let k = 0; k <= entries.length; k += 1) {
+      const first = applyOneDeploy(entries.slice(0, k), null);
+      const second = applyOneDeploy(entries.slice(k), first.max);
+      const applied = new Set([...first.applied, ...second.applied]);
+      for (const entry of entries) if (!applied.has(entry.tag)) lost.add(entry.tag);
+    }
+    return [...lost].sort();
+  };
+
+  const realEntries: Entry[] = JSON.parse(readFileSync(JOURNAL_PATH, 'utf8')).entries;
+
+  it('positive control: a fresh database applies the broken tree fine, which is why CI cannot catch it', () => {
+    const tied: Entry[] = [
+      ...baseEntries,
+      { idx: 4, version: '7', when: 1713369600000, tag: '0004_tied', breakpoints: true },
+    ];
+    // One pass over an empty database: `lastDbMigration` is null, the strict
+    // `<` never runs, everything applies. This is the measurement that makes
+    // the bug invisible to every from-scratch test in the suite.
+    expect(applyOneDeploy(tied, null).applied).toHaveLength(4);
+    // Split the same journal across two deploys and one migration is gone.
+    expect(tagsLostUnderSomeDeploySplit(tied)).toEqual(['0004_tied']);
+  });
+
+  it('flags the tied journal without being told which check should fire', () => {
+    const tied: Entry[] = [
+      ...baseEntries,
+      { idx: 4, version: '7', when: 1713369600000, tag: '0004_tied', breakpoints: true },
+    ];
+    expect(tagsLostUnderSomeDeploySplit(tied).length).toBeGreaterThan(0);
+    expect(
+      auditMigrationJournal({ journalText: journalTextFor(tied), sqlFileNames: filesFor(tied) })
+    ).not.toEqual([]);
+  });
+
+  it('the real journal loses nothing under any deploy split', () => {
+    expect(tagsLostUnderSomeDeploySplit(realEntries)).toEqual([]);
+  });
+
+  it('agrees with the guard across every mutant: a lost migration is always reported', () => {
+    for (const mutant of mutants) {
+      let entries: Entry[];
+      try {
+        entries = JSON.parse(mutant.journalText).entries;
+      } catch {
+        continue; // the malformed-JSON mutant has no entries to simulate
+      }
+      if (!entries.every((e) => Number.isInteger(e.when))) continue;
+      if (tagsLostUnderSomeDeploySplit(entries).length === 0) continue;
+      expect(
+        auditMigrationJournal({
+          journalText: mutant.journalText,
+          sqlFileNames: mutant.sqlFileNames,
+        }),
+        `${mutant.name}: drizzle would skip a migration on this tree, so the guard must report something`
+      ).not.toEqual([]);
+    }
+  });
 });
 
 // --- the duplicate-key parser itself ----------------------------------------

@@ -1,12 +1,47 @@
 // WIC-1939: the drizzle migration journal can silently lose an entry.
+// WIC-1955: ...and `when` is the field that decides, not `idx`.
 //
 // `packages/api/src/db/migrate.ts` calls drizzle's `migrate()`, which is
 // **journal-driven**: it reads `meta/_journal.json` and applies `${tag}.sql`
-// for each entry, in `idx` order. A `.sql` file that is on disk but absent from
-// the journal is never applied. Nothing in the suite noticed, because the tests
-// that build a migration chain do it from `readdirSync(MIGRATIONS_DIR)` — the
-// directory, not the journal. That single divergence between test and
-// production is exactly where the damage lands.
+// for each entry, in the order the `entries` array lists them. A `.sql` file
+// that is on disk but absent from the journal is never applied. Nothing in the
+// suite noticed, because the tests that build a migration chain do it from
+// `readdirSync(MIGRATIONS_DIR)` — the directory, not the journal. That single
+// divergence between test and production is exactly where the damage lands.
+//
+// Two things about that sentence are worth stating precisely, because the first
+// revision of this guard got the second one wrong (WIC-1955):
+//
+//   1. The apply order is **array position**, not `idx`. `readMigrationFiles`
+//      (`drizzle-orm/migrator.js`) iterates `journal.entries` and never reads
+//      `idx` at all. Every `idx` check below is therefore a *hygiene* check on
+//      human-facing numbering — it catches the merge that claimed one number
+//      twice — and not a statement about what drizzle will run.
+//
+//   2. The field drizzle actually gates on is **`when`**, surfaced as
+//      `folderMillis`. `PgDialect.migrate()` (`drizzle-orm/pg-core/dialect.js`)
+//      reads the newest applied `created_at` **once, before the loop**, then
+//      applies an entry only when:
+//
+//          if (!lastDbMigration || Number(lastDbMigration.created_at) < migration.folderMillis)
+//
+//      So two entries sharing a `when` are indistinguishable to the migrator.
+//      Once one has been applied in an earlier deploy, the other can never
+//      satisfy the strict `<` and is skipped **permanently and silently**, with
+//      `db:migrate` exiting 0. A non-monotonic `when` fails identically.
+//
+// (2) is why `WHEN_SEQUENCE` exists and why it is the only check here that
+// speaks to what production will actually execute. A hand renumber is the way
+// it happens: renaming `0021_x.sql` -> `0022_x.sql` and editing `idx`/`tag`
+// does not regenerate drizzle's timestamp, so the renumbered entry keeps the
+// `when` of the migration it was renumbered around. Every other check passes,
+// because every other check is looking at the fields the renumber updated.
+//
+// It cannot be caught downstream, either. A **fresh** database applies both
+// entries fine — `lastDbMigration` is null, so the strict `<` never runs — so
+// CI, preview environments and every from-scratch test stay green while
+// production silently lacks the migration. Only a database that already applied
+// the first entry skips the second.
 //
 // The concrete loss: merge-base `bb701190` had no `0020`. `main` claimed idx 20
 // for `0020_prep_relevance_score_pct` (WIC-1520) while PR #238 independently
@@ -53,6 +88,12 @@ export const CHECKS = {
   IDX_SEQUENCE: 'idx-sequence',
   /** An entry's `idx` disagrees with the numeric prefix of its own `tag`. */
   IDX_PREFIX_MISMATCH: 'idx-prefix-mismatch',
+  /**
+   * `when` does not strictly increase in journal order — the entry is skipped
+   * permanently on any database that already applied an earlier one. This is
+   * the only check here that describes what drizzle will actually run.
+   */
+  WHEN_SEQUENCE: 'when-sequence',
 };
 
 // AC-1 asked to exempt `*_rls.sql` from the "every file is journaled" rule.
@@ -266,6 +307,18 @@ export function auditMigrationJournal({ journalText, sqlFileNames }) {
       add(CHECKS.JOURNAL_PARSE, `entry idx ${entry.idx} has a missing or non-string tag`);
       return violations;
     }
+    // `when` is load-bearing (see the header): drizzle compares it numerically
+    // against `created_at`. A missing or non-numeric `when` makes that
+    // comparison `NaN`, which is false for every operand — so the entry is
+    // skipped on *every* run, fresh database included.
+    if (!Number.isInteger(entry.when)) {
+      add(
+        CHECKS.JOURNAL_PARSE,
+        `entry idx ${entry.idx} ("${entry.tag}") has a missing or non-integer when (${JSON.stringify(entry.when)}) — ` +
+          'drizzle compares it numerically against the applied `created_at`, so a non-number is never applied.'
+      );
+      return violations;
+    }
   }
 
   // --- duplicate idx / duplicate tag -----------------------------------------
@@ -308,6 +361,41 @@ export function auditMigrationJournal({ journalText, sqlFileNames }) {
         break;
       }
     }
+  }
+
+  // --- `when` strictly increases in journal order (WIC-1955) -----------------
+  // The one check that models what drizzle will actually execute. See the
+  // header for the mechanism; the invariant is that `when` strictly increases
+  // in journal order, because a deploy boundary can fall between any two
+  // entries and the migrator's gate is `max(applied created_at) < when`.
+  //
+  // Compared against the running maximum rather than the immediately preceding
+  // entry, because that is the precise predicate for "there exists a deploy
+  // boundary after which this entry is skipped forever". Pairwise comparison
+  // under-reports: in the sequence [1, 2, 5, 3, 4] both 3 and 4 are skipped
+  // once 5 has been applied, but 3 -> 4 is increasing and a pairwise check sees
+  // nothing wrong with 4. Every entry flagged here is an independent, real
+  // migration loss, so all of them are reported — unlike `idx-sequence`, a
+  // single break does not put every later entry off by a constant, so there is
+  // no cascade to suppress.
+  let maxWhenSoFar = null;
+  let maxWhenTag = null;
+  for (const entry of entries) {
+    if (maxWhenSoFar === null || entry.when > maxWhenSoFar) {
+      maxWhenSoFar = entry.when;
+      maxWhenTag = entry.tag;
+      continue;
+    }
+    const relation = entry.when === maxWhenSoFar ? 'ties' : 'is older than';
+    add(
+      CHECKS.WHEN_SEQUENCE,
+      `entry idx ${entry.idx} ("${entry.tag}") has when ${entry.when}, which ${relation} "${maxWhenTag}" ` +
+        `(${maxWhenSoFar}) earlier in the journal. drizzle applies an entry only when the newest applied ` +
+        '`created_at` is strictly less than its `when`, and never reads `idx` — so once the earlier migration ' +
+        'has been applied in any prior deploy, this one is skipped permanently and `db:migrate` still exits 0. ' +
+        'A fresh database applies both, so CI cannot see it. Regenerate the timestamp (a hand renumber renames ' +
+        'the file and edits idx/tag but keeps the old `when`).'
+    );
   }
 
   // --- idx agrees with the tag's own numeric prefix --------------------------
