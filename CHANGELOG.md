@@ -8,6 +8,16 @@ All notable changes to the Job Application Manager are documented here.
 
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
+### Tests — the project `updated_at` re-stamp is now graded on its slug half, not just its owner half (2026-09-02)
+
+`touchProject` has been owner-scoped since WIC-1433 (`fd7e1d40`) and has required the owner outright since WIC-1554 (`54460cc2`), so the cross-tenant write WIC-1676 reported is not live on `main`. `test/project.touch.tenancy.test.ts` pins it against regression and closes a coverage gap the existing suites left open (WIC-1676, verified under WIC-1970).
+
+- **Test-only.** No production file is modified. An earlier revision of this change also added `if (!userId) return;` to `updateProjectFile`, `createProjectFile` and `deleteProjectFile`; that was dropped as unreachable — `assertProjectOwned(slug, userId)` is the first statement of all three and already throws `userId is required to access a project` via `requireOwner`, so the guard could never be reached with a falsy owner.
+- **The gap was real and measured, not hypothetical.** Mutating `touchProject` alone against `main` @ `4957738d` and running `project.tenancy.test.ts` + `project.sibling-owner-required.test.ts` (35 tests): dropping the owner term reds 2 tests, `and`→`or` reds 2, but **dropping the *slug* term while keeping the owner is fully green at 35/35**. That mutant leaks nothing across tenants — which is exactly why every existing cross-tenant assertion accepts it — yet it re-stamps *all* of the caller's own projects on every file save, reshuffling their `listProjects` ordering, which sorts on `updatedAt DESC`. This file reds it.
+- **Structural, not a substring match.** `expectScopedTo` (WIC-1491) renders the real drizzle clause and evaluates it against probe rows; `idKey: 'slug'` grades the slug half by *column*, so an owner term that replaced the slug term rather than joining it is caught. A `toContain('"user_id" = $')` check passes for all three mutants above.
+- **Each mutant held the suite at its baseline count**, so none of them merely failed to compile and read as a kill. Note that `or` is not imported by `project.service.ts`: an `and`→`or` mutant needs the import added first, or it reports a false GREEN.
+- **Not a clean bill of health for these functions.** This grades the database predicate only.
+
 ### Fixed — the navigation audit read a commented-out `<Route>` as a live route (2026-08-29)
 
 `route-integrity.test.ts` builds its route table by splitting `App.tsx` on the literal `<Route` and reading each chunk's `path=`. A commented-out route still contains that literal, so it entered the table as if it were mounted. Found while reviewing PR #173 (WIC-1531); pre-existing on `main` and not introduced by that PR (WIC-1551).
