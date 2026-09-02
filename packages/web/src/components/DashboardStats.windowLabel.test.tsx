@@ -7,6 +7,7 @@ import { applicationService, dashboardService, resumeService } from '../services
 import { Dashboard } from '../pages/Dashboard';
 import { APPLIED_WINDOW_DAYS } from '../constants/appliedWindow';
 import type { ApplicationStatus } from '../types/application';
+import type { DashboardResponse } from '../services/api/types';
 
 /**
  * WIC-1743 — AC-N12 on the two surfaces that render the rolling applied-volume
@@ -47,15 +48,39 @@ const BY_STATUS: Record<ApplicationStatus, number> = {
  * first draft of this fixture, which is exactly the collision that makes a value
  * assertion untrustworthy.
  */
-const DASHBOARD_RESPONSE = {
+const DASHBOARD_RESPONSE: DashboardResponse = {
   stats: {
     total: 9,
     byStatus: BY_STATUS,
     appliedThisWeek: 2,
     appliedThisMonth: 6,
-    responseRate: 33,
+    // WIC-1514 landed on main after this fixture was written: `responseRate` is a
+    // ratio in [0, 1], converted at the render site. 0.33 is the same 33% the
+    // comment above counts as this fixture's distinct "response" figure — as a
+    // bare 33 it would now render 3300%.
+    responseRate: 0.33 as DashboardResponse['stats']['responseRate'],
   },
   recentActivity: [],
+  // Required since WIC-1478 added the attention aggregates. Everything is zero
+  // and empty: this fixture exists to assert the applied-window tile's *label*,
+  // so a populated attention panel would only add unrelated rendering.
+  attention: {
+    staleThresholdDays: 7,
+    savedThresholdDays: 3,
+    counts: {
+      interviewing: 0,
+      stale: 0,
+      staleActive: 0,
+      missingJobDescription: 0,
+      staleSaved: 0,
+    },
+    samples: {
+      interviewing: [],
+      staleActive: [],
+      missingJobDescription: [],
+      staleSaved: [],
+    },
+  },
 };
 
 function renderDashboard() {
