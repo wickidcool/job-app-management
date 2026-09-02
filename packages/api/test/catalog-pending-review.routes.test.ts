@@ -170,6 +170,15 @@ function fakeDb() {
   return { db, diffRows: () => rowsOf(catalogDiffs as PgTable) };
 }
 
+/**
+ * The uploader. `processCatalogChange` bails before doing anything when it
+ * cannot resolve an owner, so this must carry one: an ownerless event never
+ * reaches the code these tests are about. The list side is deliberately left
+ * unauthenticated (single-user mode), which emits no `user_id` term at all, so
+ * the diff written here is still the row the default list returns.
+ */
+const OWNER = '3f2a1c88-5d61-4e07-9a3b-6c8d0e2f4a19';
+
 /** Run the real extraction over `rawText` as a resume upload, as resume.service does. */
 async function uploadResume(rawText: string, sourceId: string) {
   await processCatalogChange({
@@ -178,14 +187,21 @@ async function uploadResume(rawText: string, sourceId: string) {
     sourceId,
     changeType: 'created',
     timestamp: new Date().toISOString(),
-    metadata: { rawText, userId: null },
+    metadata: { rawText, userId: OWNER },
   } as Parameters<typeof processCatalogChange>[0]);
 }
 
+/**
+ * `GET /api/catalog/diffs` answers with a `{ diffs, nextCursor }` envelope, not a
+ * bare array. Unwrapped here in one place so the assertions below stay about
+ * reachability rather than about the wire shape.
+ */
 async function defaultDiffList(app: ReturnType<typeof buildApp>) {
   const response = await app.request('/api/catalog/diffs', { method: 'GET' });
   expect(response.status).toBe(200);
-  return (await response.json()) as Array<Record<string, unknown>>;
+  const body = (await response.json()) as { diffs: Array<Record<string, unknown>> };
+  expect(Array.isArray(body.diffs), 'expected a { diffs } envelope').toBe(true);
+  return body.diffs;
 }
 
 describe('WIC-1428: pending_review items raised on a resume upload are reachable', () => {
@@ -226,10 +242,10 @@ describe('WIC-1428: pending_review items raised on a resume upload are reachable
     await uploadResume('Senior PM with React experience.', '01HZ_RESUME_PM2');
 
     const pendingOnly = await app.request('/api/catalog/diffs?status=pending', { method: 'GET' });
-    expect(await pendingOnly.json()).toEqual([]);
+    expect(((await pendingOnly.json()) as { diffs: unknown[] }).diffs).toEqual([]);
 
     const approvedOnly = await app.request('/api/catalog/diffs?status=approved', { method: 'GET' });
-    expect((await approvedOnly.json()) as unknown[]).toHaveLength(1);
+    expect(((await approvedOnly.json()) as { diffs: unknown[] }).diffs).toHaveLength(1);
   });
 
   // ── AC-3 ───────────────────────────────────────────────────────────────────

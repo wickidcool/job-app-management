@@ -1,4 +1,4 @@
--- Migration: 0020_catalog_diff_open_review_count.sql
+-- Migration: 0021_catalog_diff_open_review_count.sql
 -- Make catalog ambiguities raised on resume uploads reachable in the product (WIC-1428).
 --
 -- `catalog_diffs.status` was being asked to mean two independent things: "have the
