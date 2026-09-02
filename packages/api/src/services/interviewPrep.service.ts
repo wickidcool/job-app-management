@@ -53,6 +53,20 @@ import { clampPercent, type Percent } from '../types/units.js';
  * `0017_enforce_userid_not_null.sql`, so `IS NULL` matches **no rows** and an
  * anonymous caller reaches an empty catalog and this service raises
  * `CATALOG_EMPTY`. Failing closed is the intent.
+ *
+ * `userId` stays optional here and the fallback stays with it (WIC-1764). WIC-1638
+ * made the owner *required* on the bullet-catalog path and deleted the equivalent
+ * branch from the `bulletOwnerScope` this replaced — but that helper served one
+ * `.notNull()` table, and this one also serves `applications` and `interview_preps`,
+ * which are nullable and whose insert paths write `userId ?? null`. Requiring the
+ * owner here would break the ADR-003 local-dev anonymous path and the entry points
+ * in this file that still take `userId?: string`.
+ *
+ * WIC-1638's guarantee is therefore carried where it holds without that cost:
+ * `requireOwner(c)` rejects an absent owner at the route edge with `401
+ * OWNER_REQUIRED`, and `generateInterviewPrep` takes `userId: string`. The
+ * `IS NULL` branch is unreachable from that path, and fail-closed on this table
+ * regardless. Do not "finish the job" by making `userId` required here.
  */
 function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
@@ -428,7 +442,7 @@ Rules:
 
 export async function generateInterviewPrep(
   input: GenerateInterviewPrepInput,
-  userId?: string
+  userId: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
   storiesGenerated: number;

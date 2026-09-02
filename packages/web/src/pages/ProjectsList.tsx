@@ -142,7 +142,7 @@ export function ProjectsList() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-neutral-900">{project.name}</h3>
+                  <h2 className="text-lg font-semibold text-neutral-900">{project.name}</h2>
                   {project.description && (
                     <p className="mt-1 text-sm text-neutral-500">{project.description}</p>
                   )}
