@@ -37,7 +37,7 @@ const allMigrations = (): string[] =>
     .filter((f) => f.endsWith('.sql') && !f.endsWith('_rls.sql'))
     .sort();
 
-const THIS_MIGRATION = '0021_enforce_catalog_diffs_userid_not_null.sql';
+const THIS_MIGRATION = '0022_enforce_catalog_diffs_userid_not_null.sql';
 
 /** The exact artifact, not a paraphrase of it. */
 const MIGRATION_SQL = readFileSync(join(MIGRATIONS_DIR, THIS_MIGRATION), 'utf8');
