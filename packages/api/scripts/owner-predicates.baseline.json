@@ -33,7 +33,7 @@
     "file": "src/services/catalog.service.ts",
     "check": "COND",
     "detail": "'userId' branched on in an if test",
-    "count": 6
+    "count": 7
   },
   {
     "file": "src/services/catalog.service.ts",
