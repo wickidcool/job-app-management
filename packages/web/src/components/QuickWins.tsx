@@ -46,8 +46,13 @@ export function QuickWins({ attention }: QuickWinsProps) {
     });
   });
 
-  // High Priority: Stale applications in active stages (oldest first)
-  (samples?.staleActive ?? []).forEach((app) => {
+  // High Priority: stale applications (oldest first).
+  //
+  // Drawn from the same server-side population the attention card counts and
+  // `/reports/stale` lists. This card used to apply its own inline threshold
+  // over its own status set, which made a third definition of "stale" in a
+  // product that is specified to have one (WIC-1479).
+  (samples?.stale ?? []).forEach((app) => {
     const daysSinceUpdate = differenceInDays(new Date(), new Date(app.updatedAt));
     quickWins.push({
       id: `stale-${app.id}`,
@@ -73,8 +78,9 @@ export function QuickWins({ attention }: QuickWinsProps) {
     });
   });
 
-  // Medium Priority: Saved applications not yet applied (longest-saved first)
-  (samples?.staleSaved ?? []).forEach((app) => {
+  // Medium Priority: Saved applications not yet applied (longest-saved first).
+  // Measured from `createdAt`, and not a form of staleness — see the type docs.
+  (samples?.unsubmittedSaved ?? []).forEach((app) => {
     const daysSinceSaved = differenceInDays(new Date(), new Date(app.createdAt));
     quickWins.push({
       id: `saved-${app.id}`,
@@ -98,7 +104,7 @@ export function QuickWins({ attention }: QuickWinsProps) {
   // Total actionable items across the whole account, not just the sampled rows.
   // The samples are capped for rendering; these counts are not.
   const totalWins = counts
-    ? counts.interviewing + counts.staleActive + counts.missingJobDescription + counts.staleSaved
+    ? counts.interviewing + counts.stale + counts.missingJobDescription + counts.unsubmittedSaved
     : quickWins.length;
   const hiddenWins = Math.max(0, totalWins - sortedWins.length);
 
