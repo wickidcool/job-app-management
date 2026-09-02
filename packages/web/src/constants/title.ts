@@ -6,8 +6,12 @@ import { NOT_FOUND_COPY } from '../pages/NotFound.copy';
  * Specified by `docs/design/ROUTE_TITLE_CONVENTION.md` (WIC-1089). Before this module
  * every route in the SPA shared the one static `<title>` in `index.html`, so the browser
  * tab, the history entry, the bookmark name and the window-switcher entry were identical
- * for all 31 routes — the textbook WCAG 2.4.2 (Page Titled, Level A) failure mode for a
- * single-page app, and the reason `Ctrl/Cmd+H` could not be used to return to a screen.
+ * for all 30 routes that render a page — the textbook WCAG 2.4.2 (Page Titled, Level A)
+ * failure mode for a single-page app, and the reason `Ctrl/Cmd+H` could not be used to
+ * return to a screen. 30, and not the 32 the tables below account for, because the two
+ * `REDIRECT_ROUTES` only ever `<Navigate>` and so never painted a title to share. 30 is
+ * the denominator `route-title-table-audit.py` prints and `routeOutline.render.test.tsx`
+ * pins.
  *
  * The governing rule (§0.3) is that **a route's title is its `<h1>` verbatim**. That is
  * what keeps this table from becoming a second, drifting copy of the app's copy deck:

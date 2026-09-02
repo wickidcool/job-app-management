@@ -57,7 +57,7 @@ Three defects fell out of the original audit and are **not** in scope here — f
 >   written as "learned from the 404's version". That version is gone; they still hold, but nothing
 >   in the tree demonstrates them.
 
-So today all 31 in-app route entries plus `/login` announce the same string, and the browser tab, the history entry, the bookmark name, and the window-switcher entry are identical for every screen in the product.
+So today all 30 routes that render a page — `/login` among them — announce the same string, and the browser tab, the history entry, the bookmark name, and the window-switcher entry are identical for every screen in the product. (30, not the 32 `route-title-table-audit.py` counts in `App.tsx`: `/dashboard` and `/reports/pipeline` only ever `<Navigate>`, so they never paint a title to share. This sentence read "all 31 in-app route entries plus `/login`" until WIC-1960 — arithmetically the same 32, but the trailing clause did not survive being paraphrased into `constants/title.ts`'s module docstring, which then claimed a bare 31. Quote the 30 the audit prints; it has no clause to lose.)
 
 That is the actual user cost, and it is not primarily a screen-reader cost:
 
