@@ -22,6 +22,16 @@ Ruling 2 of `docs/design/A11Y_ENFORCEMENT_RULING.md` §4 (WIC-1926). Ruling 1 (`
 - **A now-false claim in `docs/design/ACCESSIBILITY.md` is corrected rather than left standing.** It asserted that "`axe-core` is still not a dependency … the only mention of it anywhere in the tree is a comment in `src/test/prohibitedName.ts:10`" — both halves false as of this change. Its adjacent "until it lands" clause about WIC-1675 was already false on `main`, and is corrected too. The WCAG caveat is **strengthened, not relaxed**: heading order plus a lint rule set _plus axe_ is still not AA, per the ruling's own §7.
 - **A second false claim in the same document is corrected: the 21 loading/error pairs are not "nameless" (WIC-1959).** That clause predated PR #336 (`7f8646d2`, WIC-1089) and denied shipped behaviour, which is the worse direction of rot — an overclaim invites the reader to check, a denial tells them not to look. Measured pair by pair at `ca776dda`, with the shell's `RouteTitle` mounted where `App.tsx` mounts it: **all 21 carry a real `document.title`** — 15 from `RouteTitle`, which sits outside every page's render branch so an early return cannot suppress it, and 6 from pages that call `useDocumentTitle` above their own early return (4 reading `DYNAMIC_TITLE_FALLBACKS` while the record loads, 2 titling from a URL param known before any fetch). The complementary control: re-run with `RouteTitle` unmounted and **15 of the 21 fall back to the _previous_ route's title**, so the effect is load-bearing rather than incidental; a one-route mutant (`RouteTitle` skipping `/reports/stale`) reds **exactly that route's two pairs** and no others. **SC 2.4.2 (Page Titled, Level A) therefore holds on all 21.** The `<h1>` defect is untouched and still real — a `document.title` is not a heading, so SC 1.3.1 / 2.4.6 are unaffected and `MISSING_H1` keeps all 25 entries.
 
+### Docs — the site-wide SC 2.4.2 build gate was missing from the accessibility enforcement table (2026-09-01)
+
+PR #336 (`7f8646d2`, WIC-1089) gave every route its own `document.title` and shipped four test files to hold it there, one of them a site-wide completeness sweep. `docs/design/ACCESSIBILITY.md` — the document whose whole purpose is to inventory which accessibility guarantees are enforced and which are still a reviewer's eye — did not mention it: no `document.title`, no SC 2.4.2, no `ROUTE_TITLE_CONVENTION.md`, nothing. A shipped WCAG Level A build gate was invisible in the one place a reader goes to find out what the build gates are.
+
+- **This is the failure mode CI cannot see.** No test, type or lint can go red when only the contract dissents; the code was right and the doc was silent. It was found by diffing the merge burst's file lists against the docs that describe those files, not by any check in the repository.
+- **The row states what the sweep proves and what it does not.** `route-title-coverage.test.ts` parses `App.tsx` as raw source and reconciles it against `constants/title.ts` in *both* directions, so a `<Route>` added without a title fails CI and a deleted route cannot leave a dangling title. It does **not** check that a title *describes* its screen, and it sweeps the seven hook-titled routes only for *calling* the hook, never for the string they pass.
+- **Inserting the row re-parented three sentences elsewhere in the file, and all three were repaired in the same commit.** Two read "the last row of the table" and meant the WIC-1675 route sweep, which the insert displaced; both now name `routeOutline.render.test.tsx` explicitly, because a positional pointer rots every time the table grows. A third read "the six checks in the table above" and is now seven. A table row is a counted list item: check the lead-in and every downstream ordinal before adding one.
+- **Not fixed here, because the lines are contended by open PRs.** The "What remains unverified" paragraph still says the loading and error branches leave the page "nameless", which #336 made false; PR #339 is rewriting that exact paragraph from a pre-WIC-1902 copy. `constants/title.ts` opens by saying the old shared title covered "all 31 routes", which is neither the 30 routes that render nor the 32 the title table accounts for; PR #346 carries that line verbatim as an addition. Both are routed to the PR owners rather than fixed on `main`, where the fix would land as a conflict against work already in flight.
+
+
 ### Security — There is no anonymous authenticated caller: a `sub`-less JWT is rejected, and every project lookup requires an owner (2026-08-27)
 
 WIC-1434 (above) required an owner in `getOrCreateProjectBySlug` and described the fallback left in its siblings as "the deliberate local auth-bypass dev mode". Measured, it was broader than that, and it was destructive. `middleware/auth.ts` set `c.set('userId', (payload.sub as string) ?? null)` and called `next()`, so a **validly signed, non-expired JWT carrying no `sub` claim** was authenticated with `userId: null` — with Supabase fully configured, on a path that is not in `PUBLIC_PATHS`. Every route launders that to `undefined` (`c.get('userId') ?? undefined`), and the services read `undefined` as "no owner filter". Reproduced at PR #163 head `4622934` on PGlite plus a real object store: `getProjectBySlug(SLUG, undefined)` returned another user's project id, name, description and true file count, and the `DELETE /api/projects/:projectId` flow composed exactly as `routes/projects.ts` composes it left **0 rows for the victim and emptied their object-store namespace** — `deleteProject` builds its delete prefix from `project.userId`, the victim's. Found reviewing PR #163 (WIC-1554).
@@ -179,6 +189,43 @@ Two invariants that the entries around this one depend on were carried correctly
 - `useApplications.optimistic.test.tsx` grows from 5 cases to 8. The "(5 cases)" figure in the entry below was accurate for what that change shipped and is left as written.
 - **Six negative controls, all measured, all discriminating**, on the two files together (13 cases green unmodified): deleting the notice reds 3; printing `rawApplications.length` where `totalCount` belongs reds 1; the `totalCount` drift reds 1; hardcoding `truncated: false` in the updater reds 1; dropping `updatedAt` reds 1; and weakening the seed back to `totalCount: applications.length, truncated: false` reds 2 — the last of those is the control on the fixture itself, so the property that makes the other five capable of failing cannot be removed silently.
 - **Test-only — no production file is modified by this change.**
+
+
+### Added — every route now sets its own `document.title` (2026-09-01)
+
+`docs/design/ROUTE_TITLE_CONVENTION.md` has specified this since 2026-08-19 and was ported into
+the repo on 2026-08-27, but **nothing had ever implemented it**: `grep -rn "document.title"
+packages/web/src/` returned nothing at all, and all 31 in-app routes plus `/login` shared the one
+static `<title>` in `index.html`. Every browser tab, history entry, bookmark and window-switcher
+row named every screen identically — the textbook WCAG **2.4.2 Page Titled (Level A)** failure for
+a single-page app, and the reason `Ctrl/Cmd+H` could not be used to get back to an application.
+
+- **The title mirrors the route's `<h1>` verbatim** (§0.3), so titles inherit whatever the casing
+  standard lands on and cannot drift from the heading independently. The strings were re-measured
+  against the tree rather than copied from the doc: every one is stable, but **every line number in
+  §5 had moved** in the five days since the port.
+- `PRODUCT_NAME`/`formatTitle` live in one module, so the brand is a one-line change. `index.html`
+  and `Login.tsx`'s `<h2>` now read **Careerpin**, which is what the marketing site and the
+  production host say. Those are the two places §2 named; they are **not** the last two in the
+  product. `OnboardingModal.tsx:330` ("Welcome to Your Job Application Manager") and
+  `QuickReferenceExport.tsx:201` ("Generated with Job Application Manager", printed on the exported
+  interview sheet) still carry the old name. Both are prose headlines rather than titles, neither
+  is mechanical to rename — "Welcome to Your Careerpin" does not read — and the wording is the
+  Copywriter's to set, so they are flagged here rather than guessed at.
+- **The 404's title is read from its copy block, never retyped.** `NotFound.copy.ts` is a new module
+  for exactly that: the separator is a typographic em dash and the apostrophe in "couldn't" is a
+  straight `'`, so a title retyped from the design doc's prose disagrees with the heading in a way
+  that is invisible on the page and fails only in an exact-match assertion.
+- **A `<Route>` added with no title fails the build.** The convention's AC8 asked only that this be
+  "visible in review", on the strength of co-locating a `title` field with the path. That was not
+  available: `route-integrity.test.ts` parses `App.tsx` as raw source, so converting the route table
+  to a data array would have left that audit matching nothing and passing vacuously — trading a live
+  guard for a stylistic one. `route-title-coverage.test.ts` pairs the declared paths against the
+  title table in both directions instead, which is stricter than review, not weaker.
+- 47 unit cases across four files, each negative-controlled: writing the title during render instead
+  of in an effect, dropping the restore-on-unmount, adding an untitled `<Route>`, and unmounting
+  `RouteTitle` from the shell each fail the suite. The last of those is the one that matters — the
+  other three files all pass with the mechanism deleted from `App.tsx`.
 
 ### Fixed — Moving a Kanban card between columns shows the move immediately (2026-08-26)
 
