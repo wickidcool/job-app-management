@@ -1,5 +1,5 @@
 /**
- * WIC-1604 — migration 0021 finishes what 0017 started: `catalog_diffs.user_id`
+ * WIC-1604 — migration 0023 finishes what 0017 started: `catalog_diffs.user_id`
  * was in 0017's step-1 backfill list and absent from its step-2 `SET NOT NULL`
  * list, the only one of the seven omitted.
  *
@@ -11,10 +11,10 @@
  * card in this family hand-rolled the DDL, omitted two columns the inserts
  * needed, and got a clean `0/5` that read exactly like "the finding is wrong".
  *
- * The chain is applied in two phases on purpose — everything through 0020, then
- * 0021 on its own — because AC-1 asks for the backfill count *before and after*,
- * and the only way to observe the sweep is to seed rows into the pre-0021 world
- * and watch what 0021 does to them.
+ * The chain is applied in two phases on purpose — everything through 0022, then
+ * 0023 on its own — because AC-1 asks for the backfill count *before and after*,
+ * and the only way to observe the sweep is to seed rows into the pre-0023 world
+ * and watch what 0023 does to them.
  *
  * `*_rls.sql` files are skipped: they GRANT against `auth.users`, which exists
  * only in a real Supabase instance, and they touch no column under test here.
@@ -37,7 +37,7 @@ const allMigrations = (): string[] =>
     .filter((f) => f.endsWith('.sql') && !f.endsWith('_rls.sql'))
     .sort();
 
-const THIS_MIGRATION = '0022_enforce_catalog_diffs_userid_not_null.sql';
+const THIS_MIGRATION = '0023_enforce_catalog_diffs_userid_not_null.sql';
 
 /** The exact artifact, not a paraphrase of it. */
 const MIGRATION_SQL = readFileSync(join(MIGRATIONS_DIR, THIS_MIGRATION), 'utf8');
@@ -74,26 +74,26 @@ const nullCount = async (): Promise<number> => {
   return r.rows[0].n;
 };
 
-describe('WIC-1604 — 0021 constrains catalog_diffs.user_id', () => {
-  const upTo0020 = allMigrations().filter((f) => f < THIS_MIGRATION);
+describe('WIC-1604 — 0023 constrains catalog_diffs.user_id', () => {
+  const beforeThisMigration = allMigrations().filter((f) => f < THIS_MIGRATION);
 
   beforeAll(() => {
-    // Guard the premise this whole file rests on: 0021 must be the last
+    // Guard the premise this whole file rests on: 0023 must be the last
     // migration and must not already be inside the "before" phase.
-    expect(upTo0020).not.toContain(THIS_MIGRATION);
+    expect(beforeThisMigration).not.toContain(THIS_MIGRATION);
     expect(allMigrations()).toContain(THIS_MIGRATION);
   });
 
   beforeEach(async () => {
     db = new PGlite();
-    await applyThrough(upTo0020);
+    await applyThrough(beforeThisMigration);
   });
 
   afterEach(async () => {
     await db?.close();
   });
 
-  it('leaves the column nullable through 0020 — the gap this card is about', async () => {
+  it('leaves the column nullable through 0022 — the gap this card is about', async () => {
     expect(await isNullable('catalog_diffs', 'user_id')).toBe('YES');
     // and a NULL really can be written in that world
     await seedDiff('d-pre', null);
@@ -148,7 +148,7 @@ describe('WIC-1604 — 0021 constrains catalog_diffs.user_id', () => {
 
     // AC-5 — single-user local rows genuinely carry NULL here.
     expect(await isNullable('personal_info', 'user_id')).toBe('YES');
-    // 0011 added these; nothing has tightened them, and 0021 must not either.
+    // 0011 added these; nothing has tightened them, and 0023 must not either.
     expect(await isNullable('resumes', 'user_id')).toBe('YES');
     expect(await isNullable('applications', 'user_id')).toBe('YES');
     expect(await isNullable('cover_letters', 'user_id')).toBe('YES');

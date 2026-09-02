@@ -153,7 +153,14 @@
       "idx": 22,
       "version": "7",
       "when": 1777627458000,
-      "tag": "0022_enforce_catalog_diffs_userid_not_null",
+      "tag": "0022_catalog_diff_open_review_count",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1777631058000,
+      "tag": "0023_enforce_catalog_diffs_userid_not_null",
       "breakpoints": true
     }
   ]

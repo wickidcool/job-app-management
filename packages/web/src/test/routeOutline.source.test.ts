@@ -223,13 +223,15 @@ describe('each fix is owned by the file that should own it', () => {
   }> = [
     {
       // /login is the one route ProtectedRoute does not wrap, so nothing above it could
-      // ever supply a heading. Before this fix the page opened at h2.
+      // ever supply a heading. Two literal h1s (WIC-1099): the sr-only one on the
+      // session-bootstrap branch, and the mode-dependent one on the signed-out form — the
+      // two are mutually exclusive at render time, never both mounted at once.
       name: 'Login.tsx',
       source: loginSource,
-      h1: 1,
+      h1: 2,
       h2: 0,
       h3: 0,
-      note: 'the page owns the /login h1 itself',
+      note: 'the page owns the /login h1 itself, on both of its branches',
     },
     {
       // The forbidden fix, stated directly: this panel takes over the page's h1. It sits

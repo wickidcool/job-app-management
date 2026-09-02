@@ -1,4 +1,4 @@
--- Migration: 0021_enforce_catalog_diffs_userid_not_null.sql
+-- Migration: 0023_enforce_catalog_diffs_userid_not_null.sql
 -- WIC-1604 — finish what 0017 started on `catalog_diffs.user_id`.
 --
 -- The gap. `0017_enforce_userid_not_null.sql` has two relevant steps. Step 1
@@ -20,12 +20,12 @@
 -- the fail-open path WIC-1638 exists to close. The write side is fixed in the
 -- same commit as this migration, so no new NULLs arrive after it.
 --
--- Ordering matters, and this migration is deliberately numbered after 0020.
--- `0020_backfill_catalog_diffs_user_id.sql` (WIC-1408) recovers the *real* owner
+-- Ordering matters, and this migration is deliberately numbered after 0021.
+-- `0021_backfill_catalog_diffs_user_id.sql` (WIC-1408) recovers the *real* owner
 -- of these rows by joining `trigger_id` back to `resumes` / `applications`. This
 -- migration sweeps whatever is left to the placeholder, which is irreversible:
 -- once a row reads `00000000-…-0` its true owner can no longer be inferred.
--- Running this before 0020 would therefore destroy recoverable ownership. Run
+-- Running this before 0021 would therefore destroy recoverable ownership. Run
 -- `npm run census:catalog-diffs --workspace=@wic/api` first if you want the
 -- population before it changes; the notice below reports it either way.
 --
