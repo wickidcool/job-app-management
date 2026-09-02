@@ -310,8 +310,38 @@ Modal form for creating or editing job applications.
 
 ### Variants
 
-- **Create Mode:** Empty form, title "Add New Application"
-- **Edit Mode:** Pre-filled form, title "Edit Application"
+- **Create Mode:** Empty form, title "New application" — ~~"Add New Application"~~
+- **Edit Mode:** Pre-filled form, title "Edit application" — ~~"Edit Application"~~
+
+Re-cased to sentence case 2026-08-29 (WIC-1099) when these strings became headings rather than
+decoration: `CONTENT_STYLE.md` governs heading copy and asks for sentence case. The `Add` was
+dropped because the title now names the screen — the tab label for `/applications/new` is a
+verbatim copy of it (`ROUTE_TITLE_CONVENTION.md` §0.3, §5), and "Add New Application" reads as an
+instruction to the user rather than a name for where they are.
+
+### Heading level
+
+```tsx
+/** Heading level for the dialog title. Default 2. */
+titleLevel?: 1 | 2;
+```
+
+This is the §10 → *Heading level* treatment, and it is the one case in this document where **`1`
+is a legal value** — contrast `EmptyState`, where §10 rules `1` out on the grounds that an empty
+state is never the route. Here the dialog sometimes *is* the route:
+
+- **`2` (default) — `ApplicationDetail`.** The dialog opens over a page that owns the route's
+  `<h1>`. This is the ordinary case and the reason the prop stays optional.
+- **`1` — `ApplicationNew` (`/applications/new`).** The route mounts this form with `open={true}`
+  and never closes it, so the dialog is the entire route. A Radix modal marks every node outside
+  its portal `aria-hidden`, which means the page cannot hold the `<h1>` here: it would be in the
+  DOM and absent from the accessibility tree. The title is the route's only reachable candidate.
+
+**The section heading moves with the title.** "Extended Tracking" sits directly beneath the dialog
+title, so promoting the title alone would run the outline `h1 → h3` — the level skip
+`ROUTE_HEADING_OUTLINE.md` §1.3 forbids, introduced by the fix for a missing heading. Both tags are
+derived from `titleLevel` together for that reason, and `ApplicationNew.test.tsx` asserts the whole
+sequence rather than the presence of an `<h1>`, which is what catches it.
 
 ### Form Fields
 
@@ -895,7 +925,20 @@ here rather than merely tidy.
   occurrence is the same host at the same depth, one shown at a time, so there is no host
   decision to delegate and both were verified gap-free as they stand. That leaves five:
   `EmptyState` (fixed in WIC-1417), `CoverLetterPreview` and `ApplicationCard` (below), and
-  `PersonalInfoForm` and `ApplicationForm`, which were already correct at both of their depths.
+  `PersonalInfoForm` and ~~`ApplicationForm`, which were~~ `ApplicationForm` — `PersonalInfoForm`
+  was already correct at both of its depths, and **`ApplicationForm` was not** (corrected
+  2026-08-29, WIC-1099; it now takes `titleLevel`, see §3).
+
+  **Why WIC-1563's measurement read `ApplicationForm` as correct, since the method above is the
+  one to trust and it still missed this.** The two depths were compared for a *skip* — does the
+  dialog title sit one level below its host's `<h1>` — and at both sites it did. What no
+  comparison of depths can see is that on `/applications/new` there is no host `<h1>` **and
+  cannot be one**: the form is a Radix modal opened unconditionally, so the page behind it is
+  `aria-hidden` in its entirety. The outline is not too deep there, it is missing its root, and
+  a check for level-skips is satisfied by an outline that never starts. The general point is the
+  one in the bullet above — count where the _heading_ renders — extended one step: also ask
+  whether anything the host renders is **reachable**, because a correct level under an
+  unreachable parent is not a correct outline.
 - **The criterion is where the _heading_ renders, not where the _component_ mounts** (WIC-1563).
   These come apart whenever the heading sits behind a conditional, and `CoverLetterPreview` is
   the worked example in both directions. It mounts at two depths, which reads like a clear case

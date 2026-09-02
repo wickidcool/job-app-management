@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatTitle,
   HOOK_TITLED_ROUTES,
-  LOGIN_TITLE,
+  LOGIN_TITLES,
   PRODUCT_NAME,
   REDIRECT_ROUTES,
   STATIC_ROUTE_TITLES,
@@ -44,11 +44,11 @@ describe('the product name lives in exactly one place (AC2)', () => {
 
   it('keeps the stale product name out of every title', () => {
     // Scoped to titles on purpose, and the scope is the honest claim: `Job Application
-    // Manager` is gone from `index.html` and from Login's <h2>, the two places §2 named —
+    // Manager` is gone from `index.html` and from Login's wordmark, the two places §2 named —
     // but it survives as prose in OnboardingModal.tsx:330 and QuickReferenceExport.tsx:201,
     // which are the Copywriter's to rename and are recorded in the spec's §9. Asserting
     // "gone everywhere" here would be a test that documents a falsehood.
-    const titles = Object.values(STATIC_ROUTE_TITLES).concat(LOGIN_TITLE);
+    const titles = Object.values(STATIC_ROUTE_TITLES).concat(Object.values(LOGIN_TITLES));
     for (const title of titles) {
       expect(title).not.toContain('Job Application Manager');
       // A route's title is the page name alone — the suffix is formatTitle's job. A row
