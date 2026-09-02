@@ -13,21 +13,20 @@ import type { DashboardAttention } from '../services/api/types';
 
 function attention(overrides: Partial<DashboardAttention['counts']> = {}): DashboardAttention {
   return {
-    staleThresholdDays: 7,
-    savedThresholdDays: 3,
+    staleThresholdDays: 14,
+    unsubmittedThresholdDays: 3,
     counts: {
       interviewing: 0,
       stale: 0,
-      staleActive: 0,
       missingJobDescription: 0,
-      staleSaved: 0,
+      unsubmittedSaved: 0,
       ...overrides,
     },
     samples: {
       interviewing: [],
-      staleActive: [],
+      stale: [],
       missingJobDescription: [],
-      staleSaved: [],
+      unsubmittedSaved: [],
     },
   };
 }
@@ -44,16 +43,18 @@ describe('AttentionCard (WIC-1478)', () => {
   it('renders the server stale count verbatim, however large', () => {
     renderCard(attention({ stale: 137 }));
 
-    expect(screen.getByText(/^137 applications need follow-up \(>7 days\)/)).toBeInTheDocument();
+    expect(screen.getByText(/^137 applications need follow-up \(>14 days\)/)).toBeInTheDocument();
   });
 
-  it('uses the threshold the server reports rather than a hard-coded 7', () => {
+  it('uses the threshold the server reports rather than a hard-coded one', () => {
+    // 21 on purpose: neither the 14-day default this fixture carries nor the 7
+    // the card used to hardcode, so a regression to *either* fails here.
     const value = attention({ stale: 4 });
-    value.staleThresholdDays = 14;
+    value.staleThresholdDays = 21;
 
     renderCard(value);
 
-    expect(screen.getByText(/^4 applications need follow-up \(>14 days\)/)).toBeInTheDocument();
+    expect(screen.getByText(/^4 applications need follow-up \(>21 days\)/)).toBeInTheDocument();
   });
 
   it('singularises a count of one', () => {

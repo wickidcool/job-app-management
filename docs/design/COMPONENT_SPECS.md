@@ -2,6 +2,42 @@
 
 This document defines all reusable UI components with their states, variants, props, and behaviors.
 
+## Reading the props: score and rate units
+
+**Every normalized score, rate and proportion in a props interface below is a ratio in `[0, 1]`,
+and the component multiplies by 100 at render.** A prop that deviates carries `Pct` in its name.
+The convention is [ADR-008](../architecture/adr/ADR-008-score-and-rate-unit-convention.md) and its
+normative statement is the "Units: normalized scores and rates" section of
+[API_CONTRACTS.md](../architecture/API_CONTRACTS.md) — this document does not restate the rule,
+it obeys it.
+
+This is worth reading before you write a threshold or a `%`. Six of this document's own
+`relevanceScore` declarations were annotated `0-100` while shipped code produced `0-1`; five of
+them were simply wrong, and `StarEntryPicker`'s `>= 80` filter is the bug those comments
+authorised (WIC-1516). The rule of thumb:
+
+| You wrote | On a ratio prop, that means |
+|---|---|
+| `score >= 80` | never true — you want `>= 0.8` |
+| `{score}%` | renders `0.85%` — you want `{formatRatioAsPercent(score)}` |
+
+`packages/web/src/types/units.ts` exports `Ratio`, `Percent`, `toPercent` and
+`formatRatioAsPercent`.
+
+**Do not read the `Ratio` brand as covering the two mistakes in that table — it does not.**
+The brand catches *assignment*: a `Percent`, or a bare `number` off a wire parse, landing in a
+`Ratio` prop. Arithmetic and rendering erase it. `Ratio` is assignable to `number`, so
+`score >= 80` is a well-typed comparison and `{score}%` is a well-typed `ReactNode`; **both
+compile.** (Measured, not assumed — see ADR-008 §3.)
+
+So, concretely, for a prop you are writing:
+
+- **Render through `formatRatioAsPercent(score)`**, never a hand-written `* 100`. Routing the
+  render through a function that takes the brand is what makes a wrong-unit render a compile
+  error; the bare `{score}%` form gets you nothing.
+- **Write a test for every threshold.** `>= 0.8` vs `>= 80` is invisible to the compiler and
+  always will be. A test is the only thing holding that line.
+
 ## Reading the wireframes: casing
 
 The ASCII wireframes below depict **rendered output**, not source strings. An all-caps label in a
@@ -274,8 +310,38 @@ Modal form for creating or editing job applications.
 
 ### Variants
 
-- **Create Mode:** Empty form, title "Add New Application"
-- **Edit Mode:** Pre-filled form, title "Edit Application"
+- **Create Mode:** Empty form, title "New application" — ~~"Add New Application"~~
+- **Edit Mode:** Pre-filled form, title "Edit application" — ~~"Edit Application"~~
+
+Re-cased to sentence case 2026-08-29 (WIC-1099) when these strings became headings rather than
+decoration: `CONTENT_STYLE.md` governs heading copy and asks for sentence case. The `Add` was
+dropped because the title now names the screen — the tab label for `/applications/new` is a
+verbatim copy of it (`ROUTE_TITLE_CONVENTION.md` §0.3, §5), and "Add New Application" reads as an
+instruction to the user rather than a name for where they are.
+
+### Heading level
+
+```tsx
+/** Heading level for the dialog title. Default 2. */
+titleLevel?: 1 | 2;
+```
+
+This is the §10 → *Heading level* treatment, and it is the one case in this document where **`1`
+is a legal value** — contrast `EmptyState`, where §10 rules `1` out on the grounds that an empty
+state is never the route. Here the dialog sometimes *is* the route:
+
+- **`2` (default) — `ApplicationDetail`.** The dialog opens over a page that owns the route's
+  `<h1>`. This is the ordinary case and the reason the prop stays optional.
+- **`1` — `ApplicationNew` (`/applications/new`).** The route mounts this form with `open={true}`
+  and never closes it, so the dialog is the entire route. A Radix modal marks every node outside
+  its portal `aria-hidden`, which means the page cannot hold the `<h1>` here: it would be in the
+  DOM and absent from the accessibility tree. The title is the route's only reachable candidate.
+
+**The section heading moves with the title.** "Extended Tracking" sits directly beneath the dialog
+title, so promoting the title alone would run the outline `h1 → h3` — the level skip
+`ROUTE_HEADING_OUTLINE.md` §1.3 forbids, introduced by the fix for a missing heading. Both tags are
+derived from `titleLevel` together for that reason, and `ApplicationNew.test.tsx` asserts the whole
+sequence rather than the presence of an `<h1>`, which is what catches it.
 
 ### Form Fields
 
@@ -429,12 +495,25 @@ interface DashboardStatsProps {
   stats: {
     total: number;
     appliedThisWeek: number;
-    responseRate: number; // 0-100
+    responseRate: Ratio; // 0-1 — a ratio, NOT a percentage
     inReview: number; // phone_screen + interview count
   };
   loading?: boolean;
 }
 ```
+
+> **Unit of `responseRate`: a ratio in [0, 1]** — `0.75` means 75%. The source of
+> record for this unit is
+> [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md)
+> (`GET /dashboard`), which is also what the API ships. The API sends the ratio
+> unchanged and **the presentation layer converts**, matching the convention UC-3
+> already uses for `relevanceScore`.
+>
+> This spec previously said `0-100`, contradicting API_CONTRACTS. Nothing adapted
+> between the two, so the component ran `Math.round(0.75)` and the "Response" card
+> could only ever read "0%" or "1%" (WIC-1514). The unit is now branded as `Ratio`
+> in `packages/web/src/types/units.ts`; convert with `toPercent(...)` at the render
+> site.
 
 ### Layout
 
@@ -846,7 +925,20 @@ here rather than merely tidy.
   occurrence is the same host at the same depth, one shown at a time, so there is no host
   decision to delegate and both were verified gap-free as they stand. That leaves five:
   `EmptyState` (fixed in WIC-1417), `CoverLetterPreview` and `ApplicationCard` (below), and
-  `PersonalInfoForm` and `ApplicationForm`, which were already correct at both of their depths.
+  `PersonalInfoForm` and ~~`ApplicationForm`, which were~~ `ApplicationForm` — `PersonalInfoForm`
+  was already correct at both of its depths, and **`ApplicationForm` was not** (corrected
+  2026-08-29, WIC-1099; it now takes `titleLevel`, see §3).
+
+  **Why WIC-1563's measurement read `ApplicationForm` as correct, since the method above is the
+  one to trust and it still missed this.** The two depths were compared for a *skip* — does the
+  dialog title sit one level below its host's `<h1>` — and at both sites it did. What no
+  comparison of depths can see is that on `/applications/new` there is no host `<h1>` **and
+  cannot be one**: the form is a Radix modal opened unconditionally, so the page behind it is
+  `aria-hidden` in its entirety. The outline is not too deep there, it is missing its root, and
+  a check for level-skips is satisfied by an outline that never starts. The general point is the
+  one in the bullet above — count where the _heading_ renders — extended one step: also ask
+  whether anything the host renders is **reachable**, because a correct level under an
+  unreachable parent is not a correct outline.
 - **The criterion is where the _heading_ renders, not where the _component_ mounts** (WIC-1563).
   These come apart whenever the heading sits behind a conditional, and `CoverLetterPreview` is
   the worked example in both directions. It mounts at two depths, which reads like a clear case
@@ -1302,7 +1394,7 @@ interface CatalogMatch {
   type: 'skill' | 'experience' | 'achievement';
   catalogItemId: string;
   title: string;
-  matchConfidence: number; // 0-100
+  confidence: number; // Ratio in [0,1] — the API field is `confidence` (API_CONTRACTS.md:974). ADR-008 §4
   reasoning: string;
 }
 
@@ -1314,7 +1406,7 @@ interface Gap {
 
 interface STARRecommendation {
   experienceId: string;
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — job-fit population (ADR-008)
   reasoning: string;
 }
 
@@ -2188,12 +2280,16 @@ Short-form message composer for LinkedIn InMail, email subject/body, or other ou
 
 ### Props
 
+> **The composer owns `platform`. A host must not hold a copy of it.** Ruled 2026-08-29 (WIC-1583, commit `9c71079`), after `/outreach/new` shipped two platform pickers — the page's and the composer's — that silently disagreed. `platform` decides the character budget, the warning thresholds and whether a Subject field exists at all, so the control belongs with the fields it governs and there must be exactly one of it on the route. **This spec previously declared `platform` as a prop; that line is struck, not merely edited.** A `platform` prop is what let a host paint a second picker.
+>
+> The remaining props are read on mount only. `initialContext` (renamed from `prefillContext` in the same commit) seeds editable fields the user then owns; the name states the contract. **A host that needs a later change to take effect must remount with a `key` — do not add a resync effect**, which `react-hooks/set-state-in-effect` rejects in this repo (WIC-1612). `OutreachNew` keys on every prop it seeds from.
+
 ```tsx
 interface OutreachComposerProps {
-  platform: 'linkedin' | 'email' | 'twitter';
-  applicationId?: string;
+  // `platform: 'linkedin' | 'email' | 'twitter'` — REMOVED, see the note above.
+  // `applicationId?: string` — never implemented; the route reads it from the query string.
   fitAnalysisId?: string;
-  prefillContext?: {
+  initialContext?: {
     company: string;
     jobTitle: string;
     hiringManager?: string;
@@ -2212,13 +2308,15 @@ interface OutreachMessage {
 
 ### Layout
 
+Two lines below are corrections, not aspiration — the diagram asserted both of them after the code had stopped doing them, which is the failure mode a prose-only amendment leaves behind. The panel carries **no heading of its own**: it is the sole body of `/outreach/new`, whose page `<h1>` already says "Compose Outreach Message", and repeating it here was WIC-1581. And there is **no Twitter DM option** — `OutreachPlatform` is `'linkedin' | 'email'`; the `twitter` entry under "Platform Constraints" below is unimplemented and should be read as a proposal.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Compose Outreach Message                               │
+│  (no panel heading — the page <h1> names the route)      │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
-│  │ Platform                                          │ │
-│  │ ● LinkedIn InMail    ○ Email    ○ Twitter DM      │ │
+│  │ Platform          ← the route's only platform picker│
+│  │ ● LinkedIn InMail    ○ Email                       │ │
 │  └───────────────────────────────────────────────────┘ │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
@@ -2494,7 +2592,7 @@ interface STAREntry {
   result: string;
   tags: string[];
   timeframe: string; // e.g., "Q3 2024"
-  relevanceScore?: number; // 0-100, from fit analysis
+  relevanceScore?: number; // Ratio in [0,1] — from fit analysis, so it is the job-fit population (ADR-008). Render as `Math.round(s * 100)`; a `>= 80` threshold is a bug, use `>= 0.8`
   relevanceReasoning?: string;
 }
 ```
@@ -2831,7 +2929,7 @@ interface ScoredBullet {
   company: string;
   timeframe: string;
   tags: string[];
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string;
   selected: boolean;
 }
@@ -3088,7 +3186,7 @@ interface ScoredBullet {
   company: string;
   timeframe: string;
   tags: string[];
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string;
   starEntry: {
     situation: string;
@@ -3433,7 +3531,7 @@ interface MarkdownResumePreviewProps {
 
 interface BulletTrace {
   starEntryId: string;
-  relevanceScore: number;
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   company: string;
   title: string;
 }
@@ -3722,7 +3820,7 @@ interface STARStory {
   id: string;
   title: string;
   themes: string[]; // 'leadership' | 'technical' | 'teamwork' | 'problem_solving' | 'communication' | 'innovation'
-  relevanceScore: number; // 0-100
+  relevanceScorePct: number; // Percent in [0,100], integer — interview-prep population, the one deviation (ADR-008 §4)
   situation: string;
   task: string;
   action: string;
@@ -3852,7 +3950,7 @@ type Theme = {
 - **ARIA Role:** `tablist` for themes, `listbox` for stories
 - **Tab Navigation:** Tab between theme tabs, Enter to select
 - **Arrow Keys:** Navigate between story cards
-- **Screen Reader:** "{title}, {relevanceScore}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
+- **Screen Reader:** "{title}, {relevanceScorePct}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
 
 ### Responsive Behavior
 

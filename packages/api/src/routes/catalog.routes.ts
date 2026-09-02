@@ -20,6 +20,7 @@ import {
   listThemes,
 } from '../services/catalog.service.js';
 import { analyzeJobFit } from '../services/job-fit.service.js';
+import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
 
@@ -155,11 +156,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = generateDiffSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const diff = await generateDiff(
-      parsed.data.sourceType,
-      parsed.data.sourceId,
-      c.get('userId') ?? undefined
-    );
+    const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId, requireOwner(c));
     return c.json(diff, 201);
   })
   .post('/catalog/diffs/:id/apply', async (c) => {
@@ -198,7 +195,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const result = await mergeCompanies(
       parsed.data.sourceCompanyIds,
       parsed.data.targetCompanyId,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json(result);
   })
@@ -260,19 +257,11 @@ export const catalogRoutes = new Hono<AppEnv>()
 
     if (type === 'job-fit') {
       return c.json(
-        await mergeJobFitTags(
-          parsed.data.sourceTagIds,
-          parsed.data.targetTagId,
-          c.get('userId') ?? undefined
-        )
+        await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId, requireOwner(c))
       );
     } else if (type === 'tech-stack') {
       return c.json(
-        await mergeTechStackTags(
-          parsed.data.sourceTagIds,
-          parsed.data.targetTagId,
-          c.get('userId') ?? undefined
-        )
+        await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId, requireOwner(c))
       );
     } else {
       return c.json(
@@ -289,13 +278,13 @@ export const catalogRoutes = new Hono<AppEnv>()
       const parsed = updateJobFitTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-      const tag = await updateJobFitTag(id, parsed.data, c.get('userId') ?? undefined);
+      const tag = await updateJobFitTag(id, parsed.data, requireOwner(c));
       return c.json(tag);
     } else if (type === 'tech-stack') {
       const parsed = updateTechStackTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-      const tag = await updateTechStackTag(id, parsed.data, c.get('userId') ?? undefined);
+      const tag = await updateTechStackTag(id, parsed.data, requireOwner(c));
       return c.json(tag);
     } else {
       return c.json(
