@@ -6,6 +6,7 @@ export function OutreachNew() {
   const [searchParams] = useSearchParams();
 
   const applicationId = searchParams.get('applicationId') || undefined;
+  const coverLetterId = searchParams.get('coverLetterId') || undefined;
   const fitAnalysisId = searchParams.get('jobFitAnalysisId') || undefined;
   const company = searchParams.get('company') || '';
   const jobTitle = searchParams.get('jobTitle') || '';
@@ -48,6 +49,7 @@ export function OutreachNew() {
         */}
         <OutreachComposer
           key={`${company}|${jobTitle}|${fitAnalysisId ?? ''}`}
+          coverLetterId={coverLetterId}
           fitAnalysisId={fitAnalysisId}
           initialContext={
             company && jobTitle

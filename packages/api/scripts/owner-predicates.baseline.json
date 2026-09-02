@@ -1,0 +1,152 @@
+[
+  {
+    "file": "src/services/analytics.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 1
+  },
+  {
+    "file": "src/services/application.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in a ternary test",
+    "count": 5
+  },
+  {
+    "file": "src/services/application.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in an if test",
+    "count": 1
+  },
+  {
+    "file": "src/services/application.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 6
+  },
+  {
+    "file": "src/services/catalog.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in a ternary test",
+    "count": 9
+  },
+  {
+    "file": "src/services/catalog.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in an if test",
+    "count": 6
+  },
+  {
+    "file": "src/services/catalog.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 12
+  },
+  {
+    "file": "src/services/cover-letter.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in a ternary test",
+    "count": 7
+  },
+  {
+    "file": "src/services/cover-letter.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in an if test",
+    "count": 1
+  },
+  {
+    "file": "src/services/cover-letter.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 9
+  },
+  {
+    "file": "src/services/dashboard.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in a ternary test",
+    "count": 1
+  },
+  {
+    "file": "src/services/dashboard.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 1
+  },
+  {
+    "file": "src/services/dialogue.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 3
+  },
+  {
+    "file": "src/services/interviewPrep.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 6
+  },
+  {
+    "file": "src/services/job-fit.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 1
+  },
+  {
+    "file": "src/services/personal-info.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 2
+  },
+  {
+    "file": "src/services/project.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 22
+  },
+  {
+    "file": "src/services/reports.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in a ternary test",
+    "count": 4
+  },
+  {
+    "file": "src/services/reports.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in an if test",
+    "count": 1
+  },
+  {
+    "file": "src/services/reports.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 5
+  },
+  {
+    "file": "src/services/resume-variant.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 4
+  },
+  {
+    "file": "src/services/resume.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in a ternary test",
+    "count": 5
+  },
+  {
+    "file": "src/services/resume.service.ts",
+    "check": "COND",
+    "detail": "'userId' branched on in an if test",
+    "count": 1
+  },
+  {
+    "file": "src/services/resume.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 8
+  },
+  {
+    "file": "src/services/storage.service.ts",
+    "check": "SIG",
+    "detail": "owner parameter 'userId' is optional or nullable",
+    "count": 1
+  }
+]
