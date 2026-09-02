@@ -17,6 +17,7 @@ import { getTableName } from 'drizzle-orm';
 import {
   analyzeJobFit,
   computeFitScore,
+  jobFitAnalysesScope,
   listJobFitAnalyses,
 } from '../src/services/job-fit.service.js';
 import { applications, jobFitAnalyses } from '../src/db/schema.js';
@@ -375,7 +376,10 @@ describe('listJobFitAnalyses', () => {
     });
     vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
 
-    const { analyses } = await listJobFitAnalyses({ applicationId: 'app-1' }, OWNER);
+    const { analyses } = await listJobFitAnalyses(
+      { applicationId: 'app-1' },
+      jobFitAnalysesScope(OWNER)
+    );
 
     expect(analyses.map((a) => a.id)).toEqual(['mine']);
     expect(analyses[0]).toMatchObject({
@@ -394,7 +398,7 @@ describe('listJobFitAnalyses', () => {
     });
     vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
 
-    const { analyses } = await listJobFitAnalyses({}, OWNER);
+    const { analyses } = await listJobFitAnalyses({}, jobFitAnalysesScope(OWNER));
 
     expect(analyses.map((a) => a.id)).toEqual(['mine']);
     expectScopedTo(stub.opsOn(ANALYSES)[0].clause, { table: ANALYSES, userId: OWNER });
@@ -408,7 +412,7 @@ describe('listJobFitAnalyses', () => {
     });
     vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
 
-    const { analyses } = await listJobFitAnalyses({}, undefined);
+    const { analyses } = await listJobFitAnalyses({}, jobFitAnalysesScope(undefined));
 
     expect(analyses.map((a) => a.id)).toEqual(['orphan']);
     expect(renderClause(stub.opsOn(ANALYSES)[0].clause).sql).toMatch(
@@ -422,7 +426,9 @@ describe('listJobFitAnalyses', () => {
     });
     vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
 
-    expect((await listJobFitAnalyses({ limit: 500 }, OWNER)).analyses).toHaveLength(100);
-    expect((await listJobFitAnalyses({}, OWNER)).analyses).toHaveLength(20);
+    expect(
+      (await listJobFitAnalyses({ limit: 500 }, jobFitAnalysesScope(OWNER))).analyses
+    ).toHaveLength(100);
+    expect((await listJobFitAnalyses({}, jobFitAnalysesScope(OWNER))).analyses).toHaveLength(20);
   });
 });

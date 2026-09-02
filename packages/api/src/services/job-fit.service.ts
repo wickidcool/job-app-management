@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { lookup } from 'node:dns/promises';
 import { ulid } from 'ulid';
@@ -745,7 +746,10 @@ export async function analyzeJobFit(
   // Before the rate-limit slot and before the LLM call, both of which are
   // billable and neither of which is refundable: an unresolvable `applicationId`
   // should cost the caller nothing.
-  const applicationId = await resolveOwnedApplicationId(input.applicationId, userId);
+  const applicationId = await resolveOwnedApplicationId(
+    input.applicationId,
+    ownerScope(applications, userId)
+  );
 
   let jdText: string;
   let rateLimitHeaders: { remaining: number; reset: number };
@@ -824,7 +828,7 @@ export async function analyzeJobFit(
 
   if (catalogEmpty) {
     return {
-      response: await persistAnalysis(input, userId, applicationId, {
+      response: await persistAnalysis(input, userId ?? null, applicationId, {
         recommendation: null,
         fitScore: null,
         summary:
@@ -976,7 +980,7 @@ export async function analyzeJobFit(
     }));
 
   return {
-    response: await persistAnalysis(input, userId, applicationId, {
+    response: await persistAnalysis(input, userId ?? null, applicationId, {
       recommendation,
       fitScore,
       summary: computeSummary(recommendation, strongMatches, partialMatches, gaps, totalRequired),
@@ -1020,14 +1024,12 @@ type AnalysisBody = Omit<AnalyzeJobFitResponse, 'id' | 'applicationId'>;
  */
 async function resolveOwnedApplicationId(
   applicationId: string | undefined,
-  userId: string | undefined
+  owner: SQL
 ): Promise<string | null> {
   if (applicationId === undefined) return null;
 
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(applications.id, applicationId), eq(applications.userId, userId))
-    : and(eq(applications.id, applicationId), isNull(applications.userId));
+  const whereClause = and(eq(applications.id, applicationId), owner);
 
   const [row] = await db.select().from(applications).where(whereClause);
   if (!row) {
@@ -1048,7 +1050,7 @@ async function resolveOwnedApplicationId(
  */
 async function persistAnalysis(
   input: AnalyzeJobFitInput,
-  userId: string | undefined,
+  owner: string | null,
   applicationId: string | null,
   body: AnalysisBody
 ): Promise<AnalyzeJobFitResponse> {
@@ -1057,7 +1059,7 @@ async function persistAnalysis(
 
   await db.insert(jobFitAnalyses).values({
     id,
-    userId: userId ?? null,
+    userId: owner,
     applicationId,
     jobDescriptionText: input.jobDescriptionText ?? null,
     jobDescriptionUrl: input.jobDescriptionUrl ?? null,
@@ -1088,13 +1090,23 @@ const MAX_ANALYSIS_LIMIT = 100;
  * unconditionally and in conjunction with it — an application filter is not a
  * substitute for scoping, because application ids are caller-supplied.
  */
+/**
+ * The owner term for the analyses table, in the fail-closed shape the
+ * owner-predicate audit recognises: an absent owner selects the genuinely
+ * unowned rows, never the whole table. Exported so the route can build the
+ * scope without `listJobFitAnalyses` having to carry an optional owner of its
+ * own — which is the [SIG] shape that audit exists to stop spreading.
+ */
+export function jobFitAnalysesScope(userId?: string) {
+  return userId ? eq(jobFitAnalyses.userId, userId) : isNull(jobFitAnalyses.userId);
+}
+
 export async function listJobFitAnalyses(
   params: ListJobFitAnalysesParams,
-  userId?: string
+  ownerTerm: SQL
 ): Promise<ListJobFitAnalysesResponse> {
   const db = getDb();
 
-  const ownerTerm = userId ? eq(jobFitAnalyses.userId, userId) : isNull(jobFitAnalyses.userId);
   const whereClause =
     params.applicationId === undefined
       ? ownerTerm

@@ -19,7 +19,11 @@ import {
   listStarEntries,
   listThemes,
 } from '../services/catalog.service.js';
-import { analyzeJobFit, listJobFitAnalyses } from '../services/job-fit.service.js';
+import {
+  analyzeJobFit,
+  jobFitAnalysesScope,
+  listJobFitAnalyses,
+} from '../services/job-fit.service.js';
 import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
@@ -358,6 +362,9 @@ export const catalogRoutes = new Hono<AppEnv>()
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
-    const result = await listJobFitAnalyses(parsed.data, c.get('userId') ?? undefined);
+    const result = await listJobFitAnalyses(
+      parsed.data,
+      jobFitAnalysesScope(c.get('userId') ?? undefined)
+    );
     return c.json(result);
   });

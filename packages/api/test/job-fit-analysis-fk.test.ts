@@ -44,8 +44,23 @@ const schemaSource = readFileSync(
   'utf8'
 );
 
+/**
+ * Resolved from the journal by name, not by number. This migration gets
+ * renumbered whenever another branch lands first and claims the index (which is
+ * the very collision the assertions below exist to catch), so pinning the
+ * numeric prefix here would break this suite every time that happened.
+ */
+const JOB_FIT_ANALYSES_TAG = (
+  JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL('../src/db/migrations/meta/_journal.json', import.meta.url)),
+      'utf8'
+    )
+  ) as { entries: { tag: string }[] }
+).entries.find((e) => e.tag.endsWith('_job_fit_analyses'))!.tag;
+
 const migration = readFileSync(
-  fileURLToPath(new URL('../src/db/migrations/0022_job_fit_analyses.sql', import.meta.url)),
+  fileURLToPath(new URL(`../src/db/migrations/${JOB_FIT_ANALYSES_TAG}.sql`, import.meta.url)),
   'utf8'
 );
 
@@ -154,8 +169,11 @@ describe('migration 0022 (AC-4)', () => {
       )
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    const entry = journal.entries.find((e) => e.tag === '0022_job_fit_analyses');
-    expect(entry, '0022 must be in _journal.json or db:migrate skips it').toBeDefined();
+    const entry = journal.entries.find((e) => e.tag === JOB_FIT_ANALYSES_TAG);
+    expect(
+      entry,
+      `${JOB_FIT_ANALYSES_TAG} must be in _journal.json or db:migrate skips it`
+    ).toBeDefined();
     expect(entry!.idx).toBe(Math.max(...journal.entries.map((e) => e.idx)));
     expect(entry!.when).toBe(Math.max(...journal.entries.map((e) => e.when)));
   });

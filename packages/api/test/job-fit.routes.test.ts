@@ -5,6 +5,7 @@ import { _resetConfig } from '../src/config.js';
 
 vi.mock('../src/services/job-fit.service.js', () => ({
   analyzeJobFit: vi.fn(),
+  jobFitAnalysesScope: vi.fn(),
   listJobFitAnalyses: vi.fn(),
 }));
 
@@ -397,6 +398,14 @@ describe('GET /api/catalog/job-fit/analyses (WIC-1652)', () => {
     analyzedAt: '2026-08-30T00:00:00.000Z',
   };
 
+  const SCOPE = Symbol('owner-scope') as unknown as ReturnType<
+    typeof jobFitService.jobFitAnalysesScope
+  >;
+
+  beforeEach(() => {
+    vi.mocked(jobFitService.jobFitAnalysesScope).mockReturnValue(SCOPE);
+  });
+
   it('returns the stored analyses for an application', async () => {
     // The read half. Without it an analysis is stored but unfindable, so
     // `ApplicationDetail` still cannot tell whether one exists.
@@ -408,9 +417,14 @@ describe('GET /api/catalog/job-fit/analyses (WIC-1652)', () => {
     const body = await res.json();
     expect(body.analyses).toHaveLength(1);
     expect(body.analyses[0]).toMatchObject({ id: summary.id, fitScore: 62 });
+    // The owner scope is built by the service's own factory from the caller id
+    // and passed through verbatim. `undefined` is the caller here because this
+    // suite runs with auth bypassed; the factory, not the route, decides that an
+    // absent owner means `user_id IS NULL`.
+    expect(vi.mocked(jobFitService.jobFitAnalysesScope)).toHaveBeenCalledWith(undefined);
     expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith(
       { applicationId: 'app-1' },
-      undefined
+      SCOPE
     );
   });
 
@@ -418,10 +432,7 @@ describe('GET /api/catalog/job-fit/analyses (WIC-1652)', () => {
     vi.mocked(jobFitService.listJobFitAnalyses).mockResolvedValue({ analyses: [] });
 
     await app.request('/api/catalog/job-fit/analyses?limit=5');
-    expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith(
-      { limit: 5 },
-      undefined
-    );
+    expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith({ limit: 5 }, SCOPE);
 
     const res = await app.request('/api/catalog/job-fit/analyses?limit=500');
     expect(res.status).toBe(400);
@@ -433,6 +444,6 @@ describe('GET /api/catalog/job-fit/analyses (WIC-1652)', () => {
     const res = await app.request('/api/catalog/job-fit/analyses');
 
     expect(res.status).toBe(200);
-    expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith({}, undefined);
+    expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith({}, SCOPE);
   });
 });
