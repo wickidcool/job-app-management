@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { onboardingService } from '../services/api';
+import { AUTH_TOKEN_KEY } from '../services/appStorage';
 import type { OnboardingStatus, OnboardingStep, OnboardingProgress } from '../services/api';
 
 interface OnboardingContextType {
@@ -42,7 +43,7 @@ const TOTAL_STEPS = 6; // Welcome, Personal Info, Resume Upload, App Overview, C
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   // Initialize loading based on whether auth token exists
-  const [loading, setLoading] = useState(() => !!localStorage.getItem('auth_token'));
+  const [loading, setLoading] = useState(() => !!localStorage.getItem(AUTH_TOKEN_KEY));
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -94,7 +95,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Skip fetch if user is not authenticated
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
     if (!token) {
       return;
     }

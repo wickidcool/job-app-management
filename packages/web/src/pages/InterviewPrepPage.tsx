@@ -228,7 +228,7 @@ export function InterviewPrepPage() {
   };
 
   const topStories = prep.stories
-    .filter((s: PrepStory) => s.isFavorite || s.relevanceScore >= 80)
+    .filter((s: PrepStory) => s.isFavorite || s.relevanceScorePct >= 80)
     .slice(0, 5);
 
   const keyQuestions = prep.questions
