@@ -49,6 +49,7 @@ vi.mock('../src/services/dashboard.service.js', () => ({
 
 import * as jobFitService from '../src/services/job-fit.service.js';
 import { JobFitInputError, RateLimitError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockAnalysisResponse = {
   recommendation: 'moderate_fit' as const,
@@ -264,7 +265,7 @@ describe('POST /api/catalog/job-fit/analyze', () => {
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
       { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
       expect.any(String),
-      undefined
+      DEV_OWNER
     );
   });
 });

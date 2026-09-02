@@ -8,6 +8,19 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_JWT_SECRET=your-jwt-secret
 
+# The owner local dev runs as when auth is bypassed (ADR-010 D3).
+#
+# The bypass fires only when BOTH SUPABASE_URL and SUPABASE_JWT_SECRET are
+# absent -- comment out both lines above to use it. Setting just one leaves
+# /api/* requiring a valid JWT, and this variable then has no effect at all.
+#
+# When it does fire, local dev is one specific tenant rather than no tenant, so
+# every tenancy predicate runs its owner branch exactly as it does in
+# production. Defaults to the sentinel migration 0017 backfills pre-tenancy rows
+# to, so a fresh local database's legacy rows are already owned by this id.
+# Point it at a real user's uuid to develop against that user's data instead.
+# LOCAL_DEV_USER_ID=00000000-0000-0000-0000-000000000000
+
 # Anthropic API
 ANTHROPIC_API_KEY=sk-ant-...
 

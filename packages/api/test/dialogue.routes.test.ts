@@ -58,6 +58,7 @@ vi.mock('../src/services/dashboard.service.js', () => ({
 
 import * as dialogueService from '../src/services/dialogue.service.js';
 import { NotFoundError, ConflictError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const validAccomplishment = {
   title: 'Improved API throughput',
@@ -108,7 +109,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         expect.objectContaining({ company: 'Acme Corp', role: 'Senior Engineer' }),
         undefined,
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -176,7 +177,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         expect.objectContaining({ technologies: [], jobFit: [] }),
         undefined,
-        undefined
+        DEV_OWNER
       );
     });
   });
@@ -204,7 +205,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         'acme-corp-senior-engineer.md',
         expect.objectContaining({ industry: 'Fintech', jobFit: ['payments'] }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -274,7 +275,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         'acme-corp-senior-engineer.md',
         expect.objectContaining({ company: 'Acme Corp' }),
-        undefined
+        DEV_OWNER
       );
     });
 

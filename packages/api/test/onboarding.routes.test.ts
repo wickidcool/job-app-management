@@ -4,6 +4,26 @@ import { buildApp } from '../src/app.js';
 import { _resetConfig } from '../src/config.js';
 import { _resetJwksCache } from '../src/middleware/auth.js';
 
+/**
+ * Injects a null owner onto the request context (see the bypass block at the
+ * foot of this file). `vi.hoisted` because the `vi.mock` factory below is lifted
+ * above every `const`, so a plain binding would be in its temporal dead zone.
+ */
+const inject = vi.hoisted(() => ({ ownerless: false }));
+
+vi.mock('../src/middleware/auth.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/middleware/auth.js')>();
+  const { createMiddleware } = await import('hono/factory');
+  return {
+    ...actual,
+    authMiddleware: createMiddleware(async (c, next) => {
+      if (!inject.ownerless) return actual.authMiddleware(c, next);
+      c.set('userId', null);
+      await next();
+    }),
+  };
+});
+
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
 // Spread the real module first, then override only the functions. A factory that
@@ -70,6 +90,8 @@ describe('Onboarding Routes', () => {
   let app: ReturnType<typeof buildApp>;
 
   beforeEach(() => {
+    // Default to the real middleware; only the null-user block opts in.
+    inject.ownerless = false;
     process.env = { ...originalEnv };
     process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
     delete process.env.SUPABASE_URL;
@@ -80,6 +102,7 @@ describe('Onboarding Routes', () => {
   });
 
   afterEach(() => {
+    inject.ownerless = false;
     process.env = originalEnv;
     _resetConfig();
     _resetJwksCache();
@@ -443,16 +466,27 @@ describe('Onboarding Routes', () => {
     });
   });
 
-  // ── Local-dev auth bypass, every route ─────────────────────────────────────
+  // ── The per-route null-user guards, every route ────────────────────────────
   //
-  // When SUPABASE_JWT_SECRET is unset, authMiddleware waves the request through
-  // with userId=null rather than rejecting it. Onboarding is per-user, so each
-  // route carries its own `if (!userId) throw UNAUTHORIZED` guard. The
-  // `returns 401 without a bearer token` cases above exercise the *middleware*,
-  // not those guards — deleting all four guards leaves them all green. This
-  // block is what pins the guards themselves, so it must cover every route.
+  // Onboarding is per-user, so each route carries its own
+  // `if (!userId) throw UNAUTHORIZED` guard. The `returns 401 without a bearer
+  // token` cases above exercise the *middleware*, not those guards — deleting
+  // all four guards leaves them all green. This block is what pins the guards
+  // themselves, so it must cover every route.
+  //
+  // This used to reach them through the local-dev auth bypass, which waved a
+  // request through with `userId=null`. ADR-010 D3 (WIC-1964) closed that: the
+  // bypass now supplies a real `LOCAL_DEV_USER_ID`, so it is a tenant and no
+  // longer a way to produce an absence — and with WIC-1554 rejecting the
+  // sub-less token upstream, nothing in the real app produces one at all.
+  //
+  // That makes these guards defence in depth, which is a reason to keep testing
+  // them and not a reason to delete them: what must stay true is the
+  // conditional, that *if* a null owner ever reaches these routes again they
+  // reject it rather than querying on it. So the absence is injected at the
+  // middleware boundary instead of manufactured from auth config.
 
-  describe('the local-dev bypass never reaches a route with a null user', () => {
+  describe('a null user never reaches an onboarding route', () => {
     const ROUTES = [
       { method: 'GET', path: '/api/users/me/onboarding/status' },
       { method: 'POST', path: '/api/users/me/onboarding/progress' },
@@ -461,11 +495,10 @@ describe('Onboarding Routes', () => {
     ] as const;
 
     it.each(ROUTES)('$method $path returns 401 UNAUTHORIZED', async ({ method, path }) => {
-      delete process.env.SUPABASE_JWT_SECRET;
-      _resetConfig();
-      const bypassApp = buildApp();
+      inject.ownerless = true;
+      const ownerlessApp = buildApp();
 
-      const res = await bypassApp.request(path, {
+      const res = await ownerlessApp.request(path, {
         method,
         ...(method === 'POST'
           ? { headers: { 'content-type': 'application/json' }, body: '{}' }

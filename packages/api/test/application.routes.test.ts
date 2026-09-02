@@ -17,6 +17,7 @@ vi.mock('../src/services/dashboard.service.js', () => ({
 
 import * as appService from '../src/services/application.service.js';
 import { NotFoundError, InvalidTransitionError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockApplication = {
   id: '01HXTEST000000000000000001',
@@ -68,7 +69,7 @@ describe('Application Routes', () => {
 
       expect(appService.listApplications).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'applied', sortBy: 'company', limit: 10 }),
-        undefined
+        DEV_OWNER
       );
     });
 

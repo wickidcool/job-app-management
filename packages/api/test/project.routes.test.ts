@@ -39,6 +39,7 @@ vi.mock('../src/services/dashboard.service.js', () => ({
 import * as projectService from '../src/services/project.service.js';
 import * as resumeService from '../src/services/resume.service.js';
 import { NotFoundError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockProject = {
   id: 'acme-corp',
@@ -89,7 +90,7 @@ describe('Project Routes', () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ files: [mockFileMeta] });
-      expect(projectService.listProjectFiles).toHaveBeenCalledWith('acme-corp', undefined);
+      expect(projectService.listProjectFiles).toHaveBeenCalledWith('acme-corp', DEV_OWNER);
     });
 
     it('returns 404 when project not found', async () => {
@@ -116,7 +117,7 @@ describe('Project Routes', () => {
       expect(projectService.getProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -152,7 +153,7 @@ describe('Project Routes', () => {
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
         '# Updated content',
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -194,7 +195,7 @@ describe('Project Routes', () => {
       expect(response.status).toBe(204);
       expect(resumeService.deleteResume).toHaveBeenCalledWith(
         '01HXTEST000000000000000001',
-        undefined
+        DEV_OWNER
       );
     });
 

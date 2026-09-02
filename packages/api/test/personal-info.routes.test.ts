@@ -48,6 +48,7 @@ vi.mock('../src/services/job-fit.service.js', () => ({ analyzeJobFit: vi.fn() })
 
 import * as personalInfoService from '../src/services/personal-info.service.js';
 import { VersionConflictError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockPersonalInfo = {
   id: '01HXTEST000000000000000001',
@@ -193,7 +194,7 @@ describe('Personal Info Routes', () => {
       expect(body.personalInfo.firstName).toBe('Janet');
       expect(personalInfoService.upsertPersonalInfo).toHaveBeenCalledWith(
         expect.objectContaining({ firstName: 'Janet', version: 1 }),
-        undefined
+        DEV_OWNER
       );
     });
 

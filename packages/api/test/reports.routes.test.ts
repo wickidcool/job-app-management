@@ -22,6 +22,7 @@ vi.mock('../src/services/dashboard.service.js', () => ({ getDashboardStats: vi.f
 
 import * as reportsService from '../src/services/reports.service.js';
 import { AppError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const generatedAt = '2026-04-27T00:00:00.000Z';
 
@@ -127,7 +128,7 @@ describe('Reports Routes', () => {
       await app.request('/api/reports/pipeline?sortBy=company&sortOrder=asc', { method: 'GET' });
       expect(reportsService.getPipelineReport).toHaveBeenCalledWith(
         expect.objectContaining({ sortBy: 'company', sortOrder: 'asc' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -153,7 +154,7 @@ describe('Reports Routes', () => {
       await app.request('/api/reports/needs-action?days=14', { method: 'GET' });
       expect(reportsService.getNeedsActionReport).toHaveBeenCalledWith(
         expect.objectContaining({ days: 14 }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -179,7 +180,7 @@ describe('Reports Routes', () => {
       await app.request('/api/reports/stale?days=7&status=applied', { method: 'GET' });
       expect(reportsService.getStaleReport).toHaveBeenCalledWith(
         expect.objectContaining({ days: 7, status: 'applied' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -225,7 +226,7 @@ describe('Reports Routes', () => {
       await app.request('/api/reports/closed-loop?period=30d', { method: 'GET' });
       expect(reportsService.getClosedLoopReport).toHaveBeenCalledWith(
         expect.objectContaining({ period: '30d' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -264,7 +265,7 @@ describe('Reports Routes', () => {
       await app.request('/api/reports/by-fit-tier?includeTerminal=true', { method: 'GET' });
       expect(reportsService.getByFitTierReport).toHaveBeenCalledWith(
         expect.objectContaining({ includeTerminal: true }),
-        undefined
+        DEV_OWNER
       );
     });
   });

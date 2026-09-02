@@ -123,6 +123,17 @@ Merging WIC-1551 (a hand-rolled, string-literal-aware comment scanner for the ro
 - **No baseline change.** WIC-1560's own measurement — 0 of 152 link sites sat inside a comment — is a property of the source tree, not of which stripper reads it; the commented-out-link and orphan-route tests both still pass against the unified function.
 - **Test-only.** No application code changes.
 
+
+### Security — the local-dev auth bypass supplies an owner instead of an absence (2026-09-02)
+
+ADR-010 §D3 (WIC-1964). With neither `SUPABASE_URL` nor `SUPABASE_JWT_SECRET` set, `middleware/auth.ts` bypassed auth and left `userId` null. §D2 had already landed ahead of it — `requireOwner` rejects an absent owner — so in that dev mode every route behind the guard answered 401, across projects, catalog, resume-variants and interview-preps alike. That was the predicted, temporary cost of the sequencing inversion, and it resolves here.
+
+- **The bypass now resolves a real tenant.** It sets `userId` to `LOCAL_DEV_USER_ID`, defaulting to the sentinel migration `0017` backfills every pre-tenancy row to. Local dev is one specific tenant rather than no tenant, so the tenancy predicates run their owner branch exactly as they do in production instead of being skipped. ADR-003's "left as null for local-only" affordance is retired.
+- **The default cannot drift from the migration.** The test parses the sentinel back out of `0017_enforce_userid_not_null.sql` and asserts equality, rather than comparing against a second copy of the literal — a copied constant would only prove someone typed the same string twice.
+- **The bypass condition is unchanged.** §D3 changes what the bypass supplies, never when it fires. A deployment with either variable set still takes the JWT path and still 401s on a missing or invalid token; that half is pinned by its own tests, because widening the condition would serve unauthenticated traffic as the sentinel — strictly worse than the 401 it replaces.
+- **No new owner-absent branch.** `scripts/audit-owner-predicates.mjs` still exits 0 with its 122 baselined sites unchanged. `requireOwner` keeps rejecting the `sub`-less JWT caller (WIC-1554), which is now the only owner-less caller left.
+- **Supersedes PR #316**, which short-circuited each caller with `if (!userId)` ahead of the scope predicate. That is an owner-absent code path, the category §D1 commits to deleting; its 3 dev-mode tests are carried over here re-pointed from "200 via a null-owner filesystem fallback" to "200 as the sentinel tenant".
+
 ### Fixed — The STAR entry picker read a `[0, 1]` relevance score as `0-100` (2026-08-26)
 
 `StarEntryPicker` split its "Recommended (from fit analysis)" section on `relevanceScore >= 80` and rendered the badge as `{relevanceScore}%`. Both are the `0-100` reading. `CatalogEntry.relevanceScore` is the **job-fit population**, a ratio in `[0, 1]` (ADR-008 §1, `packages/api/src/types/index.ts` → `CatalogEntryDTO`). The defect never fired only because the field's sole producer, `catalog.service.ts`, still hardcodes `relevanceScore: undefined`. On the day the job-fit path populates it, no entry could clear `0.85 >= 80`, so the Recommended section would have been **structurally always empty**, and any badge that did render would have read `0.85%` (WIC-1521, the latent instance recorded in ADR-008 §Context).
