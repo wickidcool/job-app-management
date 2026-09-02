@@ -220,14 +220,17 @@ describe('WIC-1469 — assertProjectOwned pins its five call sites', () => {
     expect(OBJECTS.get(A_KEY)).toBe(A_SECRET);
   });
 
-  it('AC-7 — the guard is inert in the auth-bypass dev mode (no userId)', async () => {
-    // `assertProjectOwned` returns early when `userId` is absent. That branch is
-    // deliberate — local dev has a single implicit user, and `createProject`
-    // itself refuses to run without a `userId`, so there is no owning row for
-    // the guard to find. Pin it, or a future "tighten the guard" pass breaks
-    // `npm run dev:api` with no test to say so.
-    await expect(createProjectFile(SLUG, FILE, 'dev', undefined)).resolves.toBeUndefined();
-    expect(OBJECTS.get(`projects/anon/${SLUG}/${FILE}`)).toBe('dev');
+  it('AC-7 — the guard now refuses the auth-bypass dev mode (no userId)', async () => {
+    // Until WIC-1554, `assertProjectOwned` returned early when `userId` was
+    // absent — local dev had a single implicit user, and since that branch
+    // backstopped nothing for the one caller that needed it, WIC-1554 (#210)
+    // closed it: `requireOwner` now throws for every access, auth-bypass dev
+    // mode included. Pin the current contract, or a future "loosen the guard"
+    // pass reopens the hole with no test to say so.
+    await expect(createProjectFile(SLUG, FILE, 'dev', undefined)).rejects.toThrow(
+      /userId is required/
+    );
+    expect(OBJECTS.has(`projects/anon/${SLUG}/${FILE}`)).toBe(false);
   });
 });
 
