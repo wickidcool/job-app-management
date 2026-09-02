@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
+import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
 import { ProgressIndicator } from './ProgressIndicator';
 import { WizardStep } from './WizardStep';
 import { WizardButton } from './WizardButton';
@@ -31,7 +33,6 @@ export interface WizardContainerProps {
   existingFileId?: string;
   onComplete: (generatedFile: ProjectFile) => void;
   onCancel: () => void;
-  onSaveDraft: (draftData: Partial<ProjectData>) => void;
 }
 
 const STEP_LABELS = ['Context', 'Details', 'Industry', 'Accomplishments', 'Tags'];
@@ -40,12 +41,10 @@ const STEP_LABELS = ['Context', 'Details', 'Industry', 'Accomplishments', 'Tags'
  * WizardContainer Component
  * Main wizard controller for dialogue-based STAR file capture
  */
-export function WizardContainer({
-  variant,
-  onComplete,
-  onCancel,
-  onSaveDraft,
-}: WizardContainerProps) {
+export function WizardContainer({ variant, onComplete, onCancel }: WizardContainerProps) {
+  // Step 1's company input carries `autoFocus`, so Radix never dispatches
+  // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
+  const focusRestore = useDialogFocusRestore();
   const [currentStep, setCurrentStep] = useState(1);
   const [data, setData] = useState<Partial<ProjectData>>({
     accomplishments: [],
@@ -61,30 +60,6 @@ export function WizardContainer({
   });
   const [currentTech, setCurrentTech] = useState<string[]>([]);
   const totalSteps = 5;
-
-  // Auto-save draft every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (Object.keys(data).length > 0) {
-        onSaveDraft(data);
-      }
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [data, onSaveDraft]);
-
-  // Manual save draft (Ctrl+S)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        onSaveDraft(data);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [data, onSaveDraft]);
 
   const handleComplete = useCallback(() => {
     // Generate filename
@@ -373,49 +348,67 @@ export function WizardContainer({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 z-modal flex items-center justify-center p-4"
-      role="dialog"
-      aria-labelledby="wizard-title"
-      aria-modal="true"
+    // Mount-controlled: the parent renders the wizard only while it is open.
+    <Dialog.Root
+      open
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-8 py-6 border-b border-neutral-200">
-          <div className="flex items-center justify-between mb-4">
-            <h1 id="wizard-title" className="text-h2 text-neutral-900">
-              {variant === 'create' && 'New Project'}
-              {variant === 'enrich' && 'Enrich Project'}
-              {variant === 'correct' && 'Correct Project'}
-            </h1>
-            <div className="flex items-center gap-3">
-              <WizardButton variant="ghost" onClick={() => onSaveDraft(data)}>
-                Save Draft
-              </WizardButton>
-              <button
-                type="button"
-                onClick={onCancel}
-                className="text-neutral-600 hover:text-neutral-800 text-h3"
-                aria-label="Close wizard"
-              >
-                ×
-              </button>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black bg-opacity-50 z-modal" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-[calc(100%-2rem)] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-modal"
+          aria-describedby={undefined}
+          {...focusRestore}
+        >
+          {/* Header */}
+          <div className="px-8 py-6 border-b border-neutral-200">
+            <div className="flex items-center justify-between mb-4">
+              {/*
+                `asChild` so this is both the Radix dialog title and the route's h1.
+                WIC-1141 (#97) replaced an `h1 id="wizard-title"` here with a bare
+                `Dialog.Title`, which Radix renders at level 2 — right for a dialog nested
+                inside a page, but this dialog IS the page: `DialogueCapture` is the only
+                call site and renders no heading of its own, so /projects/new/dialogue was
+                left with no level-1 heading on any of its four branches. Same shape as
+                `CatalogBrowseView`. `asChild` keeps the accessible-name wiring — Radix
+                passes its generated id to the child.
+              */}
+              <Dialog.Title asChild>
+                <h1 className="text-h2 text-neutral-900">
+                  {variant === 'create' && 'New Project'}
+                  {variant === 'enrich' && 'Enrich Project'}
+                  {variant === 'correct' && 'Correct Project'}
+                </h1>
+              </Dialog.Title>
+              <div className="flex items-center gap-3">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="text-neutral-600 hover:text-neutral-800 text-h3"
+                    aria-label="Close wizard"
+                  >
+                    ×
+                  </button>
+                </Dialog.Close>
+              </div>
             </div>
+
+            {/* Progress Indicator */}
+            <ProgressIndicator
+              currentStep={currentStep}
+              totalSteps={totalSteps}
+              stepLabels={STEP_LABELS}
+              onStepClick={handleStepClick}
+            />
           </div>
 
-          {/* Progress Indicator */}
-          <ProgressIndicator
-            currentStep={currentStep}
-            totalSteps={totalSteps}
-            stepLabels={STEP_LABELS}
-            onStepClick={handleStepClick}
-          />
-        </div>
-
-        {/* Step Content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">{renderStepContent()}</div>
-      </div>
-    </div>
+          {/* Step Content */}
+          <div className="flex-1 overflow-y-auto px-8 py-6">{renderStepContent()}</div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

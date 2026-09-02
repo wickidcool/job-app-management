@@ -39,7 +39,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** The exact artifact `db:migrate` executes. Not a paraphrase of it. */
 const MIGRATION_SQL = readFileSync(
-  join(__dirname, '..', 'src', 'db', 'migrations', '0020_backfill_catalog_diffs_user_id.sql'),
+  join(__dirname, '..', 'src', 'db', 'migrations', '0021_backfill_catalog_diffs_user_id.sql'),
   'utf8'
 );
 
