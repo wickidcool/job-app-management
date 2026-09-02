@@ -360,18 +360,30 @@ and §7 in place, so the deviations stay auditable — same convention the WIC-1
    package; `src/constants/` is the existing home for exactly this shape (a constant plus its
    formatter plus a co-located `.test.ts`).
 
-**§6.1's second finding is now fully fixed — by two hands, independently.** This work replaced the
-login heading's hardcoded product name with `{PRODUCT_NAME}`; **WIC-1675 AC-3, on `main`, promoted
-that same heading from `<h2>` to `<h1>`**, which is the heading-structure half this document had
-deliberately left to `ROUTE_HEADING_OUTLINE.md`. The two changes collided in the merge and the
-resolution takes both: an `<h1>`, whose text is `{PRODUCT_NAME}`.
+**§6.1's second finding is now fully fixed — by three hands, and the third had to rule between the
+first two.** This work replaced the login heading's hardcoded product name with `{PRODUCT_NAME}`;
+**WIC-1675 AC-3, on `main`, promoted that same heading from `<h2>` to `<h1>`**, the
+heading-structure half this document had deliberately left to `ROUTE_HEADING_OUTLINE.md`. Both were
+kept, giving an `<h1>` whose text was `{PRODUCT_NAME}` — and **WIC-1099 was in flight at the same
+time doing the opposite**, demoting the wordmark to a `<p>` and putting a new `<h1>` that names the
+screen beneath it. ~~The two changes collided in the merge and the resolution takes both: an
+`<h1>`, whose text is `{PRODUCT_NAME}`.~~ **WIC-1968 ruled between all three. See §10.**
 
-> **`/login` is the one route where "the title mirrors the `<h1>`" is deliberately not applied.**
+> ~~**`/login` is the one route where "the title mirrors the `<h1>`" is deliberately not applied.**
 > It now *has* an `<h1>`, so §0.3 would say its title should be that heading verbatim — which
 > yields `Careerpin — Careerpin`. §6.1's actual complaint survives the level fix untouched: the
-> heading names the **product**, not the screen. So the route keeps §5's new copy, `Sign In`. If
-> the login heading is ever reworded to describe the screen, `LOGIN_TITLE` should be deleted and
-> the route moved onto the ordinary rule.
+> heading names the **product**, not the screen. So the route keeps §5's new copy, `Sign In`.~~
+>
+> **Withdrawn by §10 (WIC-1968).** The escape clause this paragraph ended on — *"if the login
+> heading is ever reworded to describe the screen, `LOGIN_TITLE` should be deleted and the route
+> moved onto the ordinary rule"* — **is the condition this change met**, and both halves were
+> carried out: the heading names the screen, and `LOGIN_TITLE` is gone (replaced by `LOGIN_TITLES`,
+> keyed by mode). `/login` is back on the ordinary rule and this document has **no standing
+> exception to §0.3 any more**.
+>
+> Struck rather than deleted because the paragraph is load-bearing in reverse: it is the reason the
+> reversal is legitimate rather than a branch overruling `main`. A reader who found only the new
+> behaviour would have no way to tell those apart.
 
 > **Correction to §2 — `index.html` and `Login.tsx` were not the only two.** §2 says the stale
 > product name lives in "`index.html` title and the `<h2>` on `pages/Login.tsx:60`". Measured
@@ -392,3 +404,76 @@ resolution takes both: an `<h1>`, whose text is `{PRODUCT_NAME}`.
 the coverage test asserts that `useDocumentTitle` is called only from pages and from
 `RouteTitle`. If no overlay can call it, no overlay can move the title. That also covers
 `QuickReferenceExport` (§6.4) without depending on how the heading question there is settled.
+
+---
+
+## 10. The `/login` `<h1>` ruling (WIC-1968)
+
+**Ruled by:** UI/UX Developer, 2026-09-02 · **Supersedes:** the §9 exception, struck above
+
+Two changes fixed "`/login` has no `<h1>`" and disagreed on what the `<h1>` names. WIC-1675 AC-3
+(on `main`) made it the **product** name; WIC-1099 made the wordmark a `<p>` and added an `<h1>`
+naming the **screen**. Forcing either would silently flip the login page's accessible name, so it
+was escalated rather than merged.
+
+### The ruling
+
+| | |
+|---|---|
+| The `<h1>` | **names the screen** — `Sign in` / `Create an account`, from `LOGIN_TITLES` |
+| The wordmark | **stays**, same size and position, as a `<p>` reading `{PRODUCT_NAME}` |
+| The product name | **`Careerpin`** — already ruled, not pending |
+| `document.title` | the `<h1>` verbatim, per §0.3 rule 3. `LOGIN_TITLE` is deleted |
+| The dialog copy | `New application` / `Edit application` — sentence case |
+
+**Nothing moves on screen.** Both elements keep their text, size and position. Only the outline and
+the tab title change.
+
+### Why the screen name wins
+
+1. **The governing document already says so, and it is not this one.**
+   `ROUTE_HEADING_OUTLINE.md` §0 — *"The page `<h1>` names the route"* — and §5 rule 1, *"it names
+   the route's action"*. This document's §0.3 declares itself a **consumer** of that one, *"not a
+   peer"*. A product-name `<h1>` is this document overruling its own stated parent, which it cannot
+   do; if that rule is wrong it must be changed there, on its merits, for all 30 routes.
+2. **WCAG 2.4.6 (Headings and Labels).** A heading must describe the topic or purpose of what it
+   heads. `Careerpin` describes neither, and it is the *same string on every unauthenticated view*
+   — so heading navigation, which is what an `<h1>` exists for, lands somewhere that cannot tell a
+   user which screen they are on or what it wants from them.
+3. **It removes a standing exception instead of adding one.** The product-name `<h1>` forced §9 to
+   suspend §0.3's mirroring rule for this one route, because mirroring would yield
+   `Careerpin — Careerpin`. That was a true consequence of the product-name `<h1>` and it
+   evaporates once the `<h1>` names the screen. §0.3 calls mirroring the rule that makes titles
+   *"immune to the casing decision in `CONTENT_STYLE.md`"* — and that immunity paid off here
+   immediately: `Sign In` was title case, which `CONTENT_STYLE.md` does not permit, and mirroring
+   corrects it for free.
+4. **It costs nothing the other side was protecting.** The product name stays on screen, in the
+   same place, at the same size, from the same constant.
+5. **The other side's `<h1>` was also incomplete.** It had no heading at all on the `authLoading`
+   branch — a state a user can sit in.
+
+### Why the copy question was not, in fact, open
+
+Both branches' code comments deferred the string `Job Application Manager` to the Copywriter.
+**That premise was stale.** The Copywriter/Editor ruled the product name **`Careerpin`** on
+**2026-08-19** under **WIC-1102**; the ruling reached the repo late (`CONTENT_STYLE.md`
+Exception 1) and names `Login.tsx` explicitly as one of the sites `PRODUCT_NAME` already fixes. The
+two sites still genuinely awaiting a copy decision are `OnboardingModal.tsx` and
+`QuickReferenceExport.tsx` — neither is on this route.
+
+The dialog copy was open in the same way and closed by the same mechanism: `New application` /
+`Edit application` over `Add New Application` / `Edit Application` is **sentence case**, which
+`CONTENT_STYLE.md` states as a rule whose *"exception list is closed"* and which does not exempt
+modal titles. Dropping `Add` is not a new call either — §5's table already read `New Application`.
+
+**Neither half needed a Copywriter round.** Both had been ruled; the rulings had simply not been
+read together. That is the reusable lesson: **check whether a deferral is still live before paying
+for it.** A code comment saying "pending X" is evidence about the day it was written, not about
+today.
+
+### What this does not decide
+
+The `<h1>`-names-the-route rule is `ROUTE_HEADING_OUTLINE.md`'s, and this ruling applies it rather
+than revisiting it. A route whose body is an always-open modal is still governed by that document's
+§5 **rule 7** — the `<h1>` goes on the dialog title, not the page file — which is why
+`/applications/new` is fixed differently from `/login` despite both appearing in §6.1.
