@@ -27,6 +27,65 @@ Runs on all pushes and PRs:
 - Run tests (`npm run test`)
 - Build all packages (`npm run build`)
 
+Interleaved with the above, `lint-and-test` also runs a set of **audit / self-test
+gate steps** (`deploy.yml`, the `Audit …` and `… self-test` steps) — e.g. the
+console-pack regen check, the owner-absent tenancy audit, the organic-watch
+self-test. Each shells out to a script under `docs/design/` or `docs/analytics/`.
+
+#### Stale-base gate drift — green checks certify the *base's* workflow, not today's (WIC-1967)
+
+**Every one of those gates is a _step_ inside the single `Lint & Test` job, not a
+separate check.** So the PR check list shows the same handful of names whether a
+gate step existed in the tree the run built or not. A PR whose merge-base predates
+the commit that added a gate runs a `Lint & Test` that never contained that step,
+yet reports the identical green check — the omission is invisible on the PR page,
+and `gh pr checks` cannot see it either (only `gh run view <id> --json jobs` and
+reading the *step* list can).
+
+Consequence: **a `MERGEABLE` PR with an all-green check set can still red-line
+`main` after merge**, because the gate that would have caught it never ran. This
+happened once — PR #237 (now closed) hand-edited a *generated* artifact
+(`docs/analytics/console-build-runbook.md`); its base predated the regen gate, so
+its checks were green, and merging it would have failed that gate on `main` for
+every open PR (the WIC-1874 queue-wide-red failure mode).
+
+**This is a latent trap, not an active backlog.** Measured across the 15 open PRs
+whose base predated the regen gate, 0 actually failed the gate when merged into
+current `main` — #237 was the only real instance, because it was the only PR
+editing a generated file. So the standing policy is an **advisory pre-merge check,
+deliberately _not_ a new required gate** (a hard gate on ~50% of the queue for a
+measured-0 failure rate would cost far more than it saves).
+
+**Before merging any PR, check whether its base is behind the gate surface.** This
+one-liner is maintenance-free — it compares the merge-base to `main` over the files
+that *define* the gates, so it needs no hand-maintained list of gate commits:
+
+```bash
+git fetch origin
+N=<pr-number>
+git fetch origin "+refs/pull/$N/head:refs/remotes/pr/$N"
+MB=$(git merge-base origin/main "refs/remotes/pr/$N")
+if git diff --quiet "$MB" origin/main -- \
+     .github/workflows/deploy.yml docs/design docs/analytics; then
+  echo "gate surface unchanged since base — green checks reflect current gates"
+else
+  echo "STALE BASE — refresh the branch and re-run checks before merging"
+fi
+```
+
+If it reports **STALE BASE**, **merge `main` into the branch** (never rebase — many
+PRs here are stacked, see the changelog section in `CLAUDE.md`) and let CI re-run.
+The refreshed run builds today's `Lint & Test`, so its green is now honest. Only
+then merge.
+
+If this trap ever produces a *real* post-merge failure (i.e. the measured rate
+stops being 0), the proportionate structural fix is the repository-ruleset option
+**"Require branches to be up to date before merging,"** which forces every PR to
+refresh — and therefore re-run the current gate set — before it can merge, closing
+the trap for all gates at once. It is deliberately not enabled today: it imposes an
+update on every PR in a large open queue, which is not worth paying against a
+0-failure trap. It is a console/ruleset change and would need board sign-off.
+
 ### 2. Deploy Preview (PRs only)
 
 Creates a preview deployment for each PR:
