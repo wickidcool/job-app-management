@@ -1,5 +1,5 @@
 import { ulid } from 'ulid';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { isStorageAvailable, getObject } from './storage.service.js';
 import {
@@ -19,13 +19,19 @@ import { getConfig } from '../config.js';
 import { parseResumeText, extractExperienceEntries } from './resume.service.js';
 import { validateTechStackCategory, validateJobFitCategory } from '../types/index.js';
 
+// `userId` is required, not optional. Every table written below has
+// `user_id NOT NULL` (migration 0017) and a *composite* `(user_id, slug)` unique
+// index — the global slug uniques were dropped — so a slug-only WHERE matches
+// every tenant's row at once and Drizzle emits it without a LIMIT. Making the
+// owner non-optional is what stops an unscoped UPDATE from being expressible
+// here at all; `processCatalogChange` refuses to call this without one.
 async function applyChangeToDb(
   tx: any,
   change: DiffChange,
   diffId: string,
   triggerSource: string,
   triggerId: string,
-  userId?: string | null
+  userId: string
 ): Promise<void> {
   const data = change.data as Record<string, any>;
   const now = new Date();
@@ -37,7 +43,7 @@ async function applyChangeToDb(
           .insert(companyCatalog)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             name: data.name,
             normalizedName: data.normalizedName,
             firstSeenAt: new Date(data.firstSeenAt),
@@ -56,7 +62,12 @@ async function applyChangeToDb(
             updatedAt: now,
             version: sql`version + 1`,
           })
-          .where(eq(companyCatalog.normalizedName, data.normalizedName));
+          .where(
+            and(
+              eq(companyCatalog.normalizedName, data.normalizedName),
+              eq(companyCatalog.userId, userId)
+            )
+          );
       }
       break;
     }
@@ -66,7 +77,7 @@ async function applyChangeToDb(
           .insert(techStackTags)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateTechStackCategory(data.category),
@@ -84,7 +95,7 @@ async function applyChangeToDb(
             updatedAt: now,
             version: sql`version + 1`,
           })
-          .where(eq(techStackTags.tagSlug, data.tagSlug));
+          .where(and(eq(techStackTags.tagSlug, data.tagSlug), eq(techStackTags.userId, userId)));
       }
       break;
     }
@@ -94,7 +105,7 @@ async function applyChangeToDb(
           .insert(jobFitTags)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateJobFitCategory(data.category),
@@ -111,7 +122,7 @@ async function applyChangeToDb(
             updatedAt: now,
             version: sql`version + 1`,
           })
-          .where(eq(jobFitTags.tagSlug, data.tagSlug));
+          .where(and(eq(jobFitTags.tagSlug, data.tagSlug), eq(jobFitTags.userId, userId)));
       }
       break;
     }
@@ -119,7 +130,7 @@ async function applyChangeToDb(
       if (change.action === 'create') {
         await tx.insert(quantifiedBullets).values({
           id: data.id,
-          userId: userId ?? null,
+          userId,
           sourceType: data.sourceType,
           sourceId: data.sourceId,
           rawText: data.rawText,
@@ -142,7 +153,7 @@ async function applyChangeToDb(
           .insert(recurringThemes)
           .values({
             id: data.id,
-            userId: userId ?? null,
+            userId,
             themeSlug: data.themeSlug,
             displayName: data.displayName,
             occurrenceCount: data.occurrenceCount ?? 1,
@@ -161,7 +172,9 @@ async function applyChangeToDb(
             updatedAt: now,
             version: sql`version + 1`,
           })
-          .where(eq(recurringThemes.themeSlug, data.themeSlug));
+          .where(
+            and(eq(recurringThemes.themeSlug, data.themeSlug), eq(recurringThemes.userId, userId))
+          );
       }
       break;
     }
@@ -169,7 +182,7 @@ async function applyChangeToDb(
 
   await tx.insert(catalogChangeLog).values({
     id: ulid(),
-    userId: userId ?? null,
+    userId,
     entityType: change.entity,
     entityId: String(data.id ?? data.tagSlug ?? data.themeSlug),
     action: change.action as any,
@@ -495,9 +508,22 @@ function stringSimilarity(a: string, b: string): number {
   return (2 * intersectionSize) / (a.length + b.length - 2);
 }
 
+// `userId` is the owner resolved for the event, and the source document is read
+// through it. `POST /api/catalog/generate-diff` takes `sourceId` straight from
+// the request body, so without this predicate a caller naming someone else's
+// resume ULID has that resume's text extracted into catalog rows. Scoping the
+// read means a mismatch yields no text and the whole run bails.
+//
+// This only bites if the *caller's* identity reached `resolveOwnerUserId`. When
+// the event carries no `metadata.userId` the owner falls back to the source row
+// itself, the predicate compares a row to its own owner and can never miss. So
+// any entry point that takes a document id from untrusted input must forward
+// the authenticated caller — see the `metadata` on `catalog.service.ts`'s
+// `generateDiff`, which is load-bearing for this comment being true.
 async function getTextContent(
   sourceType: 'resume' | 'application',
   sourceId: string,
+  userId: string,
   cachedText?: string
 ): Promise<string> {
   // Use cached text when available — avoids re-reading the binary from R2 and
@@ -506,7 +532,10 @@ async function getTextContent(
 
   const db = getDb();
   if (sourceType === 'resume') {
-    const [resume] = await db.select().from(resumes).where(eq(resumes.id, sourceId));
+    const [resume] = await db
+      .select()
+      .from(resumes)
+      .where(and(eq(resumes.id, sourceId), eq(resumes.userId, userId)));
     if (!resume) return '';
     try {
       let content: Buffer | null = null;
@@ -524,17 +553,55 @@ async function getTextContent(
       return '';
     }
   } else {
-    const [app] = await db.select().from(applications).where(eq(applications.id, sourceId));
+    const [app] = await db
+      .select()
+      .from(applications)
+      .where(and(eq(applications.id, sourceId), eq(applications.userId, userId)));
     if (!app) return '';
     return `${app.jobTitle} ${app.company} ${app.location ?? ''}`;
   }
 }
 
+// The owner of the catalog rows this event will write. `event.metadata.userId`
+// is the authenticated caller when the enqueuer bothered to pass it, but call
+// sites forget: application.service.ts enqueued with no metadata at all, so
+// every application-triggered run resolved to "no owner". Falling back to the
+// source row's own `user_id` makes the owner a property of the document rather
+// than of the call site, so a future enqueuer that forgets cannot reopen this.
+async function resolveOwnerUserId(event: ChangeEvent): Promise<string | null> {
+  if (typeof event.metadata?.userId === 'string') return event.metadata.userId;
+
+  const db = getDb();
+  if (event.sourceType === 'resume') {
+    const [row] = await db
+      .select({ userId: resumes.userId })
+      .from(resumes)
+      .where(eq(resumes.id, event.sourceId));
+    return row?.userId ?? null;
+  }
+  const [row] = await db
+    .select({ userId: applications.userId })
+    .from(applications)
+    .where(eq(applications.id, event.sourceId));
+  return row?.userId ?? null;
+}
+
 export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   const cachedText =
     typeof event.metadata?.rawText === 'string' ? event.metadata.rawText : undefined;
-  const userId = typeof event.metadata?.userId === 'string' ? event.metadata.userId : undefined;
-  const text = await getTextContent(event.sourceType, event.sourceId, cachedText);
+  const userId = await resolveOwnerUserId(event);
+  // Without an owner there is no correct row to touch. Every catalog table is
+  // `user_id NOT NULL`, so the `create` branches could only ever throw; the
+  // `update` branches, by contrast, would happily match — and mutate — some
+  // other tenant's row on a slug-only predicate. Bailing out is the honest
+  // outcome: it costs a catalog entry the inserts could not have made anyway.
+  if (!userId) {
+    console.warn(
+      `[extraction] processCatalogChange: no owner for ${event.sourceType}=${event.sourceId}; skipping catalog extraction`
+    );
+    return;
+  }
+  const text = await getTextContent(event.sourceType, event.sourceId, userId, cachedText);
   if (!text) return;
 
   const changes: DiffChange[] = [];
@@ -543,14 +610,19 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   // ── Company catalog ──────────────────────────────────────────────────────
   if (event.sourceType === 'application') {
-    const [app] = await db.select().from(applications).where(eq(applications.id, event.sourceId));
+    const [app] = await db
+      .select()
+      .from(applications)
+      .where(and(eq(applications.id, event.sourceId), eq(applications.userId, userId)));
     if (app?.company) {
       const normalized = slugify(app.company) || 'unspecified';
       const displayName = app.company || '[Unspecified]';
       const [existing] = await db
         .select()
         .from(companyCatalog)
-        .where(eq(companyCatalog.normalizedName, normalized));
+        .where(
+          and(eq(companyCatalog.normalizedName, normalized), eq(companyCatalog.userId, userId))
+        );
       if (!existing) {
         changes.push({
           entity: 'company_catalog',
@@ -596,7 +668,9 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
       const [existing] = await db
         .select()
         .from(companyCatalog)
-        .where(eq(companyCatalog.normalizedName, normalized));
+        .where(
+          and(eq(companyCatalog.normalizedName, normalized), eq(companyCatalog.userId, userId))
+        );
       if (!existing) {
         changes.push({
           entity: 'company_catalog',
@@ -616,8 +690,16 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   }
 
   // ── Tech stack tags ───────────────────────────────────────────────────────
+  // Scoped by owner: this set decides create-vs-update. Reading the whole table
+  // meant another tenant's `react` suppressed this user's `create`, so the user
+  // ended up with no tag at all while the update landed on the other tenant's row.
   const existingTechSlugs = new Set(
-    (await db.select({ tagSlug: techStackTags.tagSlug }).from(techStackTags)).map((r) => r.tagSlug)
+    (
+      await db
+        .select({ tagSlug: techStackTags.tagSlug })
+        .from(techStackTags)
+        .where(eq(techStackTags.userId, userId))
+    ).map((r) => r.tagSlug)
   );
 
   for (const [canonicalSlug, meta] of Object.entries(TECH_STACK_TAXONOMY)) {
@@ -665,7 +747,12 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   // ── Job fit tags ──────────────────────────────────────────────────────────
   const existingJobFitSlugs = new Set(
-    (await db.select({ tagSlug: jobFitTags.tagSlug }).from(jobFitTags)).map((r) => r.tagSlug)
+    (
+      await db
+        .select({ tagSlug: jobFitTags.tagSlug })
+        .from(jobFitTags)
+        .where(eq(jobFitTags.userId, userId))
+    ).map((r) => r.tagSlug)
   );
 
   for (const { pattern, slug, displayName, category } of JOB_FIT_PATTERNS) {
@@ -718,9 +805,12 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   // ── Recurring themes ──────────────────────────────────────────────────────
   const existingThemeSlugs = new Set(
-    (await db.select({ themeSlug: recurringThemes.themeSlug }).from(recurringThemes)).map(
-      (r) => r.themeSlug
-    )
+    (
+      await db
+        .select({ themeSlug: recurringThemes.themeSlug })
+        .from(recurringThemes)
+        .where(eq(recurringThemes.userId, userId))
+    ).map((r) => r.themeSlug)
   );
 
   for (const { pattern, slug, displayName } of THEME_PATTERNS) {
@@ -801,13 +891,21 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
 
   await db.insert(catalogDiffs).values({
     id: diffId,
-    userId: userId ?? null,
+    userId,
     triggerSource,
     triggerId: event.sourceId,
     summary,
     changes,
     pendingReview,
     status: shouldAutoApply ? 'approved' : 'pending',
+    // `status` answers "were the changes applied?" and nothing else. Whether an
+    // ambiguity is still outstanding is a separate question, and on the resume
+    // auto-apply path the two diverge: the changes ARE applied and an ambiguity IS
+    // open. Recording it here is what makes the item reachable — the default
+    // `GET /api/catalog/diffs` returns `pending OR openReviewCount > 0`, so an
+    // auto-applied diff carrying items is listed, and one carrying none is not
+    // (WIC-1428, AC-1/AC-3).
+    openReviewCount: pendingReview.length,
     expiresAt: shouldAutoApply ? null : expiresAt,
     resolvedAt: shouldAutoApply ? now : null,
   });

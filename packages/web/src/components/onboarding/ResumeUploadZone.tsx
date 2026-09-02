@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { resumeService } from '../../services/api';
+import { MAX_RESUME_SIZE_BYTES } from '../../constants/upload';
 import type { Resume } from '../../services/api';
 
 interface UploadError {
@@ -16,13 +17,12 @@ interface ResumeUploadZoneProps {
 }
 
 const DEFAULT_ACCEPTED_FORMATS = ['.pdf', '.docx'];
-const DEFAULT_MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 export function ResumeUploadZone({
   onUploadSuccess,
   onUploadError,
   acceptedFormats = DEFAULT_ACCEPTED_FORMATS,
-  maxSizeBytes = DEFAULT_MAX_SIZE_BYTES,
+  maxSizeBytes = MAX_RESUME_SIZE_BYTES,
   showFormatHints = true,
 }: ResumeUploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
