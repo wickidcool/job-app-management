@@ -1,6 +1,9 @@
 import { useState, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useNavigate } from 'react-router-dom';
 import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
+import { ConfirmationModal } from '../ConfirmationModal';
+import { useInAppNavigationGuard } from '../../hooks/useInAppNavigationGuard';
 import { ProgressIndicator } from './ProgressIndicator';
 import { WizardStep } from './WizardStep';
 import { WizardButton } from './WizardButton';
@@ -60,6 +63,73 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
   });
   const [currentTech, setCurrentTech] = useState<string[]>([]);
   const totalSteps = 5;
+
+  const navigate = useNavigate();
+
+  // Dirty means "the user typed something we would throw away", measured
+  // against the *seeded* initial state above.
+  //
+  // Deliberately NOT `Object.keys(data).length > 0`: `data` is seeded with
+  // three keys, so that test is true before the user touches anything. That is
+  // the exact bug that made the old 30-second autosave fire unconditionally
+  // (WIC-1621); it is named here only so it is not reintroduced.
+  //
+  // `currentSTAR`/`currentTech` count even though they are not yet in `data` —
+  // a half-typed accomplishment that was never "added" is precisely the work a
+  // user would be upset to lose.
+  const isDirty =
+    !!data.company ||
+    !!data.role ||
+    !!data.period ||
+    !!data.industry ||
+    (data.accomplishments?.length ?? 0) > 0 ||
+    (data.jobFit?.length ?? 0) > 0 ||
+    (data.techStack?.length ?? 0) > 0 ||
+    Object.values(currentSTAR).some((field) => field.length > 0) ||
+    currentTech.length > 0;
+
+  // Completion deliberately does NOT disarm this (AC-4 needs no latch here).
+  // Finishing the wizard leaves through `onComplete`, which never routes into
+  // `requestDiscard`, so the success path cannot prompt.
+  //
+  // A latch would also be actively wrong: `DialogueCapture.handleComplete`
+  // catches a failed create and only alerts, leaving the wizard mounted with
+  // every answer still in it. Disarming on "completed" would drop the guard for
+  // a user whose work was never saved — the precise case it exists for.
+  const guardActive = isDirty;
+
+  const { pendingHref, clearPendingNavigation } = useInAppNavigationGuard(guardActive);
+
+  // `pendingHref` is set by an intercepted link click; Radix dismissal (Escape,
+  // the header ×, an overlay click) sets `discardRequested`. Both funnel into
+  // the same confirmation.
+  const [discardRequested, setDiscardRequested] = useState(false);
+  const confirmOpen = discardRequested || pendingHref !== null;
+
+  const requestDiscard = useCallback(() => {
+    if (guardActive) {
+      setDiscardRequested(true);
+      return;
+    }
+    // Nothing to lose — AC-3: an untouched wizard must not prompt.
+    onCancel();
+  }, [guardActive, onCancel]);
+
+  const handleKeepEditing = useCallback(() => {
+    setDiscardRequested(false);
+    clearPendingNavigation();
+  }, [clearPendingNavigation]);
+
+  const handleConfirmDiscard = useCallback(() => {
+    const href = pendingHref;
+    setDiscardRequested(false);
+    clearPendingNavigation();
+    if (href) {
+      navigate(href);
+    } else {
+      onCancel();
+    }
+  }, [pendingHref, clearPendingNavigation, navigate, onCancel]);
 
   const handleComplete = useCallback(() => {
     // Generate filename
@@ -352,7 +422,13 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
     <Dialog.Root
       open
       onOpenChange={(next) => {
-        if (!next) onCancel();
+        // Every Radix dismissal funnels through here — Escape, the header ×
+        // (a `Dialog.Close`), and an overlay click. Routing all three into
+        // `requestDiscard` is what makes the guard cover them uniformly;
+        // there is deliberately no separate `keydown` listener, which would
+        // double-fire against Radix's own handling and would not know about
+        // the nested confirmation's layer.
+        if (!next) requestDiscard();
       }}
     >
       <Dialog.Portal>
@@ -406,6 +482,35 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
 
           {/* Step Content */}
           <div className="flex-1 overflow-y-auto px-8 py-6">{renderStepContent()}</div>
+
+          {/*
+            Rendered *inside* `Dialog.Content` on purpose. Radix stacks
+            dismissable layers by React tree position, and only the topmost
+            layer answers Escape — that nesting is what makes Escape mean
+            "keep editing" while the confirmation is up, rather than a second
+            discard request. Rendered as a sibling of `Dialog.Root` it would
+            instead be hidden by the wizard's own modal `aria-hidden` sweep.
+          */}
+          {/* focus-restore-exempt: "Keep editing" leaves the whole wizard
+            mounted, so every trigger (header ×, step controls) survives and
+            Radix restores to the real one. "Discard" exists to leave the route
+            — it unmounts this component — so nothing on this page outlives it
+            and no ref could be mounted on both arms, which is what §5.1 rule 2
+            requires. Not the ResumeManager shape: the trigger is not a per-row
+            control inside a `.map()` over a mutated collection; there is no
+            refetch and no list here, only a route change. */}
+          <ConfirmationModal
+            isOpen={confirmOpen}
+            variant="danger"
+            title="Discard this project?"
+            message={
+              'You have unsaved answers. Closing now discards them — they are not saved anywhere.'
+            }
+            confirmLabel="Discard"
+            cancelLabel="Keep editing"
+            onConfirm={handleConfirmDiscard}
+            onCancel={handleKeepEditing}
+          />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
