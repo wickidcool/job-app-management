@@ -1184,24 +1184,43 @@ function stubPagedOwnedRow(row: { userId: string }) {
 
 const SCOPED_DIFF_CLAUSE = '("catalog_diffs"."user_id" = $1 and "catalog_diffs"."status" = $2)';
 
+// The *default* (no explicit status) filter is two-armed since WIC-1428: a diff
+// is listed when it is still `pending` OR when it carries open review items,
+// whatever its apply status. The tenancy term stays an outer conjunct, so it
+// still binds the whole disjunction rather than just one arm of it — which is
+// the property these tests exist to pin.
+const SCOPED_DEFAULT_DIFF_CLAUSE =
+  '("catalog_diffs"."user_id" = $1 and ("catalog_diffs"."status" = $2 or "catalog_diffs"."open_review_count" > $3))';
+
 describe('listDiffs tenancy', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it.each([
-    ['the default pending filter', {} as ListDiffsOptions, 'pending'],
-    ['an explicit status filter', { status: 'approved' } as ListDiffsOptions, 'approved'],
-  ])('scopes the page to the caller alongside %s', async (_name, opts, status) => {
+    [
+      'the default pending filter',
+      {} as ListDiffsOptions,
+      SCOPED_DEFAULT_DIFF_CLAUSE,
+      ['pending', 0],
+    ],
+    [
+      'an explicit status filter',
+      { status: 'approved' } as ListDiffsOptions,
+      SCOPED_DIFF_CLAUSE,
+      ['approved'],
+    ],
+  ] as const)('scopes the page to the caller alongside %s', async (_name, opts, clause, rest) => {
     const { selectWhere } = stubPagedListDb([]);
 
     await listDiffs(opts, CALLER);
 
-    // Both conjuncts, table-qualified, with each value pinned to the column
-    // that binds it: $1 is the tenancy term, $2 the status term. A mutation
-    // that drops either half — or swaps which column a value lands on —
-    // changes one of these two lines.
+    // Every conjunct, table-qualified, with each value pinned to the column
+    // that binds it: $1 is always the tenancy term. A mutation that drops any
+    // half — or swaps which column a value lands on — changes one of these two
+    // lines. An explicit status collapses the disjunction to a single arm,
+    // which is why the two cases pin different clauses.
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
-    expect(params).toEqual([CALLER, status]);
+    expect(sql).toBe(clause);
+    expect(params).toEqual([CALLER, ...rest]);
   });
 
   it('binds the caller it was handed, not a fixed owner', async () => {
@@ -1210,8 +1229,8 @@ describe('listDiffs tenancy', () => {
     await listDiffs({}, OTHER_USER);
 
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
-    expect(params).toEqual([OTHER_USER, 'pending']);
+    expect(sql).toBe(SCOPED_DEFAULT_DIFF_CLAUSE);
+    expect(params).toEqual([OTHER_USER, 'pending', 0]);
   });
 
   it('leaves the page unscoped in single-user mode', async () => {
@@ -1219,11 +1238,11 @@ describe('listDiffs tenancy', () => {
 
     await listDiffs({}, undefined);
 
-    // No tenancy term — and the status half survives its removal, which a bare
-    // `not.toContain('user_id')` would not have shown.
+    // No tenancy term — and both arms of the default filter survive its
+    // removal, which a bare `not.toContain('user_id')` would not have shown.
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe('"catalog_diffs"."status" = $1');
-    expect(params).toEqual(['pending']);
+    expect(sql).toBe('("catalog_diffs"."status" = $1 or "catalog_diffs"."open_review_count" > $2)');
+    expect(params).toEqual(['pending', 0]);
   });
 
   it("does not page another user's diffs", async () => {
