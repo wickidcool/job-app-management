@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { matchRoutes } from 'react-router-dom';
 
-import appSource from '../App.tsx?raw';
+import rawAppSource from '../App.tsx?raw';
 
 /**
  * A static audit of in-app navigation, in both directions:
@@ -53,13 +53,114 @@ import appSource from '../App.tsx?raw';
 const KNOWN_DEAD_LINKS: Record<string, string> = {};
 
 /**
+ * Source that has been through `stripComments`. Route scrapers below take this and
+ * not `string`, so handing one the raw import is a compile error rather than a
+ * silently over-broad route table. See WIC-1551.
+ */
+type StrippedSource = string & { readonly __commentsStripped: true };
+
+/**
+ * Remove JS/JSX comments from source, preserving newlines so line numbers survive.
+ *
+ * WIC-1551: the route scrapers below split on the literal `<Route`, and a commented-out
+ * route still contains that literal — so a route declaration wrapped in a JSX comment
+ * entered the route table as if it were live. That is green in both directions at once: a
+ * genuinely dead link pointing at `/legacy` is absorbed by the phantom route, and the
+ * phantom route is in turn credited by that link. Commenting out a route while leaving a
+ * button pointing at it — an ordinary way to disable a feature — was invisible here.
+ *
+ * This is a character scanner rather than a regex, and that is load-bearing. `App.tsx`
+ * declares `path="/*"` for its catch-all layout route: a *string literal* containing a
+ * block-comment opener. The obvious regex that lazily matches an opener through to the
+ * next closer opens a comment there and swallows everything up to the closer on the
+ * `/dashboard` note below it — which today deletes the `/` (Dashboard) route from the
+ * audit's own route table. An over-tightened stripper is
+ * the more dangerous failure of the two: a noisy false positive gets fixed, whereas a
+ * route table with live routes missing makes the audit quietly vacuous.
+ *
+ * The scanner only ever deletes comment content, so a mis-read quote *usually* under-strips.
+ * Not always, and this is the correction that matters: a desync which closes *inside a
+ * double-quoted string* consumes that string's opening quote, which shifts double-quote parity
+ * for everything after it. `path="/*"` is then read as a bare comment opener rather than a
+ * string, and the scanner deletes from there to the next closer. Two lines of ordinary JSX are
+ * enough — `<p>Sarah's applications</p>` above `<div title="Don't panic" />`: the possessive
+ * opens the window, the contraction closes it mid-attribute, and the route table goes from 30
+ * entries to 29, losing `/`. Regex literals are not tracked either, and `App.tsx` contains
+ * none. The route-table floor assertions below are what catch both, and they name `/`
+ * specifically because `path="/*"` is the only in-string comment opener in the file and `/` is
+ * the only route between it and the next closer — so an over-strip that starts at the hazard
+ * cannot avoid dropping a route the assertion names.
+ *
+ * Under-stripping is the safe direction for route *loss*, but it is not harmless here,
+ * because "leaving today's behaviour" is the bug this function exists to fix. The scanner
+ * is not JSX-aware: a lone `'` in JSX text ("Don't") is not a string delimiter, but it is
+ * read as one, which suspends comment detection until the *next* `'`. That is a bounded
+ * window, not the rest of the file — anything inside it passes through verbatim, so a route
+ * commented out in there is read as live, and this function is a no-op over that span.
+ *
+ * What makes that catchable is a structural property, not the fact that `App.tsx` happens to
+ * contain three comment openers today: a route commented out in JSX-comment form carries its
+ * own opener into the window with it, so the opener survives stripping exactly when the route
+ * does. `strips every JSX comment opener out of the real App.tsx` below keys on that, which is
+ * why it reds on the desync itself rather than on any particular file layout.
+ */
+function stripComments(source: string): StrippedSource {
+  let out = '';
+  let i = 0;
+
+  while (i < source.length) {
+    const pair = source.slice(i, i + 2);
+
+    if (pair === '//') {
+      while (i < source.length && source[i] !== '\n') i += 1;
+      continue;
+    }
+
+    if (pair === '/*') {
+      i += 2;
+      while (i < source.length && source.slice(i, i + 2) !== '*/') {
+        if (source[i] === '\n') out += '\n';
+        i += 1;
+      }
+      i += 2;
+      continue;
+    }
+
+    const char = source[i];
+
+    // A quote suspends comment detection until it closes. This is what keeps
+    // `path="/*"` from opening a comment that eats the routes after it.
+    if (char === '"' || char === "'" || char === '`') {
+      out += char;
+      i += 1;
+      while (i < source.length) {
+        if (source[i] === '\\') {
+          out += source.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        out += source[i];
+        i += 1;
+        if (source[i - 1] === char) break;
+      }
+      continue;
+    }
+
+    out += char;
+    i += 1;
+  }
+
+  return out as StrippedSource;
+}
+
+/**
  * Every `path` declared on a `<Route>` in App.tsx.
  *
  * Catch-all patterns (`*`, `/*`) are dropped on purpose. They match every path by
  * definition, so leaving them in would make this audit vacuously pass — which is
  * exactly what would happen once the WIC-1036 catch-all 404 route lands.
  */
-function declaredRoutePaths(source: string): string[] {
+function declaredRoutePaths(source: StrippedSource): string[] {
   const paths = source
     .split('<Route')
     .slice(1)
@@ -149,19 +250,14 @@ function toConcretePathname(raw: string): string {
  * user-visible outcome (button gone, page unreachable) is identical. That is the single
  * most common way a page actually becomes orphaned, and it is cheap to exclude.
  *
- * The `[^:'"`\\]` guard on the line-comment rule keeps `https://` and `to="//x"` from
- * being eaten. It is a lexer-free approximation: a `//` inside a string literal that is
- * not preceded by `:` could over-strip, which is why the two block/JSX forms run first.
- * Measured on the tree at introduction: 0 of 152 link sites sat inside a comment, so this
- * changes no baseline credit — it only closes the fail-open (WIC-1560).
+ * Uses the same character-scanning `stripComments` the route table above does (WIC-1551) —
+ * not a second, regex-based stripper. The regex this used to be had the identical
+ * string-literal hazard the doc comment on `stripComments` describes for `App.tsx`'s
+ * `path="/*"`: any file with a comment-opener-shaped substring inside a string literal
+ * would over-strip past it. Measured on the tree at introduction: 0 of 152 link sites sat
+ * inside a comment, so unifying on one stripper changes no baseline credit — it only closes
+ * the fail-open (WIC-1560) without reintroducing the over-strip class WIC-1551 exists to fix.
  */
-function stripComments(source: string): string {
-  return source
-    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ') // {/* JSX comment */}
-    .replace(/\/\*[\s\S]*?\*\//g, ' ') //          /* block comment */
-    .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1'); //  // line comment
-}
-
 function collectLinkSites(sources: Record<string, string>): LinkSite[] {
   const sites: LinkSite[] = [];
 
@@ -233,6 +329,13 @@ const appSources = Object.fromEntries(
   )
 );
 
+// Sanitised once, here, rather than inside each scraper. Every route scraper in this
+// file consumes `appSource`, so a scraper added later (WIC-1531 adds a second one that
+// mirrors this split to read each route's element) inherits the fix without having to
+// remember it — and cannot take the raw source instead, because `StrippedSource` is the
+// only type the scrapers accept.
+const appSource = stripComments(rawAppSource);
+
 const routePaths = declaredRoutePaths(appSource);
 const routeElements = declaredRouteElements(appSource);
 const routes = routePaths.map((path) => ({ path }));
@@ -250,6 +353,111 @@ describe('in-app navigation targets', () => {
   it('extracts link targets from across the app', () => {
     expect(linkSites.length).toBeGreaterThan(20);
     expect(Object.keys(appSources).length).toBeGreaterThan(20);
+  });
+
+  // WIC-1551. Both directions, because either one alone is satisfied by a broken
+  // stripper: returning the source untouched passes the second cell, and returning an
+  // empty string passes the first.
+  describe('comment stripping (WIC-1551)', () => {
+    it('does not admit a commented-out route into the route table', () => {
+      const jsx = '{/* <Route path="/legacy" element={<LegacyPage />} /> */}';
+      const block = '/* <Route path="/legacy" element={<LegacyPage />} /> */';
+      const line = '// <Route path="/legacy" element={<LegacyPage />} />';
+
+      expect(declaredRoutePaths(stripComments(jsx))).toEqual([]);
+      expect(declaredRoutePaths(stripComments(block))).toEqual([]);
+      expect(declaredRoutePaths(stripComments(line))).toEqual([]);
+    });
+
+    it('still finds a live route', () => {
+      const live = '<Route path="/x" element={<X />} />';
+
+      expect(declaredRoutePaths(stripComments(live))).toEqual(['/x']);
+    });
+
+    // The over-tightening direction, and the one that actually bites. `App.tsx` declares
+    // `path="/*"` for its catch-all layout route, so the source contains a block-comment
+    // opener *inside a string literal*. A regex stripper opens a comment there and eats
+    // every route between it and the next closer — which is a real JSX comment further
+    // down. The audit then still passes, with live routes silently missing from the
+    // table, which is strictly worse than the bug being fixed here.
+    it('does not treat a block-comment opener inside a string as a comment', () => {
+      const fixture = [
+        '<Route',
+        '  path="/*"',
+        '  element={',
+        '    <Routes>',
+        '      <Route path="/" element={<Dashboard />} />',
+        '      {/* a note that closes the comment a regex stripper wrongly opened above */}',
+        '      <Route path="/settings" element={<Settings />} />',
+        '      {/* <Route path="/legacy" element={<Legacy />} /> */}',
+        '      <Route path="*" element={<NotFound />} />',
+        '    </Routes>',
+        '  }',
+        '/>',
+      ].join('\n');
+
+      expect(declaredRoutePaths(stripComments(fixture))).toEqual(['/', '/settings']);
+    });
+
+    it('leaves a comment-like sequence inside a string in place', () => {
+      expect(stripComments('const a = "http://x/*y*/z";')).toBe('const a = "http://x/*y*/z";');
+      expect(stripComments("const a = 'http://x';")).toBe("const a = 'http://x';");
+    });
+
+    it('strips a comment while keeping the code on either side', () => {
+      expect(stripComments('a /* gone */ b')).toBe('a  b');
+      expect(stripComments('a // gone\nb')).toBe('a \nb');
+    });
+  });
+
+  // The real App.tsx, not a fixture: if the stripper over-strips against live source, the
+  // route table loses entries and every downstream assertion goes quietly vacuous.
+  // `/` is the route immediately after the `path="/*"` hazard and `/settings` is the last
+  // one before the catch-all, so an over-strip starting at that hazard drops one of them.
+  it('keeps every live route in App.tsx after stripping', () => {
+    expect(routePaths.length).toBeGreaterThan(25);
+    expect(routePaths).toContain('/');
+    expect(routePaths).toContain('/settings');
+    expect(routePaths).toContain('/applications/:id/prep');
+  });
+
+  // The under-strip direction, against real source. Every assertion above this one only
+  // detects over-stripping; nothing detected the stripper quietly doing *nothing*, because
+  // `App.tsx` has no commented-out route today and so a no-op stripper is green.
+  //
+  // The concrete way that happens: a lone `'` in JSX copy is not a string delimiter, but
+  // the scanner treats it as one and suspends comment detection until the next `'`. Whatever
+  // falls inside that window passes through verbatim. Measured — `<p>Don't forget to review</p>`
+  // above a commented-out `<Route path="/legacy">`, plus a live link to `/legacy`, is 10
+  // passed/10; changing only `Don't` to `Do not` reports the dead link. One apostrophe reopens
+  // the exact defect this file exists to close, so it is pinned here rather than left in prose.
+  //
+  // This cell does not depend on where App.tsx's own comments sit. A route commented out in
+  // JSX-comment form carries its own opener into the window, so the opener survives stripping
+  // exactly when the route survives it — the route is its own tripwire.
+  //
+  // The anchor is `{/*` and not `/*` on purpose: `path="/*"` legitimately survives stripping
+  // inside its string literal, which the cell above pins, so the broader pattern would fail
+  // on the clean tree. Known limit: this catches a desync that swallows a JSX comment
+  // opener — the shape that can carry a `<Route>` into the table — not one that swallows a
+  // bare `//` line comment.
+  it('strips every JSX comment opener out of the real App.tsx', () => {
+    // Staleness control on the assertion below. `toBeNull()` is also satisfied by an
+    // App.tsx with no JSX comments left to strip, at which point the canary would be
+    // green forever while proving nothing. If this fails, the canary has gone vacuous
+    // and needs re-pointing at whatever source still exercises the stripper.
+    expect(
+      rawAppSource.match(/\{\/\*/g),
+      'App.tsx no longer contains a JSX comment, so the assertion below can no longer fail'
+    ).not.toBeNull();
+
+    expect(
+      appSource.match(/\{\/\*/g),
+      'stripComments left a JSX comment opener in App.tsx: comment detection desynced ' +
+        'partway through the file (an apostrophe in JSX copy will do it), so any route ' +
+        'commented out after that point is being read as live.'
+    ).toBeNull();
   });
 
   // The failure mode this audit is most exposed to is becoming vacuous: a catch-all
