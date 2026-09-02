@@ -23,9 +23,9 @@ import {
  */
 
 describe('APPLIED_WINDOW_DAYS matches the window the API actually measures', () => {
-  // `oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)` in getDashboardStats(). Anchored on
+  // `oneWeekAgo = new Date(now - 7 * DAY_MS)` in getDashboardStats(). Anchored on
   // both identifiers so a rename cannot leave this matching some other subtraction.
-  const ROLLING_SUBTRACTION = /oneWeekAgo\.setDate\(oneWeekAgo\.getDate\(\) - (\d+)\)/g;
+  const ROLLING_SUBTRACTION = /oneWeekAgo = new Date\(now - (\d+) \* DAY_MS\)/g;
 
   it('finds exactly one week-window computation to check', () => {
     // The positive control on the regex. A dead pattern and a satisfied one both

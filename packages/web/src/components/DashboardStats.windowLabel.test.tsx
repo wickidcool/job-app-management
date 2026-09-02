@@ -66,19 +66,18 @@ const DASHBOARD_RESPONSE: DashboardResponse = {
   // so a populated attention panel would only add unrelated rendering.
   attention: {
     staleThresholdDays: 7,
-    savedThresholdDays: 3,
+    unsubmittedThresholdDays: 3,
     counts: {
       interviewing: 0,
       stale: 0,
-      staleActive: 0,
       missingJobDescription: 0,
-      staleSaved: 0,
+      unsubmittedSaved: 0,
     },
     samples: {
       interviewing: [],
-      staleActive: [],
+      stale: [],
       missingJobDescription: [],
-      staleSaved: [],
+      unsubmittedSaved: [],
     },
   },
 };
