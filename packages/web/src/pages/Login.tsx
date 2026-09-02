@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { LOGIN_TITLES, PRODUCT_NAME } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 type AuthMode = 'login' | 'register';
 
@@ -14,6 +16,11 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // `/login` is in the outer <Routes>, above ProtectedRoute, so the shell's `RouteTitle`
+  // is not mounted for it — this page sets its own (ROUTE_TITLE_CONVENTION.md §5). Keyed
+  // by mode so the tab title mirrors the `<h1>` below, which is mode-dependent (WIC-1099).
+  useDocumentTitle(LOGIN_TITLES[mode]);
 
   useEffect(() => {
     if (user) {
@@ -64,19 +71,20 @@ export function Login() {
         <div>
           {/*
             The wordmark keeps its size and its position and stops being a heading. It named
-            the product, not the screen, and it was the page's highest heading with no h1
-            above it — so heading navigation landed on a string that says nothing about what
-            the user is being asked to do (WIC-1099).
+            the product, not the screen, and — since WIC-1675 AC-3 promoted it from h2 to
+            h1 — it was the page's *only* heading, with nothing naming the screen at all: so
+            heading navigation landed on a string that says nothing about what the user is
+            being asked to do (WIC-1099). Its text is `PRODUCT_NAME`, the same constant that
+            builds every page title (WIC-1089) — this element carried the rebrand from the
+            hardcoded "Job Application Manager" independently of the markup change here.
 
-            The string itself is deliberately unchanged. `ROUTE_TITLE_CONVENTION.md` §2 has
-            it and `index.html:13` as the last two places saying `Job Application Manager`
-            while the marketing site says Careerpin, pending a Copywriter call. That is a
-            copy decision; this is a markup one, and they are separable now that this element
-            is not carrying the outline.
+            Note the new h1 below is the one place the "title mirrors the h1" rule
+            (ROUTE_TITLE_CONVENTION.md §5) does not apply to the *wordmark*: mirroring it
+            would yield "Careerpin — Careerpin". The route's title is the new copy
+            `Sign in` / `Create an account` instead, because this element names the
+            product rather than the screen — §5 and §6.1.
           */}
-          <p className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Job Application Manager
-          </p>
+          <p className="mt-6 text-center text-3xl font-extrabold text-gray-900">{PRODUCT_NAME}</p>
           <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
             {mode === 'login' ? 'Sign in' : 'Create an account'}
           </h1>

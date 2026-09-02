@@ -10,6 +10,7 @@ import { GAP_SEVERITY } from '../constants/gapSeverity';
 import { formatSkillCount } from '../constants/skillCount';
 import { formatRequirement, REQUIREMENT_SEPARATOR } from '../constants/requirementLabel';
 import { APIError } from '../services/api/apiClient';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 interface JobFitFormData {
   jobDescriptionText: string;
@@ -35,9 +36,10 @@ type Stage = 'input' | 'analyzing' | 'results' | 'error';
  *
  * It also holds the route's accessible name still. The name used to change under the user
  * mid-interaction — `Job Fit Analysis` at input, `Job Fit Analysis Results` once the
- * analysis returned, nothing in between. The stage now speaks at h2 beneath a constant h1,
- * which is what gives `ROUTE_TITLE_CONVENTION.md` §5 a stable string to mirror into
- * `document.title` instead of a stage-dependent pair.
+ * analysis returned, nothing in between, and no name at all while analysing or on failure.
+ * The stage now speaks at h2 beneath a constant h1, which is what gives
+ * `ROUTE_TITLE_CONVENTION.md` §5 a single stable string to mirror into `document.title`
+ * instead of the four-way, sometimes-absent set the stage used to produce.
  */
 function JobFitAnalysisFrame({ back, children }: { back?: ReactNode; children: ReactNode }) {
   return (
@@ -51,6 +53,9 @@ function JobFitAnalysisFrame({ back, children }: { back?: ReactNode; children: R
   );
 }
 
+/** Mirrors the now-constant h1 above (`ROUTE_TITLE_CONVENTION.md` §5, WIC-1099). */
+const JOB_FIT_ANALYSIS_TITLE = 'Job Fit Analysis';
+
 export function JobFitAnalysis() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -59,6 +64,8 @@ export function JobFitAnalysis() {
   const [stage, setStage] = useState<Stage>('input');
   const [results, setResults] = useState<AnalyzeJobFitResponse | null>(null);
   const { mutate: analyzeJobFit, isPending, error: mutationError } = useJobFitAnalysis();
+
+  useDocumentTitle(JOB_FIT_ANALYSIS_TITLE);
 
   const {
     register,

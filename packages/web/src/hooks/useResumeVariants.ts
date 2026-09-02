@@ -23,19 +23,36 @@ export const resumeVariantKeys = {
 };
 
 /**
- * Fetch all resume variants
+ * Fetch all resume variants.
+ *
+ * `enabled` exists for the same reason it does on `useCoverLetters`: a caller
+ * whose filter depends on data still in flight passes `false` rather than
+ * firing an unfiltered fetch-everything and then refetching under a second
+ * query key. `ApplicationDetail` needs it — its `company` filter comes from the
+ * application it is still loading (WIC-1536).
+ *
+ * `limit` matters here for the same reason too. The endpoint's default page is
+ * **20 rows** (`resume-variant.service.ts`: `Math.min(params.limit ?? 20, 100)`)
+ * and this hook has no pagination, so a caller that filters the result further
+ * on the client — `ApplicationDetail` does, because `resume_variants` has no
+ * `application_id` to filter on server-side — is filtering a page the server
+ * already truncated. See `constants/applicationMatch.ts`.
  */
-export function useResumeVariants(params?: {
-  status?: 'draft' | 'finalized';
-  company?: string;
-  search?: string;
-  format?: ResumeFormat;
-  limit?: number;
-  cursor?: string;
-}) {
+export function useResumeVariants(
+  params?: {
+    status?: 'draft' | 'finalized';
+    company?: string;
+    search?: string;
+    format?: ResumeFormat;
+    limit?: number;
+    cursor?: string;
+  },
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: resumeVariantKeys.list(params),
     queryFn: () => resumeVariantService.list(params),
+    enabled: options?.enabled ?? true,
   });
 }
 

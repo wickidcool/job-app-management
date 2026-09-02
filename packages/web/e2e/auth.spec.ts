@@ -17,16 +17,16 @@ test.describe('Authentication - UI Components', () => {
 
     await expect(page).toHaveURL('/login');
 
-    // This assertion used to read `getByRole('heading', { name: /job application manager/i })`,
-    // which was an encoding of the defect WIC-1099 fixed: the screen's highest heading was the
-    // *product* name, at level 2, with no `<h1>` above it — so heading navigation landed on a
-    // string that says nothing about what the user is being asked to do. It now asserts the
-    // thing that was wrong, rather than restating the old markup:
-    //   - the top heading is an `<h1>`, and it names the *screen*;
-    //   - the product name is still on the page, and is no longer a heading.
+    // This assertion used to read `getByRole('heading', { level: 1, name: /careerpin/i })`:
+    // WIC-1675 AC-3 promoted the login heading from `<h2>` to `<h1>` because `/login` is the
+    // one route `ProtectedRoute` does not wrap, but kept its text as the *product* name — so
+    // heading navigation still landed on a string that says nothing about what the user is
+    // being asked to do. WIC-1099 finishes that: the `<h1>` now names the *screen*, and the
+    // product name (`PRODUCT_NAME`, "Careerpin" — WIC-1089) is still on the page, just no
+    // longer a heading.
     await expect(page.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
-    await expect(page.getByText('Job Application Manager')).toBeVisible();
-    await expect(page.getByRole('heading', { name: /job application manager/i })).toHaveCount(0);
+    await expect(page.getByText('Careerpin')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /careerpin/i })).toHaveCount(0);
     await expect(page.getByText(/sign in to manage your job applications/i)).toBeVisible();
   });
 

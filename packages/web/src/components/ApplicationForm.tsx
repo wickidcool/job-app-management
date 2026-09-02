@@ -247,7 +247,6 @@ export function ApplicationForm({
         <Dialog.Content
           className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 z-50"
           onKeyDown={handleKeyDown}
-          aria-describedby="application-form-description"
         >
           <Dialog.Title asChild>
             <TitleTag className="text-2xl font-semibold mb-4">
@@ -255,7 +254,21 @@ export function ApplicationForm({
             </TitleTag>
           </Dialog.Title>
 
-          <Dialog.Description id="application-form-description" className="sr-only">
+          {/*
+            No `id` on `Dialog.Description` and no hand-written `aria-describedby` here
+            (WIC-1854). Both were present and the markup was correct — the dialog had a real
+            name and a real description, and the attribute pointed at a node that existed —
+            but Radix's `DescriptionWarning` does not look at the attribute. It resolves its
+            *own* `context.descriptionId` through `getElementById`
+            (@radix-ui/react-dialog 1.1.15, dist/index.mjs:308), so overriding the id moved
+            the node off that id and the "Missing `Description`" warning fired on every mount.
+
+            That is worse than noise: WIC-1851 existed because `CommandPalette` genuinely had
+            no accessible name, and Radix had been saying so for as long as the component had
+            existed. A warning that also fires against correct code is one everybody scrolls
+            past. Let Radix wire both ids; `CommandPalette.tsx` is the pattern.
+          */}
+          <Dialog.Description className="sr-only">
             {mode === 'create'
               ? 'Form to add a new job application'
               : 'Form to edit an existing job application'}

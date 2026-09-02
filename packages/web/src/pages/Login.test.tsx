@@ -7,10 +7,9 @@ import { Login } from './Login';
 import { getOutline, findOutlineSkips, describeOutline } from '../test/headingOutline';
 
 /**
- * `/login` shipped with an h2 and no h1, and the h2 said the wrong thing (WIC-1099 §2).
- * Its text was the product name — `Job Application Manager` — so the page's highest heading
- * was a level 2 with no level 1 above it, and heading navigation landed on a string that
- * names the *product* rather than the screen or the task.
+ * `/login` shipped with an h1 that said the wrong thing (WIC-1099 §2). Its text was the
+ * product name (`PRODUCT_NAME`, "Careerpin" — WIC-1089), so the page's only heading named
+ * the *product* rather than the screen or the task.
  *
  * Three branches, not two. The ticket lists the signed-out form; the component also returns
  * early while `AuthContext` is still resolving the session, and that branch had no heading
@@ -57,17 +56,13 @@ describe('/login heading outline (WIC-1099 §2)', () => {
   });
 
   it('leaves the product name on the page but out of the heading outline', () => {
-    // The string is unchanged: `ROUTE_TITLE_CONVENTION.md` §2 has this and `index.html:13`
-    // as the last two places saying `Job Application Manager` pending a Copywriter call on
-    // Careerpin. This asserts the split that lets those two decisions stay separate — the
-    // wordmark still renders, and it is no longer a heading.
+    // `PRODUCT_NAME` ("Careerpin", WIC-1089) is the wordmark's text — this asserts the split
+    // between the two decisions: the wordmark still renders, and it is no longer a heading.
     renderLogin();
 
-    expect(screen.getByText('Job Application Manager')).toBeInTheDocument();
+    expect(screen.getByText('Careerpin')).toBeInTheDocument();
     expect(
-      screen
-        .getAllByRole('heading')
-        .filter((h) => h.textContent?.trim() === 'Job Application Manager')
+      screen.getAllByRole('heading').filter((h) => h.textContent?.trim() === 'Careerpin')
     ).toHaveLength(0);
   });
 
