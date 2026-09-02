@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getConfig } from '../config.js';
@@ -79,14 +80,22 @@ export async function deleteObject(key: string): Promise<void> {
   await getClient().send(new DeleteObjectCommand({ Bucket: config.r2Bucket!, Key: key }));
 }
 
+/** R2's batch delete rejects more than 1000 keys in a single call. */
+const DELETE_BATCH_SIZE = 1000;
+
 export async function deleteObjects(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
   const r2 = getR2Binding();
   if (r2) {
-    await r2.delete(keys);
+    // Now that listObjectKeys pages past 1000, a large prefix can exceed the batch cap.
+    for (let i = 0; i < keys.length; i += DELETE_BATCH_SIZE) {
+      await r2.delete(keys.slice(i, i + DELETE_BATCH_SIZE));
+    }
     return;
   }
-  await Promise.all(keys.map((k) => deleteObject(k)));
+  for (let i = 0; i < keys.length; i += DELETE_BATCH_SIZE) {
+    await Promise.all(keys.slice(i, i + DELETE_BATCH_SIZE).map((k) => deleteObject(k)));
+  }
 }
 
 export async function getObject(key: string): Promise<Buffer | null> {
@@ -118,8 +127,34 @@ export async function getObject(key: string): Promise<Buffer | null> {
 export async function listObjectKeys(prefix: string): Promise<string[]> {
   const r2 = getR2Binding();
   if (r2) {
-    const result = await r2.list({ prefix, limit: 1000 });
-    return result.objects.map((o) => o.key);
+    const keys: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await r2.list({ prefix, limit: 1000, cursor });
+      for (const o of result.objects) keys.push(o.key);
+      // A truncated page with no cursor would loop forever — treat it as the end.
+      cursor = result.truncated ? result.cursor : undefined;
+    } while (cursor);
+    return keys;
+  }
+  if (isR2Configured()) {
+    const config = getConfig();
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const response = await getClient().send(
+        new ListObjectsV2Command({
+          Bucket: config.r2Bucket!,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        })
+      );
+      for (const o of response.Contents ?? []) {
+        if (o.Key) keys.push(o.Key);
+      }
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return keys;
   }
   return [];
 }
