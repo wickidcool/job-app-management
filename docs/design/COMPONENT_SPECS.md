@@ -515,13 +515,26 @@ interface DashboardStatsProps {
 > in `packages/web/src/types/units.ts`; convert with `toPercent(...)` at the render
 > site.
 
+### Window semantics
+
+`appliedThisWeek` is a **rolling window ending now** — the API counts applications with
+`appliedAt` in the last seven days (`packages/api/src/services/dashboard.service.ts`), not
+applications submitted since the start of the current calendar week. Its tile is therefore
+labelled `Last 7 Days` and not `This Week`.
+
+Per **AC-N12** of the UC-5 spec, every surface rendering a window metric must label the
+window it actually measures; a label the user reads as a calendar period may not be attached
+to a rolling one. The prop name is a legacy of the original calendar-week reading and is kept
+for API-contract compatibility — it is not a statement about the window. The rule is pinned in
+code by `packages/web/src/constants/appliedWindow.ts` and its tests (WIC-1743).
+
 ### Layout
 
 ```
-┌──────────┬──────────┬──────────┬──────────┐
-│   24     │    8     │   33%    │    3     │
-│  Total   │This Week │ Response │In Review │
-└──────────┴──────────┴──────────┴──────────┘
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│     24      │      8      │     33%     │      3      │
+│    Total    │ Last 7 Days │  Response   │  In Review  │
+└─────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
 ### Stat Card Anatomy

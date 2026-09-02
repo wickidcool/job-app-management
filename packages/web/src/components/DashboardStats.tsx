@@ -1,3 +1,4 @@
+import { APPLIED_WINDOW_LABEL } from '../constants/appliedWindow';
 import { toPercent, type Ratio } from '../types/units';
 
 export interface DashboardStatsProps {
@@ -28,7 +29,8 @@ export function DashboardStats({ stats, loading = false }: DashboardStatsProps) 
   // `formatValue` that a differently-united number could be routed through.
   const statItems = [
     { display: stats.total.toString(), label: 'Total' },
-    { display: stats.appliedThisWeek.toString(), label: 'This Week' },
+    // Rolling window, not the current calendar week — see constants/appliedWindow.ts.
+    { display: stats.appliedThisWeek.toString(), label: APPLIED_WINDOW_LABEL },
     { display: `${Math.round(toPercent(stats.responseRate))}%`, label: 'Response' },
     { display: stats.inReview.toString(), label: 'In Review' },
   ];

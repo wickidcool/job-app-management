@@ -5,6 +5,7 @@ import { AttentionCard } from '../components/AttentionCard';
 import { QuickWins } from '../components/QuickWins';
 import { useDashboard } from '../hooks/useDashboard';
 import { useResumes } from '../hooks/useResumes';
+import { APPLIED_WINDOW_METRIC_LABEL } from '../constants/appliedWindow';
 import type { ApplicationStatus } from '../types/application';
 import { asRatio } from '../types/units';
 
@@ -109,7 +110,8 @@ export function Dashboard() {
               <span className="font-semibold text-neutral-900">{inProgressCount}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-neutral-600">Applied This Week</span>
+              {/* Rolling window, not the current calendar week — see constants/appliedWindow.ts. */}
+              <span className="text-neutral-600">{APPLIED_WINDOW_METRIC_LABEL}</span>
               <span className="font-semibold text-neutral-900">{stats.appliedThisWeek}</span>
             </div>
             <Link
