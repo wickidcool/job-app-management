@@ -1,4 +1,6 @@
 import { eq, ilike, or, desc, inArray, and, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -41,17 +43,31 @@ import {
  * than silently dropping it — a letter that quietly forgets the application it
  * was asked to record is the defect this card exists to fix.
  */
-async function resolveOwnedApplicationId(applicationId: string, userId?: string): Promise<string> {
+/**
+ * Fail closed: an absent owner scopes to `user_id IS NULL`, never to the whole
+ * table. Mirrors the helper of the same name in interviewPrep/job-fit/
+ * resume-variant, and is the shape the owner-predicate audit recognises.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+/**
+ * Resolve an application id the caller is entitled to reference.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a
+ * single-expression fail-closed helper (an absent owner scopes to `IS NULL`,
+ * never to the whole table), so the absent-owner decision is made once, in the
+ * one place the owner-predicate audit recognises and checks by shape — instead
+ * of this function carrying an optional owner of its own, which is the [SIG]
+ * shape that audit exists to stop spreading.
+ */
+async function resolveOwnedApplicationId(applicationId: string, owner: SQL): Promise<string> {
   const db = getDb();
   const [app] = await db
     .select({ id: applications.id })
     .from(applications)
-    .where(
-      and(
-        eq(applications.id, applicationId),
-        userId ? eq(applications.userId, userId) : isNull(applications.userId)
-      )
-    )
+    .where(and(eq(applications.id, applicationId), owner))
     .limit(1);
   if (!app) {
     throw new CoverLetterError(
@@ -237,7 +253,7 @@ export async function generateCoverLetter(
   }
 
   const applicationId = input.applicationId
-    ? await resolveOwnedApplicationId(input.applicationId, userId)
+    ? await resolveOwnedApplicationId(input.applicationId, ownerScope(applications, userId))
     : null;
 
   const starEntries = await fetchStarEntries(input.selectedStarEntryIds, userId);

@@ -1,4 +1,5 @@
 import { eq, ilike, or, desc, and, sql, inArray, notInArray, isNull } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
@@ -110,12 +111,22 @@ function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
  * their own variant. Throws 404 rather than dropping the id silently, matching
  * `BASE_RESUME_NOT_FOUND` below.
  */
-async function resolveOwnedApplicationId(applicationId: string, userId?: string): Promise<string> {
+/**
+ * Resolve an application id the caller is entitled to reference.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a
+ * single-expression fail-closed helper (an absent owner scopes to `IS NULL`,
+ * never to the whole table), so the absent-owner decision is made once, in the
+ * one place the owner-predicate audit recognises and checks by shape — instead
+ * of this function carrying an optional owner of its own, which is the [SIG]
+ * shape that audit exists to stop spreading.
+ */
+async function resolveOwnedApplicationId(applicationId: string, owner: SQL): Promise<string> {
   const db = getDb();
   const [app] = await db
     .select({ id: applications.id })
     .from(applications)
-    .where(and(eq(applications.id, applicationId), ownerScope(applications, userId)))
+    .where(and(eq(applications.id, applicationId), owner))
     .limit(1);
   if (!app) {
     throw new ResumeVariantError(
@@ -279,7 +290,7 @@ export async function generateResumeVariant(
   const db = getDb();
 
   const applicationId = input.applicationId
-    ? await resolveOwnedApplicationId(input.applicationId, userId)
+    ? await resolveOwnedApplicationId(input.applicationId, ownerScope(applications, userId))
     : null;
 
   // Validate base resume if provided
