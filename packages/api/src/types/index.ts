@@ -89,8 +89,28 @@ export interface ListApplicationsParams {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /**
+   * Applications whose `appliedAt` falls in the last 7 days, **regardless of
+   * current status** — a count of submissions, not of applications still
+   * sitting at `applied`. Advancing an application never decreases it.
+   */
   appliedThisWeek: number;
+  /**
+   * Applications whose `appliedAt` falls in the last **30 days** — a fixed
+   * rolling window, NOT calendar month-to-date. Any surface that renders this
+   * must label it "last 30 days"; "this month" would be untrue.
+   */
   appliedThisMonth: number;
+  /**
+   * Share of applications that drew a response, as a **ratio in [0, 1]**,
+   * rounded to two decimal places. `0.75` means 75%.
+   *
+   * The ratio is the contract (`docs/architecture/API_CONTRACTS.md`,
+   * `GET /dashboard`) and consumers convert for display. Do not scale to 0-100
+   * here: the web client brands this field as `Ratio` and multiplies by 100 at
+   * its render site, so a percentage sent from here renders 100x too large
+   * (WIC-1514).
+   */
   responseRate: number;
 }
 
@@ -102,6 +122,67 @@ export interface ActivityItem {
   fromStatus?: ApplicationStatus;
   toStatus: ApplicationStatus;
   timestamp: string;
+}
+
+/**
+ * A single application referenced by the dashboard attention block.
+ *
+ * Deliberately minimal: the dashboard only needs enough to label and link a row,
+ * never the full DTO (`jobDescription` in particular can be very large).
+ */
+export interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Full-table aggregates behind the Dashboard's "Attention Required" and
+ * "Quick Wins" cards.
+ *
+ * Every `counts` field is computed over *all* of the user's applications, not
+ * over a page of them. `samples` are short top-N lists used to render
+ * individual action rows; a sample list being shorter than its count is
+ * expected and is not truncation of the count.
+ */
+export interface DashboardAttention {
+  /**
+   * The window `/reports/stale` applies by default. Sent down the wire so the
+   * dashboard's label always states the threshold the report will actually use
+   * (WIC-1479).
+   */
+  staleThresholdDays: number;
+  /** Days after which a `saved` application counts as not-yet-submitted. */
+  unsubmittedThresholdDays: number;
+  counts: {
+    /** `phone_screen` + `interview`. */
+    interviewing: number;
+    /**
+     * `applied` or `phone_screen`, not updated within `staleThresholdDays`.
+     *
+     * This is the product's one definition of stale, shared with
+     * `/reports/stale` — the surface the attention card links to. See
+     * `services/stale.ts`.
+     */
+    stale: number;
+    /** Non-terminal and missing a job description. */
+    missingJobDescription: number;
+    /**
+     * `saved` and created more than `unsubmittedThresholdDays` ago. Keyed off
+     * `createdAt`, and deliberately *not* called stale: nothing was submitted,
+     * so there is nobody to follow up with.
+     */
+    unsubmittedSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];
+    stale: AttentionApplication[];
+    missingJobDescription: AttentionApplication[];
+    unsubmittedSaved: AttentionApplication[];
+  };
 }
 
 export interface ResumeDTO {

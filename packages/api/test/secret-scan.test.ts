@@ -55,6 +55,9 @@ describe('secret-scan patterns', () => {
       ['slack-token', `t = "xoxb-${chunk('1', 12)}-${chunk('a', 12)}"`],
       ['twilio-account-sid', `sid = "AC${chunk('a', 32)}"`],
       ['cloudflare-api-token', `cf = "cfut_${chunk('x', 30)}"`],
+      // WIC-902 leak shape: a Supabase secret key reached the built bundle.
+      ['supabase-secret-key', `k = "sb_secret_${chunk('a', 20)}${chunk('B', 10)}9"`],
+      ['supabase-publishable-key', `k = "sb_publishable_${chunk('a', 20)}${chunk('B', 10)}9"`],
       ['private-key-block', `-----BEGIN RSA ${'PRIVATE'} KEY-----`],
     ];
     for (const [name, line] of cases) {

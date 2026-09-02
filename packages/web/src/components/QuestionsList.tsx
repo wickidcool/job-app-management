@@ -239,7 +239,7 @@ export function QuestionsList({
                                     {story.starEntryId.substring(0, 60)}
                                   </p>
                                   <p className="text-xs text-gray-600">
-                                    {story.relevanceScore}% match
+                                    {story.relevanceScorePct}% match
                                   </p>
                                 </div>
                               </div>

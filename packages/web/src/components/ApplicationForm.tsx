@@ -56,6 +56,24 @@ export interface ApplicationFormProps {
   application?: Application | null;
   mode?: 'create' | 'edit';
   defaultValues?: Partial<ApplicationFormData>;
+  /**
+   * Heading level for the dialog title. `2` (the Radix default) when this dialog opens
+   * *over* a page that owns the route's h1; `1` when the dialog **is** the route.
+   *
+   * The second case is `/applications/new`, and it is the reason this prop exists rather
+   * than the page rendering its own h1 the way `ROUTE_HEADING_OUTLINE.md` §5.1 assumes.
+   * A Radix modal marks every node outside its portal `aria-hidden`, so a heading on the
+   * page behind a permanently-open dialog is in the DOM and absent from the accessibility
+   * tree — measured, and pinned in `ApplicationNew.test.tsx`. On that route the dialog is
+   * the whole of what a user can reach, so the title it already renders is the route's
+   * only candidate for h1.
+   *
+   * This is the `COMPONENT_SPECS.md` §10 treatment, and it is earned here in the way §10
+   * asks: two live mount sites at two genuinely different depths — `ApplicationNew` (route
+   * body) and `ApplicationDetail` (nested under a page that has its own h1), not one call
+   * site plus a hypothesis. WIC-1099.
+   */
+  titleLevel?: 1 | 2;
 }
 
 export function ApplicationForm({
@@ -65,6 +83,7 @@ export function ApplicationForm({
   application,
   mode = 'create',
   defaultValues: propDefaultValues,
+  titleLevel = 2,
 }: ApplicationFormProps) {
   const {
     register,
@@ -211,6 +230,16 @@ export function ApplicationForm({
     }
   };
 
+  // Capitalised so JSX reads these as components rather than as the literal tag names.
+  //
+  // The section tag moves with the title, and that is not a nicety: this form's one section
+  // heading sat directly under the dialog title, so promoting the title alone would have run
+  // the outline h1 → h3 — the skip `ROUTE_HEADING_OUTLINE.md` §1.3 forbids, introduced by the
+  // fix for a missing heading. Caught by `ApplicationNew.test.tsx`'s no-skip case, which is
+  // why that case asserts the whole sequence rather than just the presence of an h1.
+  const TitleTag = titleLevel === 1 ? 'h1' : 'h2';
+  const SectionTag = titleLevel === 1 ? 'h2' : 'h3';
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -218,13 +247,28 @@ export function ApplicationForm({
         <Dialog.Content
           className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 z-50"
           onKeyDown={handleKeyDown}
-          aria-describedby="application-form-description"
         >
-          <Dialog.Title className="text-2xl font-semibold mb-4">
-            {mode === 'create' ? 'Add New Application' : 'Edit Application'}
+          <Dialog.Title asChild>
+            <TitleTag className="text-2xl font-semibold mb-4">
+              {mode === 'create' ? 'New application' : 'Edit application'}
+            </TitleTag>
           </Dialog.Title>
 
-          <Dialog.Description id="application-form-description" className="sr-only">
+          {/*
+            No `id` on `Dialog.Description` and no hand-written `aria-describedby` here
+            (WIC-1854). Both were present and the markup was correct — the dialog had a real
+            name and a real description, and the attribute pointed at a node that existed —
+            but Radix's `DescriptionWarning` does not look at the attribute. It resolves its
+            *own* `context.descriptionId` through `getElementById`
+            (@radix-ui/react-dialog 1.1.15, dist/index.mjs:308), so overriding the id moved
+            the node off that id and the "Missing `Description`" warning fired on every mount.
+
+            That is worse than noise: WIC-1851 existed because `CommandPalette` genuinely had
+            no accessible name, and Radix had been saying so for as long as the component had
+            existed. A warning that also fires against correct code is one everybody scrolls
+            past. Let Radix wire both ids; `CommandPalette.tsx` is the pattern.
+          */}
+          <Dialog.Description className="sr-only">
             {mode === 'create'
               ? 'Form to add a new job application'
               : 'Form to edit an existing job application'}
@@ -379,7 +423,9 @@ export function ApplicationForm({
 
             {/* Extended Details Section */}
             <div className="pt-4 border-t border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Extended Tracking</h3>
+              <SectionTag className="text-sm font-semibold text-gray-900 mb-3">
+                Extended Tracking
+              </SectionTag>
 
               {/* Contact */}
               <div className="mb-4">
