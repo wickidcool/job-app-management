@@ -472,6 +472,48 @@ does that. Two obligations follow:
    exactly the branchless shape this one cannot. The two are complementary and neither substitutes
    for the other.
 
+### A dev-mode 400/401 is D3 unimplemented — it is not a reason to relax D1/D2 (WIC-1962)
+
+Settled here because it is the same question arriving in a new costume, and this ADR exists to stop
+that. A route answering `400`/`401` in the local auth-bypass mode is the **intended** posture while
+D3 is unimplemented; it is not evidence that the owner-required change went too far, and the remedy
+is never to re-open an owner-absent branch in a service.
+
+The worked instance is `project.service.ts`. PR #316 (WIC-1901) and `main`'s WIC-1554 reach the same
+file from opposite directions: WIC-1554 routes every `projects` access through `requireOwner`, which
+is exactly this ADR's D2 for that service and is named as such in the remediation list above. #316
+instead keeps the bypass mode serving project routes, via per-caller `if (!userId)` guards that
+short-circuit before the scope helper. **#316's design is refused.** Three reasons, in order of
+weight:
+
+1. **It contradicts AC-T0 and D1 directly.** "Every read, write and existence check must match zero
+   rows" does not admit a mode in which reads are served from an owner-less caller. D1 already says
+   an authenticated route either has an owner or returns 401.
+2. **It does not achieve AC-T0 even on its own terms.** Measured 2026-09-02 on PGlite against #316
+   at `949ba5e8`, seeded with two tenants both holding the slug `acme-corp`:
+   `listProjects(undefined)` returns **both tenants' rows**, and `getProject(<A's id>, undefined)`
+   returns **A's row** — because #316 branched before `projectIdScope`/`requireOwner` existed and
+   left `.where(userId ? eq(...) : undefined)` and an id-only predicate in place. `main` throws on
+   both. #316's own AC-T0 suite asserts neither path, which is why "the cross-tenant assertions pass
+   under both designs" — the assertion set has a hole exactly where the design is weakest. This is
+   the AC-4 lesson again: a spec that never quantifies the absent owner is satisfied vacuously.
+3. **The mode it defends is not reachable fail-closed.** `projects.user_id` is `NOT NULL` and
+   `createProject` has rejected an owner-less caller since WIC-1434, so **no `projects` row can ever
+   exist for the bypass caller**. The DB half of every project operation in that mode is therefore
+   necessarily either skipped or unscoped — there is no third option, and "working dev mode" over a
+   table you cannot write to resolves to reading rows that belong to somebody else. #316 does not
+   deliver the mode either: `createProject` and `getOrCreateProjectBySlug` still `400`, and
+   `getOrCreateProjectBySlug` is the entry point for resume upload (`resume.service.ts:674,723`) and
+   dialogue capture (`dialogue.service.ts:209`). What the trade buys is browsing an `anon`
+   filesystem tree the API has no way to populate.
+
+**The dev-ergonomics cost #316 identified is real, and D3 is where it is paid.** Until D3 lands
+there is also a one-variable workaround that is strictly better than the bypass: the HS256 branch of
+`middleware/auth.ts` needs only `SUPABASE_JWT_SECRET`, with no Supabase project, so setting it in
+`.dev.vars` and minting a local HS256 token with any UUID `sub` gives every project route a real
+owner — and exercises the isolation logic instead of bypassing it, which is D3's stated benefit
+arriving early.
+
 ### Costs and risks
 
 - **D3 changes local-dev behaviour.** Any existing local database with genuine `NULL` `user_id`
@@ -505,6 +547,7 @@ does that. Two obligations follow:
 - WIC-1600 — this decision
 - WIC-1430 — document `tenancy-absent-caller-audit`; AC-T0 appended to all seven specs
 - WIC-1549, WIC-1554, WIC-1596, WIC-1435 — per-site remediation
+- WIC-1962 — a dev-mode 400/401 is D3 unimplemented; PR #316's owner-less project mode refused
 - ADR-003 — multi-user auth; origin of the nullable-`user_id` affordance retired here
 - `packages/api/src/db/migrations/0017_enforce_userid_not_null.sql`
 - `packages/api/src/db/migrations/0014_fix_personal_info_schema.sql` (lines 44-48)
