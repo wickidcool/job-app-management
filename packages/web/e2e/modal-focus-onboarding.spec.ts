@@ -117,12 +117,12 @@ test.describe('OnboardingModal — the outer panel', () => {
     // container itself — the container is what Radix falls back to when nothing
     // inside is focusable, which would still satisfy a naive `contains` check.
     expect(await focusIsInsideTopDialog(page)).toBe(true);
-    expect(
-      await page.evaluate(() => document.activeElement?.tagName)
-    ).toBe('BUTTON');
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BUTTON');
   });
 
-  test('traps Tab inside the dialog — the dashboard behind is never reachable', async ({ page }) => {
+  test('traps Tab inside the dialog — the dashboard behind is never reachable', async ({
+    page,
+  }) => {
     await setupOnboarding(page);
 
     for (let i = 0; i < 12; i++) {

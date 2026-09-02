@@ -140,7 +140,9 @@ test.describe('QuickReferenceExport — focus management', () => {
     expect(await focusIsInsideDialog(page)).toBe(true);
   });
 
-  test('traps Tab inside the dialog — the prep page behind is never reachable', async ({ page }) => {
+  test('traps Tab inside the dialog — the prep page behind is never reachable', async ({
+    page,
+  }) => {
     await setupInterviewPrep(page);
     await openExportDialogByKeyboard(page);
 
