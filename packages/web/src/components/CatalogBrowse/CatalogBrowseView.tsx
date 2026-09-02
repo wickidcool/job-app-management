@@ -251,10 +251,13 @@ export function CatalogBrowseView() {
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                 <div>
-                  <h3 className="text-h4 font-bold text-neutral-900 mb-1">
+                  {/* h2: these cards are direct children of the /catalog page h1, with
+                      no intervening section heading (WIC-1675 AC-2). `text-h4` keeps the
+                      visual size — the tag carries the outline, the class the type. */}
+                  <h2 className="text-h4 font-bold text-neutral-900 mb-1">
                     {diff.sourceType === 'resume' ? '📄' : '💼'}{' '}
                     {diff.sourceType === 'resume' ? 'Resume' : 'Application'} Update
-                  </h3>
+                  </h2>
                   <p className="text-sm text-neutral-500">
                     {new Date(diff.createdAt).toLocaleDateString()} at{' '}
                     {new Date(diff.createdAt).toLocaleTimeString()}

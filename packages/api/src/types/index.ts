@@ -89,7 +89,17 @@ export interface ListApplicationsParams {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /**
+   * Applications whose `appliedAt` falls in the last 7 days, **regardless of
+   * current status** — a count of submissions, not of applications still
+   * sitting at `applied`. Advancing an application never decreases it.
+   */
   appliedThisWeek: number;
+  /**
+   * Applications whose `appliedAt` falls in the last **30 days** — a fixed
+   * rolling window, NOT calendar month-to-date. Any surface that renders this
+   * must label it "last 30 days"; "this month" would be untrue.
+   */
   appliedThisMonth: number;
   /**
    * Share of applications that drew a response, as a **ratio in [0, 1]**,
@@ -139,27 +149,39 @@ export interface AttentionApplication {
  * expected and is not truncation of the count.
  */
 export interface DashboardAttention {
-  /** Days without an update after which a non-terminal application is stale. */
+  /**
+   * The window `/reports/stale` applies by default. Sent down the wire so the
+   * dashboard's label always states the threshold the report will actually use
+   * (WIC-1479).
+   */
   staleThresholdDays: number;
   /** Days after which a `saved` application counts as not-yet-submitted. */
-  savedThresholdDays: number;
+  unsubmittedThresholdDays: number;
   counts: {
     /** `phone_screen` + `interview`. */
     interviewing: number;
-    /** Non-terminal and not updated within `staleThresholdDays`. */
+    /**
+     * `applied` or `phone_screen`, not updated within `staleThresholdDays`.
+     *
+     * This is the product's one definition of stale, shared with
+     * `/reports/stale` — the surface the attention card links to. See
+     * `services/stale.ts`.
+     */
     stale: number;
-    /** `applied`/`phone_screen`/`interview` and not updated within `staleThresholdDays`. */
-    staleActive: number;
     /** Non-terminal and missing a job description. */
     missingJobDescription: number;
-    /** `saved` and created more than `savedThresholdDays` ago. */
-    staleSaved: number;
+    /**
+     * `saved` and created more than `unsubmittedThresholdDays` ago. Keyed off
+     * `createdAt`, and deliberately *not* called stale: nothing was submitted,
+     * so there is nobody to follow up with.
+     */
+    unsubmittedSaved: number;
   };
   samples: {
     interviewing: AttentionApplication[];
-    staleActive: AttentionApplication[];
+    stale: AttentionApplication[];
     missingJobDescription: AttentionApplication[];
-    staleSaved: AttentionApplication[];
+    unsubmittedSaved: AttentionApplication[];
   };
 }
 

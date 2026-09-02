@@ -19,6 +19,36 @@ export function _resetJwksCache() {
   jwksCache.clear();
 }
 
+/**
+ * WIC-1554 — the authenticated caller's id, or a rejected request.
+ *
+ * A token can verify perfectly — right signature, right issuer, right audience,
+ * unexpired — and still carry no `sub`. This previously read
+ * `(payload.sub as string) ?? null` and called `next()`, so such a request was
+ * *authenticated with no identity*: `userId: null`, which every route launders
+ * into `undefined` via `c.get('userId') ?? undefined`, which the services then
+ * treated as "no owner filter". `/api/projects/*` is not in `PUBLIC_PATHS`, so
+ * this was reachable on the guarded path in a fully configured deployment, not
+ * only in the local bypass.
+ *
+ * There is no such thing as an anonymous authenticated caller, so this is a 401
+ * rather than something for each service to defend against. Note the check is
+ * not `?? null`: that admits an empty-string `sub`, which is falsy and degrades
+ * identically at every call site downstream.
+ *
+ * The genuine dev bypass is a different branch and is untouched — it is the
+ * `!supabaseUrl && !jwtSecret` early return above, per ADR-003.
+ */
+function requireSubject(payload: { sub?: unknown }): string {
+  if (typeof payload.sub !== 'string' || payload.sub === '') {
+    // Thrown inside the caller's `try`, matching the `Missing iss claim` path
+    // below: the response is the generic 401, which discloses nothing about
+    // which claim was wrong.
+    throw new Error('Missing sub claim');
+  }
+  return payload.sub;
+}
+
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const supabaseUrl = (c.env?.SUPABASE_URL as string | undefined) ?? getConfig().supabaseUrl;
   const jwtSecret =
@@ -59,13 +89,13 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         issuer,
         audience: 'authenticated',
       });
-      c.set('userId', (payload.sub as string) ?? null);
+      c.set('userId', requireSubject(payload));
     } else {
       // HS256 / symmetric path
       if (!jwtSecret) throw new Error('No JWT secret configured for HS256 token');
       const secret = new TextEncoder().encode(jwtSecret);
       const { payload } = await jwtVerify(token, secret);
-      c.set('userId', (payload.sub as string) ?? null);
+      c.set('userId', requireSubject(payload));
     }
   } catch {
     return c.json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } }, 401);

@@ -114,8 +114,12 @@ HOST = "https://us.posthog.com"
 #
 # Why the watcher cares. "0 organic events" is only a demand signal if the app a
 # visitor lands on actually works. It does not, today: every DB-touching endpoint
-# fails with Workers subrequest exhaustion, pending the pooler-vs-Hyperdrive board
-# decision on WIC-1473. That splits the WIC-814 taxonomy in two:
+# fails with Workers subrequest exhaustion. The pooler-vs-Hyperdrive DESIGN question
+# is settled -- WIC-1473 closed `done` deciding ADR-007 option 1, give prod its own
+# Hyperdrive binding mirroring `env.preview`. What is still outstanding is EXECUTION,
+# which needs a Cloudflare credential no agent run holds, and is gated on the pending
+# board approval on WIC-1386. Do not cite WIC-1473 as the live blocker; it is closed.
+# That splits the WIC-814 taxonomy in two:
 #
 #   * CLIENT leg (`resume_upload_started` / `_validation_failed` / `_cta_clicked`)
 #     goes browser -> us.i.posthog.com directly and is UNAFFECTED by the outage.
@@ -1319,7 +1323,7 @@ def main():
                 "WIC-1024 hold while prod is degraded. `resume_upload_completed` sits "
                 "after the DB writes and cannot fire, so completion/timing insights and "
                 "the C1-C3 person_id tiles would render empty or 100%-failure. Report "
-                "the traffic, but keep the dashboard build held on WIC-1473.\n"
+                "the traffic, but keep the dashboard build held on WIC-1386.\n"
                 "Expect this candidate to be resume_upload_started or "
                 "resume_upload_validation_failed -- they are the only 2 of 9 events "
                 "that can arrive while prod is degraded. A candidate bearing any OTHER "
@@ -1370,7 +1374,9 @@ def main():
             "The detector still works -- a real first user trips those 2 -- but do not "
             "quote 0 organic as clean demand evidence. Per-event split with call sites: "
             "docs/analytics/event-reachability-matrix.md. "
-            "Unblock owner: WIC-1473 (board decision)."
+            "Unblock owner: WIC-1386 (pending board approval -- needs a Cloudflare "
+            "credential to provision the prod Hyperdrive config; the design decision "
+            "itself is already made and closed on WIC-1473, ADR-007 option 1)."
         )
     return 0
 
