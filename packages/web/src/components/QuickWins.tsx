@@ -1,9 +1,20 @@
 import { Link } from 'react-router-dom';
 import { differenceInDays } from 'date-fns';
-import type { Application } from '../types/application';
+import type { DashboardAttention } from '../services/api/types';
+
+/** How many action rows the card renders before collapsing the rest into a link. */
+const VISIBLE_WIN_LIMIT = 5;
 
 interface QuickWinsProps {
-  applications: Application[];
+  /**
+   * Server-computed aggregates over *every* application: full-table counts plus
+   * short top-N sample rows.
+   *
+   * Deriving these on the client is not possible correctly — `GET /api/applications`
+   * returns a page ordered by most-recently updated, so a client-side scan for
+   * the *least* recently updated rows is blind to every row it should find.
+   */
+  attention?: DashboardAttention;
 }
 
 interface QuickWin {
@@ -16,18 +27,14 @@ interface QuickWin {
   applicationId?: string;
 }
 
-export function QuickWins({ applications }: QuickWinsProps) {
+export function QuickWins({ attention }: QuickWinsProps) {
   const quickWins: QuickWin[] = [];
+  const samples = attention?.samples;
+  const counts = attention?.counts;
 
-  // High Priority: Interviews happening soon (next 7 days)
-  const upcomingInterviews = applications.filter((app) => {
-    if (app.status !== 'interview' && app.status !== 'phone_screen') return false;
-    // In a real app, we'd check interview dates from app data
-    // For now, we'll consider all interview-stage apps as upcoming
-    return true;
-  });
-
-  upcomingInterviews.forEach((app) => {
+  // High Priority: Interviews in progress.
+  // (We don't track interview dates yet, so every interview-stage application counts.)
+  (samples?.interviewing ?? []).forEach((app) => {
     quickWins.push({
       id: `interview-${app.id}`,
       priority: 'high',
@@ -39,14 +46,13 @@ export function QuickWins({ applications }: QuickWinsProps) {
     });
   });
 
-  // High Priority: Stale applications in active stages (>7 days without update)
-  const staleActiveApps = applications.filter((app) => {
-    if (!['applied', 'phone_screen', 'interview'].includes(app.status)) return false;
-    const daysSinceUpdate = differenceInDays(new Date(), new Date(app.updatedAt));
-    return daysSinceUpdate > 7;
-  });
-
-  staleActiveApps.slice(0, 2).forEach((app) => {
+  // High Priority: stale applications (oldest first).
+  //
+  // Drawn from the same server-side population the attention card counts and
+  // `/reports/stale` lists. This card used to apply its own inline threshold
+  // over its own status set, which made a third definition of "stale" in a
+  // product that is specified to have one (WIC-1479).
+  (samples?.stale ?? []).forEach((app) => {
     const daysSinceUpdate = differenceInDays(new Date(), new Date(app.updatedAt));
     quickWins.push({
       id: `stale-${app.id}`,
@@ -60,11 +66,7 @@ export function QuickWins({ applications }: QuickWinsProps) {
   });
 
   // Medium Priority: Applications missing job description (can't do fit analysis)
-  const missingDescApps = applications.filter(
-    (app) => !app.jobDescription && !['offer', 'rejected', 'withdrawn'].includes(app.status)
-  );
-
-  missingDescApps.slice(0, 2).forEach((app) => {
+  (samples?.missingJobDescription ?? []).forEach((app) => {
     quickWins.push({
       id: `missing-desc-${app.id}`,
       priority: 'medium',
@@ -76,14 +78,9 @@ export function QuickWins({ applications }: QuickWinsProps) {
     });
   });
 
-  // Medium Priority: Saved applications not yet applied (>3 days)
-  const staleSavedApps = applications.filter((app) => {
-    if (app.status !== 'saved') return false;
-    const daysSinceSaved = differenceInDays(new Date(), new Date(app.createdAt));
-    return daysSinceSaved > 3;
-  });
-
-  staleSavedApps.slice(0, 2).forEach((app) => {
+  // Medium Priority: Saved applications not yet applied (longest-saved first).
+  // Measured from `createdAt`, and not a form of staleness — see the type docs.
+  (samples?.unsubmittedSaved ?? []).forEach((app) => {
     const daysSinceSaved = differenceInDays(new Date(), new Date(app.createdAt));
     quickWins.push({
       id: `saved-${app.id}`,
@@ -96,13 +93,20 @@ export function QuickWins({ applications }: QuickWinsProps) {
     });
   });
 
-  // Sort by priority (high > medium > low) and limit to top 5
+  // Sort by priority (high > medium > low) and limit to the visible window
   const sortedWins = quickWins
     .sort((a, b) => {
       const priorityOrder = { high: 0, medium: 1, low: 2 };
       return priorityOrder[a.priority] - priorityOrder[b.priority];
     })
-    .slice(0, 5);
+    .slice(0, VISIBLE_WIN_LIMIT);
+
+  // Total actionable items across the whole account, not just the sampled rows.
+  // The samples are capped for rendering; these counts are not.
+  const totalWins = counts
+    ? counts.interviewing + counts.stale + counts.missingJobDescription + counts.unsubmittedSaved
+    : quickWins.length;
+  const hiddenWins = Math.max(0, totalWins - sortedWins.length);
 
   const getPriorityColor = (priority: QuickWin['priority']) => {
     switch (priority) {
@@ -133,11 +137,22 @@ export function QuickWins({ applications }: QuickWinsProps) {
           <span className="text-xl">⚡</span>
           <h2 className="text-lg font-semibold text-neutral-900">Quick Wins</h2>
         </div>
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          <span className="mb-3 text-4xl">🎉</span>
-          <p className="text-sm font-medium text-success-700">All caught up!</p>
-          <p className="mt-1 text-xs text-neutral-500">No urgent actions needed right now</p>
-        </div>
+        {/*
+          Only claim "all caught up" once the aggregates have arrived. Before
+          then we know nothing about the account, and an empty list is not
+          evidence that there is nothing to do.
+        */}
+        {attention ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <span className="mb-3 text-4xl">🎉</span>
+            <p className="text-sm font-medium text-success-700">All caught up!</p>
+            <p className="mt-1 text-xs text-neutral-500">No urgent actions needed right now</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <p className="text-sm text-neutral-500">Checking your applications…</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -150,7 +165,7 @@ export function QuickWins({ applications }: QuickWinsProps) {
           <h2 className="text-lg font-semibold text-neutral-900">Quick Wins</h2>
         </div>
         <span className="rounded-full bg-primary-100 px-2.5 py-0.5 text-xs font-medium text-primary-700">
-          {sortedWins.length} action{sortedWins.length !== 1 ? 's' : ''}
+          {totalWins} action{totalWins !== 1 ? 's' : ''}
         </span>
       </div>
 
@@ -179,13 +194,13 @@ export function QuickWins({ applications }: QuickWinsProps) {
         ))}
       </div>
 
-      {quickWins.length > 5 && (
+      {hiddenWins > 0 && (
         <div className="mt-4 text-center">
           <Link
             to="/applications"
             className="text-xs text-primary-600 hover:text-primary-700 font-medium"
           >
-            View {quickWins.length - 5} more action{quickWins.length - 5 !== 1 ? 's' : ''} →
+            View {hiddenWins} more action{hiddenWins !== 1 ? 's' : ''} →
           </Link>
         </div>
       )}

@@ -39,6 +39,60 @@ function staticHeadings(src: string, level: 1 | 2): string[] {
   return [...src.matchAll(re)].map((m) => m[1].replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
+/** Resolve a relative import specifier against the importing file's glob key. */
+function resolveImport(fromPath: string, specifier: string): string | undefined {
+  if (!specifier.startsWith('.')) return undefined;
+  const segments = fromPath.split('/').slice(0, -1).concat(specifier.split('/'));
+  const resolved: string[] = [];
+  for (const segment of segments) {
+    if (segment === '.' || segment === '') continue;
+    // Glob keys are themselves relative ('../components/Foo.tsx'), so a leading '..'
+    // has nothing to pop and must survive into the result, or every resolution
+    // misses by one directory and the whole check silently reports "unrelated".
+    if (segment === '..' && resolved.length > 0 && resolved[resolved.length - 1] !== '..') {
+      resolved.pop();
+    } else {
+      resolved.push(segment);
+    }
+  }
+  const base = resolved.join('/');
+  return [`${base}.tsx`, `${base}/index.tsx`].find((candidate) => candidate in sources);
+}
+
+/** Every file reachable from `entry` by relative import, transitively, including itself. */
+const reachableCache = new Map<string, Set<string>>();
+function reachableFrom(entry: string): Set<string> {
+  const cached = reachableCache.get(entry);
+  if (cached) return cached;
+
+  const seen = new Set<string>([entry]);
+  const queue = [entry];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const src = sources[current];
+    if (!src) continue;
+    for (const match of src.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)) {
+      const target = resolveImport(current, match[1]);
+      if (target && !seen.has(target)) {
+        seen.add(target);
+        queue.push(target);
+      }
+    }
+  }
+
+  reachableCache.set(entry, seen);
+  return seen;
+}
+
+/**
+ * Whether two files can appear on screen at once — the same file, or one mounting
+ * the other at any depth. See the mount-site test at the bottom of this file for
+ * why the heading intersection needs this and what it does not cover.
+ */
+function sharesARenderTree(a: string, b: string): boolean {
+  return a === b || reachableFrom(a).has(b) || reachableFrom(b).has(a);
+}
+
 describe('route heading outline (WIC-1581)', () => {
   const files = Object.entries(sources).filter(([path]) => !path.includes('.test.'));
 
@@ -76,9 +130,12 @@ describe('route heading outline (WIC-1581)', () => {
 
     const collisions = Object.keys(h1)
       .filter((text) => text in h2)
-      .map(
-        (text) =>
-          `${JSON.stringify(text)} — h1 in ${h1[text].join(', ')}; h2 in ${h2[text].join(', ')}`
+      .flatMap((text) =>
+        h1[text].flatMap((h1Path) =>
+          h2[text]
+            .filter((h2Path) => sharesARenderTree(h1Path, h2Path))
+            .map((h2Path) => `${JSON.stringify(text)} — h1 in ${h1Path}; h2 in ${h2Path}`)
+        )
       );
 
     // A page <h1> and a component <h2> sharing a string is the WIC-1581 defect: the
@@ -86,5 +143,50 @@ describe('route heading outline (WIC-1581)', () => {
     // <h2> instead, or — if the slot carries its own meaning, as the cover-letter
     // wizard's step bar does — give it copy for that meaning. See §4 of the ruling.
     expect(collisions).toEqual([]);
+  });
+
+  /**
+   * The mount-site half of §1.1's method, which the raw intersection above left out.
+   *
+   * The ruling in §0 is about *one* route: "a component that is the sole body of a
+   * route must not render a heading that names the route." Two files that never
+   * appear on screen together cannot commit it — no reader ever hears the string
+   * twice, and there is no outline in which it sits at two levels. §1.1 says so in
+   * its own method statement: "intersect the static heading strings, **then check
+   * the mount site**." Only the first half had been implemented, so the sweep also
+   * reported cross-route pairs, which are not defects and whose only available
+   * "fix" is to make one of the two headings worse.
+   *
+   * First live instance, and the reason this exists (WIC-1533): `/cover-letters`
+   * names itself `<h1>Cover Letters</h1>`, and `/applications/:id` — whose own
+   * `<h1>` is the interpolated `{application.jobTitle}` — has an
+   * `<h2>Cover Letters</h2>` section listing that application's letters, beside
+   * `Details`, `Timeline`, `Job Description` and `Documents`. Neither page mounts
+   * the other. Renaming either one would be contorting correct copy around a check
+   * that does not apply to it.
+   *
+   * Both WIC-1581 defects remain caught: `OutreachNew` imports `OutreachComposer`
+   * and `ResumeExports` imports `ResumeExportList`, so each pair shares a render
+   * tree and still reports. Reintroducing either heading reds this file — measured,
+   * not assumed.
+   *
+   * The walk is transitive, so a page → panel → sub-panel duplicate is caught too.
+   * It inherits the sweep's existing blind spots (static text only, JSX comments read
+   * as live) and adds one: a component reached through a barrel file or a dynamic
+   * import is not linked here, so such a pair would go unreported.
+   */
+  it('still catches a duplicate between a page and the component it mounts', () => {
+    const [outreachPage] = files.find(([p]) => p.endsWith('/OutreachNew.tsx'))!;
+    const [outreachPanel] = files.find(([p]) => p.endsWith('/OutreachComposer.tsx'))!;
+    const [applicationDetail] = files.find(([p]) => p.endsWith('/ApplicationDetail.tsx'))!;
+    const [coverLettersList] = files.find(([p]) => p.endsWith('/CoverLettersList.tsx'))!;
+
+    // The shape the ruling forbids: the page mounts the component.
+    expect(sharesARenderTree(outreachPage, outreachPanel)).toBe(true);
+    expect(sharesARenderTree(outreachPanel, outreachPage)).toBe(true);
+    // A file against itself — an h1 and h2 in one component are always the same tree.
+    expect(sharesARenderTree(outreachPage, outreachPage)).toBe(true);
+    // The shape it does not: two routes that never render together.
+    expect(sharesARenderTree(coverLettersList, applicationDetail)).toBe(false);
   });
 });

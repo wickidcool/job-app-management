@@ -347,6 +347,28 @@ test.describe('Job Fit Analysis page', () => {
     await expect(page.getByRole('button', { name: 'Analyze Fit →' })).toBeDisabled();
   });
 
+  /**
+   * The ten "wait for results" gates below key on the **level-2 `Results`** heading, not on the
+   * route's `<h1>`.
+   *
+   * WIC-1099 gave this route one persistent `<h1>Job Fit Analysis</h1>` rendered by every branch,
+   * replacing the `<h1>Job Fit Analysis Results</h1>` that appeared only once the analysis
+   * returned. These gates used to wait on that string, and they worked *because* the heading did
+   * not exist until the results did.
+   *
+   * Retargeting them at the new `<h1>` is the obvious move and it makes the gate **vacuous**: the
+   * `<h1>` is on screen at the input stage too. Measured, by deleting the submit click from TC-1
+   * and pointing its gate at the `<h1>` — the wait resolved anyway, and the test went on to fail
+   * five lines later on `getByText('Possible fit')`, a content assertion. So the damage is not
+   * that such a test passes; it is that the gate stops gating and the failure resurfaces
+   * downstream as a confusing "results content missing" error with no indication that nothing was
+   * ever submitted. With the `<h2>` gate the same deletion fails **at the gate**, which is where a
+   * missing transition should be reported.
+   *
+   * The `<h2>` is now the only heading whose appearance still marks the input → results
+   * transition, which is what a gate has to be. `exact: true` keeps it from matching longer
+   * headings that contain the word.
+   */
   // TC-1: Submit JD text → receive fit assessment
   test('TC-1: submits JD text and displays fit assessment results', async ({ page }) => {
     await mockJobFitApi(page, MOCK_ANALYSIS_RESPONSE);
@@ -355,9 +377,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
     // Wait for results page
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     // Overall recommendation shown. The fit level is a verdict scale with its own
     // vocabulary — it deliberately shares no word with gap severity or confidence
@@ -379,9 +403,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     // WIC-1528: the heading names the populations it counts. It deliberately does NOT
     // agree with the summary's "You match 4 of 6 required skills" — `computeSummary`
@@ -416,9 +442,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     // Single-population case: the zero term is omitted, not rendered as "0 nice-to-have".
     await expect(page.getByText('⚠️ Partial Matches (1 required)')).toBeVisible();
@@ -445,9 +473,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     await expect(page.getByText('❌ Gaps (2 required, 1 nice-to-have)')).toBeVisible();
 
@@ -493,9 +523,11 @@ test.describe('Job Fit Analysis page', () => {
     await expect(page.getByRole('button', { name: 'Analyze Fit →' })).toBeEnabled();
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
     await expect(page.getByText('Possible fit')).toBeVisible();
   });
 
@@ -522,9 +554,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     await expect(page.getByText('No Catalog Data Yet')).toBeVisible();
     await expect(
@@ -592,9 +626,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     await page.getByRole('button', { name: '← Analyze Another' }).click();
     await expect(page.getByRole('heading', { name: 'Job Fit Analysis' })).toBeVisible();
@@ -619,9 +655,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     await expect(page.getByText('💡 Recommended STAR Entries')).toBeVisible();
     await expect(page.getByText(/Led migration of monolith/)).toBeVisible();
@@ -645,9 +683,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_NONSTANDARD);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     await expect(page.getByText('Strong fit')).toBeVisible();
     await expect(page.getByText('You match 5 of 6 required skills.')).toBeVisible();
@@ -671,9 +711,11 @@ test.describe('Job Fit Analysis page', () => {
     await page.locator('#jobDescriptionText').fill(JD_TEXT_NONSTANDARD);
     await page.getByRole('button', { name: 'Analyze Fit →' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Job Fit Analysis Results' })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByRole('heading', { level: 2, name: 'Results', exact: true })).toBeVisible(
+      {
+        timeout: 15000,
+      }
+    );
 
     // Degraded fallback still renders without crash; summary explains the situation
     await expect(page.getByText('NO RECOMMENDATION')).toBeVisible();

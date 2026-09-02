@@ -1,13 +1,17 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { differenceInDays, parseISO, startOfDay } from 'date-fns';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
-import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useApplicationCollection, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useDebounce } from '../hooks/useDebounce';
+import { filterByDateRange } from '../utils/dateRangeFilter';
+import { parseStatusParam } from '../constants/applicationStatus';
 import type { Application, ApplicationStatus } from '../types/application';
+import { DEFAULT_STALE_THRESHOLD_DAYS, isStale } from '../constants/stale';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
 
@@ -29,8 +33,10 @@ function calculatePipelineStats(applications: Application[]) {
       else if (daysUntilDue <= 3) dueSoon++;
     }
 
-    const daysSinceUpdate = differenceInDays(today, new Date(app.updatedAt));
-    if (daysSinceUpdate >= 14) stale++;
+    // WIC-1479: this counted every *active* status at 14 days, so `saved` and
+    // `interview` rows landed in a tile whose neighbours all lead to the same
+    // follow-up workflow the report drives. One definition, one count.
+    if (isStale(app)) stale++;
   }
 
   return { active: activeApps.length, overdue, dueToday, dueSoon, stale };
@@ -38,25 +44,62 @@ function calculatePipelineStats(applications: Application[]) {
 
 export function ApplicationsList() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<FilterOptions>({});
+  const [searchParams] = useSearchParams();
+  const statusParam = searchParams.get('status');
+
+  // The command palette links here as `/applications?status=interview,phone_screen`. Until
+  // WIC-1775 that query string was never read, so every shortcut landed on the unfiltered
+  // list and the label above it was false whatever it said.
+  const [filters, setFilters] = useState<FilterOptions>(() => {
+    const status = parseStatusParam(statusParam);
+    return status.length > 0 ? { status } : {};
+  });
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [prevStatusParam, setPrevStatusParam] = useState(statusParam);
+
+  // Re-apply when a shortcut navigates here while this page is already mounted — the
+  // initialiser above only runs on first render. This is the derived-state-during-render
+  // pattern (as in CommandPalette), not an effect: an effect would render the stale list
+  // first and then correct it, and the lint rule rejects the cascading render.
+  if (statusParam !== prevStatusParam) {
+    setPrevStatusParam(statusParam);
+    const status = parseStatusParam(statusParam);
+    if (status.length > 0) {
+      setFilters((prev) => ({ ...prev, status }));
+    }
+  }
+
+  // `filters` updates on every keystroke so that `FilterPanel` can stay controlled (it
+  // holds no state of its own — see WIC-1612), so the debounce that used to live inside
+  // the panel lives here instead: between the committed filter state and the API, which
+  // is the only place that actually needed protecting from a request per character.
+  const debouncedSearch = useDebounce(filters.search, 300);
 
   // Convert FilterOptions to API filter format
   const apiFilters = useMemo(
     () => ({
       status: filters.status,
-      search: filters.search,
+      search: debouncedSearch,
       // API only supports single company partial match, not multiple exact matches
       // We'll handle multiple companies via client-side filtering
       company: undefined,
     }),
-    [filters.status, filters.search]
+    [filters.status, debouncedSearch]
   );
 
-  const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
+  const { data: collection, isLoading } = useApplicationCollection(apiFilters);
+  // Memoised so the `?? []` fallback does not hand a fresh array to the
+  // downstream useMemo deps on every render.
+  const rawApplications = useMemo(() => collection?.applications ?? [], [collection]);
+  // The service pages `GET /api/applications` to exhaustion; `truncated` is only
+  // set if it ran out of page budget first. Say so rather than presenting a
+  // prefix of the account as if it were the whole thing.
+  const isPartialView = collection?.truncated ?? false;
   const updateStatusMutation = useUpdateApplicationStatus();
 
-  // Client-side filtering for multiple companies and activeOnly (API doesn't support these)
+  // Client-side filtering for multiple companies, activeOnly and the date range — none
+  // of which `/applications` supports as a query parameter. Every row already carries
+  // `createdAt` and `appliedAt`, so the date window needs no API change (WIC-1613).
   const applications = useMemo(() => {
     let filtered = rawApplications;
 
@@ -68,8 +111,10 @@ export function ApplicationsList() {
       filtered = filtered.filter((app) => ACTIVE_STATUSES.includes(app.status));
     }
 
+    filtered = filterByDateRange(filtered, filters.dateRange);
+
     return filtered;
-  }, [rawApplications, filters.company, filters.activeOnly]);
+  }, [rawApplications, filters.company, filters.activeOnly, filters.dateRange]);
 
   // Pipeline stats for the summary bar
   const pipelineStats = useMemo(() => calculatePipelineStats(rawApplications), [rawApplications]);
@@ -113,6 +158,16 @@ export function ApplicationsList() {
         <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
       </div>
 
+      {isPartialView && (
+        <div
+          role="status"
+          className="mb-6 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm text-warning-800"
+        >
+          Showing the first {rawApplications.length} of {collection?.totalCount} applications. The
+          counts below cover only what is shown — narrow the filters to see the rest.
+        </div>
+      )}
+
       {/* Pipeline Stats Summary */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
         <div className="rounded-lg border border-neutral-200 bg-white p-3">
@@ -133,7 +188,9 @@ export function ApplicationsList() {
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-3">
           <div className="text-2xl font-bold text-neutral-600">{pipelineStats.stale}</div>
-          <div className="text-sm text-neutral-600">Stale (14+ days)</div>
+          <div className="text-sm text-neutral-600">
+            Stale ({DEFAULT_STALE_THRESHOLD_DAYS}+ days)
+          </div>
         </div>
       </div>
 
