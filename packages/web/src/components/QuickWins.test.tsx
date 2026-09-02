@@ -30,21 +30,20 @@ function attention(
   samples: Partial<DashboardAttention['samples']> = {}
 ): DashboardAttention {
   return {
-    staleThresholdDays: 7,
-    savedThresholdDays: 3,
+    staleThresholdDays: 14,
+    unsubmittedThresholdDays: 3,
     counts: {
       interviewing: 0,
       stale: 0,
-      staleActive: 0,
       missingJobDescription: 0,
-      staleSaved: 0,
+      unsubmittedSaved: 0,
       ...counts,
     },
     samples: {
       interviewing: [],
-      staleActive: [],
+      stale: [],
       missingJobDescription: [],
-      staleSaved: [],
+      unsubmittedSaved: [],
       ...samples,
     },
   };
@@ -62,8 +61,8 @@ describe('QuickWins (WIC-1478)', () => {
   it('counts every actionable application, not just the sampled rows', () => {
     renderWins(
       attention(
-        { staleActive: 40, missingJobDescription: 7 },
-        { staleActive: [app('a', 30), app('b', 25)], missingJobDescription: [app('c', 1)] }
+        { stale: 40, missingJobDescription: 7 },
+        { stale: [app('a', 30), app('b', 25)], missingJobDescription: [app('c', 1)] }
       )
     );
 
@@ -73,14 +72,14 @@ describe('QuickWins (WIC-1478)', () => {
   });
 
   it('renders no "more" link when the samples already cover everything', () => {
-    renderWins(attention({ staleActive: 2 }, { staleActive: [app('a', 30), app('b', 20)] }));
+    renderWins(attention({ stale: 2 }, { stale: [app('a', 30), app('b', 20)] }));
 
     expect(screen.getByText('2 actions')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /more action/ })).not.toBeInTheDocument();
   });
 
   it('shows the days-since-update computed from the sampled row', () => {
-    renderWins(attention({ staleActive: 1 }, { staleActive: [app('a', 30)] }));
+    renderWins(attention({ stale: 1 }, { stale: [app('a', 30)] }));
 
     expect(screen.getByText('Company a - No update for 30 days')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Send Follow-up' })).toHaveAttribute(
@@ -92,7 +91,7 @@ describe('QuickWins (WIC-1478)', () => {
   it('never renders more than the visible window even with many samples', () => {
     renderWins(
       attention(
-        { interviewing: 12, staleActive: 9 },
+        { interviewing: 12, stale: 9 },
         {
           interviewing: [
             app('i1', 0, 'interview'),
@@ -101,7 +100,7 @@ describe('QuickWins (WIC-1478)', () => {
             app('i4', 0, 'interview'),
             app('i5', 0, 'interview'),
           ],
-          staleActive: [app('s1', 30), app('s2', 29)],
+          stale: [app('s1', 30), app('s2', 29)],
         }
       )
     );

@@ -197,20 +197,28 @@ export interface AttentionApplication {
  * expected and does not mean the count is truncated.
  */
 export interface DashboardAttention {
+  /**
+   * The window `/reports/stale` applies by default. The attention card renders
+   * this rather than a hardcoded number, so its label can never promise a
+   * threshold different from the one the report it links to will apply
+   * (WIC-1479).
+   */
   staleThresholdDays: number;
-  savedThresholdDays: number;
+  /** Days after which a `saved` application counts as not-yet-submitted. */
+  unsubmittedThresholdDays: number;
   counts: {
     interviewing: number;
+    /** `applied` or `phone_screen`, not updated within `staleThresholdDays`. */
     stale: number;
-    staleActive: number;
     missingJobDescription: number;
-    staleSaved: number;
+    /** `saved`, created over `unsubmittedThresholdDays` ago. Not staleness. */
+    unsubmittedSaved: number;
   };
   samples: {
     interviewing: AttentionApplication[];
-    staleActive: AttentionApplication[];
+    stale: AttentionApplication[];
     missingJobDescription: AttentionApplication[];
-    staleSaved: AttentionApplication[];
+    unsubmittedSaved: AttentionApplication[];
   };
 }
 

@@ -95,12 +95,9 @@ export const HOOK_TITLED_ROUTES: readonly string[] = [
   '/resume-variants/:id', //                     ResumeVariantDetail.tsx:170 {variant.title}
   '/projects/:projectId', //                     ProjectDetail.tsx:46       {projectName}
   '/projects/:projectId/files/:fileName', //     ProjectFileEditor.tsx:73   {fileName}
-  '/job-fit-analysis', //                        JobFitAnalysis.tsx:481 / :169, by stage
+  '/job-fit-analysis', //                        JobFitAnalysis.tsx:47, constant across all five stages (WIC-1099)
   '/projects/new/dialogue', //                   WizardContainer.tsx:398-401, by wizard variant
-  // Not dynamic — `/login` sits in the *outer* <Routes> in App.tsx, above ProtectedRoute,
-  // so the shell that applies STATIC_ROUTE_TITLES is never mounted for it. Same mechanism
-  // as the six above, different reason; its string is LOGIN_TITLE below.
-  '/login',
+  '/login', //                                   Login.tsx:81, by mode (WIC-1099) — LOGIN_TITLES below
 ];
 
 /**
@@ -124,9 +121,11 @@ export const REDIRECT_ROUTES: readonly string[] = ['/dashboard', '/reports/pipel
 /**
  * `/login` sits in the *outer* `<Routes>` in `App.tsx`, above `ProtectedRoute`, so the
  * app shell that applies `STATIC_ROUTE_TITLES` is not mounted for it. `Login.tsx` calls
- * the hook with this directly.
+ * the hook directly with `LOGIN_TITLES[mode]`.
  *
- * New copy: the page's highest heading is an `<h2>` and its text is the product name
- * rather than a description of the screen (§6.1) — so there is no `<h1>` to mirror.
+ * Keyed by mode rather than a single string (WIC-1099): the page's `<h1>` now names the
+ * screen — `Sign in` / `Create an account` — where it used to be the product wordmark with
+ * no `<h1>` above it at all (§6.1). The title mirrors that `<h1>` verbatim, per the usual
+ * rule (§0.3), now that there is a screen-naming heading to mirror.
  */
-export const LOGIN_TITLE = 'Sign In';
+export const LOGIN_TITLES = { login: 'Sign in', register: 'Create an account' } as const;

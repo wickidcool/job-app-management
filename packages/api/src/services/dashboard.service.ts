@@ -9,12 +9,23 @@ import {
   DashboardAttention,
 } from '../types/index.js';
 import { ALL_STATUSES } from './status.service.js';
+import { DEFAULT_STALE_THRESHOLD_DAYS, staleWhere } from './stale.js';
 
-/** Days without an update after which a non-terminal application is stale. */
-export const STALE_THRESHOLD_DAYS = 7;
+// "Stale" is defined once, in `stale.ts`, and this module does not get to hold
+// an opinion about it (WIC-1479). The attention card links to `/reports/stale`,
+// so the count it shows has to be the number of rows that report renders. This
+// module deliberately re-exports nothing under a local alias: an alias is how
+// a second name for one threshold becomes a second threshold.
 
-/** Days after which a `saved` application counts as not-yet-submitted. */
-export const SAVED_THRESHOLD_DAYS = 3;
+/**
+ * Days after which a `saved` application counts as not-yet-submitted.
+ *
+ * This is emphatically *not* staleness — a saved application was never sent to
+ * anyone, so there is nothing to follow up on. It is keyed off `createdAt`, not
+ * `updatedAt`. It used to be surfaced as `staleSaved`, which put a second
+ * meaning on the word "stale" and is exactly what WIC-1479 AC-N2a forbids.
+ */
+export const UNSUBMITTED_THRESHOLD_DAYS = 3;
 
 /** Statuses an application can still be acted on from. */
 const NON_TERMINAL_STATUSES: ApplicationStatus[] = [
@@ -23,9 +34,6 @@ const NON_TERMINAL_STATUSES: ApplicationStatus[] = [
   'phone_screen',
   'interview',
 ];
-
-/** Non-terminal statuses that represent a submitted application. */
-const ACTIVE_STATUSES: ApplicationStatus[] = ['applied', 'phone_screen', 'interview'];
 
 const INTERVIEWING_STATUSES: ApplicationStatus[] = ['phone_screen', 'interview'];
 
@@ -69,43 +77,38 @@ function toAttentionApplication(row: AttentionRow): AttentionApplication {
 /**
  * The predicates behind every attention/quick-win count, as pure data.
  *
- * WIC-1478. These are the product of this card — "which applications need
+ * WIC-1478. These are the product of that card — "which applications need
  * attention?" — and until they were lifted out they ran inside
  * `getDashboardStats`, which `dashboard.routes.test.ts` mocks wholesale. That
- * left them executed by no test at all: inverting `lt` to `gte` on both
- * thresholds, which compiles and would ship, passed the entire gate (build,
- * lint, format, api 739/739, web 128/128) while reporting the freshly-touched
- * rows as the ones needing follow-up.
+ * left them executed by no test at all: inverting the threshold comparisons,
+ * which compiles and would ship, passed the entire gate while reporting the
+ * freshly-touched rows as the ones needing follow-up.
  *
- * Exported so `dashboard.service.test.ts` can render each clause to SQL and
- * assert its direction and status set directly. `now` is a parameter only so
- * those assertions can pin a fixed instant; production always passes none.
+ * Exported so `dashboard.attention-conditions.test.ts` can render each clause
+ * to SQL and assert its status set and comparison direction directly. `now` is
+ * a parameter only so those assertions can pin a fixed instant; production
+ * always passes none.
+ *
+ * `staleCondition` is not built here (WIC-1479). It is `staleWhere()`'s, whole,
+ * so that the attention card's count and `/reports/stale`'s row count are equal
+ * by construction. This function passes `now` through and adds nothing to it —
+ * a local `and(...)` wrapping it here is exactly the second expression the card
+ * exists to delete.
  */
 export function buildAttentionConditions(now: Date = new Date()) {
-  const staleThreshold = new Date(now);
-  staleThreshold.setDate(staleThreshold.getDate() - STALE_THRESHOLD_DAYS);
-
-  const savedThreshold = new Date(now);
-  savedThreshold.setDate(savedThreshold.getDate() - SAVED_THRESHOLD_DAYS);
+  const unsubmittedThreshold = new Date(now);
+  unsubmittedThreshold.setDate(unsubmittedThreshold.getDate() - UNSUBMITTED_THRESHOLD_DAYS);
 
   return {
-    staleThreshold,
-    savedThreshold,
-    staleCondition: and(
-      inArray(applications.status, NON_TERMINAL_STATUSES),
-      lt(applications.updatedAt, staleThreshold)
-    ),
-    staleActiveCondition: and(
-      inArray(applications.status, ACTIVE_STATUSES),
-      lt(applications.updatedAt, staleThreshold)
-    ),
+    unsubmittedThreshold,
+    staleCondition: staleWhere({ now }),
     missingDescriptionCondition: and(
       inArray(applications.status, NON_TERMINAL_STATUSES),
       or(isNull(applications.jobDescription), eq(applications.jobDescription, ''))
     ),
-    staleSavedCondition: and(
+    unsubmittedSavedCondition: and(
       eq(applications.status, 'saved'),
-      lt(applications.createdAt, savedThreshold)
+      lt(applications.createdAt, unsubmittedThreshold)
     ),
     interviewingCondition: inArray(applications.status, INTERVIEWING_STATUSES),
   };
@@ -225,11 +228,14 @@ export async function getDashboardStats(userId?: string): Promise<{
   // by most-recently-updated), so a client-side "which of these are stale?" scan
   // is blind to exactly the rows it exists to surface. Every count below is over
   // the full table, the same way `byStatus` above is.
+  // `staleCondition` is the same predicate `/reports/stale` runs, built by the
+  // same function. The attention card's count and the report's row count
+  // therefore agree by construction — there is no second expression here that
+  // could drift out of step with it (WIC-1479 AC-N2b).
   const {
     staleCondition,
-    staleActiveCondition,
     missingDescriptionCondition,
-    staleSavedCondition,
+    unsubmittedSavedCondition,
     interviewingCondition,
   } = buildAttentionConditions();
 
@@ -257,47 +263,46 @@ export async function getDashboardStats(userId?: string): Promise<{
 
   const [
     staleCount,
-    staleActiveCount,
     missingDescriptionCount,
-    staleSavedCount,
+    unsubmittedSavedCount,
     interviewingSamples,
-    staleActiveSamples,
+    staleSamples,
     missingDescriptionSamples,
-    staleSavedSamples,
+    unsubmittedSavedSamples,
   ] = await Promise.all([
     countMatching(staleCondition),
-    countMatching(staleActiveCondition),
     countMatching(missingDescriptionCondition),
-    countMatching(staleSavedCondition),
+    countMatching(unsubmittedSavedCondition),
     // Most recently touched interviews first — they are the ones being prepped for.
     sampleMatching(interviewingCondition, desc(applications.updatedAt), INTERVIEWING_SAMPLE_LIMIT),
     // Most stale first: the oldest row is the one most in need of a follow-up.
-    sampleMatching(staleActiveCondition, asc(applications.updatedAt), ATTENTION_SAMPLE_LIMIT),
+    // Same condition as the count above, so the rows quick-wins lists are always
+    // drawn from the population the attention card counted.
+    sampleMatching(staleCondition, asc(applications.updatedAt), ATTENTION_SAMPLE_LIMIT),
     sampleMatching(
       missingDescriptionCondition,
       desc(applications.updatedAt),
       ATTENTION_SAMPLE_LIMIT
     ),
     // Longest-saved first.
-    sampleMatching(staleSavedCondition, asc(applications.createdAt), ATTENTION_SAMPLE_LIMIT),
+    sampleMatching(unsubmittedSavedCondition, asc(applications.createdAt), ATTENTION_SAMPLE_LIMIT),
   ]);
 
   const attention: DashboardAttention = {
-    staleThresholdDays: STALE_THRESHOLD_DAYS,
-    savedThresholdDays: SAVED_THRESHOLD_DAYS,
+    staleThresholdDays: DEFAULT_STALE_THRESHOLD_DAYS,
+    unsubmittedThresholdDays: UNSUBMITTED_THRESHOLD_DAYS,
     counts: {
       // Derived from `byStatus` rather than re-queried, so the two can never disagree.
       interviewing: byStatus.phone_screen + byStatus.interview,
       stale: staleCount,
-      staleActive: staleActiveCount,
       missingJobDescription: missingDescriptionCount,
-      staleSaved: staleSavedCount,
+      unsubmittedSaved: unsubmittedSavedCount,
     },
     samples: {
       interviewing: interviewingSamples,
-      staleActive: staleActiveSamples,
+      stale: staleSamples,
       missingJobDescription: missingDescriptionSamples,
-      staleSaved: staleSavedSamples,
+      unsubmittedSaved: unsubmittedSavedSamples,
     },
   };
 
