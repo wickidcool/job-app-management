@@ -38,7 +38,7 @@ export function STARStoryBank({
   const sortedStories = [...filteredStories].sort((a, b) => {
     if (a.isFavorite && !b.isFavorite) return -1;
     if (!a.isFavorite && b.isFavorite) return 1;
-    return b.relevanceScore - a.relevanceScore;
+    return b.relevanceScorePct - a.relevanceScorePct;
   });
 
   const getRelevanceBadge = (score: number) => {
@@ -102,7 +102,7 @@ export function STARStoryBank({
         ) : (
           sortedStories.map((story) => {
             const isExpanded = expandedStoryId === story.id;
-            const badge = getRelevanceBadge(story.relevanceScore);
+            const badge = getRelevanceBadge(story.relevanceScorePct);
             const isSelected = selectedStoryIds.includes(story.id);
 
             return (
@@ -156,7 +156,7 @@ export function STARStoryBank({
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${badge.color}`}>
-                      {badge.icon} {story.relevanceScore}%
+                      {badge.icon} {story.relevanceScorePct}%
                     </span>
                     {story.confidenceLevel !== 'not_practiced' && (
                       <span className="text-sm">{getConfidenceBadge(story.confidenceLevel)}</span>
