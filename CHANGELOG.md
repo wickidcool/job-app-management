@@ -1569,6 +1569,29 @@ The entry below fixed the except tuple in `organic_watch.py`'s `prod_db_health()
 
 
 
+
+### Fixed — `reviseCoverLetter` no longer persists STAR entry ids it could not resolve
+
+`POST /cover-letters/:id/revise` fetched the selected STAR entries and then wrote the *caller's* id
+list into `selected_star_entry_ids` regardless of what that fetch returned, so an id resolving to no
+row was still stored. `generateCoverLetter` has always rejected that input with `STAR_ENTRY_NOT_FOUND`
+(404); the revise path now does the same, and throws before the model call rather than after it.
+
+- **The check covers the caller-supplied list only, not the stored fallback.** When the request omits
+  `selectedStarEntryIds` the service falls back to the ids already on the row, and validating *that*
+  would make a letter which already stores an unresolvable id impossible to revise ever again —
+  including by an instructions-only edit that never mentions STAR entries. Those rows exist precisely
+  because this write path minted them, so the guard is scoped to close the write vector without
+  stranding what it already wrote. A test pins the narrowing: widening the guard to the fallback list
+  turns it red.
+- **An explicit empty list still clears the row.** `[]` is a request, not an omission, and is
+  distinguished from the fallback case.
+- **This composes with the owner-scoping fix on PR #159 (WIC-1437) and does not depend on it.** Here
+  "did not resolve" means "does not exist", because the catalog read on `main` carries no owner term.
+  Once #159 adds one, another user's id also stops resolving and this same guard rejects it with no
+  further change — which is why the check is computed from the rows the fetch returned rather than
+  from an existence query of its own.
+
 ### Fixed — Route 2 (console JSON import) can now emit a synthetic-filtered pack, reusing Route 1's rewriter (2026-08-30)
 
 `make_console_pack.py` built `dashboard-templates.json` straight from the unfiltered payloads, and the runbook stated Route 2 "carries NO synthetic exclusion, and that is deliberate" — so an operator who imported the committed JSON got 17 tiles counting probe residue as product usage. That was the other half of the WIC-1664 gap; Route 1 was closed by WIC-1667. `make_console_pack.py --exclude-synthetic --out-dir DIR` now emits a filtered pack, reusing `build_dashboards.py`'s `synthetic_predicate` / `apply_exclusion` rather than a second rewriter (WIC-1845).
