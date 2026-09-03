@@ -22,8 +22,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Document, Packer, Paragraph } from 'docx';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
-vi.mock('../src/services/analytics.service.js', () => ({ track: vi.fn() }));
-vi.mock('../src/services/storage.service.js', () => ({
+vi.mock('../src/services/analytics.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/analytics.service.js')>()),
+  track: vi.fn(),
+}));
+vi.mock('../src/services/storage.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/storage.service.js')>()),
   isR2Configured: vi.fn(() => true),
   isStorageAvailable: vi.fn(() => true),
   uploadObject: vi.fn(async () => undefined),
@@ -32,16 +36,19 @@ vi.mock('../src/services/storage.service.js', () => ({
     [userId ?? 'anon', kind, name].join('/')
   ),
 }));
-vi.mock('../src/services/ai-parser.service.js', () => ({
+vi.mock('../src/services/ai-parser.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/ai-parser.service.js')>()),
   isAIParserAvailable: vi.fn(() => false),
   parseResumeWithAI: vi.fn(),
   generateAIProjectMarkdown: vi.fn(() => ''),
 }));
-vi.mock('../src/services/change-queue.service.js', () => ({
+vi.mock('../src/services/change-queue.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/change-queue.service.js')>()),
   enqueueChange: vi.fn(async () => undefined),
   flush: vi.fn(async () => undefined),
 }));
-vi.mock('../src/services/project.service.js', () => ({
+vi.mock('../src/services/project.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/project.service.js')>()),
   getOrCreateProjectBySlug: vi.fn(async (slug: string) => ({ id: 'proj-1', slug })),
 }));
 

@@ -43,7 +43,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
-vi.mock('../src/services/storage.service.js', () => ({
+vi.mock('../src/services/storage.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/storage.service.js')>()),
   isStorageAvailable: vi.fn(() => true),
   uploadObject: vi.fn(async () => undefined),
   deleteObject: vi.fn(async () => undefined),

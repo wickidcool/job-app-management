@@ -33,7 +33,8 @@ vi.mock('../src/db/client.js', () => ({
 // the assertion "no text was extracted" would hold for the wrong reason — the
 // document would be unreadable rather than out of scope — and the test would
 // stay green with the predicate removed.
-vi.mock('../src/services/storage.service.js', () => ({
+vi.mock('../src/services/storage.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/storage.service.js')>()),
   isStorageAvailable: () => true,
   // The object body is the file path, so extractText below can return text that
   // differs per document. Needed to tell "B read A's file" from "B read some
