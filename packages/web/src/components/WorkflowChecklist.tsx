@@ -1,6 +1,21 @@
 import { Link } from 'react-router-dom';
 import type { ApplicationStatus } from '../types/application';
 
+/**
+ * Whether a query-backed artefact exists for this application.
+ *
+ * Three states, not two, because the answer arrives over the network: until the
+ * query settles the honest answer is `'unknown'`, and collapsing that onto
+ * `'absent'` is what made the page state a false negative as fact for a full
+ * round-trip (WIC-1630).
+ *
+ * It is a single tri-state prop rather than a `hasX` boolean paired with an
+ * `xUnknown` flag so that "present *and* unknown" is unrepresentable — a pair
+ * would need every consumer of one to remember the other, which is the same
+ * mistake in a new place.
+ */
+export type ArtefactStatus = 'unknown' | 'absent' | 'present';
+
 interface WorkflowChecklistProps {
   applicationId: string;
   status: ApplicationStatus;
@@ -40,7 +55,13 @@ interface WorkflowChecklistProps {
    * {@link hasFitAnalysis}, is what tells that user their analysis exists.
    */
   fitScore?: number | null;
-  hasCoverLetter?: boolean;
+  /**
+   * Whether a cover letter exists for this application, or whether the query
+   * that would say has not settled yet. Defaults to `'absent'` so a caller that
+   * does not wire the step at all keeps the old behaviour rather than showing a
+   * row that loads forever.
+   */
+  coverLetterStatus?: ArtefactStatus;
   /**
    * The letter the "Cover Letter" step was completed by, if there is one.
    *
@@ -51,7 +72,8 @@ interface WorkflowChecklistProps {
    * instead of leaving a finished step inert (WIC-1533).
    */
   coverLetterId?: string;
-  hasResumeVariant?: boolean;
+  /** As {@link coverLetterStatus}, for the "Tailored Resume" step. */
+  resumeVariantStatus?: ArtefactStatus;
   /**
    * The variant the "Tailored Resume" step was completed by, if there is one.
    * Repoints the row at `/resume-variants/:id` for the same reason
@@ -68,21 +90,32 @@ interface WorkflowChecklistProps {
    * `completed: false`, so a user who had generated a prep still saw the step
    * unticked.
    *
-   * The row keeps its link in both states on purpose:
+   * The row keeps its link whether or not a prep exists, on purpose:
    * `/applications/:id/prep` is where you *read* an existing prep, not only
    * where you create one, so dropping the link on completion — the right move
    * for the two "go generate one" steps above — would take the finished
-   * artefact away.
+   * artefact away. `'unknown'` is the one state that does drop it; see the
+   * comment on `items` for why.
    */
-  hasInterviewPrep?: boolean;
+  interviewPrepStatus?: ArtefactStatus;
 }
 
 interface ChecklistItem {
   label: string;
   completed: boolean;
+  /**
+   * The step's answer has not arrived yet. Distinct from `!completed`, which
+   * asserts we looked and there is none.
+   */
+  unknown: boolean;
   recommended: boolean;
   link?: string;
   badge?: string;
+}
+
+/** A step whose query has come back, either way. */
+function settled(status: ArtefactStatus): boolean {
+  return status !== 'unknown';
 }
 
 export function WorkflowChecklist({
@@ -91,16 +124,29 @@ export function WorkflowChecklist({
   hasJobDescription,
   hasFitAnalysis = false,
   fitScore,
-  hasCoverLetter = false,
+  coverLetterStatus = 'absent',
   coverLetterId,
-  hasResumeVariant = false,
+  resumeVariantStatus = 'absent',
   resumeVariantId,
-  hasInterviewPrep = false,
+  interviewPrepStatus = 'absent',
 }: WorkflowChecklistProps) {
+  const hasCoverLetter = coverLetterStatus === 'present';
+  const hasResumeVariant = resumeVariantStatus === 'present';
+  const hasInterviewPrep = interviewPrepStatus === 'present';
+
+  // An unknown step renders inert: no link, no "Recommended", no tick. The two
+  // generator links are the user-visible harm — offering to write a letter that
+  // may already exist — but Interview Prep drops its link too even though
+  // `/applications/:id/prep` is its destination either way, because what the
+  // link *means* ("go read your prep" vs "go make one") is exactly what is not
+  // known yet.
   const items: ChecklistItem[] = [
     {
       label: 'Job Fit Analysis',
       completed: hasFitAnalysis,
+      // Backed by no query at all (WIC-1652), so it is never unknown and must
+      // stay identical while the other three load.
+      unknown: false,
       recommended: hasJobDescription && !hasFitAnalysis,
       link: hasFitAnalysis ? undefined : `/job-fit-analysis?appId=${applicationId}`,
       // `!= null`, not truthiness: a genuine 0% match is a score, and the `?`
@@ -110,64 +156,100 @@ export function WorkflowChecklist({
     {
       label: 'Cover Letter',
       completed: hasCoverLetter,
-      recommended: hasFitAnalysis && !hasCoverLetter,
-      link: hasCoverLetter
-        ? coverLetterId
-          ? `/cover-letters/${coverLetterId}`
-          : undefined
-        : `/cover-letters/new?appId=${applicationId}`,
+      unknown: !settled(coverLetterStatus),
+      recommended: settled(coverLetterStatus) && hasFitAnalysis && !hasCoverLetter,
+      link: settled(coverLetterStatus)
+        ? hasCoverLetter
+          ? coverLetterId
+            ? `/cover-letters/${coverLetterId}`
+            : undefined
+          : `/cover-letters/new?appId=${applicationId}`
+        : undefined,
     },
     {
       label: 'Tailored Resume',
       completed: hasResumeVariant,
-      recommended: hasFitAnalysis && !hasResumeVariant,
-      link: hasResumeVariant
-        ? resumeVariantId
-          ? `/resume-variants/${resumeVariantId}`
-          : undefined
-        : `/resume-variants/new?appId=${applicationId}`,
+      unknown: !settled(resumeVariantStatus),
+      recommended: settled(resumeVariantStatus) && hasFitAnalysis && !hasResumeVariant,
+      link: settled(resumeVariantStatus)
+        ? hasResumeVariant
+          ? resumeVariantId
+            ? `/resume-variants/${resumeVariantId}`
+            : undefined
+          : `/resume-variants/new?appId=${applicationId}`
+        : undefined,
     },
     {
       label: 'Interview Prep',
       completed: hasInterviewPrep,
-      recommended: status === 'interview' || status === 'phone_screen',
-      link: `/applications/${applicationId}/prep`,
+      unknown: !settled(interviewPrepStatus),
+      recommended:
+        settled(interviewPrepStatus) && (status === 'interview' || status === 'phone_screen'),
+      link: settled(interviewPrepStatus) ? `/applications/${applicationId}/prep` : undefined,
     },
   ];
 
+  // The denominator is the steps we have an answer for, not the row count.
+  // Counting an unknown step as incomplete states two falsehoods at once: that
+  // the step is not done, and that every answer is in hand (WIC-1630 AC-3).
+  const unknownCount = items.filter((item) => item.unknown).length;
   const completedCount = items.filter((item) => item.completed).length;
-  const totalCount = items.length;
-  const progressPercent = (completedCount / totalCount) * 100;
+  const totalCount = items.length - unknownCount;
+  const progressPercent = totalCount === 0 ? 0 : (completedCount / totalCount) * 100;
 
   return (
     <div className="bg-white rounded-lg border border-neutral-200 p-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-neutral-900">Application Workflow</h2>
+          {/*
+            "steps" stays literal even when the denominator is 1: the count is
+            the surface `ApplicationDetail.artefactLoading.test.tsx` reads by a
+            `/steps completed/` matcher, and pluralising it would make that
+            helper throw rather than assert.
+          */}
           <p className="text-sm text-neutral-600">
             {completedCount} of {totalCount} steps completed
           </p>
+          {unknownCount > 0 && (
+            <p className="text-xs text-neutral-500">
+              Checking {unknownCount} more {unknownCount === 1 ? 'step' : 'steps'}…
+            </p>
+          )}
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold text-neutral-900">{Math.round(progressPercent)}%</div>
+          {/*
+            A percentage over a partial denominator would read as a settled
+            figure, which is the defect this component is being fixed for. Show
+            no number until every step has an answer.
+          */}
+          <div className="text-2xl font-bold text-neutral-900">
+            {unknownCount > 0 ? '—' : `${Math.round(progressPercent)}%`}
+          </div>
           <div className="text-xs text-neutral-500">Complete</div>
         </div>
       </div>
 
       {/* Progress Bar */}
       <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-neutral-100">
-        <div
-          className="h-full bg-primary-500 transition-all duration-300"
-          style={{ width: `${progressPercent}%` }}
-        />
+        {unknownCount > 0 ? (
+          <div className="h-full w-full animate-pulse bg-neutral-200" aria-hidden="true" />
+        ) : (
+          <div
+            className="h-full bg-primary-500 transition-all duration-300"
+            style={{ width: `${progressPercent}%` }}
+          />
+        )}
       </div>
 
       {/* Checklist Items */}
       <ul className="space-y-3">
         {items.map((item, index) => (
-          <li key={index} className="flex items-start gap-3">
+          <li key={index} className="flex items-start gap-3" aria-busy={item.unknown || undefined}>
             <div className="mt-0.5 flex-shrink-0">
-              {item.completed ? (
+              {item.unknown ? (
+                <span className="flex h-5 w-5 animate-pulse rounded-full bg-neutral-200" />
+              ) : item.completed ? (
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-success-100 text-success-600">
                   ✓
                 </span>
@@ -193,6 +275,7 @@ export function WorkflowChecklist({
                     {item.label}
                   </span>
                 )}
+                {item.unknown && <span className="text-xs text-neutral-500">Checking…</span>}
                 {item.badge && (
                   <span className="inline-flex items-center rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-800">
                     {item.badge}
