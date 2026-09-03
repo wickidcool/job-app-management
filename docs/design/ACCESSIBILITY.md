@@ -156,9 +156,14 @@ All functionality must be accessible via keyboard alone. No mouse required.
 
 #### Forms
 
+The snippet illustrates the `aria-labelledby` pairing. The heading **level** in it is the ordinary
+case, not a constant: `ApplicationForm` derives its title tag from `titleLevel` and renders an
+`<h1>` on `/applications/new`, where the dialog is the entire route and the page behind it is
+`aria-hidden` (`COMPONENT_SPECS.md` §3 → _Heading level_, WIC-1099).
+
 ```html
 <form aria-labelledby="form-title">
-  <h2 id="form-title">Add New Application</h2>
+  <h2 id="form-title">New application</h2>
   
   <label for="job-title">
     Job Title <span aria-label="required">*</span>

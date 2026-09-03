@@ -12,12 +12,14 @@ import type { ResumeExport } from '../types/resume';
  * The panel heading is gone rather than reworded: it named the route and nothing else.
  * See `docs/design/ROUTE_HEADING_OUTLINE.md` §1.1 and §4.
  *
- * Rendered here with rows because `ResumeExports.tsx` still hardcodes `exports = []`
- * pending the API wiring, so the row headings are unreachable from the page today.
+ * These rows are now reachable from the page: WIC-1707 replaced the hardcoded
+ * `exports = []` in `ResumeExports.tsx` with the API-backed list. Do not restore the
+ * "unreachable from the page today" caveat that used to sit here.
  */
 const exports: ResumeExport[] = [
   {
     id: 'exp-1',
+    resumeId: 'resume-1',
     name: 'Backend Engineer — Acme',
     createdAt: new Date('2026-08-01T00:00:00Z'),
     experienceIds: ['star-1'],
@@ -26,6 +28,7 @@ const exports: ResumeExport[] = [
   },
   {
     id: 'exp-2',
+    resumeId: 'resume-2',
     name: 'Platform Engineer — Globex',
     createdAt: new Date('2026-08-02T00:00:00Z'),
     experienceIds: ['star-2'],
@@ -36,7 +39,7 @@ const exports: ResumeExport[] = [
 
 function renderList(items: ResumeExport[] = exports) {
   const onCreateNew = vi.fn();
-  render(
+  const { container } = render(
     <ResumeExportList
       exports={items}
       onPreview={vi.fn()}
@@ -45,7 +48,7 @@ function renderList(items: ResumeExport[] = exports) {
       onCreateNew={onCreateNew}
     />
   );
-  return { onCreateNew };
+  return { onCreateNew, container };
 }
 
 describe('ResumeExportList heading outline', () => {
@@ -83,5 +86,46 @@ describe('ResumeExportList heading outline', () => {
     // heading without changing that would have stranded the button on the left.
     expect(screen.getByRole('button', { name: /Create New/ })).toBeInTheDocument();
     expect(onCreateNew).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * WIC-1707 — the shape the API actually returns.
+ *
+ * `resume_exports` stores no file size and no experience ids, so every row built by
+ * `transformAPIResumeExport` leaves both undefined. The fixtures above set them, so
+ * without this block the optional-chip branch would be the one shape the suite never
+ * renders — and the production shape would be untested.
+ *
+ * Both absent-value failures are silent rather than throwing, which is why these
+ * assert on the rendered text: `formatFileSize(undefined)` renders "NaN MB", and
+ * defaulting to `0`/`[]` renders a confident, wrong "0 B" / "0 experiences".
+ */
+describe('ResumeExportList with no size or experience metadata', () => {
+  const apiShaped: ResumeExport[] = [
+    {
+      id: 'exp-3',
+      resumeId: 'resume-3',
+      name: 'resume-3-star.md',
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      format: 'markdown',
+    },
+  ];
+
+  it('still renders the export row and its format', () => {
+    renderList(apiShaped);
+
+    expect(screen.getByRole('heading', { name: 'resume-3-star.md' })).toBeInTheDocument();
+    expect(screen.getByText('markdown')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Preview/ })).toBeInTheDocument();
+  });
+
+  it('renders no file-size and no experience-count chip', () => {
+    const { container } = renderList(apiShaped);
+    const text = container.textContent ?? '';
+
+    expect(text).not.toMatch(/NaN/);
+    expect(text).not.toMatch(/\bB\b|KB|MB/);
+    expect(text).not.toMatch(/experiences/);
   });
 });
