@@ -3,9 +3,21 @@ import type { OutreachPlatform, OutreachMessage } from '../services/api/types';
 import { useGenerateOutreach } from '../hooks/useCoverLetters';
 
 interface OutreachComposerProps {
-  platform: OutreachPlatform;
+  /**
+   * A finished cover letter to draw the message's content from. One of this,
+   * `fitAnalysisId`, or `selectedStarEntryIds` must reach the API or it rejects the
+   * request with `JOB_CONTEXT_REQUIRED` (cover-letter.service.ts `generateOutreach`).
+   */
+  coverLetterId?: string;
   fitAnalysisId?: string;
-  prefillContext?: {
+  /**
+   * Seed values for the editable Context fields. Read on mount only — these are the
+   * *initial* values of fields the user then owns, which is what the name says. If the
+   * caller needs a later change to take effect, it must remount the composer with a
+   * `key`; `OutreachNew` does exactly that. Do not add a resync effect: this repo's
+   * `react-hooks/set-state-in-effect` rule rejects it (WIC-1612).
+   */
+  initialContext?: {
     company: string;
     jobTitle: string;
     hiringManager?: string;
@@ -30,17 +42,20 @@ const PLATFORM_LIMITS = {
 };
 
 export function OutreachComposer({
-  platform: initialPlatform,
+  coverLetterId,
   fitAnalysisId,
-  prefillContext,
+  initialContext,
   onComplete,
 }: OutreachComposerProps) {
-  const [platform, setPlatform] = useState<OutreachPlatform>(initialPlatform);
+  // Platform is owned here outright, not copied from a prop. It drives `limits` below,
+  // and therefore the generation request, the character budget and whether a Subject
+  // field exists — so nothing outside this component may hold a competing copy.
+  const [platform, setPlatform] = useState<OutreachPlatform>('linkedin');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [company, setCompany] = useState(prefillContext?.company || '');
-  const [jobTitle, setJobTitle] = useState(prefillContext?.jobTitle || '');
-  const [contact, setContact] = useState(prefillContext?.hiringManager || '');
+  const [company, setCompany] = useState(initialContext?.company || '');
+  const [jobTitle, setJobTitle] = useState(initialContext?.jobTitle || '');
+  const [contact, setContact] = useState(initialContext?.hiringManager || '');
   const [useFitAnalysis, setUseFitAnalysis] = useState(!!fitAnalysisId);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -81,6 +96,7 @@ export function OutreachComposer({
         targetCompany: company,
         targetRole: jobTitle,
         targetName: contact,
+        coverLetterId,
         jobFitAnalysisId: useFitAnalysis ? fitAnalysisId : undefined,
       });
 
@@ -132,19 +148,10 @@ export function OutreachComposer({
           The sections below start at <h2> because the page <h1> is their parent.
         */}
 
-        {/* Platform Selection */}
-        <div>
-          {/*
-            "Platform" names the radio GROUP, not any one radio, so it is not a <label> —
-            a <label> must point at a single control. The group carries the name instead.
-          */}
-          <span
-            id="outreach-platform-label"
-            className="block text-sm font-medium text-gray-700 mb-2"
-          >
-            Platform
-          </span>
-          <div className="flex gap-3" role="radiogroup" aria-labelledby="outreach-platform-label">
+        {/* Platform Selection — the only platform picker on the route (WIC-1583) */}
+        <fieldset>
+          <legend className="block text-sm font-medium text-gray-700 mb-2">Platform</legend>
+          <div className="flex gap-3">
             {(['linkedin', 'email'] as OutreachPlatform[]).map((p) => (
               <label
                 key={p}
@@ -152,6 +159,8 @@ export function OutreachComposer({
               >
                 <input
                   type="radio"
+                  name="outreach-platform"
+                  value={p}
                   checked={platform === p}
                   onChange={() => setPlatform(p)}
                   className="w-4 h-4 text-blue-600"
@@ -160,7 +169,7 @@ export function OutreachComposer({
               </label>
             ))}
           </div>
-        </div>
+        </fieldset>
 
         {/* Context */}
         <div className="bg-gray-50 rounded-lg p-4 space-y-3">

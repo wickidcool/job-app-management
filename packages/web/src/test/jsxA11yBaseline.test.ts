@@ -12,26 +12,23 @@ import packageJsonRaw from '../../package.json?raw';
  * 26 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
  * CI on a new violation of any of them. 6 are `warn` (see `BASELINED_RULES` in
  * `eslint.config.js`) purely so that adopting the plugin did not require fixing 47
- * pre-existing defects in the same change, and 2 are deliberately `off` (see
- * `PROMOTED_RULES` for the measured cost of each).
+ * pre-existing defects in the same change (WIC-1483) — 20 of those 47 have since been
+ * retired (WIC-1589) — and 2 are deliberately `off` (see `PROMOTED_RULES` for the
+ * measured cost of each).
  *
- * The `error`/`warn` split moves as WIC-1589 lands slices: it was 24/8 at adoption, and
- * is 26/6 now that `label-has-associated-control` (19 findings) and `no-redundant-roles`
- * (1) have been fixed and returned to `error`. Both figures are asserted below against
- * the RESOLVED config rather than restated in prose. The first revision of this suite
- * hand-computed the `error` count as `34 - 8 = 26`, which was wrong for the right reason
- * to remember: `recommended` ships 3 of its 34 entries `off`, so the surface was 23, and
- * the wrong figure sat in four files at once with nothing able to contradict it. A count
- * that only exists in a comment is precisely the unenforced claim this card was filed
- * about — so do not read today's 26 as that arithmetic vindicated. It is measured.
+ * That 26 is asserted below against the RESOLVED config rather than restated in prose.
+ * The first revision of this suite hand-computed it as `34 - 8 = 26`, which was wrong for
+ * a different reason at the time: `recommended` ships 3 of its 34 entries `off`, so the
+ * surface was 23, and the wrong figure sat in four files at once with nothing able to
+ * contradict it. A count that only exists in a comment is precisely the unenforced claim
+ * this card was filed about.
  *
  * The config extends `flatConfigs.strict`, and NONE of those counts can tell you so —
- * `strict` and `recommended` resolve to the same 34 entries and the same histogram
+ * `strict` and `recommended` resolve to the same 34 entries and the same 26/6/2 histogram
  * once `PROMOTED_RULES` restores `anchor-ambiguous-text`, which `strict` drops entirely.
- * They also produced identical findings on this tree when measured (47, over the same
- * files, rules, lines and columns). The whole difference is in rule OPTIONS, so that is
- * what the last test asserts; without it, a silent revert to `recommended` passes every
- * assertion here.
+ * They also produce identical findings on this tree (27, over the same files, rules, lines
+ * and columns). The whole difference is in rule OPTIONS, so that is what the last test
+ * asserts; without it, a silent revert to `recommended` passes every assertion here.
  *
  * A downgrade-to-warn with no counter-pressure is how an allowlist becomes a permanent
  * tree-wide hole, so the baseline is pinned in BOTH directions and per file:
@@ -40,7 +37,7 @@ import packageJsonRaw from '../../package.json?raw';
  *   - a FIXED violation also fails, forcing the baseline down instead of letting it
  *     rot upward. `toEqual` on the whole map, not `toBeLessThanOrEqual` on a total;
  *   - it is keyed by file+rule, so fixing one file and breaking another — which leaves
- *     the total at 47 — is still a failure.
+ *     the total at 27 — is still a failure.
  *
  * The `--max-warnings` ceiling in `package.json` is cross-checked against the same
  * measurement, so the two numbers cannot silently disagree.
@@ -78,15 +75,10 @@ const webRoot = decodeURIComponent(import.meta.url.replace(/^file:\/\//, '')).re
 type RuleCounts = Record<string, number>;
 
 /**
- * 27 findings, 16 files, 6 distinct rules.
- *
- * Was 47 / 22 / 8 when measured on `main` @ `775c288`. WIC-1589 has since retired all 19
- * `label-has-associated-control` findings and the single `no-redundant-roles` one; both
- * rules are back at `error` and gone from `BASELINED_RULES`. The remaining 27 are the
- * interaction and `autofocus` findings, which need per-site judgement rather than a
- * mechanical edit.
- *
- * Owned by WIC-1589 — every entry here is a real defect, not an accepted exception.
+ * Measured on this tree after merging WIC-1589 (#292) into `main`. 27 findings, 17 files,
+ * 6 distinct rules — down from the 47/22/8 at WIC-1483 adoption, now that
+ * `label-has-associated-control` (19 -> 0) and `no-redundant-roles` (1 -> 0) are fully
+ * retired. Owned by WIC-1589 — every entry here is a real defect, not an accepted exception.
  */
 const A11Y_BASELINE: Record<string, RuleCounts> = {
   'src/components/ApplicationCard.tsx': {
@@ -232,16 +224,11 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // pin is how many were READ. And it said the mutation was otherwise fully green, which
     // stopped being true when 'states its enforcement surface exactly' was added below —
     // that test ties the `warn` set to the rules the baseline records, so a narrowed
-    // baseline reds it too (6 configured vs 3 surviving). Deleting this line leaves that
-    // one red; also trimming BASELINED_RULES to the 3 survivors moves the failure to the
-    // `error` count (29, not 26). Getting this mutation green now means editing the
+    // baseline reds it too (6 configured vs 3 surviving — `label-has-associated-control`
+    // was one of the four survivors before WIC-1589 retired it). Deleting this line leaves
+    // that one red; also trimming BASELINED_RULES to the 3 survivors moves the failure to
+    // the `error` count (29, not 26). Getting this mutation green now means editing the
     // assertions themselves, not just the baseline — which is the point of both guards.
-    //
-    // Those four figures are re-derived on every slice, not decremented. WIC-1589's first
-    // slice moved them from 8/4/28/24 to 6/3/29/26 — the survivor count fell because two
-    // whole rules left BASELINED_RULES, and the mutated `error` count ROSE. A note like
-    // this one is exactly the kind of prose that goes quietly false when the thing it
-    // describes moves, so it is measured each time or it does not get to stay.
     //
     // 151 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);
@@ -266,7 +253,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     expect(total).toBe(BASELINE_TOTAL);
 
     // `lint:fix` carries the same ceiling and, until now, nothing checked it. Lower `lint`
-    // to 40 and leave `lint:fix` at 47 and the two silently disagree — a hole in a guard
+    // to 20 and leave `lint:fix` at 27 and the two silently disagree — a hole in a guard
     // whose stated job is that they cannot. Both are pinned to the same measurement.
     const fixCeiling = /--max-warnings\s+(\d+)/.exec(pkg.scripts['lint:fix']);
     expect(
@@ -277,7 +264,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
 
     // The baselined 6 are `warn`, so `--max-warnings` is what pins them. Any jsx-a11y
     // finding at `error` severity would fail `npm run lint` outright — which is correct
-    // for the other 24 rules, but means the tree is currently red, so say so here.
+    // for the other 26 rules, but means the tree is currently red, so say so here.
     expect(errors).toBe(0);
   }, 60_000);
 
@@ -314,15 +301,15 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     expect(named(1)).toHaveLength(6);
 
     // Pinned BY NAME, not just counted. `label-has-for` is deprecated upstream and
-    // superseded by `label-has-associated-control`, which WIC-1589 has driven to 0 and
-    // returned to `error`; leaving `label-has-for` on would re-litigate the same 82
-    // findings in a withdrawn spelling, against a tree that has already answered them.
-    // `control-has-associated-label` is opt-in upstream and costs 3 — real work, still
-    // owned by WIC-1589 and not yet done. If a plugin upgrade turns a THIRD rule off,
-    // that is a silent loss of enforcement and this must fail.
+    // superseded by `label-has-associated-control`, now at `error` with 0 findings
+    // (WIC-1589); leaving `label-has-for` on would re-litigate the same 82 findings in a
+    // withdrawn spelling, now that the successor is clean.
+    // `control-has-associated-label` is opt-in upstream and costs 3 — real work, owned by
+    // WIC-1589, deliberately not smuggled into this change. If a plugin upgrade turns a
+    // THIRD rule off, that is a silent loss of enforcement and this must fail.
     expect(named(0)).toEqual(['jsx-a11y/control-has-associated-label', 'jsx-a11y/label-has-for']);
 
-    // The 8 at `warn` must be exactly the rules the baseline records findings for. This
+    // The 6 at `warn` must be exactly the rules the baseline records findings for. This
     // ties the config to the evidence: baselining a rule that has no recorded violations,
     // or recording violations for a rule that is not baselined, both fail here.
     const baselinedRules = [
@@ -340,8 +327,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // and they differ on 7 rules — but 6 of those differences are in rule OPTIONS, and the
     // 7th is that `anchor-ambiguous-text` is absent from `strict` altogether while
     // `recommended` ships it `off`. PROMOTED_RULES restores it, so BOTH configs resolve to
-    // 34 entries at 24/8/2, over the same 2 `off` names. They also produce byte-identical
-    // findings on this tree: 47, matching on file + rule + line + column + severity.
+    // 34 entries at 26/6/2, over the same 2 `off` names. They also produce byte-identical
+    // findings on this tree: 27, matching on file + rule + line + column + severity.
     //
     // So every count in the test above is satisfied by either ruleset, and a revert of the
     // `extends` entry would pass the whole suite while quietly restoring the hole below.
@@ -375,7 +362,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // And the behaviour, not just the config that is supposed to produce it. Under
     // `recommended` this snippet emits NOTHING; a new instance of it would land in the tree
     // with no warning and no diff to argue with. Under `strict` it is a finding, which —
-    // because `no-noninteractive-tabindex` is baselined at `warn` — makes it a 48th warning
+    // because `no-noninteractive-tabindex` is baselined at `warn` — makes it a 28th warning
     // and fails `npm run lint` against the `--max-warnings` ceiling.
     const [result] = await eslint.lintText(
       "const role = 'button';\nexport const Bad = () => <div role={role} tabIndex={0} />;\n",

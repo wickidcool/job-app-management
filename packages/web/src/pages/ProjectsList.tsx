@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Link, useNavigate } from 'react-router-dom';
+import { Announcer } from '../components/Announcer';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { EmptyState } from '../components/EmptyState';
 import { useProjects, useCreateProject } from '../hooks/useProjects';
+import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useDialogFocusRestore } from '../hooks/useDialogFocusRestore';
 
 export function ProjectsList() {
   const navigate = useNavigate();
@@ -11,18 +15,53 @@ export function ProjectsList() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
+  // The header "Create Project" button is the one trigger that survives the
+  // create-success re-render; the empty-state button below unmounts the moment
+  // the list stops being empty. It offers the same action, so it is where focus
+  // belongs when the dialog was opened from the empty state and succeeded.
+  const headerCreateRef = useRef<HTMLButtonElement | null>(null);
+  // The Project Name input carries `autoFocus`, so Radix never dispatches
+  // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
+  const focusRestore = useDialogFocusRestore({ fallbackRef: headerCreateRef });
+  // Focus restore and outcome announcement are two halves of the same
+  // requirement, and the fallback above is exactly what makes the second half
+  // load-bearing: on the create-success path focus lands on the *header*
+  // "Create Project" button, which is not the control the user activated. A
+  // screen-reader user would otherwise hear only "Create Project, button" —
+  // no confirmation that the project exists, and no account of why focus moved.
+  const { message: announcement, announce, clear: clearAnnouncement } = useAnnouncer();
+
+  // Emptying the region as the dialog opens keeps the previous outcome from
+  // lingering in the accessibility tree while the user works on the next one.
+  // Emptying is itself silent, so this announces nothing.
+  const handleOpenCreate = () => {
+    clearAnnouncement();
+    setShowCreateModal(true);
+  };
+
+  // Shared by the Cancel button, Escape, and outside-click, so every dismissal
+  // path clears the draft rather than only the button.
+  const handleCancelCreate = () => {
+    setShowCreateModal(false);
+    setNewProjectName('');
+    setNewProjectDescription('');
+  };
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
 
+    // Captured before the reset below clears it.
+    const createdName = newProjectName.trim();
+
     try {
       await createProject.mutateAsync({
-        name: newProjectName.trim(),
+        name: createdName,
         description: newProjectDescription.trim() || undefined,
       });
       setShowCreateModal(false);
       setNewProjectName('');
       setNewProjectDescription('');
+      announce(`Project ${createdName} created.`);
     } catch (error) {
       console.error('Failed to create project:', error);
       alert('Failed to create project. Please try again.');
@@ -47,6 +86,15 @@ export function ProjectsList() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      {/*
+        Portalled to <body>, so its position in this tree is presentational only.
+        Mounted here rather than in the `isLoading` branch above deliberately: the
+        only announcement this page makes follows a create, which cannot happen
+        before the list has loaded, so the region is always in the accessibility
+        tree well ahead of its first update.
+      */}
+      <Announcer message={announcement} />
+
       <Breadcrumb
         trail={[
           { label: 'Dashboard', href: '/' },
@@ -69,7 +117,8 @@ export function ProjectsList() {
             💬 Add New Project (Guided)
           </button>
           <button
-            onClick={() => setShowCreateModal(true)}
+            ref={headerCreateRef}
+            onClick={handleOpenCreate}
             className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
             Create Project
@@ -80,7 +129,7 @@ export function ProjectsList() {
       {projects.length === 0 ? (
         <EmptyState
           variant="no-documents"
-          onAction={() => setShowCreateModal(true)}
+          onAction={handleOpenCreate}
           actionLabel="Create Your First Project"
         />
       ) : (
@@ -93,7 +142,7 @@ export function ProjectsList() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-neutral-900">{project.name}</h3>
+                  <h2 className="text-lg font-semibold text-neutral-900">{project.name}</h2>
                   {project.description && (
                     <p className="mt-1 text-sm text-neutral-500">{project.description}</p>
                   )}
@@ -125,10 +174,21 @@ export function ProjectsList() {
         </div>
       )}
 
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h2 className="mb-4 text-lg font-semibold text-neutral-900">Create New Project</h2>
+      <Dialog.Root
+        open={showCreateModal}
+        onOpenChange={(next) => {
+          if (!next) handleCancelCreate();
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <Dialog.Content
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl"
+            {...focusRestore}
+          >
+            <Dialog.Title className="mb-4 text-lg font-semibold text-neutral-900">
+              Create New Project
+            </Dialog.Title>
             <div className="space-y-4">
               <div>
                 <label
@@ -165,17 +225,16 @@ export function ProjectsList() {
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
               <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setNewProjectName('');
-                  setNewProjectDescription('');
-                }}
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                Cancel
-              </button>
-              <button
+                type="button"
                 onClick={handleCreateProject}
                 disabled={!newProjectName.trim() || createProject.isPending}
                 className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
@@ -183,9 +242,9 @@ export function ProjectsList() {
                 {createProject.isPending ? 'Creating...' : 'Create'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
