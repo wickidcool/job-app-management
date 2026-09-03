@@ -49,7 +49,9 @@ export function ResumeVariantCard({ variant, onCardClick, onDelete }: ResumeVari
       <div className="flex flex-col gap-2">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900 truncate">{variant.title}</h3>
+            {/* h2: the card list is a direct child of the /resume-variants page h1, and this
+                component has exactly one call site (WIC-1675 AC-2). */}
+            <h2 className="text-lg font-semibold text-gray-900 truncate">{variant.title}</h2>
             <p className="text-sm text-gray-600">
               {variant.targetRole} at {variant.targetCompany}
             </p>

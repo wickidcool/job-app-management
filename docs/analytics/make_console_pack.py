@@ -16,13 +16,33 @@ queries, which carry no SQL -- those two keep their pasteable form under `_hogql
 single source of truth for all three routes. `resolve_hogql()` prefers the inline form and falls
 back to the variant; anything with neither aborts the run before a byte is written.
 """
+import argparse
+import copy
 import json
 import os
+import sys
+import textwrap
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Route 1 (build_dashboards.py) already owns the synthetic-exclusion rewriter -- the
+# predicate derivation (`synthetic_predicate`) and the scope-aware HogQL/native
+# injectors (`apply_exclusion`). Route 2 reuses that exact code rather than carrying a
+# second copy, so a rewriter fix is found and applied once, not twice (WIC-1664/WIC-1845).
+# The path shim lets this run from any cwd.
+sys.path.insert(0, HERE)
+import build_dashboards as bd  # noqa: E402  (path shim above must run first)
+
 PROJECT = "551963"
 HOST = "https://us.posthog.com"
+
+# Second input, alongside insight-payloads.json. WIC-1389/WIC-1392 added a mandatory
+# synthetic-exclusion step to the runbook by hand, which broke the "regenerating the pack
+# reproduces the committed files" invariant #109 exists to hold -- the next regeneration
+# would have silently deleted the safety section. Everything those commits added now lives
+# here, and every probe fact in it is derived from the registry rather than transcribed.
+REGISTRY = "probe-registry.json"
 
 DASHBOARDS = [
     ("Dashboard A — Upload Health",
@@ -90,12 +110,209 @@ def resolve_all(payloads):
     return [(p, desc, query) for p, (desc, query) in resolved]
 
 
-def main():
-    all_payloads = json.load(open(os.path.join(HERE, "insight-payloads.json")))
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Generate the zero-scope console build pack from insight-payloads.json.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Default (no flags) regenerates the committed pack, which is deliberately\n"
+            "UNFILTERED -- the committed dashboard-templates.json proves it was built\n"
+            "against probe data, and default output stays byte-identical (the WIC-1302\n"
+            "gate). Pass --exclude-synthetic --out-dir DIR on build day to get a copy\n"
+            "with the probe-registry predicate already applied to every tile."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-synthetic",
+        action="store_true",
+        help="apply build_dashboards.py's probe-registry exclusion predicate to every "
+             "tile (WIC-1664); requires --out-dir outside docs/analytics/",
+    )
+    parser.add_argument(
+        "--out-dir",
+        metavar="DIR",
+        help="write the pack here instead of next to this script; required with "
+             "--exclude-synthetic",
+    )
+    args = parser.parse_args(argv)
+
+    out_dir = os.path.abspath(args.out_dir) if args.out_dir else HERE
+    # Refuse HERE *and any subdirectory of it* -- `docs/analytics/subdir` is still "inside
+    # docs/analytics/", the tree the runbook promises a filtered pack can never land in.
+    if args.exclude_synthetic and (out_dir == HERE or out_dir.startswith(HERE + os.sep)):
+        parser.error(
+            "--exclude-synthetic needs --out-dir pointing outside "
+            f"{HERE} (subdirectories of it are refused too).\nA filtered pack embeds the "
+            "registry as it stands today, so "
+            "committing it would ship a snapshot that goes stale the next time a probe "
+            "fires -- the WIC-1389/WIC-1392 transcription bug, one layer down. Generate "
+            "it outside the repo, use it, throw it away."
+        )
+    args.out_dir = out_dir
+    return args
+
+
+def synthetic_count(reg):
+    """How many events the registry itemises -- i.e. the synthetic total.
+
+    This, not `lifetime_event_count_at_verification`, is the number every "synthetic"
+    slot in the prose means. The two are equal only while `organic` is 0.
+    """
+    return sum(len(p["event_uuids"]) for p in reg["probes"])
+
+
+def load_registry():
+    """Load probe-registry.json and check it still accounts for every lifetime event.
+
+    The runbook's day-one section tells a human that excluding the registry leaves only
+    organic traffic. That claim is only true while the registry covers every event that
+    is not organic, so it is asserted here rather than assumed: if a probe is added
+    without its `event_uuids`, or `lifetime_event_count_at_verification` is bumped
+    without either a matching probe entry or a matching `organic_...` bump, the generator
+    refuses instead of shipping a false promise.
+
+    Note what is deliberately *not* fatal: organic traffic arriving. That is the day this
+    project exists to see, and it must not turn the build red -- it changes what the prose
+    should say, not whether it can be generated. See `day_one_paragraph()`.
+    """
+    path = os.path.join(HERE, REGISTRY)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"refusing to generate: {REGISTRY} not found at {path}.\n"
+            "The runbook's mandatory synthetic-exclusion section is derived from it; "
+            "generating without it would silently ship a pack that tells a human to "
+            "exclude a list that does not exist."
+        )
+    lifetime = reg["lifetime_event_count_at_verification"]
+    organic = reg["organic_event_count_at_verification"]
+    accounted = synthetic_count(reg)
+    if accounted + organic != lifetime:
+        raise SystemExit(
+            f"refusing to generate: {REGISTRY} does not account for the project.\n"
+            f"  lifetime_event_count_at_verification = {lifetime}\n"
+            f"  organic_event_count_at_verification  = {organic}\n"
+            f"  event_uuids across {len(reg['probes'])} probes = {accounted}\n"
+            "Re-run `python3 docs/analytics/organic_watch.py --audit` and reconcile the "
+            "registry before regenerating the pack."
+        )
+    return reg
+
+
+def probe_breakdown(reg):
+    """`WIC-889 x1, WIC-996 x3, ...` -- the registry's composition, not a transcription."""
+    parts = []
+    for p in reg["probes"]:
+        label = p["ticket"] or f"unticketed {p['when'][:10]} probe"
+        parts.append(f"{label} ×{len(p['event_uuids'])}")
+    return ", ".join(parts)
+
+
+TERMINAL_EVENTS = ("resume_upload_completed", "resume_upload_failed")
+
+
+def synthetic_event_counts(reg):
+    """{event_name: n} across every probe, or None when names cannot be attributed.
+
+    `events` and `event_uuids` are separate lists with no declared correspondence, so a
+    probe that fired one event name twice would carry one name and two uuids and counting
+    names would undercount it. Only claim a per-name count when every probe's two lists
+    line up 1:1; otherwise say nothing numeric.
+    """
+    counts = {}
+    for p in reg["probes"]:
+        if len(p["events"]) != len(p["event_uuids"]):
+            return None
+        for name in p["events"]:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def funnel_clause(reg, synthetic, organic):
+    """Closing sentence of funnel correction 2.
+
+    Both the count *and* the nouns here are data: the sentence used to hardcode "both
+    terminal events and both `submitted`" next to an interpolated lifetime total, which
+    made it wrong on two axes at once as soon as organic traffic landed. Derive both, and
+    scope the claim to the synthetic set rather than to the project.
+    """
+    counts = synthetic_event_counts(reg)
+    if counts is None:
+        legs = "all the terminal events and `submitted` legs the registry itemises"
+    else:
+        n_sub = counts.get("resume_upload_submitted", 0)
+        n_term = sum(counts.get(e, 0) for e in TERMINAL_EVENTS)
+        legs = f"{n_term} terminal events and {n_sub} `resume_upload_submitted` events"
+    if organic:
+        return (f"So {legs} are probes rather than users, mixed in with {organic} organic "
+                "events. Any funnel conversion you compute without excluding them is "
+                "contaminated. Exclude first, then read.")
+    return (f"So of the {synthetic} lifetime events, {legs} are probes. Any funnel "
+            "conversion you compute today is an artefact. Exclude first, then read.")
+
+
+def day_one_paragraph(reg, lifetime, synthetic, organic):
+    """The "what will these show" lead, which asserts a *state of the world*, not a count.
+
+    The bug this branch exists to prevent: substituting `lifetime` into slots that mean
+    "synthetic" reads correctly only while `organic == 0`. With 40 lifetime / 6 synthetic
+    it emitted "40 lifetime events, all synthetic", "Zero organic traffic has ever reached
+    it", "All 40 are itemised" and "every tile reads 0" -- six false statements next to a
+    breakdown that visibly sums to 6, on the one day anybody reads this page.
+    """
+    if organic:
+        return (f"**Real numbers now — but only once you exclude the probes.** PostHog "
+                f"project `{PROJECT}` holds **{lifetime} lifetime events, {synthetic} of "
+                f"them synthetic** ({probe_breakdown(reg)}) and **{organic} organic** — "
+                f"last verified {reg['last_verified']} by {reg['last_verified_by']}. Only "
+                f"the {synthetic} synthetic ones are itemised in "
+                f"`docs/analytics/{REGISTRY}`; apply the exclusion above and every tile "
+                "reads organic traffic only. Skip it and every tile reads those "
+                f"{synthetic} probes as product usage — that is true of Routes 2 and 3; "
+                "Route 1 excludes them for you automatically (WIC-1667).")
+    return (f"**Mostly zeros, and that is correct.** PostHog project `{PROJECT}` holds "
+            f"**{synthetic} lifetime events, all synthetic** ({probe_breakdown(reg)}). "
+            f"Zero organic traffic has ever reached it — last verified "
+            f"{reg['last_verified']} by {reg['last_verified_by']}. All {synthetic} are "
+            f"itemised in `docs/analytics/{REGISTRY}`; apply the exclusion above and "
+            "every tile reads **0**, which is the honest day-one picture. The counts "
+            "described in the next paragraph are what you see _without_ the exclusion, "
+            "i.e. probe residue — so they are what Routes 2 and 3 show until you paste "
+            "the predicate in, and what Route 1 never shows at all.")
+
+
+def main(argv=None):
+    args = parse_args(argv)
+
+    with open(os.path.join(HERE, "insight-payloads.json"), encoding="utf-8") as fh:
+        all_payloads = json.load(fh)
     # Mirrors build_dashboards.py: `_enabled: false` entries are authored and validated
     # but deliberately not built yet, so all three routes agree on which tiles exist.
     payloads = [p for p in all_payloads if p.get("_enabled", True)]
     resolved = resolve_all(payloads)
+    reg = load_registry()
+    lifetime = reg["lifetime_event_count_at_verification"]
+    organic = reg["organic_event_count_at_verification"]
+    # Never interpolate `lifetime` into a slot that means "synthetic": load_registry()
+    # guarantees synthetic + organic == lifetime, so the two are the same number only
+    # until the first real user arrives.
+    synthetic = synthetic_count(reg)
+
+    if args.exclude_synthetic:
+        # Fatal on any registry problem (synthetic_predicate exits non-zero): a pack that
+        # quietly fell back to the raw queries would look exactly like a filtered one and
+        # count probes as product usage. Filter the *resolved* node -- the one Routes 2/3
+        # actually paste -- so A1/C1 get their `_hogql_variant` filtered, not the native
+        # FunnelsQuery/RetentionQuery that no console route imports.
+        predicate, _src, _counts = bd.synthetic_predicate()
+        filtered = []
+        for p, desc, query in resolved:
+            query = copy.deepcopy(query)
+            bd.apply_exclusion({"_key": p["_key"], "query": query}, predicate)
+            filtered.append((p, desc, query))
+        resolved = filtered
 
     templates = []
     for name, description in DASHBOARDS:
@@ -142,7 +359,7 @@ def main():
     w("per route for exactly these two. The other **15 tiles are byte-identical across all three**.")
     w("")
     w("(The native `A3n` variant is `_enabled: false` — gated on `resume_upload_started` ever")
-    w("firing — so *no* route builds it today. A3 is the HogQL form everywhere.)")
+    w("firing — so _no_ route builds it today. A3 is the HogQL form everywhere.)")
     w("")
     w("---")
     w("")
@@ -158,9 +375,19 @@ def main():
     w("| `dashboard:read` | read back the 3 dashboards |")
     w("| `dashboard:write` | create the 3 dashboards and attach tiles |")
     w("")
-    w("Then comment on WIC-1024. Acceptance check is one line — "
-      "`python3 docs/analytics/build_dashboards.py --dry-run` prints")
-    w("`OK  scopes present (read+write)` instead of exiting `2`. The build itself is an idempotent loop.")
+    w("Then comment on WIC-1024. Acceptance check is one line, and it writes nothing "
+      "and runs no queries:")
+    w("")
+    w("```")
+    w("python3 docs/analytics/build_dashboards.py --check-scopes")
+    w("```")
+    w("")
+    w("Exit `0` and `OK  scopes present (read+write)` means the grant landed. Exit `2` names the")
+    w("scopes still missing. The build itself is a separate, idempotent run (no flag).")
+    w("")
+    w("> Do **not** use `--dry-run` as the acceptance check. It passes `need_write=False`, so it")
+    w("> never probes `insights/` or `dashboards/`: it prints `OK  scopes present (read)` and exits")
+    w("> `0` whether or not the grant landed, and so cannot verify one (WIC-1547).")
     w("")
     w("**Route 1 applies the synthetic exclusion for you** (WIC-1667). The builder derives the")
     w("predicate from `probe-registry.json` on every run and injects it into all "
@@ -185,12 +412,25 @@ def main():
     w("3. Paste the **first array element** of `dashboard-templates.json` (Dashboard A). Create.")
     w("4. Repeat for elements 2 (Dashboard B) and 3 (Dashboard C).")
     w("")
-    w("> **Route 2 carries NO synthetic exclusion, and that is deliberate.** The committed JSON is")
-    w("> unfiltered on purpose: baking today's registry into an artifact a human imports would ship a")
-    w("> snapshot that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription")
-    w("> bug one layer down, in the file that is hardest to notice. So an imported dashboard counts")
-    w("> probe residue as product usage until you apply the exclusion by hand, exactly as Route 3")
-    w("> does. See **Before you paste anything** below; it applies to Routes 2 and 3 alike.")
+    w("> **The committed `dashboard-templates.json` carries NO synthetic exclusion, and that is")
+    w("> deliberate.** Baking today's registry into an artifact a human imports would ship a snapshot")
+    w("> that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription bug one")
+    w("> layer down, in the file that is hardest to notice — and it would stop the committed pack from")
+    w("> proving it was built against probe data. So the committed file counts probe residue as product")
+    w("> usage until you filter it.")
+    w(">")
+    w("> **On build day, regenerate a filtered pack instead of importing the committed one** (WIC-1664):")
+    w(">")
+    w("> ```bash")
+    w("> python3 docs/analytics/make_console_pack.py --exclude-synthetic --out-dir /tmp/console-pack")
+    w("> ```")
+    w(">")
+    w("> Import the three dashboards from `/tmp/console-pack/dashboard-templates.json`, whose every tile")
+    w("> already carries the `NOT (...)` predicate derived from `probe-registry.json` at generation")
+    w("> time — the same rewriter Route 1 uses (`build_dashboards.py`), so there is nothing to")
+    w("> hand-transcribe. The command **refuses to write into `docs/analytics/`**, so a filtered pack")
+    w("> can never be committed. See **Before you paste anything** below; it applies to Routes 2 and 3")
+    w("> alike.")
     w("")
     w("> **Caveat, stated honestly:** I cannot exercise the console to confirm the exact wording or")
     w("> presence of the JSON-import affordance on your PostHog version — my key is 403 on every")
@@ -233,7 +473,7 @@ def main():
     w("want**, because by definition you are building because organic traffic arrived, and the probes")
     w("are still in there permanently._")
     w("")
-    w("Every known synthetic actor is recorded in `docs/analytics/probe-registry.json`. Print the")
+    w(f"Every known synthetic actor is recorded in `docs/analytics/{REGISTRY}`. Print the")
     w("current exclusion predicate with:")
     w("")
     w("```bash")
@@ -247,7 +487,7 @@ def main():
     w("```")
     w("")
     w("Watch the two queries whose only `FROM events` sits inside a subquery (**C1**'s pasteable")
-    w("form and **C3**): the line belongs on the *inner* `WHERE`, next to the `FROM events` it")
+    w("form and **C3**): the line belongs on the _inner_ `WHERE`, next to the `FROM events` it")
     w("filters, not on the outer query — which in both cases has no `WHERE` of its own.")
     w("")
     w("Do not hand-transcribe the actor ids — regenerate them, so the registry stays the single source")
@@ -262,16 +502,24 @@ def main():
     w("   rate derived from it). `track()` delivers over `fetch()`, and a `fetch` is a subrequest — so")
     w("   during a subrequest-exhaustion outage (WIC-1386) the failure capture is itself dropped")
     w("   (WIC-1387). A failure panel therefore reads **0 during a total outage**, which is")
-    w("   indistinguishable from perfect health, and it is *most* wrong exactly when you need it most.")
+    w("   indistinguishable from perfect health, and it is _most_ wrong exactly when you need it most.")
     w("   Derive failures from `resume_upload_submitted` with **no matching terminal event** in the")
     w("   session, and treat A9 as a breakdown of the failures you already know about, not a count.")
     w("")
-    w("2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**")
-    w("   WIC-996 emitted all three upload legs 0.3 s apart including `completed` *and* `failed` for one")
+    if organic:
+        w("2. **The synthetic funnel legs are still in there, and they are not a well-formed funnel.**")
+    else:
+        w("2. **The lifetime funnel is entirely synthetic, and it is not even a well-formed funnel.**")
+    w("   WIC-996 emitted all three upload legs 0.3 s apart including `completed` _and_ `failed` for one")
     w("   session — impossible for a real upload. The separate WIC-967 end-to-end probe left a dangling")
-    w("   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above). So of")
-    w("   the 6 lifetime events, both terminal events and both `submitted` are probes. Any funnel")
-    w("   conversion you compute today is an artefact. Exclude first, then read.")
+    w("   `submitted` with no terminal leg (its `failed` was the one dropped by WIC-1387 above).")
+    # Registry-derived, so its length moves with the data: wrapped rather than hand-broken.
+    for line in textwrap.wrap(
+        funnel_clause(reg, synthetic, organic),
+        width=98, initial_indent="   ", subsequent_indent="   ",
+        break_long_words=False, break_on_hyphens=False,
+    ):
+        w(line)
     w("")
     w("---")
     w("")
@@ -280,7 +528,7 @@ def main():
     for p, desc, query in resolved:
         w(f"### {p['name']}")
         w("")
-        w(f"*{p['_dashboard']} · {desc}*")
+        w(f"_{p['_dashboard']} · {desc}_")
         w("")
         w("```sql")
         w(query["source"]["query"].strip())
@@ -291,24 +539,35 @@ def main():
     w("")
     w("## What these dashboards will show on day one")
     w("")
-    w("**Mostly zeros, and that is correct.** PostHog project "
-      f"`{PROJECT}` holds **6 lifetime events, all")
-    w("synthetic** (3 from the WIC-996 server smoke test, 2 QA probes, and — since 2026-08-26 — 1 from the")
-    w("WIC-967 end-to-end probe). Zero organic traffic has ever reached it. All 6 are itemised in")
-    w("`docs/analytics/probe-registry.json`; apply the exclusion and every tile reads **0**, which is")
-    w("the honest day-one picture. The counts described in the next paragraph are what you see *without*")
-    w("the exclusion, i.e. probe residue — so they are what Routes 2 and 3 show until you paste the")
-    w("predicate in, and what Route 1 never shows at all.")
+    # Wrapped here rather than as fixed `w()` lines: the breakdown is registry-derived, so its
+    # length changes with the data and hand-placed line breaks would drift past printWidth.
+    for line in textwrap.wrap(
+        day_one_paragraph(reg, lifetime, synthetic, organic),
+        width=98, break_long_words=False, break_on_hyphens=False,
+    ):
+        w(line)
     w("")
-    w("Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the")
-    w("app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the")
-    w("client transport is broken — WIC-1012 proved the client capture leg round-trips.")
-    w("")
-    w("So on build day: **A1, A4-A9, B5, C2, C3 render real (synthetic) numbers; A2, A3, B1-B4, C1**")
-    w("**render empty.** Empty is the honest state, not a build defect. Do not treat it as a regression,")
-    w("and do not re-file the missing `$pageview` — there is no autocapture by design (hand-rolled")
-    w("`/capture` wrapper, and `dashboard-spec.md` has zero pageview/UTM/referrer dependencies).")
-    w("")
+    # The tile-by-tile prediction below is a measurement of a zero-organic project, not a
+    # property of the dashboards. It stops being true the moment a real session lands, so it
+    # is withdrawn rather than restated once the registry records organic traffic.
+    if organic:
+        w("**The per-tile prediction that used to sit here has been withdrawn.** It enumerated which")
+        w("panels render empty, and it was only ever a measurement of a project holding nothing but")
+        w("probes. Organic traffic has since arrived, so re-measure rather than trusting a forecast")
+        w("written before there were any users. What still holds: there is no autocapture by design")
+        w("(hand-rolled `/capture` wrapper), so a missing `$pageview` is not a defect and should not be")
+        w("re-filed — `dashboard-spec.md` has zero pageview/UTM/referrer dependencies.")
+        w("")
+    else:
+        w("Only 3 of the 9 taxonomy events have ever fired; the 6 client-side ones never have, because the")
+        w("app has been unreachable (WIC-1004 SPA deep-link 404, WIC-1011 plaintext HTTP), not because the")
+        w("client transport is broken — WIC-1012 proved the client capture leg round-trips.")
+        w("")
+        w("So on build day: **A1, A4-A9, B5, C2, C3 render real (synthetic) numbers; A2, A3, B1-B4, C1**")
+        w("**render empty.** Empty is the honest state, not a build defect. Do not treat it as a regression,")
+        w("and do not re-file the missing `$pageview` — there is no autocapture by design (hand-rolled")
+        w("`/capture` wrapper, and `dashboard-spec.md` has zero pageview/UTM/referrer dependencies).")
+        w("")
     w("Re-check **C1-C3** once real multi-session traffic exists — they key on `person_id` and the")
     w("identity graph (WIC-822 server attribution + WIC-825 client `identify()` alias) is correct in")
     w("principle but unproven against organic users.")
@@ -334,13 +593,14 @@ def main():
 
     # Both artifacts are fully built before either is written, so a failure above can
     # never leave a half-regenerated pack on disk.
-    out_json = os.path.join(HERE, "dashboard-templates.json")
-    with open(out_json, "w") as fh:
+    os.makedirs(args.out_dir, exist_ok=True)
+    out_json = os.path.join(args.out_dir, "dashboard-templates.json")
+    with open(out_json, "w", encoding="utf-8") as fh:
         json.dump(templates, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
 
-    out_md = os.path.join(HERE, "console-build-runbook.md")
-    with open(out_md, "w") as fh:
+    out_md = os.path.join(args.out_dir, "console-build-runbook.md")
+    with open(out_md, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
 
     for name, _ in DASHBOARDS:
@@ -348,6 +608,13 @@ def main():
         print(f"  {name}: {n} tiles")
     print(f"wrote {out_json}")
     print(f"wrote {out_md}")
+    if args.exclude_synthetic:
+        # No Prettier note: a filtered pack is a throwaway for one console session, not a
+        # committed file, so there is nothing for a format check to diff.
+        print("\nSynthetic traffic is already excluded in both files above. This pack is a "
+              "throwaway\nfor one console session — do not commit it; it embeds the registry "
+              "as of today.")
+        return
     # Both artifacts are Prettier-formatted in the repo, and this script does not emit
     # Prettier's exact style (short-array collapsing, md table padding). Without this the
     # regenerated pack diffs cosmetically against the committed one and CI format-checks fail.

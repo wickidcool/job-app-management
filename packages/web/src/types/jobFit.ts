@@ -29,6 +29,20 @@ export type GapSeverity = 'critical' | 'moderate' | 'minor';
 export interface AnalyzeJobFitRequest {
   jobDescriptionText?: string; // 50-50,000 characters
   jobDescriptionUrl?: string; // Valid URL
+  /**
+   * The application this analysis is about.
+   *
+   * Optional, because analysing a bare job description with no application in
+   * hand is a supported flow — `/job-fit-analysis` with no `appId` reaches
+   * exactly that. An analysis stored without one can never tick any
+   * application's checklist, which is why the browser's `appId` has to survive
+   * the API boundary rather than being dropped at it (WIC-1652).
+   *
+   * Not part of the `jobDescriptionText` xor `jobDescriptionUrl` rule the
+   * service enforces below: which application this is about is orthogonal to
+   * which form the job description arrived in.
+   */
+  applicationId?: string;
 }
 
 /**
@@ -81,7 +95,21 @@ export interface RecommendedStarEntry {
  * Complete job fit analysis response
  */
 export interface AnalyzeJobFitResponse {
+  /** The id of the persisted analysis (WIC-1652). */
+  id: string;
+  /** The application this analysis is about, or `null` for a scratch analysis. */
+  applicationId: string | null;
   recommendation: Recommendation;
+  /**
+   * Weighted required-skill match, 0-100.
+   *
+   * `null` **exactly when** {@link recommendation} is `null` — the catalog was
+   * empty, or the job description named no required skills. That is the
+   * *unscored* result, not the absence of an analysis, and `0` is a real score
+   * distinct from both. Anything rendering this must test `!= null`, not
+   * truthiness.
+   */
+  fitScore: number | null;
   summary: string;
   confidence: Confidence;
 
@@ -94,6 +122,42 @@ export interface AnalyzeJobFitResponse {
 
   catalogEmpty: boolean;
   analysisTimestamp: string; // ISO 8601
+}
+
+/**
+ * A stored analysis as returned by `GET /catalog/job-fit/analyses`.
+ *
+ * Deliberately a summary and not the whole analysis: the caller this exists for
+ * is `ApplicationDetail`'s workflow checklist, which needs to know *whether* an
+ * analysis exists and *what it scored*, and would otherwise pull four JSONB
+ * payloads per application to render a tick and a percentage (WIC-1652).
+ */
+export interface JobFitAnalysisSummary {
+  id: string;
+  /**
+   * `null` for an analysis run from `/job-fit-analysis` with no `appId`. Such
+   * an analysis carries no application and can never tick a checklist, which is
+   * why {@link ListJobFitAnalysesParams.applicationId} is required of a caller
+   * that means "this application" — an unfiltered list is not a substitute.
+   */
+  applicationId: string | null;
+  recommendation: Recommendation;
+  /** See {@link AnalyzeJobFitResponse.fitScore} — `null` is unscored, not zero. */
+  fitScore: number | null;
+  summary: string;
+  confidence: Confidence;
+  catalogEmpty: boolean;
+  analyzedAt: string; // ISO 8601
+}
+
+export interface ListJobFitAnalysesParams {
+  applicationId?: string;
+  limit?: number; // 1-100
+}
+
+export interface ListJobFitAnalysesResponse {
+  /** Newest first. */
+  analyses: JobFitAnalysisSummary[];
 }
 
 /**

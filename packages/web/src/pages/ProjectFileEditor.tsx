@@ -5,11 +5,18 @@ import remarkGfm from 'remark-gfm';
 import remarkFrontmatter from 'remark-frontmatter';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useProjectFile, useUpdateProjectFile } from '../hooks/useProjects';
+import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 export function ProjectFileEditor() {
   const { projectId, fileName } = useParams<{ projectId: string; fileName: string }>();
   const { data: content, isLoading } = useProjectFile(projectId!, fileName!);
   const updateFile = useUpdateProjectFile();
+
+  // Mirrors the page <h1> (`fileName`). Taken from the URL param, so unlike the other
+  // dynamic routes it is known before any fetch resolves; the fallback only covers a
+  // paramless render.
+  useDocumentTitle(fileName || DYNAMIC_TITLE_FALLBACKS.projectFile);
 
   const [editMode, setEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState('');
@@ -115,10 +122,14 @@ export function ProjectFileEditor() {
       <div className={`grid gap-4 ${editMode && showPreview ? 'md:grid-cols-2' : ''}`}>
         {editMode ? (
           <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-700">
+            <label
+              htmlFor="project-file-markdown"
+              className="mb-2 block text-sm font-medium text-neutral-700"
+            >
               Markdown Content
             </label>
             <textarea
+              id="project-file-markdown"
               value={editedContent}
               onChange={(e) => setEditedContent(e.target.value)}
               className="h-[600px] w-full rounded-lg border border-neutral-300 p-4 font-mono text-sm focus:border-primary-500 focus:ring-primary-500"
@@ -151,8 +162,22 @@ export function ProjectFileEditor() {
 
         {editMode && showPreview && (
           <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-700">Preview</label>
-            <div className="h-[600px] overflow-auto rounded-lg border border-neutral-200 bg-white p-6">
+            {/*
+              Not a <label>: it captions the rendered-markdown pane, which is not a form
+              control at all. A <label> here promises an association that cannot exist and
+              makes the caption an orphan in the form's accessibility tree.
+            */}
+            <span
+              id="project-file-preview-label"
+              className="mb-2 block text-sm font-medium text-neutral-700"
+            >
+              Preview
+            </span>
+            <div
+              className="h-[600px] overflow-auto rounded-lg border border-neutral-200 bg-white p-6"
+              role="region"
+              aria-labelledby="project-file-preview-label"
+            >
               <div className="prose prose-sm max-w-none">
                 <Markdown remarkPlugins={[remarkFrontmatter, remarkGfm]}>{editedContent}</Markdown>
               </div>

@@ -6,11 +6,12 @@ import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
-import { useApplications, useUpdateApplicationStatus } from '../hooks/useApplications';
+import { useApplicationCollection, useUpdateApplicationStatus } from '../hooks/useApplications';
 import { useDebounce } from '../hooks/useDebounce';
 import { filterByDateRange } from '../utils/dateRangeFilter';
 import { parseStatusParam } from '../constants/applicationStatus';
 import type { Application, ApplicationStatus } from '../types/application';
+import { DEFAULT_STALE_THRESHOLD_DAYS, isStale } from '../constants/stale';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
 
@@ -32,8 +33,10 @@ function calculatePipelineStats(applications: Application[]) {
       else if (daysUntilDue <= 3) dueSoon++;
     }
 
-    const daysSinceUpdate = differenceInDays(today, new Date(app.updatedAt));
-    if (daysSinceUpdate >= 14) stale++;
+    // WIC-1479: this counted every *active* status at 14 days, so `saved` and
+    // `interview` rows landed in a tile whose neighbours all lead to the same
+    // follow-up workflow the report drives. One definition, one count.
+    if (isStale(app)) stale++;
   }
 
   return { active: activeApps.length, overdue, dueToday, dueSoon, stale };
@@ -84,7 +87,14 @@ export function ApplicationsList() {
     [filters.status, debouncedSearch]
   );
 
-  const { data: rawApplications = [], isLoading } = useApplications(apiFilters);
+  const { data: collection, isLoading } = useApplicationCollection(apiFilters);
+  // Memoised so the `?? []` fallback does not hand a fresh array to the
+  // downstream useMemo deps on every render.
+  const rawApplications = useMemo(() => collection?.applications ?? [], [collection]);
+  // The service pages `GET /api/applications` to exhaustion; `truncated` is only
+  // set if it ran out of page budget first. Say so rather than presenting a
+  // prefix of the account as if it were the whole thing.
+  const isPartialView = collection?.truncated ?? false;
   const updateStatusMutation = useUpdateApplicationStatus();
 
   // Client-side filtering for multiple companies, activeOnly and the date range — none
@@ -148,6 +158,16 @@ export function ApplicationsList() {
         <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
       </div>
 
+      {isPartialView && (
+        <div
+          role="status"
+          className="mb-6 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm text-warning-800"
+        >
+          Showing the first {rawApplications.length} of {collection?.totalCount} applications. The
+          counts below cover only what is shown — narrow the filters to see the rest.
+        </div>
+      )}
+
       {/* Pipeline Stats Summary */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
         <div className="rounded-lg border border-neutral-200 bg-white p-3">
@@ -168,7 +188,9 @@ export function ApplicationsList() {
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-3">
           <div className="text-2xl font-bold text-neutral-600">{pipelineStats.stale}</div>
-          <div className="text-sm text-neutral-600">Stale (14+ days)</div>
+          <div className="text-sm text-neutral-600">
+            Stale ({DEFAULT_STALE_THRESHOLD_DAYS}+ days)
+          </div>
         </div>
       </div>
 

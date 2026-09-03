@@ -1,6 +1,7 @@
 import { formatDistanceToNow, differenceInDays, parseISO, startOfDay } from 'date-fns';
 import type { Application, ApplicationStatus } from '../types/application';
 import { useState, useMemo } from 'react';
+import { isStale as isApplicationStale } from '../constants/stale';
 
 const TERMINAL_STATUSES = ['offer', 'rejected', 'withdrawn'];
 
@@ -13,7 +14,6 @@ function getUrgencyIndicators(application: Application): {
   const today = startOfDay(new Date());
   let isOverdue = false;
   let isDueSoon = false;
-  let isStale = false;
 
   if (!isTerminal && application.nextActionDue) {
     const dueDate = startOfDay(parseISO(application.nextActionDue));
@@ -22,12 +22,11 @@ function getUrgencyIndicators(application: Application): {
     isDueSoon = !isOverdue && daysUntilDue <= 3;
   }
 
-  if (!isTerminal) {
-    const daysSinceUpdate = differenceInDays(today, new Date(application.updatedAt));
-    isStale = daysSinceUpdate >= 14;
-  }
-
-  return { isOverdue, isDueSoon, isStale };
+  // WIC-1479: this badge used to fire on any non-terminal row untouched for 14
+  // days, so an `interview` row at 20 days was badged "Stale" here and absent
+  // from `/reports/stale`. No terminal check is needed now — the shared
+  // definition excludes the terminal statuses, and `saved` and `interview` too.
+  return { isOverdue, isDueSoon, isStale: isApplicationStale(application) };
 }
 
 export interface ApplicationCardProps {
@@ -118,7 +117,6 @@ export function ApplicationCard({
       onMouseLeave={() => setIsHovered(false)}
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      role="article"
       aria-label={ariaLabel}
     >
       {/* Company Icon Placeholder */}
