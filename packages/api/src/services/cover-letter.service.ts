@@ -9,6 +9,7 @@ import { applications, coverLetters, outreachMessages, quantifiedBullets } from 
 import type { CoverLetter, OutreachMessage, RevisionEntry } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { fetchJobDescriptionFromUrl } from './job-fit.service.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import {
   CoverLetterDTO,
   CoverLetterSummaryDTO,
@@ -225,7 +226,13 @@ export async function generateCoverLetter(
   // Validation
   const hasJdText = !!input.jobDescriptionText;
   const hasJdUrl = !!input.jobDescriptionUrl;
-  const hasAnalysis = !!input.jobFitAnalysisId;
+  // Resolved before any other guard, and before the model spend and the write:
+  // an unresolvable id is rejected 422 rather than being allowed to satisfy
+  // JOB_CONTEXT_REQUIRED and waive TARGET_INFO_REQUIRED below (WIC-1818 AC-5a).
+  // Always false today — nothing resolves until `job_fit_analyses` exists — but
+  // the two guards keep reading it so AC-5b restores the waiver by changing
+  // `resolveJobFitAnalysis` alone.
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
     throw new CoverLetterError(
@@ -302,7 +309,16 @@ export async function generateCoverLetter(
       );
     }
   } else {
-    jdContext = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
+    // Was `jdContext = \`Job Fit Analysis ID: ${input.jobFitAnalysisId}\``, which
+    // handed the model a caller-controlled id as the entire job description.
+    // Unreachable today (an analysis is the only other way past
+    // JOB_CONTEXT_REQUIRED, and none resolve), and fails closed rather than
+    // silently prompting with no job context if that ever changes. AC-5b fills
+    // this branch with the stored analysis.
+    throw new CoverLetterError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+    );
   }
 
   const starBullets = starEntries.map((e, i) => `${i + 1}. ${e.rawText}`).join('\n');
@@ -663,10 +679,17 @@ export async function generateOutreach(
 ): Promise<{
   message: OutreachMessageDTO;
 }> {
-  // Validation
+  // Validation.
+  //
+  // Site the WIC-1818 card does not enumerate: the id satisfied
+  // JOB_CONTEXT_REQUIRED here too, and became `contextText` below. Resolved
+  // first, so an unresolvable id is 422 rather than the sole context for an
+  // outreach message sent to a named human (WIC-1818 AC-5a).
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
+
   if (
     !input.coverLetterId &&
-    !input.jobFitAnalysisId &&
+    !hasAnalysis &&
     (!input.selectedStarEntryIds || input.selectedStarEntryIds.length === 0)
   ) {
     throw new CoverLetterError(
@@ -707,7 +730,13 @@ export async function generateOutreach(
     const entries = await fetchStarEntries(input.selectedStarEntryIds, userId);
     contextText = `Key achievements:\n${entries.map((e) => `- ${e.rawText}`).join('\n')}`;
   } else {
-    contextText = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
+    // Was `contextText = \`Job Fit Analysis ID: ${input.jobFitAnalysisId}\``.
+    // See the equivalent branch in generateCoverLetter — unreachable today,
+    // fails closed, and is where AC-5b puts the stored analysis.
+    throw new CoverLetterError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide coverLetterId, jobFitAnalysisId, or selectedStarEntryIds'
+    );
   }
 
   const recipientLine = input.targetName ? `Hi ${input.targetName},` : 'Hi there,';
