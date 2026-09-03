@@ -169,6 +169,13 @@
       "when": 1777634658000,
       "tag": "0024_cover_letter_resume_variant_application_id",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777638258000,
+      "tag": "0025_job_fit_analyses",
+      "breakpoints": true
     }
   ]
 }

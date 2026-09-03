@@ -302,6 +302,17 @@ export type GapSeverity = 'critical' | 'moderate' | 'minor';
 export interface AnalyzeJobFitInput {
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
+  /**
+   * The application this analysis is about (WIC-1652).
+   *
+   * Optional, because analysing a bare job description with no application in
+   * hand is a supported flow. When supplied it is validated against the
+   * caller's own applications — an id that names an application they do not own
+   * is rejected exactly as one that does not exist, so this is not an existence
+   * oracle. Only an analysis carrying an application can ever tick that
+   * application's workflow checklist.
+   */
+  applicationId?: string;
 }
 
 export interface ParsedJobDescriptionDTO {
@@ -339,7 +350,31 @@ export interface RecommendedStarEntryDTO {
 }
 
 export interface AnalyzeJobFitResponse {
+  /**
+   * The id of the persisted analysis (WIC-1652).
+   *
+   * Before this field existed the response was unaddressable: the caller could
+   * not name the analysis it had just paid an LLM call and a rate-limit slot
+   * for, so `jobFitAnalysisId` on the generation endpoints could never be
+   * populated honestly by any client.
+   */
+  id: string;
+  /** The application this analysis is about, or `null` for a scratch analysis. */
+  applicationId: string | null;
   recommendation: FitRecommendation | null;
+  /**
+   * Weighted required-skill match, 0-100.
+   *
+   * This is the `matchPct` the UC-3 scoring algorithm already computes and used
+   * to discard — exact matches count 1, partial (alias/related) matches count
+   * 0.5, over `parsedJd.requiredStack.length`. It is therefore not a second,
+   * independent score that could disagree with `recommendation`; the two are
+   * read off the same number.
+   *
+   * `null` exactly when `recommendation` is `null` — the "unscored" result, not
+   * the absence of an analysis.
+   */
+  fitScore: number | null;
   summary: string;
   confidence: Confidence;
   parsedJd: ParsedJobDescriptionDTO;
@@ -349,6 +384,34 @@ export interface AnalyzeJobFitResponse {
   recommendedStarEntries: RecommendedStarEntryDTO[];
   catalogEmpty: boolean;
   analysisTimestamp: string;
+}
+
+/**
+ * A stored analysis as returned by `GET /api/catalog/job-fit/analyses`.
+ *
+ * Deliberately a summary rather than the whole analysis: the caller this exists
+ * for is the application workflow checklist, which needs to know *whether* an
+ * analysis exists and *what it scored*, and would otherwise pull four JSONB
+ * payloads per application to render a tick and a percentage.
+ */
+export interface JobFitAnalysisSummaryDTO {
+  id: string;
+  applicationId: string | null;
+  recommendation: FitRecommendation | null;
+  fitScore: number | null;
+  summary: string;
+  confidence: Confidence;
+  catalogEmpty: boolean;
+  analyzedAt: string;
+}
+
+export interface ListJobFitAnalysesParams {
+  applicationId?: string;
+  limit?: number;
+}
+
+export interface ListJobFitAnalysesResponse {
+  analyses: JobFitAnalysisSummaryDTO[];
 }
 
 export class JobFitInputError extends AppError {

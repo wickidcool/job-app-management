@@ -11,6 +11,17 @@ import {
   uuid,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+// Type-only, and `types/index.ts` imports nothing, so this cannot form a cycle.
+// The job-fit jsonb payloads are the wire DTOs verbatim — re-declaring them here
+// is how the stored shape and the response shape drift apart.
+import type {
+  Confidence,
+  FitGapDTO,
+  FitMatchDTO,
+  FitRecommendation,
+  ParsedJobDescriptionDTO,
+  RecommendedStarEntryDTO,
+} from '../types/index.js';
 
 export const appStatusEnum = pgEnum('app_status', [
   'saved',
@@ -383,6 +394,59 @@ export type CatalogChangeLog = typeof catalogChangeLog.$inferSelect;
 export type CatalogDiff = typeof catalogDiffs.$inferSelect;
 export type WikilinkRegistry = typeof wikilinkRegistry.$inferSelect;
 
+// ── Job fit analyses (UC-3) ──────────────────────────────────────────────────
+//
+// WIC-1652 / ADR-012. `DATA_MODEL.md` has specified
+// `job_fit_analysis_id TEXT REFERENCES job_fit_analyses(id)` since the interview
+// prep table was written, but the referent table was never built: `analyzeJobFit`
+// computed a result, returned it, and wrote nothing down. The four
+// `job_fit_analysis_id` columns below therefore referenced nothing, which is
+// what let a caller-supplied string satisfy `JOB_CONTEXT_REQUIRED` and waive
+// `TARGET_INFO_REQUIRED` on the generation endpoints (WIC-1818).
+//
+// `application_id` is nullable on purpose. `POST /catalog/job-fit/analyze`
+// accepts a bare job description with no application context today, and that is
+// a supported flow (the SPA's `/job-fit-analysis` page is reachable without an
+// `appId`). Making the column `NOT NULL` would reject those requests. An
+// analysis that *has* an owning application is what `WorkflowChecklist` reads;
+// one without is a scratch analysis that no checklist can ever tick.
+export const jobFitAnalyses = pgTable('job_fit_analyses', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id'),
+  applicationId: text('application_id').references(() => applications.id, {
+    onDelete: 'cascade',
+  }),
+  // The input, kept so an analysis can be explained and re-run. Exactly one of
+  // the two is set, matching `analyzeJobFitSchema`'s xor refinement.
+  jobDescriptionText: text('job_description_text'),
+  jobDescriptionUrl: text('job_description_url'),
+  // `recommendation` is nullable because `null` is a *result* — the catalog was
+  // empty, or the job description named no required skills. See the UC-3
+  // scoring algorithm in `API_CONTRACTS.md`; `unscored` is not the same state as
+  // "not analyzed".
+  recommendation: text('recommendation').$type<FitRecommendation | null>(),
+  // The weighted required-skill match percentage, 0-100, that
+  // `computeRecommendation` already computes and used to discard. `null`
+  // whenever `recommendation` is `null`, for the same reason.
+  fitScore: integer('fit_score'),
+  summary: text('summary').notNull(),
+  confidence: text('confidence').$type<Confidence>().notNull(),
+  parsedJd: jsonb('parsed_jd').$type<ParsedJobDescriptionDTO>().notNull(),
+  strongMatches: jsonb('strong_matches').$type<FitMatchDTO[]>().notNull().default([]),
+  partialMatches: jsonb('partial_matches').$type<FitMatchDTO[]>().notNull().default([]),
+  gaps: jsonb('gaps').$type<FitGapDTO[]>().notNull().default([]),
+  recommendedStarEntries: jsonb('recommended_star_entries')
+    .$type<RecommendedStarEntryDTO[]>()
+    .notNull()
+    .default([]),
+  catalogEmpty: boolean('catalog_empty').notNull().default(false),
+  analyzedAt: timestamp('analyzed_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type JobFitAnalysis = typeof jobFitAnalyses.$inferSelect;
+export type NewJobFitAnalysis = typeof jobFitAnalyses.$inferInsert;
+
 // Cover letter enums
 export const coverLetterStatusEnum = pgEnum('cover_letter_status', ['draft', 'finalized']);
 export const tonePreferenceEnum = pgEnum('tone_preference', [
@@ -424,7 +488,9 @@ export const coverLetters = pgTable('cover_letters', {
   emphasis: emphasisPreferenceEnum('emphasis').notNull().default('balanced'),
   jobDescriptionText: text('job_description_text'),
   jobDescriptionUrl: text('job_description_url'),
-  jobFitAnalysisId: text('job_fit_analysis_id'),
+  jobFitAnalysisId: text('job_fit_analysis_id').references(() => jobFitAnalyses.id, {
+    onDelete: 'set null',
+  }),
   selectedStarEntryIds: jsonb('selected_star_entry_ids').$type<string[]>().notNull().default([]),
   content: text('content').notNull(),
   revisionHistory: jsonb('revision_history').$type<RevisionEntry[]>().notNull().default([]),
@@ -444,7 +510,9 @@ export const outreachMessages = pgTable('outreach_messages', {
   coverLetterId: text('cover_letter_id').references(() => coverLetters.id, {
     onDelete: 'set null',
   }),
-  jobFitAnalysisId: text('job_fit_analysis_id'),
+  jobFitAnalysisId: text('job_fit_analysis_id').references(() => jobFitAnalyses.id, {
+    onDelete: 'set null',
+  }),
   subject: text('subject'),
   body: text('body').notNull(),
   characterCount: integer('character_count').notNull(),
@@ -548,7 +616,9 @@ export const resumeVariants = pgTable('resume_variants', {
   format: resumeFormatEnum('format').notNull().default('chronological'),
   sectionEmphasis: sectionEmphasisEnum('section_emphasis').notNull().default('balanced'),
   baseResumeId: text('base_resume_id').references(() => resumes.id, { onDelete: 'set null' }),
-  jobFitAnalysisId: text('job_fit_analysis_id'),
+  jobFitAnalysisId: text('job_fit_analysis_id').references(() => jobFitAnalyses.id, {
+    onDelete: 'set null',
+  }),
   jobDescriptionText: text('job_description_text'),
   jobDescriptionUrl: text('job_description_url'),
   selectedBullets: jsonb('selected_bullets')
@@ -700,7 +770,9 @@ export const interviewPreps = pgTable('interview_preps', {
     .notNull()
     .references(() => applications.id, { onDelete: 'cascade' })
     .unique(),
-  jobFitAnalysisId: text('job_fit_analysis_id'),
+  jobFitAnalysisId: text('job_fit_analysis_id').references(() => jobFitAnalyses.id, {
+    onDelete: 'set null',
+  }),
   interviewType: interviewTypeEnum('interview_type').notNull().default('mixed'),
   timeAvailable: prepTimeEnum('time_available').notNull().default('1hr'),
   focusAreas: jsonb('focus_areas').$type<string[]>().notNull().default([]),
