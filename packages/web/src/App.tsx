@@ -11,6 +11,7 @@ import { TopNavigation } from './components/TopNavigation';
 import { MobileNavigation } from './components/MobileNavigation';
 import { BottomTabBar } from './components/BottomTabBar';
 import { CommandPalette } from './components/CommandPalette';
+import { RouteTitle } from './components/RouteTitle';
 import { Dashboard } from './pages/Dashboard';
 import { ApplicationsList } from './pages/ApplicationsList';
 import { ApplicationDetail } from './pages/ApplicationDetail';
@@ -87,6 +88,8 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <div className="min-h-screen bg-neutral-50">
+                      {/* Renders nothing; applies the route table's document.title (WIC-1089). */}
+                      <RouteTitle />
                       <div className="hidden md:block">
                         <TopNavigation
                           applicationCount={inProgressCount}

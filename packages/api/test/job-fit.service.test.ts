@@ -12,7 +12,8 @@ import type { ParsedJD } from '../src/services/job-fit.service.js';
 import { _resetConfig } from '../src/config.js';
 import { LLMService } from '../src/services/llm.service.js';
 
-vi.mock('../src/services/llm.service.js', () => ({
+vi.mock('../src/services/llm.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/llm.service.js')>()),
   LLMService: vi.fn(),
 }));
 

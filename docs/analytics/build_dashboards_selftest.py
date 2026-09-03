@@ -34,6 +34,15 @@ bd = importlib.util.module_from_spec(_spec)
 sys.modules["build_dashboards"] = bd
 _spec.loader.exec_module(bd)
 
+# make_console_pack (Route 2) reuses build_dashboards' rewriter. Loading it after `bd` is in
+# sys.modules means its own `import build_dashboards as bd` resolves to the same module here.
+_mcp_spec = importlib.util.spec_from_file_location(
+    "make_console_pack", os.path.join(HERE, "make_console_pack.py")
+)
+mcp = importlib.util.module_from_spec(_mcp_spec)
+sys.modules["make_console_pack"] = mcp
+_mcp_spec.loader.exec_module(mcp)
+
 PRED = "startsWith(event, 'qa_') OR distinct_id IN ('a-1', 'b-2')"
 
 
@@ -151,6 +160,29 @@ class InjectHogql(unittest.TestCase):
                     f"SELECT count() FROM events WHERE event = 'a' {tail}", PRED
                 )
                 self.assertTrue(out.rstrip().endswith(tail))
+                self.assertTrue(balanced(out))
+
+    def test_set_operators_end_the_where_body(self):
+        # Folded from PR #267's synthetic_exclusion_selftest (WIC-1800): UNION's set-operator
+        # companions must terminate the WHERE body too, or the injected `AND NOT (...)` runs
+        # past the operator and rebinds the second SELECT. No current payload uses these, so
+        # this guards the shape before one does -- the fix-it-once point of WIC-1664.
+        for op in ("UNION ALL", "INTERSECT", "EXCEPT"):
+            with self.subTest(op=op):
+                out, _ = bd.inject_hogql(
+                    f"SELECT count() FROM events WHERE event = 'a' "
+                    f"{op} SELECT count() FROM events WHERE event = 'b'",
+                    PRED,
+                )
+                # Two `FROM events` scans, so two injected predicates, one per SELECT.
+                self.assertEqual(uncommented(out).count("AND NOT ("), 2)
+                self.assertIn(f"{op.split()[0]} ", uncommented(out))
+                # Each SELECT keeps its own wrapped WHERE body. Without the `_WHERE_END`
+                # widening the set operator fails to terminate the first WHERE, the second
+                # SELECT is swallowed into its parens, and only one `WHERE (` survives -- the
+                # `AND NOT (` count and `balanced()` both stay green (two defects cancel), so
+                # this is the assertion that actually pins the widening (WIC-1845 review).
+                self.assertEqual(out.count("WHERE ("), 2)
                 self.assertTrue(balanced(out))
 
     def test_parens_and_apostrophes_inside_literals_do_not_desync(self):
@@ -346,6 +378,91 @@ class Predicate(unittest.TestCase):
         self.assertTrue(predicate.strip())
         self.assertTrue(os.path.exists(source))
         self.assertGreater(sum(counts.values()), 0)
+
+
+class ConsolePackRoute2(unittest.TestCase):
+    """Route 2 (make_console_pack.py) reuses build_dashboards' rewriter (WIC-1845).
+
+    These fold in the CLI-surface cases from PR #267's synthetic_exclusion_selftest, but
+    exercised against the single rewriter now shared with Route 1 -- no second copy.
+    """
+
+    @staticmethod
+    def _run(argv):
+        import contextlib
+        import io
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            mcp.main(argv)
+
+    @staticmethod
+    def _templates(out_dir):
+        import json
+
+        with open(os.path.join(out_dir, "dashboard-templates.json")) as fh:
+            raw = fh.read()
+        return raw, json.loads(raw)
+
+    def test_default_output_is_unfiltered(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(["--out-dir", tmp])
+            raw, templates = self._templates(tmp)
+            self.assertNotIn("AND NOT (", raw)
+            tiles = [t for tpl in templates for t in tpl["tiles"]]
+            self.assertEqual(len(tiles), 17)
+
+    def test_exclude_synthetic_filters_every_tile(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(["--exclude-synthetic", "--out-dir", tmp])
+            raw, templates = self._templates(tmp)
+            import json
+
+            tiles = [t for tpl in templates for t in tpl["tiles"]]
+            self.assertEqual(len(tiles), 17)
+            # Every tile Route 2 imports -- including A1/C1, whose pasteable form is the
+            # `_hogql_variant` and not the native node -- carries the predicate.
+            for tile in tiles:
+                self.assertIn("AND NOT (", json.dumps(tile))
+
+    def test_exclude_synthetic_refuses_without_out_dir(self):
+        # out-dir defaults to docs/analytics/, so a bare --exclude-synthetic is refused
+        # for the same reason as an explicit --out-dir docs/analytics/.
+        with self.assertRaises(SystemExit):
+            self._run(["--exclude-synthetic"])
+
+    def test_exclude_synthetic_refuses_writing_into_docs_analytics(self):
+        with self.assertRaises(SystemExit):
+            self._run(["--exclude-synthetic", "--out-dir", HERE])
+
+    def test_exclude_synthetic_refuses_a_subdirectory_of_docs_analytics(self):
+        # `docs/analytics/subdir` is still inside the tree the runbook promises a filtered
+        # pack can never land in; refusing only the exact dir would let one be committed a
+        # level down (WIC-1845 review).
+        with self.assertRaises(SystemExit):
+            self._run(["--exclude-synthetic", "--out-dir", os.path.join(HERE, "subdir")])
+
+    def test_committed_templates_json_is_unfiltered(self):
+        # The artifact a human imports is committed UNFILTERED on purpose: it proves it was
+        # built against probe data, and baking today's registry into it is the
+        # WIC-1389/WIC-1392 staleness bug one layer down. The filter is out-of-tree only.
+        with open(os.path.join(HERE, "dashboard-templates.json")) as fh:
+            committed = fh.read()
+        self.assertNotIn("AND NOT (", committed)
+        self.assertNotIn("distinct_id IN (", committed)
+
+    def test_exactly_one_rewriter_lives_under_docs_analytics(self):
+        # WIC-1845 dropped the synthetic_exclusion.py twin; a second rewriter reintroduces
+        # the divergence WIC-1664 exists to prevent (both twins needed the comment-masking
+        # fix independently). build_dashboards.py is the single source.
+        self.assertFalse(
+            os.path.exists(os.path.join(HERE, "synthetic_exclusion.py")),
+            "synthetic_exclusion.py is back -- Route 2 must reuse build_dashboards.py, "
+            "not a second rewriter",
+        )
 
 
 if __name__ == "__main__":

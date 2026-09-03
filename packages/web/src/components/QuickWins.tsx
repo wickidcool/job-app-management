@@ -17,6 +17,31 @@ interface QuickWinsProps {
   attention?: DashboardAttention;
 }
 
+/**
+ * The age of a sampled row, reported so it cannot contradict the bucket the
+ * server selected the row into.
+ *
+ * The server picks these rows with `timestamp < now - thresholdDays` — a
+ * *fractional* age strictly greater than the threshold. `differenceInDays`
+ * floors, so a row selected at 7.5 days reads back as 7, and rendering that
+ * number puts "7 days" beside an `AttentionCard` advertising a ">7 days"
+ * bucket. Below the threshold the floor has not yet cleared it and the only
+ * honest statement is the bound the selection itself proves; above it the
+ * exact count is both true and more useful.
+ *
+ * `thresholdDays` is undefined only if the wire payload omitted it, in which
+ * case there is no bucket claim on screen for the count to contradict.
+ */
+function sampledAge(timestamp: string, thresholdDays: number | undefined) {
+  const flooredDays = differenceInDays(new Date(), new Date(timestamp));
+
+  if (thresholdDays === undefined || flooredDays > thresholdDays) {
+    return { days: flooredDays, exact: true };
+  }
+
+  return { days: thresholdDays, exact: false };
+}
+
 interface QuickWin {
   id: string;
   priority: 'high' | 'medium' | 'low';
@@ -46,14 +71,21 @@ export function QuickWins({ attention }: QuickWinsProps) {
     });
   });
 
-  // High Priority: Stale applications in active stages (oldest first)
-  (samples?.staleActive ?? []).forEach((app) => {
-    const daysSinceUpdate = differenceInDays(new Date(), new Date(app.updatedAt));
+  // High Priority: stale applications (oldest first).
+  //
+  // Drawn from the same server-side population the attention card counts and
+  // `/reports/stale` lists. This card used to apply its own inline threshold
+  // over its own status set, which made a third definition of "stale" in a
+  // product that is specified to have one (WIC-1479).
+  (samples?.stale ?? []).forEach((app) => {
+    const age = sampledAge(app.updatedAt, attention?.staleThresholdDays);
     quickWins.push({
       id: `stale-${app.id}`,
       priority: 'high',
       title: 'Follow Up Needed',
-      description: `${app.company} - No update for ${daysSinceUpdate} days`,
+      description: age.exact
+        ? `${app.company} - No update for ${age.days} days`
+        : `${app.company} - No update in over ${age.days} days`,
       action: 'Send Follow-up',
       actionPath: `/applications/${app.id}`,
       applicationId: app.id,
@@ -73,14 +105,17 @@ export function QuickWins({ attention }: QuickWinsProps) {
     });
   });
 
-  // Medium Priority: Saved applications not yet applied (longest-saved first)
-  (samples?.staleSaved ?? []).forEach((app) => {
-    const daysSinceSaved = differenceInDays(new Date(), new Date(app.createdAt));
+  // Medium Priority: Saved applications not yet applied (longest-saved first).
+  // Measured from `createdAt`, and not a form of staleness — see the type docs.
+  (samples?.unsubmittedSaved ?? []).forEach((app) => {
+    const age = sampledAge(app.createdAt, attention?.unsubmittedThresholdDays);
     quickWins.push({
       id: `saved-${app.id}`,
       priority: 'medium',
       title: 'Complete Application',
-      description: `${app.company} - Saved ${daysSinceSaved} days ago`,
+      description: age.exact
+        ? `${app.company} - Saved ${age.days} days ago`
+        : `${app.company} - Saved over ${age.days} days ago`,
       action: 'Apply Now',
       actionPath: `/applications/${app.id}`,
       applicationId: app.id,
@@ -98,7 +133,7 @@ export function QuickWins({ attention }: QuickWinsProps) {
   // Total actionable items across the whole account, not just the sampled rows.
   // The samples are capped for rendering; these counts are not.
   const totalWins = counts
-    ? counts.interviewing + counts.staleActive + counts.missingJobDescription + counts.staleSaved
+    ? counts.interviewing + counts.stale + counts.missingJobDescription + counts.unsubmittedSaved
     : quickWins.length;
   const hiddenWins = Math.max(0, totalWins - sortedWins.length);
 

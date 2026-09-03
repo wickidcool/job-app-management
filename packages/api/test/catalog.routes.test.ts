@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
+import {
+  buildAuthedApp,
+  resetAuthEnv,
+  TEST_USER_ID,
+  type AuthedApp,
+} from './helpers/authed-app.js';
 import { _resetConfig } from '../src/config.js';
 import { _resetJwksCache } from '../src/middleware/auth.js';
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -23,11 +30,13 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/job-fit.service.js', () => ({
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
   analyzeJobFit: vi.fn(),
 }));
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -36,7 +45,8 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -44,7 +54,8 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
@@ -82,11 +93,17 @@ const mockTag = {
 };
 
 describe('Catalog Routes', () => {
-  let app: ReturnType<typeof buildApp>;
+  // Authenticated: these routes call `requireOwner`, so an owner-less request
+  // is a 401 and never reaches the service (WIC-1638). See helpers/authed-app.
+  let app: AuthedApp;
 
-  beforeEach(() => {
-    app = buildApp();
+  beforeEach(async () => {
+    app = await buildAuthedApp();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetAuthEnv();
   });
 
   // ── GET /api/catalog/diffs ──────────────────────────────────────────────────
@@ -108,7 +125,7 @@ describe('Catalog Routes', () => {
           limit: undefined,
           cursor: undefined,
         },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -120,7 +137,7 @@ describe('Catalog Routes', () => {
       expect(response.status).toBe(200);
       expect(catalogService.listDiffs).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'approved' }),
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -174,7 +191,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.generateDiff).toHaveBeenCalledWith(
         'resume',
         '01HZ_RESUME_001',
-        undefined
+        TEST_USER_ID
       );
     });
   });
@@ -201,7 +218,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.applyDiff).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { action: 'approve_all' },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -269,7 +286,7 @@ describe('Catalog Routes', () => {
       const response = await app.request('/api/catalog/diffs/01HZ_DIFF_001', { method: 'DELETE' });
 
       expect(response.status).toBe(204);
-      expect(catalogService.discardDiff).toHaveBeenCalledWith('01HZ_DIFF_001', undefined);
+      expect(catalogService.discardDiff).toHaveBeenCalledWith('01HZ_DIFF_001', TEST_USER_ID);
     });
 
     it('returns 404 when diff not found', async () => {
@@ -493,11 +510,25 @@ describe('Catalog Routes', () => {
         'utf-8'
       );
 
-      const minters = source
-        .split('export async function ')
-        .slice(1)
-        .filter((body) => body.includes('nextCursor'))
-        .map((body) => body.slice(0, body.indexOf('(')));
+      // Match every exported declaration form, not just `export async function`
+      // (WIC-1351). Splitting on that one literal made the guard blind to a
+      // minter declared as `export const x = async () =>`: its text fell inside
+      // the *previous* match's segment, which already contained `nextCursor`,
+      // so the set was unchanged and a seventh list endpoint landed green.
+      // Anchoring at line start keeps the word `export` inside a string or a
+      // comment from opening a bogus segment.
+      const declaration = /^export (?:async function|function|const|let|var)\s+(\w+)/gm;
+      const declarations = [...source.matchAll(declaration)];
+
+      // Bound each segment at the next declaration of *any* form. The old code
+      // ran every segment to the next `export async function`, so a trailing
+      // arrow-const minter was blamed on whichever function preceded it.
+      const minters = declarations
+        .filter((match, i) => {
+          const end = declarations[i + 1]?.index ?? source.length;
+          return source.slice(match.index, end).includes('nextCursor');
+        })
+        .map((match) => match[1]);
 
       expect(new Set(minters)).toEqual(new Set(LIST_ROUTES.map(([fn]) => fn)));
       expect(minters).toHaveLength(LIST_ROUTES.length);
@@ -558,7 +589,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeCompanies).toHaveBeenCalledWith(
         ['01HZ_CO_002', '01HZ_CO_003'],
         '01HZ_CO_001',
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -626,7 +657,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeJobFitTags).toHaveBeenCalledWith(
         ['01HZ_TAG_002'],
         '01HZ_TAG_001',
-        undefined
+        TEST_USER_ID
       );
       expect(catalogService.mergeTechStackTags).not.toHaveBeenCalled();
     });
@@ -648,7 +679,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.mergeTechStackTags).toHaveBeenCalledWith(
         ['01HZ_TAG_AI_ML'],
         '01HZ_TAG_001',
-        undefined
+        TEST_USER_ID
       );
       expect(catalogService.mergeJobFitTags).not.toHaveBeenCalled();
     });
@@ -710,7 +741,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { itemType: 'change', itemIndex: 0, decision: 'approve' },
-        undefined
+        TEST_USER_ID
       );
     });
 
@@ -735,7 +766,7 @@ describe('Catalog Routes', () => {
       expect(catalogService.resolveDiffItem).toHaveBeenCalledWith(
         '01HZ_DIFF_001',
         { itemType: 'review', itemIndex: 2, decision: 'reject', selectedOption: 'ai-ml' },
-        undefined
+        TEST_USER_ID
       );
     });
 

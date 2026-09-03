@@ -1,3 +1,5 @@
+import type { Percent } from './units';
+
 export type InterviewType = 'behavioral' | 'technical' | 'mixed' | 'case_study';
 export type PrepTime = '30min' | '1hr' | '2hr' | 'full_day';
 export type ConfidenceLevel = 'not_practiced' | 'needs_work' | 'comfortable' | 'confident';
@@ -16,7 +18,20 @@ export interface PrepStory {
   id: string;
   starEntryId: string;
   themes: string[];
-  relevanceScore: number;
+  /**
+   * How relevant this story is to the interview, as an integer in `[0, 100]`.
+   *
+   * This is the one population that deviates from ADR-008 §1 (ratios at the API boundary), so
+   * per §2 it carries the unit in its **name**. It is renamed rather than converted because it
+   * is persisted as an `integer` column and produced by an LLM prompt that asks for a 0-100
+   * integer — see ADR-008 §4, where the "why not convert" argument is settled.
+   *
+   * Do not compare or assign this against a job-fit `relevanceScore`, which is a `Ratio` in
+   * `[0, 1]` — the `Percent` brand makes that a compile error. Note the brand's one-sided
+   * blind spot (`units.ts`, `percentFromWire`): `[0, 1]` is a subset of `[0, 100]`, so a
+   * producer that regressed from `85` to `0.85` would still type-check and render `0.85%`.
+   */
+  relevanceScorePct: Percent;
   oneMinVersion: string;
   twoMinVersion: string;
   fiveMinVersion: string;

@@ -4,16 +4,77 @@
 # Deliberately scoped to this one file — union resolves by concatenation with no
 # conflict, which is correct for a changelog and wrong for structured files.
 #
-# CAVEAT — this does NOT stop github.com from showing "This branch has conflicts".
-# Merge drivers are a local-checkout feature. GitHub computes PR mergeability
-# server-side with the default text driver and does not apply this rule, so a PR
+# The driver is LOAD-BEARING. This repo's workflow merges origin/main into each
+# branch LOCALLY before the PR lands, and local git honours the driver. Measured
+# 2026-09-02 at main 8ab4618 across all 50 open PRs targeting main, replayed at
+# that same main: 15 are clean with union and conflict without it, and in all 15
+# the ONLY conflicting file is CHANGELOG.md. Do not delete this line and do not
+# migrate to changelog fragments.
+#
+# CAVEAT — github.com will still show "This branch has conflicts", because
+# GitHub's SERVER DOES NOT APPLY THIS DRIVER. Merge drivers are a local-checkout
+# feature; GitHub computes PR mergeability with the default text driver. So a PR
 # that touches [Unreleased] flips to CONFLICTING as soon as another such PR
 # merges ahead of it. The driver makes the fix free; it does not prevent the flag.
 #
-# Measured 2026-08-26 (WIC-1363): of 30 open PRs, 25 touched CHANGELOG.md and 17
-# read CONFLICTING — 15 of those 17 in both sets. On an 8-PR sample, CHANGELOG.md
-# conflicted under the default driver every time, and in 7 of the 8 it was the
-# *only* conflicting file, i.e. those PRs were otherwise clean.
+# That is measured, not assumed — 2026-09-02 (WIC-1904), and it settles a
+# question this file has now answered three different ways. Two designs, same
+# answer:
+#
+#   * CROSS-SECTION. All 50 open main-targeting PRs, each force-polled for a
+#     fresh `mergeable` and replayed at that same main 8ab4618 both with and
+#     without union. The flag matches the NO-UNION replay 50 of 50 (32
+#     MERGEABLE/clean, 18 CONFLICTING/conflict). The WITH-union replay disagrees
+#     on exactly 15 — the union-dependent set. There is no coincidence available:
+#     the two replays differ on 15 PRs and GitHub sides with no-union on all 15.
+#
+#   * PAIRED TRANSITION, which controls for everything PR-specific. Five PRs
+#     (#227 #318 #335 #337 #342) whose heads did not change across a main move
+#     7f8646d -> 8ab4618. At the old base all five were clean without union and
+#     all five read MERGEABLE. At the new base exactly three conflict without
+#     union — and exactly those three flipped to CONFLICTING. Same PR, same head,
+#     only the base moved.
+#
+# So this file's ORIGINAL claim was right, and its 2026-09-01 withdrawal of it
+# (which said the question was unmeasured in both directions) is itself
+# withdrawn. Two earlier readings failed for two different reasons, and telling
+# them apart is the whole lesson:
+#
+#   1. STALE READS, not a sticky-dirty conflict. `mergeable` is not recomputed
+#      on demand, and the LIST endpoint (`gh pr list --json mergeable`) hands
+#      back UNKNOWN or a stale value — on this sweep it returned UNKNOWN for
+#      most of the queue while GitHub was recomputing. Poll each PR
+#      individually and RETRY UNTIL IT IS NOT UNKNOWN. Every "the flag says
+#      CONFLICTING but it merges clean" result here came from a read taken at a
+#      base GitHub had already moved off. Once freshly resolved, the flag was
+#      exact on all 50.
+#
+#   2. A SELECTION ARTIFACT that could only ever return "no evidence". The
+#      previous revision looked for the discriminating case — a PR GitHub
+#      computes clean while it genuinely conflicts without union at that same
+#      base — and required it to have a FRESH refs/pull/N/merge. That test is
+#      incapable of finding anything: GitHub only writes the merge ref when the
+#      merge SUCCEEDS, so a conflicting PR ALWAYS has a stale or absent ref.
+#      Measured today, 18 of 18 CONFLICTING PRs have a stale (17) or missing (1)
+#      ref, while 26 of 32 MERGEABLE PRs ALSO read stale. Ref freshness is a
+#      one-sided signal: FRESH proves GitHub computed a clean merge, but STALE
+#      proves nothing at all. Requiring a fresh ref on a conflicting PR is
+#      requiring a contradiction, which is why the case looked "structurally
+#      empty" when in fact it had 15 members that day.
+#
+# Earlier figures in this file (WIC-1363, 2026-08-26: "of 30 open PRs, 25
+# touched CHANGELOG.md and 17 read CONFLICTING") counted unrefreshed flags
+# rather than conflicts, and are superseded by the sweep above.
+#
+# To decide whether a PR really is mergeable, use ground truth, never a single
+# read of the flag: fetch refs/pull/N/merge and check it is a 2-parent commit
+# with no conflict markers AND that its first parent is the current base tip
+# (FRESH certifies clean; stale certifies nothing — see 2 above), or run a
+# real merge at the PR's current base in a throwaway worktree. If you use
+# `git merge-tree`, --attr-source is a GLOBAL option and must come before the
+# subcommand (`git --attr-source=<base> merge-tree ...`); placed after it, git
+# exits 129, and omitted entirely it reads attributes from the working tree and
+# measures nothing.
 #
 # So: do not go looking for a real conflict, and do not rebase a PR that others
 # are stacked on. Merge main in and push — the driver resolves it on the way

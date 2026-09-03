@@ -119,12 +119,13 @@ describe('OnboardingModal — resume skip warning (WIC-1383 / AC-5)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /skip for now/i }));
 
-    // Two dialogs are in the tree: the onboarding panel stays mounted and the warning
-    // nests inside it (WIC-1141's Radix conversion). Take the innermost — selecting it
-    // structurally rather than by name keeps the accessible-name assertion below able to
-    // fail, which `getByRole('dialog', { name })` would not.
-    const dialogs = screen.getAllByRole('dialog');
-    const dialog = dialogs[dialogs.length - 1];
+    // The panel stays mounted and the warning nests inside it (WIC-1141's Radix
+    // conversion), but since WIC-1868 the panel is `aria-hidden` while a confirmation
+    // is open, so exactly one dialog is exposed. `getByRole` (not `getAllByRole`)
+    // throws on a second one, which is what keeps that true. Still selected
+    // structurally rather than by name, so the accessible-name assertion below can
+    // actually fail — `getByRole('dialog', { name })` could not.
+    const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAccessibleName(/continue without a resume\?/i);
     // The AC asks for a warning "about reduced functionality" — assert the dialog
     // actually says what is lost, not merely that some dialog opened.
@@ -196,6 +197,119 @@ describe('OnboardingModal — resume skip warning (WIC-1383 / AC-5)', () => {
 
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('button', { name: /skip for now/i }))
+    );
+  });
+});
+
+/**
+ * WIC-1868 — the nested-confirmation pattern left the panel behind exposed.
+ *
+ * Both confirmations are nested `Dialog.Root`s inside the panel's `Dialog.Content`.
+ * Radix's `hideOthers` hides everything *outside* the topmost content, and a nested
+ * dialog is not outside its parent, so the panel was never hidden.
+ *
+ * What that actually cost is narrower than it first looks, and the difference decides
+ * the fix. Measured on the pre-fix component, with a confirmation open:
+ *
+ *   - the panel's *content* subtree was already `aria-hidden="true"` — one wrapper
+ *     below the dialog node — so its controls were NOT reachable. `queryAllByRole
+ *     ('button')` returned only the confirmation's two buttons.
+ *   - the panel's own `role="dialog"` node was not hidden, and still computed a name
+ *     off `onboarding-title` (`aria-labelledby` resolves into hidden subtrees by spec).
+ *
+ * So the defect was an empty second dialog in the a11y tree, not a reachable wizard
+ * underneath the confirmation. That is why the fix is `aria-hidden` on the panel node
+ * rather than re-portalling the confirmations as siblings: Radix already hides the
+ * content, and re-portalling would have given up the focus-return-to-panel behaviour
+ * WIC-1141 nested them for, to fix one attribute on one node. Ruled in
+ * MODAL_FOCUS_MANAGEMENT_SPEC.md §11.
+ *
+ * These assert the a11y tree (`getAllByRole`, which excludes `aria-hidden` subtrees),
+ * not the raw DOM — the panel stays mounted either way, and that is the point.
+ */
+describe('OnboardingModal — nested confirmations hide the panel behind them (WIC-1868)', () => {
+  it('exposes only the warning, not the panel, while the resume-skip warning is open', async () => {
+    mockOnboarding({ currentStep: 3 });
+    renderModal();
+
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: /skip for now/i }));
+
+    const dialogs = screen.getAllByRole('dialog');
+    expect(dialogs).toHaveLength(1);
+    expect(dialogs[0]).toHaveAccessibleName(/continue without a resume\?/i);
+
+    // The panel is hidden, not unmounted — asserting both directions keeps this from
+    // passing if someone "fixes" it by tearing the panel down, which would destroy the
+    // in-flight upload state the nesting exists to preserve.
+    const panel = document.getElementById('onboarding-title')?.closest('[role="dialog"]');
+    expect(panel).not.toBeNull();
+    expect(panel).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  /**
+   * The dismiss confirmation is the measured control: it is pure WIC-1141 code, so a
+   * fix that only reached the WIC-1383 warning would pass the test above and fail here.
+   * It also had no test of any kind before this — deleting its whole `Dialog.Root`
+   * killed zero tests.
+   */
+  it('exposes only the confirmation, not the panel, while the dismiss confirmation is open', async () => {
+    mockOnboarding({ currentStep: 3 });
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /close onboarding/i }));
+
+    const dialogs = screen.getAllByRole('dialog');
+    expect(dialogs).toHaveLength(1);
+    expect(dialogs[0]).toHaveAccessibleName(/save progress and exit\?/i);
+  });
+
+  /**
+   * The half that a static `aria-hidden` would break. If the attribute stuck, the panel
+   * would be unreachable for the rest of the session — a worse bug than the one fixed,
+   * and invisible to both tests above.
+   */
+  it('re-exposes the panel once the confirmation closes', async () => {
+    mockOnboarding({ currentStep: 3 });
+    renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /skip for now/i }));
+    await userEvent.click(screen.getByRole('button', { name: /go back/i }));
+
+    await waitFor(() => {
+      const dialogs = screen.getAllByRole('dialog');
+      expect(dialogs).toHaveLength(1);
+      // Identified by the element it is labelled by rather than by an accessible-name
+      // string: the panel's name is the current step's heading, so pinning it to a
+      // literal here would make this test fail whenever the step copy is edited.
+      expect(dialogs[0]).toContainElement(document.getElementById('onboarding-title'));
+      expect(dialogs[0]).not.toHaveAttribute('aria-hidden');
+    });
+    // And the panel's own controls are reachable again.
+    expect(screen.getByRole('button', { name: /skip for now/i })).toBeInTheDocument();
+  });
+
+  /**
+   * WIC-1868 also measured `dismissFocusRestore` and `outerFocusRestore` as unguarded —
+   * each could be deleted with a fully green suite, where `resumeSkipFocusRestore` was
+   * pinned by WIC-1711. This pins the dismiss binding, the same way and for the same
+   * reason: Radix returns focus to the panel, not to the control that opened the
+   * confirmation, because the ✕ is inside the panel's own content.
+   */
+  it('restores focus to the ✕ when the dismiss confirmation is cancelled', async () => {
+    mockOnboarding({ currentStep: 3 });
+    renderModal();
+
+    const trigger = screen.getByRole('button', { name: /close onboarding/i });
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: /close onboarding/i }))
     );
   });
 });

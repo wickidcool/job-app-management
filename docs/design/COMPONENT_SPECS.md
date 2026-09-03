@@ -310,8 +310,38 @@ Modal form for creating or editing job applications.
 
 ### Variants
 
-- **Create Mode:** Empty form, title "Add New Application"
-- **Edit Mode:** Pre-filled form, title "Edit Application"
+- **Create Mode:** Empty form, title "New application" — ~~"Add New Application"~~
+- **Edit Mode:** Pre-filled form, title "Edit application" — ~~"Edit Application"~~
+
+Re-cased to sentence case 2026-08-29 (WIC-1099) when these strings became headings rather than
+decoration: `CONTENT_STYLE.md` governs heading copy and asks for sentence case. The `Add` was
+dropped because the title now names the screen — the tab label for `/applications/new` is a
+verbatim copy of it (`ROUTE_TITLE_CONVENTION.md` §0.3, §5), and "Add New Application" reads as an
+instruction to the user rather than a name for where they are.
+
+### Heading level
+
+```tsx
+/** Heading level for the dialog title. Default 2. */
+titleLevel?: 1 | 2;
+```
+
+This is the §10 → *Heading level* treatment, and it is the one case in this document where **`1`
+is a legal value** — contrast `EmptyState`, where §10 rules `1` out on the grounds that an empty
+state is never the route. Here the dialog sometimes *is* the route:
+
+- **`2` (default) — `ApplicationDetail`.** The dialog opens over a page that owns the route's
+  `<h1>`. This is the ordinary case and the reason the prop stays optional.
+- **`1` — `ApplicationNew` (`/applications/new`).** The route mounts this form with `open={true}`
+  and never closes it, so the dialog is the entire route. A Radix modal marks every node outside
+  its portal `aria-hidden`, which means the page cannot hold the `<h1>` here: it would be in the
+  DOM and absent from the accessibility tree. The title is the route's only reachable candidate.
+
+**The section heading moves with the title.** "Extended Tracking" sits directly beneath the dialog
+title, so promoting the title alone would run the outline `h1 → h3` — the level skip
+`ROUTE_HEADING_OUTLINE.md` §1.3 forbids, introduced by the fix for a missing heading. Both tags are
+derived from `titleLevel` together for that reason, and `ApplicationNew.test.tsx` asserts the whole
+sequence rather than the presence of an `<h1>`, which is what catches it.
 
 ### Form Fields
 
@@ -485,13 +515,26 @@ interface DashboardStatsProps {
 > in `packages/web/src/types/units.ts`; convert with `toPercent(...)` at the render
 > site.
 
+### Window semantics
+
+`appliedThisWeek` is a **rolling window ending now** — the API counts applications with
+`appliedAt` in the last seven days (`packages/api/src/services/dashboard.service.ts`), not
+applications submitted since the start of the current calendar week. Its tile is therefore
+labelled `Last 7 Days` and not `This Week`.
+
+Per **AC-N12** of the UC-5 spec, every surface rendering a window metric must label the
+window it actually measures; a label the user reads as a calendar period may not be attached
+to a rolling one. The prop name is a legacy of the original calendar-week reading and is kept
+for API-contract compatibility — it is not a statement about the window. The rule is pinned in
+code by `packages/web/src/constants/appliedWindow.ts` and its tests (WIC-1743).
+
 ### Layout
 
 ```
-┌──────────┬──────────┬──────────┬──────────┐
-│   24     │    8     │   33%    │    3     │
-│  Total   │This Week │ Response │In Review │
-└──────────┴──────────┴──────────┴──────────┘
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│     24      │      8      │     33%     │      3      │
+│    Total    │ Last 7 Days │  Response   │  In Review  │
+└─────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
 ### Stat Card Anatomy
@@ -895,7 +938,20 @@ here rather than merely tidy.
   occurrence is the same host at the same depth, one shown at a time, so there is no host
   decision to delegate and both were verified gap-free as they stand. That leaves five:
   `EmptyState` (fixed in WIC-1417), `CoverLetterPreview` and `ApplicationCard` (below), and
-  `PersonalInfoForm` and `ApplicationForm`, which were already correct at both of their depths.
+  `PersonalInfoForm` and ~~`ApplicationForm`, which were~~ `ApplicationForm` — `PersonalInfoForm`
+  was already correct at both of its depths, and **`ApplicationForm` was not** (corrected
+  2026-08-29, WIC-1099; it now takes `titleLevel`, see §3).
+
+  **Why WIC-1563's measurement read `ApplicationForm` as correct, since the method above is the
+  one to trust and it still missed this.** The two depths were compared for a *skip* — does the
+  dialog title sit one level below its host's `<h1>` — and at both sites it did. What no
+  comparison of depths can see is that on `/applications/new` there is no host `<h1>` **and
+  cannot be one**: the form is a Radix modal opened unconditionally, so the page behind it is
+  `aria-hidden` in its entirety. The outline is not too deep there, it is missing its root, and
+  a check for level-skips is satisfied by an outline that never starts. The general point is the
+  one in the bullet above — count where the _heading_ renders — extended one step: also ask
+  whether anything the host renders is **reachable**, because a correct level under an
+  unreachable parent is not a correct outline.
 - **The criterion is where the _heading_ renders, not where the _component_ mounts** (WIC-1563).
   These come apart whenever the heading sits behind a conditional, and `CoverLetterPreview` is
   the worked example in both directions. It mounts at two depths, which reads like a clear case
@@ -2237,12 +2293,16 @@ Short-form message composer for LinkedIn InMail, email subject/body, or other ou
 
 ### Props
 
+> **The composer owns `platform`. A host must not hold a copy of it.** Ruled 2026-08-29 (WIC-1583, commit `9c71079`), after `/outreach/new` shipped two platform pickers — the page's and the composer's — that silently disagreed. `platform` decides the character budget, the warning thresholds and whether a Subject field exists at all, so the control belongs with the fields it governs and there must be exactly one of it on the route. **This spec previously declared `platform` as a prop; that line is struck, not merely edited.** A `platform` prop is what let a host paint a second picker.
+>
+> The remaining props are read on mount only. `initialContext` (renamed from `prefillContext` in the same commit) seeds editable fields the user then owns; the name states the contract. **A host that needs a later change to take effect must remount with a `key` — do not add a resync effect**, which `react-hooks/set-state-in-effect` rejects in this repo (WIC-1612). `OutreachNew` keys on every prop it seeds from.
+
 ```tsx
 interface OutreachComposerProps {
-  platform: 'linkedin' | 'email' | 'twitter';
-  applicationId?: string;
+  // `platform: 'linkedin' | 'email' | 'twitter'` — REMOVED, see the note above.
+  // `applicationId?: string` — never implemented; the route reads it from the query string.
   fitAnalysisId?: string;
-  prefillContext?: {
+  initialContext?: {
     company: string;
     jobTitle: string;
     hiringManager?: string;
@@ -2261,13 +2321,15 @@ interface OutreachMessage {
 
 ### Layout
 
+Two lines below are corrections, not aspiration — the diagram asserted both of them after the code had stopped doing them, which is the failure mode a prose-only amendment leaves behind. The panel carries **no heading of its own**: it is the sole body of `/outreach/new`, whose page `<h1>` already says "Compose Outreach Message", and repeating it here was WIC-1581. And there is **no Twitter DM option** — `OutreachPlatform` is `'linkedin' | 'email'`; the `twitter` entry under "Platform Constraints" below is unimplemented and should be read as a proposal.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Compose Outreach Message                               │
+│  (no panel heading — the page <h1> names the route)      │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
-│  │ Platform                                          │ │
-│  │ ● LinkedIn InMail    ○ Email    ○ Twitter DM      │ │
+│  │ Platform          ← the route's only platform picker│
+│  │ ● LinkedIn InMail    ○ Email                       │ │
 │  └───────────────────────────────────────────────────┘ │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
