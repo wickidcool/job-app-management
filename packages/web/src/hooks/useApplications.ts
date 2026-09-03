@@ -120,23 +120,33 @@ export function useUpdateApplicationStatus() {
       await queryClient.cancelQueries({ queryKey: applicationKeys.lists() });
       await queryClient.cancelQueries({ queryKey: applicationKeys.detail(id) });
 
-      // Snapshot previous values
-      const previousApplications = queryClient.getQueryData<ApplicationCollection>(
-        applicationKeys.lists()
-      );
+      // Snapshot previous values.
+      //
+      // Lists are matched by *prefix*: `lists()` is `['applications', 'list']`,
+      // but a list query registers under `list(filters)` = `[...lists(), filters]`,
+      // and there is one such entry per filter combination the app has rendered.
+      // `getQueryData`/`setQueryData` are exact-match, so reading `lists()` with
+      // them always returned `undefined` and the whole optimistic block below was
+      // dead code (WIC-1497). `getQueriesData`/`setQueriesData` take a filter and
+      // are the prefix-matching pair.
+      const previousLists = queryClient.getQueriesData<ApplicationCollection>({
+        queryKey: applicationKeys.lists(),
+      });
       const previousApplication = queryClient.getQueryData<Application>(applicationKeys.detail(id));
 
-      // Optimistically update to the new value
-      if (previousApplications) {
-        queryClient.setQueryData<ApplicationCollection>(applicationKeys.lists(), {
-          ...previousApplications,
-          applications: previousApplications.applications.map((app) =>
-            app.id === id
-              ? { ...app, status, updatedAt: new Date(), version: app.version + 1 }
-              : app
-          ),
-        });
-      }
+      // Optimistically update every cached list that could be showing this row.
+      queryClient.setQueriesData<ApplicationCollection>(
+        { queryKey: applicationKeys.lists() },
+        (collection) =>
+          collection && {
+            ...collection,
+            applications: collection.applications.map((app) =>
+              app.id === id
+                ? { ...app, status, updatedAt: new Date(), version: app.version + 1 }
+                : app
+            ),
+          }
+      );
 
       if (previousApplication) {
         queryClient.setQueryData<Application>(applicationKeys.detail(id), {
@@ -147,13 +157,15 @@ export function useUpdateApplicationStatus() {
         });
       }
 
-      return { previousApplications, previousApplication };
+      return { previousLists, previousApplication };
     },
     onError: (_err, { id }, context) => {
-      // Rollback on error
-      if (context?.previousApplications) {
-        queryClient.setQueryData(applicationKeys.lists(), context.previousApplications);
-      }
+      // Rollback on error. `previousLists` is one `[queryKey, data]` pair per list
+      // query that was patched, so every one of them is restored — restoring a
+      // single key would leave any other filter showing the failed status.
+      context?.previousLists?.forEach(([queryKey, data]) => {
+        queryClient.setQueryData(queryKey, data);
+      });
       if (context?.previousApplication) {
         queryClient.setQueryData(applicationKeys.detail(id), context.previousApplication);
       }

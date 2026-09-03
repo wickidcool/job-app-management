@@ -6,7 +6,7 @@ import {
   createProjectFile,
   toSlug,
 } from './project.service.js';
-import { ConflictError } from '../types/index.js';
+import { AppError, ConflictError } from '../types/index.js';
 
 export const AccomplishmentSchema = z.object({
   title: z.string().min(1, 'title is required'),
@@ -193,6 +193,19 @@ export async function captureProjectFile(
   overrideFileName?: string,
   userId?: string
 ): Promise<CaptureResult> {
+  // WIC-1434 — capture is a *create* path, and a project cannot be created
+  // without an owner. Without this, the slug resolved globally and returned
+  // another user's row; `createProjectFile` below then rejected the write on
+  // its own ownership guard, so the caller got a 404 for a project the system
+  // had just told itself existed. Fail here, where the reason is legible.
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to capture a project file',
+      undefined,
+      400
+    );
+  }
   await getOrCreateProjectBySlug(slug, data.company, userId);
   const fileName = overrideFileName ?? generateFileName(data.company, data.role);
   const content = generateDialogueMarkdown(data);

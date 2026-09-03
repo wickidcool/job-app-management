@@ -35,8 +35,18 @@ Still the cheapest option if you are willing to scope the existing key.
 | `dashboard:read`  | read back the 3 dashboards                   |
 | `dashboard:write` | create the 3 dashboards and attach tiles     |
 
-Then comment on WIC-1024. Acceptance check is one line — `python3 docs/analytics/build_dashboards.py --dry-run` prints
-`OK  scopes present (read+write)` instead of exiting `2`. The build itself is an idempotent loop.
+Then comment on WIC-1024. Acceptance check is one line, and it writes nothing and runs no queries:
+
+```
+python3 docs/analytics/build_dashboards.py --check-scopes
+```
+
+Exit `0` and `OK  scopes present (read+write)` means the grant landed. Exit `2` names the
+scopes still missing. The build itself is a separate, idempotent run (no flag).
+
+> Do **not** use `--dry-run` as the acceptance check. It passes `need_write=False`, so it
+> never probes `insights/` or `dashboards/`: it prints `OK  scopes present (read)` and exits
+> `0` whether or not the grant landed, and so cannot verify one (WIC-1547).
 
 **Route 1 applies the synthetic exclusion for you** (WIC-1667). The builder derives the
 predicate from `probe-registry.json` on every run and injects it into all 17 queries
@@ -60,12 +70,25 @@ deliverable. Say so on WIC-1024 and take Route 2.
 3. Paste the **first array element** of `dashboard-templates.json` (Dashboard A). Create.
 4. Repeat for elements 2 (Dashboard B) and 3 (Dashboard C).
 
-> **Route 2 carries NO synthetic exclusion, and that is deliberate.** The committed JSON is
-> unfiltered on purpose: baking today's registry into an artifact a human imports would ship a
-> snapshot that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription
-> bug one layer down, in the file that is hardest to notice. So an imported dashboard counts
-> probe residue as product usage until you apply the exclusion by hand, exactly as Route 3
-> does. See **Before you paste anything** below; it applies to Routes 2 and 3 alike.
+> **The committed `dashboard-templates.json` carries NO synthetic exclusion, and that is
+> deliberate.** Baking today's registry into an artifact a human imports would ship a snapshot
+> that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription bug one
+> layer down, in the file that is hardest to notice — and it would stop the committed pack from
+> proving it was built against probe data. So the committed file counts probe residue as product
+> usage until you filter it.
+>
+> **On build day, regenerate a filtered pack instead of importing the committed one** (WIC-1664):
+>
+> ```bash
+> python3 docs/analytics/make_console_pack.py --exclude-synthetic --out-dir /tmp/console-pack
+> ```
+>
+> Import the three dashboards from `/tmp/console-pack/dashboard-templates.json`, whose every tile
+> already carries the `NOT (...)` predicate derived from `probe-registry.json` at generation
+> time — the same rewriter Route 1 uses (`build_dashboards.py`), so there is nothing to
+> hand-transcribe. The command **refuses to write into `docs/analytics/`**, so a filtered pack
+> can never be committed. See **Before you paste anything** below; it applies to Routes 2 and 3
+> alike.
 
 > **Caveat, stated honestly:** I cannot exercise the console to confirm the exact wording or
 > presence of the JSON-import affordance on your PostHog version — my key is 403 on every
