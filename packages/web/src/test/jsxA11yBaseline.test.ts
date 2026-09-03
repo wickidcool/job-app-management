@@ -93,7 +93,7 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
     'click-events-have-key-events': 1,
     'no-noninteractive-element-interactions': 1,
   },
-  'src/components/OutreachComposer.tsx': { 'label-has-associated-control': 5 },
+  'src/components/OutreachComposer.tsx': { 'label-has-associated-control': 1 },
   'src/components/ResumeUpload.tsx': {
     'click-events-have-key-events': 1,
     'no-noninteractive-element-interactions': 1,
@@ -113,7 +113,6 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
     'no-autofocus': 1,
   },
   'src/components/wizard/WizardStep.tsx': { 'no-noninteractive-element-interactions': 1 },
-  'src/pages/OutreachNew.tsx': { 'label-has-associated-control': 1 },
   'src/pages/ProjectFileEditor.tsx': { 'label-has-associated-control': 2 },
   'src/pages/ProjectsList.tsx': { 'label-has-associated-control': 2, 'no-autofocus': 1 },
   'src/pages/ReportsClosedLoop.tsx': {

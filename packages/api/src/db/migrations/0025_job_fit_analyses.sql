@@ -1,4 +1,4 @@
--- Migration: 0022_job_fit_analyses.sql
+-- Migration: 0025_job_fit_analyses.sql
 -- Create the `job_fit_analyses` table and turn the four `job_fit_analysis_id`
 -- columns into real foreign keys (WIC-1652, ADR-012).
 --
