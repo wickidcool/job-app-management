@@ -3,10 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useReportsStale } from '../hooks/useReports';
 import { StatusBadge } from '../components/StatusBadge';
 import type { ApplicationStatus } from '../types/application';
+import { DEFAULT_STALE_THRESHOLD_DAYS, STALE_THRESHOLD_OPTIONS } from '../constants/stale';
 
 export function ReportsStale() {
   const navigate = useNavigate();
-  const [staleThreshold, setStaleThreshold] = useState(14);
+  // Not a literal: the dashboard links here promising a count computed at the
+  // server's default window, so the report has to open on that same window or
+  // the two disagree on arrival (WIC-1479 AC-N2b).
+  const [staleThreshold, setStaleThreshold] = useState<number>(DEFAULT_STALE_THRESHOLD_DAYS);
 
   const { data, isLoading, isError, error } = useReportsStale({ days: staleThreshold });
 
@@ -51,10 +55,11 @@ export function ReportsStale() {
             onChange={(e) => setStaleThreshold(Number(e.target.value))}
             className="rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value={7}>7 days</option>
-            <option value={14}>14 days</option>
-            <option value={21}>21 days</option>
-            <option value={30}>30 days</option>
+            {STALE_THRESHOLD_OPTIONS.map((days) => (
+              <option key={days} value={days}>
+                {days} days
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -87,7 +92,7 @@ export function ReportsStale() {
       {applications.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 bg-white p-8 text-center">
           <div className="text-4xl mb-4">✅</div>
-          <h3 className="text-lg font-semibold text-neutral-900">No stale applications found</h3>
+          <h2 className="text-lg font-semibold text-neutral-900">No stale applications found</h2>
           <p className="mt-2 text-sm text-neutral-600">
             All your applications have been updated within {staleThreshold} days. Your pipeline is
             active!
@@ -109,9 +114,9 @@ export function ReportsStale() {
                     </span>
                     <StatusBadge status={app.status as ApplicationStatus} />
                   </div>
-                  <h3 className="text-lg font-semibold text-neutral-900">
+                  <h2 className="text-lg font-semibold text-neutral-900">
                     {app.jobTitle} @ {app.company}
-                  </h3>
+                  </h2>
                   {app.contact && (
                     <p className="mt-1 text-sm text-neutral-600">
                       <span className="font-medium">Contact:</span> {app.contact}

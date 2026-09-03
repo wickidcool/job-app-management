@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useAuth } from '../contexts/AuthContext';
+import { useRouteUnmatched } from '../contexts/RouteMatchContext';
 
 interface NavTab {
   label: string;
@@ -23,6 +24,7 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+  const unmatched = useRouteUnmatched();
 
   const handleSignOut = async () => {
     await signOut();
@@ -61,7 +63,17 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
 
   const settingsTab: NavTab = { label: 'Settings', path: '/settings' };
 
+  // A path that matched no route is not "inside" any tab, however its prefix reads.
+  // Without this, `/reports/pipelin` lights up Reports and — via `aria-current` below
+  // — tells a screen-reader user they are on the Reports page at the same moment the
+  // focused heading tells them the page was not found (WIC-1053).
+  //
+  // The prefix match itself has to stay: `/applications/new` and `/applications/:id`
+  // are real routes that should keep the Applications tab highlighted.
   const isActive = (path: string) => {
+    if (unmatched) {
+      return false;
+    }
     if (path === '/') {
       return location.pathname === '/';
     }

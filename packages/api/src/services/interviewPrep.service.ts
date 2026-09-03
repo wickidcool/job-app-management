@@ -1,4 +1,5 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
@@ -19,6 +20,58 @@ import {
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { AppError, NotFoundError } from '../types/index.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
+import { clampPercent, type Percent } from '../types/units.js';
+
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+/**
+ * Owner predicate for any table this service reads (WIC-1601) — mirror of the
+ * one in `resume-variant.service.ts`, and the same two failure modes:
+ *
+ * 1. *No owner term at all.* Every read of `applications` here was keyed on an
+ *    id alone. In `generateInterviewPrep` that id is caller-supplied, and the
+ *    `jobTitle`/`company` it resolves go straight into the LLM prompt and into
+ *    the prep the caller then owns and can read back — content disclosure, not
+ *    merely existence. The `interview_preps` uniqueness probe in the same
+ *    function answered `409` with the *foreign* prep's id in `details`.
+ *    RLS does not backstop any of it: the Worker is not the `authenticated`
+ *    role and never sets a JWT claim, so `auth.uid()` is NULL.
+ *
+ * 2. *The absent-caller fail-open* — `userId ? and(idTerm, ownerTerm) : idTerm`
+ *    read the whole table for a caller without a `sub` claim (WIC-1482 /
+ *    WIC-1500). Anonymous now means the rows nobody owns, not every row.
+ *
+ * `interview_preps.user_id` and `applications.user_id` are both nullable and
+ * both insert paths write `userId ?? null`, so `IS NULL` selects genuine
+ * anonymous rows and the ADR-003 local-dev bypass keeps working.
+ *
+ * `quantified_bullets` is the exception and the case WIC-1449 landed a dedicated
+ * `bulletOwnerScope` for. That helper is gone — it was this function with the
+ * table pre-applied, and one predicate with one name is the point. Unscoped,
+ * that read copies another user's `rawText` into the generated STAR stories and
+ * persists them to `interview_prep_stories`. Its `user_id` is `.notNull()` since
+ * `0017_enforce_userid_not_null.sql`, so `IS NULL` matches **no rows** and an
+ * anonymous caller reaches an empty catalog and this service raises
+ * `CATALOG_EMPTY`. Failing closed is the intent.
+ *
+ * `userId` stays optional here and the fallback stays with it (WIC-1764). WIC-1638
+ * made the owner *required* on the bullet-catalog path and deleted the equivalent
+ * branch from the `bulletOwnerScope` this replaced — but that helper served one
+ * `.notNull()` table, and this one also serves `applications` and `interview_preps`,
+ * which are nullable and whose insert paths write `userId ?? null`. Requiring the
+ * owner here would break the ADR-003 local-dev anonymous path and the entry points
+ * in this file that still take `userId?: string`.
+ *
+ * WIC-1638's guarantee is therefore carried where it holds without that cost:
+ * `requireOwner(c)` rejects an absent owner at the route edge with `401
+ * OWNER_REQUIRED`, and `generateInterviewPrep` takes `userId: string`. The
+ * `IS NULL` branch is unreachable from that path, and fail-closed on this table
+ * regardless. Do not "finish the job" by making `userId` required here.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
 
 // ── Error classes ─────────────────────────────────────────────────────────────
 
@@ -35,7 +88,13 @@ export interface PrepStoryDTO {
   id: string;
   starEntryId: string;
   themes: string[];
-  relevanceScore: number;
+  /**
+   * Percent in `[0, 100]`, integer — the one ADR-008 §4 deviation from the
+   * ratio convention. The `Pct` suffix is the contract; the brand is checked
+   * on assignment only, so the `[0, 100]` bound and the `/100` export string
+   * are pinned by tests, not by this type (WIC-1520, ADR-008 §3).
+   */
+  relevanceScorePct: Percent;
   oneMinVersion: string;
   twoMinVersion: string;
   fiveMinVersion: string;
@@ -187,7 +246,9 @@ function storyRowToDTO(row: InterviewPrepStory): PrepStoryDTO {
     id: row.id,
     starEntryId: row.starEntryId,
     themes: (row.themes ?? []) as string[],
-    relevanceScore: row.relevanceScore,
+    // Persisted already-clamped on the write path; re-clamp so a row written
+    // before the bound existed cannot escape onto the wire.
+    relevanceScorePct: clampPercent(row.relevanceScorePct),
     oneMinVersion: row.oneMinVersion,
     twoMinVersion: row.twoMinVersion,
     fiveMinVersion: row.fiveMinVersion,
@@ -243,7 +304,7 @@ async function generatePrepWithAI(
   stories: Array<{
     starEntryId: string;
     themes: string[];
-    relevanceScore: number;
+    relevanceScorePct: number;
     oneMinVersion: string;
     twoMinVersion: string;
     fiveMinVersion: string;
@@ -275,7 +336,7 @@ Generate comprehensive interview prep materials in JSON format with exactly this
     {
       "starEntryId": "<ID from the [ID:...] prefix above>",
       "themes": ["<theme1>", "<theme2>"],
-      "relevanceScore": <0-100 integer>,
+      "relevanceScorePct": <0-100 integer>,
       "oneMinVersion": "<~100 word concise summary of this achievement>",
       "twoMinVersion": "<~200 word moderate-length version>",
       "fiveMinVersion": "<~400 word full STAR story version>"
@@ -357,7 +418,7 @@ Rules:
     stories: Array<{
       starEntryId: string;
       themes: string[];
-      relevanceScore: number;
+      relevanceScorePct: number;
       oneMinVersion: string;
       twoMinVersion: string;
       fiveMinVersion: string;
@@ -382,7 +443,7 @@ Rules:
 
 export async function generateInterviewPrep(
   input: GenerateInterviewPrepInput,
-  userId?: string
+  userId: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
   storiesGenerated: number;
@@ -391,12 +452,18 @@ export async function generateInterviewPrep(
   catalogEntriesUsed: number;
   warnings: Array<{ code: string; message: string }>;
 }> {
+  // Resolved at the top, ahead of the application read: a malformed field in
+  // the request is a boundary rejection, and doing it here also keeps the
+  // NO_FIT_ANALYSIS decision below tied to a resolved row rather than to a
+  // non-empty string (WIC-1818 AC-5a/AC-5c).
+  const analysis = await resolveJobFitAnalysis(input.jobFitAnalysisId, userId);
+
   const db = getDb();
 
   const [app] = await db
     .select({ id: applications.id, jobTitle: applications.jobTitle, company: applications.company })
     .from(applications)
-    .where(eq(applications.id, input.applicationId))
+    .where(and(eq(applications.id, input.applicationId), ownerScope(applications, userId)))
     .limit(1);
 
   if (!app) {
@@ -411,7 +478,9 @@ export async function generateInterviewPrep(
   const [existing] = await db
     .select({ id: interviewPreps.id })
     .from(interviewPreps)
-    .where(eq(interviewPreps.applicationId, input.applicationId))
+    .where(
+      and(eq(interviewPreps.applicationId, input.applicationId), ownerScope(interviewPreps, userId))
+    )
     .limit(1);
 
   if (existing) {
@@ -430,10 +499,13 @@ export async function generateInterviewPrep(
       impactCategory: quantifiedBullets.impactCategory,
     })
     .from(quantifiedBullets)
+    .where(ownerScope(quantifiedBullets, userId))
     .limit(200);
 
   const warnings: Array<{ code: string; message: string }> = [];
 
+  // Evaluated over the caller's catalog — the UC-7 counterpart of UC-6's
+  // CATALOG_EMPTY, likewise unreachable while the read was global.
   if (allBullets.length === 0) {
     throw new InterviewPrepError(
       'CATALOG_EMPTY',
@@ -449,7 +521,10 @@ export async function generateInterviewPrep(
       message: 'Fewer than 5 STAR entries in catalog',
     });
   }
-  if (!input.jobFitAnalysisId) {
+  // Was `if (!input.jobFitAnalysisId)`, so any non-empty string silenced a
+  // warning about the quality of the output while nothing ever read an
+  // analysis. Keyed on the resolved row now (WIC-1818 AC-5c).
+  if (!analysis) {
     warnings.push({
       code: 'NO_FIT_ANALYSIS',
       message: 'Generated without job fit analysis (gaps may be incomplete)',
@@ -482,7 +557,9 @@ export async function generateInterviewPrep(
     id: prepId,
     userId: userId ?? null,
     applicationId: input.applicationId,
-    jobFitAnalysisId: input.jobFitAnalysisId ?? null,
+    // The resolved analysis, never the raw request field — an id that does not
+    // resolve must not reach the column (WIC-1818 AC-5a).
+    jobFitAnalysisId: analysis?.id ?? null,
     interviewType,
     timeAvailable,
     focusAreas,
@@ -503,7 +580,9 @@ export async function generateInterviewPrep(
     interviewPrepId: prepId,
     starEntryId: s.starEntryId,
     themes: s.themes,
-    relevanceScore: Math.min(100, Math.max(0, s.relevanceScore)),
+    // Bounds the LLM's `<0-100 integer>` to ADR-008's percent range. Pinned by
+    // test — the `Percent` brand is erased by arithmetic and cannot enforce it.
+    relevanceScorePct: clampPercent(s.relevanceScorePct),
     oneMinVersion: s.oneMinVersion,
     twoMinVersion: s.twoMinVersion,
     fiveMinVersion: s.fiveMinVersion,
@@ -575,9 +654,7 @@ export async function getInterviewPrep(
 }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -598,7 +675,7 @@ export async function getInterviewPrep(
       status: applications.status,
     })
     .from(applications)
-    .where(eq(applications.id, prep.applicationId))
+    .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
     .limit(1);
 
   return {
@@ -622,9 +699,10 @@ export async function getInterviewPrepByApplication(
 }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.applicationId, applicationId), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.applicationId, applicationId);
+  const whereClause = and(
+    eq(interviewPreps.applicationId, applicationId),
+    ownerScope(interviewPreps, userId)
+  );
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -644,9 +722,7 @@ export async function updateInterviewPrep(
 ): Promise<{ interviewPrep: InterviewPrepDTO; completenessChange: number }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -792,9 +868,7 @@ export async function logPracticeSession(
 }> {
   const db = getDb();
 
-  const prepWhereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const prepWhereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(prepWhereClause).limit(1);
 
@@ -956,9 +1030,7 @@ export async function exportInterviewPrep(
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db.select().from(interviewPreps).where(whereClause).limit(1);
 
@@ -974,7 +1046,7 @@ export async function exportInterviewPrep(
   const [app] = await db
     .select({ jobTitle: applications.jobTitle, company: applications.company })
     .from(applications)
-    .where(eq(applications.id, prep.applicationId))
+    .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
     .limit(1);
 
   const company = app?.company ?? 'company';
@@ -999,7 +1071,9 @@ export async function exportInterviewPrep(
     lines.push('');
     for (const story of storyDTOs) {
       lines.push(`### Story (Themes: ${story.themes.join(', ')})`);
-      lines.push(`**Relevance Score:** ${story.relevanceScore}/100`);
+      // `/100` because this population is a percent, not a ratio (ADR-008 §4).
+      // Pinned by test; the brand does not survive template interpolation.
+      lines.push(`**Relevance Score:** ${story.relevanceScorePct}/100`);
       lines.push('');
       lines.push('**1-min version:**');
       lines.push(story.oneMinVersion);
@@ -1142,9 +1216,7 @@ function markdownToHtml(md: string): string {
 export async function deleteInterviewPrep(id: string, userId?: string): Promise<void> {
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId))
-    : eq(interviewPreps.id, id);
+  const whereClause = and(eq(interviewPreps.id, id), ownerScope(interviewPreps, userId));
 
   const [prep] = await db
     .select({ id: interviewPreps.id })
