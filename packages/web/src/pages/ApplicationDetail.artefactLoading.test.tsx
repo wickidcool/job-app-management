@@ -7,12 +7,14 @@ import { useApplication } from '../hooks/useApplications';
 import { useCoverLetters } from '../hooks/useCoverLetters';
 import { useResumeVariants } from '../hooks/useResumeVariants';
 import { useInterviewPrepByApplication } from '../hooks/useInterviewPrep';
+import { useJobFitAnalyses } from '../hooks/useJobFitAnalysis';
 import type { Application } from '../types/application';
 
 vi.mock('../hooks/useApplications');
 vi.mock('../hooks/useCoverLetters');
 vi.mock('../hooks/useResumeVariants');
 vi.mock('../hooks/useInterviewPrep');
+vi.mock('../hooks/useJobFitAnalysis');
 
 /**
  * WIC-1630 — the three artefact steps state a false negative as fact while
@@ -129,6 +131,14 @@ function renderDetail(phase: Phase) {
     data: loading ? undefined : null,
     isLoading: loading,
   } as unknown as ReturnType<typeof useInterviewPrepByApplication>);
+
+  // Job Fit Analysis is this file's negative control (WIC-1652 is backed by
+  // no query at all), so it is held settled and empty in both phases — the
+  // whole point is that it must render identically while the other three load.
+  vi.mocked(useJobFitAnalyses).mockReturnValue({
+    data: { analyses: [] },
+    isLoading: false,
+  } as unknown as ReturnType<typeof useJobFitAnalyses>);
 
   return render(
     <MemoryRouter initialEntries={['/applications/app_1']}>

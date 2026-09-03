@@ -168,6 +168,7 @@ The interview-prep population is the one that deviates from ADR-008 §1: it is a
 - **Job Fit Analysis is untouched and stays identical throughout.** It is backed by no query (WIC-1652), so it is never unknown; the acceptance suite pins that as its negative control, and a fix keyed off a page-wide loading flag would red it.
 - **Turns the 10 RED cases in the entry above green** — 12/12 in `ApplicationDetail.artefactLoading.test.tsx`, **141 passed** across the web suite, `tsc -b --force` and lint clean, with no regression to the 13 cases in `ApplicationDetail.workflowChecklist.test.tsx`. Controls run against the committed fix: restoring the row-count denominator reds exactly the two AC-3 cases; restoring the cover-letter generator link during the unknown window reds the AC-1 link case and the AC-2 agreement case; the unmodified tree is green again after both.
 - **Web only** — no API, schema or wire change.
+- **Resynced against the Job Fit Analysis entry below, which merged to `main` after this file was written.** `ApplicationDetail` now also calls `useJobFitAnalyses`, and `ApplicationDetail.artefactLoading.test.tsx` mocked every other hook the page calls but not that one, so every case in the file threw `No QueryClient set` rather than exercising the tri-state fix. Mocked it the same way `ApplicationDetail.workflowChecklist.test.tsx` does — settled and empty in both phases, consistent with Job Fit Analysis being this file's negative control.
 
 ### Fixed — the Job Fit Analysis step ticks, and unlocks the two steps after it (2026-08-30)
 
