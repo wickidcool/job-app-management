@@ -319,13 +319,23 @@ export const catalogChangeLog = pgTable('catalog_change_log', {
 
 export const catalogDiffs = pgTable('catalog_diffs', {
   id: text('id').primaryKey(),
-  userId: uuid('user_id'),
+  // NOT NULL as of 0023. Migration 0017 backfilled this column (step 1) but was
+  // the one table of the seven left out of `SET NOT NULL` (step 2), so the type
+  // said "nullable" while every reader scoped with `eq(user_id, caller)` — a
+  // predicate no NULL row can satisfy (WIC-1604).
+  userId: uuid('user_id').notNull(),
   triggerSource: text('trigger_source').notNull(),
   triggerId: text('trigger_id').notNull(),
   summary: text('summary').notNull(),
   changes: jsonb('changes').$type<DiffChange[]>().notNull(),
   pendingReview: jsonb('pending_review').$type<ReviewItem[]>().notNull().default([]),
   status: diffStatusEnum('status').notNull().default('pending'),
+  // How many `pendingReview` items still have no user decision. Tracked apart from
+  // `status` because the two are independent on the resume auto-apply path: the
+  // changes are applied (`approved`) AND an ambiguity is outstanding, and one enum
+  // cannot say both. `listDiffs` defaults to `pending OR openReviewCount > 0`, so
+  // this is what keeps a raised ambiguity reachable (WIC-1428).
+  openReviewCount: integer('open_review_count').notNull().default(0),
   userDecisions: jsonb('user_decisions'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -705,7 +715,7 @@ export const interviewPrepStories = pgTable('interview_prep_stories', {
     .references(() => interviewPreps.id, { onDelete: 'cascade' }),
   starEntryId: text('star_entry_id').notNull(),
   themes: jsonb('themes').$type<string[]>().notNull().default([]),
-  relevanceScore: integer('relevance_score').notNull(),
+  relevanceScorePct: integer('relevance_score_pct').notNull(),
   oneMinVersion: text('one_min_version').notNull(),
   twoMinVersion: text('two_min_version').notNull(),
   fiveMinVersion: text('five_min_version').notNull(),

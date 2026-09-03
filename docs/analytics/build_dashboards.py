@@ -8,24 +8,57 @@ Turns `docs/analytics/dashboard-spec.md` v1.0 into live PostHog objects: 3 dashb
 Idempotent: dashboards and insights are matched by exact name, so a re-run updates
 in place rather than creating duplicates. Safe to run repeatedly.
 
+Every query is filtered against `probe-registry.json` at build time (WIC-1667) -- see
+"Synthetic exclusion" below. The committed payloads stay unfiltered; the filter is
+applied in memory on the way out.
+
 Usage
 -----
     export POSTHOG_PERSONAL_API_KEY=phx_...
-    python3 docs/analytics/build_dashboards.py --dry-run   # validate only, no writes
-    python3 docs/analytics/build_dashboards.py             # create/update for real
+    python3 docs/analytics/build_dashboards.py --check-scopes  # is the grant in place?
+    python3 docs/analytics/build_dashboards.py --dry-run       # validate only, no writes
+    python3 docs/analytics/build_dashboards.py                 # create/update for real
 
 --dry-run needs only read scope (`query:read`) and re-executes every query node
 against the live project -- HogQL tables and the native FunnelsQuery/RetentionQuery
 insights alike -- so it proves the payloads before anything is written.
 The real run additionally needs `insight:read`, `insight:write`, `dashboard:read`,
 `dashboard:write` on project 551963.
+
+--check-scopes probes for exactly those four and exits (0 granted / 2 missing) without
+running a query or writing anything. Use it -- not --dry-run -- to verify a scope grant:
+--dry-run reports "scopes present (read)" and exits 0 even with no insight/dashboard
+scope at all, because it never probes those endpoints.
+
+Synthetic exclusion (WIC-1667)
+------------------------------
+Project 551963 holds permanent probe residue, so a tile built from the raw payloads
+reads synthetic traffic as product usage. Route 3 of the console runbook handles this
+by having a human paste `AND NOT ( <SYNTHETIC_PREDICATE> )` into all 17 queries; this
+builder is Route 1, and nobody is pasting anything, so it does it itself:
+
+  * the predicate is **derived** from `probe-registry.json` on every run, by importing
+    the derivation `organic_watch.py` already owns -- never transcribed, so a probe
+    registered tomorrow is excluded by tomorrow's build with no code edit;
+  * `insight-payloads.json` and `dashboard-templates.json` stay unfiltered on disk.
+    Baking a registry snapshot into a committed artifact is the WIC-1389/WIC-1392 bug
+    one layer down, in the file that is hardest to notice;
+  * injection is **fail-closed**. A payload whose shape this cannot filter aborts the
+    build. Shipping one silently-unfiltered tile is the whole failure mode, and it is
+    invisible afterwards -- the dashboard renders, and the numbers look plausible.
+
+`--no-exclusion` reproduces the pre-WIC-1667 unfiltered build. It exists so the
+difference stays measurable (`--dry-run` with and without it is the A/B); it is not a
+build option, and it says so loudly on stderr.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -83,6 +116,247 @@ class PostHog:
 def fail(msg: str) -> None:
     print(f"FAIL  {msg}", file=sys.stderr)
     sys.exit(1)
+
+
+# --------------------------------------------------------------------------------------
+# Synthetic exclusion (WIC-1667)
+# --------------------------------------------------------------------------------------
+
+# Word tokens and the clause keywords that can terminate a WHERE condition inside its own
+# scope. `AND`/`OR`/`NOT` are deliberately absent -- they continue the condition.
+_SQL_WORD = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
+_WHERE_END = frozenset(
+    {"GROUP", "ORDER", "LIMIT", "HAVING", "WINDOW", "OFFSET", "UNION", "SETTINGS", "FORMAT"}
+)
+
+
+def synthetic_predicate() -> tuple[str, str, dict[str, int]]:
+    """Derive the HogQL synthetic-actor predicate from the committed probe registry.
+
+    Imports `organic_watch.py` rather than reimplementing it. That module already owns
+    registry discovery, the probes[]-vs-exclusion_keys drift audit and the predicate
+    construction; a second copy here would be exactly the hand-transcription this ticket
+    exists to remove.
+
+    Returns (predicate, registry_path, key_counts). Any registry problem is fatal: every
+    one of them means "some known probe is NOT excluded", which is the silent-wrong-number
+    outcome this whole mechanism is for.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import organic_watch
+    except ImportError as exc:  # pragma: no cover - only if the file is deleted
+        fail(f"cannot import organic_watch.py for the exclusion predicate ({exc})")
+
+    registry, source, problems = organic_watch.load_registry()
+    if registry is None:
+        fail(
+            "no probe-registry.json found, so no synthetic exclusion can be derived: "
+            + "; ".join(problems)
+        )
+    distinct_ids, event_uuids, session_ids, key_problems = organic_watch.registry_keys(registry)
+    problems = problems + key_problems
+    if problems:
+        print("FAIL  probe-registry.json is inconsistent; refusing to build:", file=sys.stderr)
+        for problem in problems:
+            print(f"        - {problem}", file=sys.stderr)
+        print(
+            f"\n      Every line above is a probe that would NOT be excluded. Fix {source}\n"
+            "      (the probes[] entry and exclusion_keys must agree) and re-run.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # `build_predicates` also returns an `organic` form; that one carries organic_watch's
+    # BASELINE timestamp cutoff, which is a watcher concern. A dashboard must not silently
+    # inherit a "nothing before 2026-08-19" filter, so only the synthetic half is used.
+    synthetic, _organic = organic_watch.build_predicates(distinct_ids, event_uuids, session_ids)
+    counts = {
+        "distinct_ids": len(distinct_ids),
+        "event_uuids": len(event_uuids),
+        "session_ids": len(session_ids),
+    }
+    return synthetic, source, counts
+
+
+def _sql_tokens(sql: str):
+    """Yield (start, end, token, depth) for word and parenthesis tokens outside literals.
+
+    `token` is an upper-cased word, or "(" / ")". Depth is the nesting level of the scope
+    the token sits in, so a ")" reports the depth of the scope it closes. String literals
+    are skipped whole -- an event name like 'resume_upload_completed' must never be read
+    as a keyword.
+
+    Comments are skipped whole for the same reason (WIC-1664). A `)` inside `/* ... */`
+    used to decrement `depth`, which desyncs every scope after it and lands the injected
+    predicate *inside* the comment -- where it is silently discarded while this function
+    still reports a filtered site. That is the silent-unfiltered-tile outcome the whole
+    mechanism exists to prevent, so comments are masked rather than parsed.
+    """
+    depth = 0
+    i = 0
+    n = len(sql)
+    while i < n:
+        char = sql[i]
+        if sql.startswith("--", i):
+            newline = sql.find("\n", i)
+            i = n if newline == -1 else newline
+            continue
+        if sql.startswith("/*", i):
+            close = sql.find("*/", i + 2)
+            # An unterminated block comment is never valid input, and swallowing it to
+            # end-of-string reproduces the silent-unfilter signature: the WHERE body reads
+            # to EOF, the predicate lands inside the never-closed comment, and the emitted
+            # SQL is unbalanced but inject_hogql still reports one filtered site. Fail
+            # closed rather than emit a wrong-but-plausible tile (WIC-1844).
+            if close == -1:
+                fail("unterminated block comment (`/*` with no `*/`) in a query being filtered")
+            i = close + 2
+            continue
+        if char in "'\"":
+            quote = char
+            i += 1
+            while i < n:
+                if sql[i] == "\\":
+                    i += 2
+                    continue
+                if sql[i] == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if char == "(":
+            depth += 1
+            yield i, i + 1, "(", depth
+            i += 1
+            continue
+        if char == ")":
+            yield i, i + 1, ")", depth
+            depth -= 1
+            i += 1
+            continue
+        match = _SQL_WORD.match(sql, i)
+        if match:
+            yield match.start(), match.end(), match.group(0).upper(), depth
+            i = match.end()
+            continue
+        i += 1
+
+
+def inject_hogql(sql: str, predicate: str) -> tuple[str, int]:
+    """Add `AND NOT (<predicate>)` to the WHERE of every scope that scans `FROM events`.
+
+    Scope-aware on purpose. `FROM (SELECT ... FROM events WHERE ...)` puts the only real
+    events scan inside a subquery (C1's HogQL variant and C3 both do this), and the outer
+    query has no WHERE at all -- so "insert after the first WHERE" would filter the wrong
+    scope, or nothing. Scopes that read a derived table are skipped: `distinct_id` and
+    `uuid` do not exist there.
+
+    The existing condition is wrapped in parentheses before the `AND` is appended, so a
+    top-level `OR` cannot silently rebind (`a OR b AND NOT p` is not what we mean).
+
+    Returns (sql, sites_filtered).
+    """
+    tokens = list(_sql_tokens(sql))
+    edits: list[tuple[int, int, str]] = []
+
+    for index, (_start, _end, token, depth) in enumerate(tokens):
+        if token != "FROM" or index + 1 >= len(tokens):
+            continue
+        next_start, next_end, next_token, next_depth = tokens[index + 1]
+        if next_token != "EVENTS" or next_depth != depth:
+            continue  # a derived table or a different source; not ours to filter
+
+        where = None
+        for j in range(index + 2, len(tokens)):
+            _js, _je, jtoken, jdepth = tokens[j]
+            if jdepth < depth or (jtoken == ")" and jdepth == depth):
+                break  # scope closed without a WHERE
+            if jdepth != depth:
+                continue
+            if jtoken == "WHERE":
+                where = j
+                break
+            if jtoken in _WHERE_END or jtoken == "FROM":
+                break
+
+        if where is None:
+            # `FROM events` with no WHERE in scope: the predicate becomes the whole clause.
+            edits.append((next_end, next_end, f"\nWHERE NOT ({predicate})"))
+            continue
+
+        cond_start = tokens[where][1]
+        cond_end = len(sql)
+        cond_tokens = 0
+        for j in range(where + 1, len(tokens)):
+            js, _je, jtoken, jdepth = tokens[j]
+            if jtoken == ")" and jdepth == depth:
+                cond_end = js
+                break
+            if jdepth == depth and jtoken in _WHERE_END:
+                cond_end = js
+                break
+            cond_tokens += 1
+        condition = sql[cond_start:cond_end].strip()
+        # `condition` is the raw substring, so a body that is only a comment (`WHERE
+        # -- all`) is a non-empty string yet carries no real tokens -- it would wrap to
+        # `WHERE ()`, empty parens and invalid SQL. Masking comments is exactly what
+        # `_sql_tokens` already did, so count what it yielded rather than trusting the
+        # substring's truthiness, which the old `if not condition` guard did (WIC-1844).
+        if not condition or cond_tokens == 0:
+            fail("empty WHERE condition (only whitespace or comments) while injecting the synthetic exclusion")
+        # The closing paren goes on its own line, not straight after `condition`. A WHERE
+        # body ending in a `-- ...` comment would otherwise swallow it, leaving the paren
+        # commented out and the SQL unbalanced (WIC-1664).
+        edits.append((cond_start, cond_end, f" (\n{condition}\n)\n  AND NOT ({predicate})\n"))
+
+    for start, end, text in reversed(edits):  # right-to-left keeps earlier offsets valid
+        sql = sql[:start] + text + sql[end:]
+    return sql, len(edits)
+
+
+def inject_native(source: dict, predicate: str) -> int:
+    """Attach the exclusion to a native FunnelsQuery / RetentionQuery as a HogQL filter.
+
+    Native insight nodes carry no SQL to edit. PostHog's `hogql` property filter takes an
+    arbitrary boolean expression over the event row, which is exactly what the predicate
+    is, so the same derived string filters both query families.
+    """
+    existing = source.get("properties") or []
+    if not isinstance(existing, list):
+        # A PropertyGroupFilter (dict) would need different merge semantics; no payload
+        # uses one, and guessing here would silently drop the exclusion.
+        fail(
+            f"{source.get('kind')} carries a non-list `properties` filter, which this "
+            "builder cannot safely extend with the synthetic exclusion"
+        )
+    source["properties"] = list(existing) + [{"type": "hogql", "key": f"NOT ({predicate})"}]
+    return 1
+
+
+def apply_exclusion(payload: dict, predicate: str) -> int:
+    """Filter one payload in place. Returns the number of sites filtered; 0 aborts."""
+    source = payload["query"].get("source", payload["query"])
+    kind = source.get("kind")
+
+    if "query" in source:  # HogQLQuery -- edit the SQL
+        filtered, sites = inject_hogql(source["query"], predicate)
+        if sites == 0:
+            fail(
+                f"{payload['_key']}: found no `FROM events` scan to filter, so the tile "
+                "would ship counting probe residue. Refusing to build it."
+            )
+        source["query"] = filtered
+        return sites
+
+    if kind in ("FunnelsQuery", "RetentionQuery", "TrendsQuery", "StickinessQuery", "PathsQuery"):
+        return inject_native(source, predicate)
+
+    fail(
+        f"{payload['_key']}: query kind {kind!r} has no known synthetic-exclusion route. "
+        "Add one before building this tile (WIC-1667) -- do not ship it unfiltered."
+    )
+    return 0  # unreachable; keeps the type checker honest
 
 
 def preflight(ph: PostHog, need_write: bool) -> None:
@@ -179,13 +453,34 @@ def main() -> int:
         action="store_true",
         help="validate payloads and re-execute every query node; write nothing",
     )
+    parser.add_argument(
+        "--check-scopes",
+        action="store_true",
+        help="check for the insight/dashboard scopes the real build needs, then exit; "
+             "writes nothing and runs no queries. Exits 0 when granted, 2 when not.",
+    )
+    parser.add_argument(
+        "--no-exclusion",
+        action="store_true",
+        help="build WITHOUT the probe-registry exclusion (pre-WIC-1667 behaviour; "
+             "for A/B verification only -- tiles will count synthetic traffic)",
+    )
     args = parser.parse_args()
 
     api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
     if not api_key:
         fail("POSTHOG_PERSONAL_API_KEY is not set")
 
-    all_payloads = json.loads(PAYLOADS.read_text())
+    # The scope-grant acceptance test. `--dry-run` deliberately passes need_write=False, so it
+    # never probes insights/ or dashboards/ and prints "OK scopes present (read)" whether or not
+    # the grant landed — it cannot be used to verify one (WIC-1547).
+    if args.check_scopes:
+        preflight(PostHog(api_key), need_write=True)
+        return 0
+
+    # deepcopy so the exclusion is applied to this run's objects only -- the payload file
+    # on disk stays unfiltered, which is the point (see the module docstring).
+    all_payloads = copy.deepcopy(json.loads(PAYLOADS.read_text()))
     # `_enabled: false` entries are authored and validated but deliberately not built yet
     # (see `_gated_on`). They stay in the file so enabling one is a one-line change.
     payloads = [p for p in all_payloads if p.get("_enabled", True)]
@@ -194,6 +489,27 @@ def main() -> int:
           f"({len(payloads)} enabled, {len(gated)} gated)")
     for p in gated:
         print(f"GATED {p['_key']:<32} {p.get('_gated_on', 'no reason recorded')}")
+
+    if args.no_exclusion:
+        print(
+            "WARN  --no-exclusion: building from the raw payloads. Every tile will count "
+            "the probe residue in\n      project "
+            f"{PROJECT_ID} as product usage (WIC-1667). This is an A/B switch, not a "
+            "build option.",
+            file=sys.stderr,
+        )
+    else:
+        # Gated payloads are filtered too: they must stay correct while they wait, and
+        # --dry-run executes them.
+        predicate, registry_path, counts = synthetic_predicate()
+        sites = sum(apply_exclusion(p, predicate) for p in payloads + gated)
+        print(
+            f"OK    synthetic exclusion derived from {registry_path} "
+            f"({counts['distinct_ids']} distinct_id, {counts['event_uuids']} event_uuid, "
+            f"{counts['session_ids']} session_id keys)\n"
+            f"      applied to {sites} filter site(s) across {len(all_payloads)} payloads; "
+            f"{PAYLOADS.name} on disk is unchanged"
+        )
 
     ph = PostHog(api_key)
     preflight(ph, need_write=not args.dry_run)

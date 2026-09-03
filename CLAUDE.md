@@ -71,8 +71,8 @@ npm run dev                # Frontend dev server (Vite, :5173)
 npm run dev:worker         # API as a Worker via `wrangler dev` (top-level config: assets + R2, no Hyperdrive)
 npm run dev:api            # API on Node.js via tsx (:3000) — faster iteration
 
-npm run build              # Build all packages
-npm run typecheck          # tsc -b web + api --noEmit
+npm run build              # Build all packages — the type check that actually gates a PR
+npm run typecheck          # tsc -b web + api --noEmit — CI runs this too, but it is weaker (see below)
 npm run lint               # Lint all packages
 npm run test               # Unit tests (Vitest)
 npm run test:e2e           # Playwright E2E tests
@@ -80,6 +80,27 @@ npm run test:e2e           # Playwright E2E tests
 npm run db:migrate         # Run migrations (reads DATABASE_URL)
 npm run db:push            # Push schema directly (dev only)
 ```
+
+### `npm run typecheck` goes green on code CI rejects
+
+`npm run typecheck` and `npm run build` disagree, and **`npm run build` is the stronger of the two: it rejects code that `npm run typecheck` accepts.** Measured on `7a9ee29` — the exact commit CI rejected — with both build caches cleared first: `npm run typecheck` exits **0**, `npm run build` exits **2**. CI runs *both*, so the weak check going green tells you nothing. Reproduce CI with the build:
+
+```bash
+rm -rf packages/*/node_modules/.tmp   # the tsbuildinfo files; CI never has one
+npm run build                         # what `Lint & Test` → "Build packages" runs
+```
+
+There are two independent reasons they diverge.
+
+**They run different compilers.** `typescript` is pinned twice in `package-lock.json`: `node_modules/typescript` is **5.9.3**, and `packages/web/node_modules/typescript` is **6.0.3**. A root script resolves the root binary, while `packages/web`'s own `build` (`tsc -b && vite build`) runs with cwd `packages/web` and resolves 6.0.3. `packages/web/tsconfig.app.json` declares no `strict`, and **TypeScript 6 defaults `strict` on where 5.9 defaults it off** — so this package's strictness is decided by which binary you invoke, not by its tsconfig. Verified on an empty project: `export function f(x) { return x; }` is clean under 5.9.3 and `TS7006` under 6.0.3. This is also why `npx tsc -b packages/web packages/api --force` from the repo root is **not** a CI reproduction, `--force` notwithstanding — it exits 0 on the tree CI rejected. From inside the package, `npx tsc -b --force`, it exits 2.
+
+**Both are incremental, and CI is always cold.** `packages/web/tsconfig.app.json:3` and `tsconfig.node.json:3` put `tsBuildInfoFile` under `./node_modules/.tmp/`, which `.gitignore:44` ignores and `npm ci` never restores. Your machine always builds warm; CI always builds cold. The risk is highest right after adding a new source file — the state a stale buildinfo has never seen.
+
+### Only import direct dependencies
+
+A package that is merely a transitive dependency can resolve at runtime and still be invisible to `tsc`. The hoisted `dom-accessibility-api@0.5.16` (present via `@testing-library`) declares an `exports` block with `import` and `require` conditions and **no `types` condition**, so under `moduleResolution: bundler` TypeScript resolves the import to `dist/index.mjs` — the JavaScript — and reports `TS7016: Could not find a declaration file`, even though `dist/index.d.ts` is sitting beside it. That is the error that failed PR #224's first push, and it is invisible to `npm run typecheck`: under the root's non-strict 5.9.3 the same import silently becomes `any`, so the weaker check does not merely miss the error, it accepts unchecked code.
+
+For accessible-name assertions use jest-dom's `toHaveAccessibleName`, which is declared and registered for every test file by `packages/web/src/test/setup.ts`. The helpers in `packages/web/src/test/prohibitedName.ts` carry the same instruction at the call site.
 
 ## Deployment
 
@@ -91,9 +112,13 @@ Every change gets an entry under `## [Unreleased]` in `CHANGELOG.md`.
 
 **Never anchor at the top of `[Unreleased]` — and don't take any other fixed position on faith. Measure, then insert where nobody else does.** Entries inside a release are same-day and effectively unordered, so being first buys nothing, and being first is what causes conflicts.
 
-`.gitattributes` marks `CHANGELOG.md merge=union`. That auto-resolves the merge **locally**, and only locally: GitHub computes mergeability without the driver, so a changelog the driver "fixed" for you still reports `CONFLICTING / DIRTY` on the PR page and still blocks the merge button. The driver hides the conflict from you and not from GitHub, which is why these show up late.
+`.gitattributes` marks `CHANGELOG.md merge=union`, which auto-resolves the merge locally. **This section used to assert that GitHub ignores the driver, so that a changelog union "fixed" for you still reports `CONFLICTING / DIRTY`. That assertion is withdrawn — it is not reproducible.** Measured at `main` `78abadf` across all 98 open PRs: 48 `MERGEABLE` PRs touch `CHANGELOG.md`, 34 of those diverge from their base on that file, and **0 of the 34 collide with the driver disabled**. The discriminating case — a PR whose changelog merges *only* because of union — does not exist in the queue today, so neither answer has evidence behind it. **Do not remove the `merge=union` line, or migrate to changelog fragments, on the strength of a claim in either direction.**
 
-Every one of those conflicts is the same conflict: an insertion collision on the **first `### ` heading under the `[Unreleased]` backfill note**. The merge base at that point is *empty* and both sides are pure additions, which is why the resolution is always "keep both" and why it always comes back. That anchor is also **branch-point independent** — the backfill note has sat directly above it since `1ea6186` (2026-08-04), so every open PR resolves "the top of `[Unreleased]`" to the same line no matter when it was cut. A guaranteed collision, by construction.
+What *is* reproducible is that the PR-page flag is stale. Of the 29 PRs GitHub currently calls `CONFLICTING`, only **three** have any genuine conflict, and none of the three is on `CHANGELOG.md`: #160 on `ApplicationsList.tsx`, #154 and #147 on `deploy.yml` and `docs/analytics/`. The other 26 each have a GitHub-computed two-parent merge commit at `refs/pull/N/merge` with zero conflict markers. **The changelog conflict backlog is 0.** Certify from that merge ref or from a real `git merge`, never from `mergeable` alone.
+
+⚠️ **Measure a PR against the base its merge ref was computed at, not against today's `main`.** Every one of those 26 merge refs has an *older* `main` as its first parent. Replaying `head` vs current `main` reports all 26 as "would conflict without union"; replaying against `merge-base(p1, head)` reports **0 of 22**. Same PRs, same driver, opposite answer — the first number is an artifact of a moved base, and it is the same three-coordinate-systems error as the weld and anchor-tally checks below.
+
+Historically, every changelog conflict this repo saw was the same conflict: an insertion collision on the **first `### ` heading under the `[Unreleased]` backfill note**. The merge base at that point is *empty* and both sides are pure additions, which is why the resolution is always "keep both" and why it always comes back. That anchor is also **branch-point independent** — the backfill note has sat directly above it since `1ea6186` (2026-08-04), so every open PR resolves "the top of `[Unreleased]`" to the same line no matter when it was cut. A guaranteed collision, by construction.
 
 Anchoring below the top entry breaks that. "Below the current top entry" resolves to a *different* line depending on which `main` you branched from, so only PRs cut from the identical commit can still collide. Measured on PR #174: it edited `CHANGELOG.md` while #111, #165 and #166 were open and added **zero** new conflicts to any of them, where #169, #170 and #172 each took the top anchor and #170 alone broke both #165 and #166.
 
@@ -146,7 +171,7 @@ caught the collision with #242 before it shipped.
 
 ### Diagnosing one
 
-`git merge`, `git merge-tree` and a local `git pull` all apply the union driver, so they report **clean** on a PR GitHub calls `CONFLICTING`. They are not wrong; they are answering a different question. `git merge-file` is the low-level three-way merge and does not read `.gitattributes`, so it is the one that reproduces what GitHub sees:
+`git merge`, `git merge-tree` and a local `git pull` all apply the union driver, so they report **clean** on a PR GitHub calls `CONFLICTING`. `git merge-file` is the low-level three-way merge and does not read `.gitattributes`, so it answers the *other* question — what the merge would do with the driver switched off. Run it to see what union is actually absorbing. **It is not a reproduction of "what GitHub sees":** that framing assumed GitHub ignores the driver, which is withdrawn above, and `git merge-tree` reads attributes from your *working tree* unless you pass `git --attr-source=<base> merge-tree` (before the subcommand, or git exits 129 and every pair reads as a conflict).
 
 ```bash
 BR=origin/your-branch
@@ -174,12 +199,17 @@ trusted and wrong in ways nothing reports. Three failure modes have reached `mai
   contradictory descriptions of one change, with no conflict ever shown (WIC-1561, fixed by #181).
   The kept copy can be the **superseded** one: in WIC-1597 a merged code-review correction was
   silently republished alongside the claim it retracted.
+  **A "revision" here can be purely cosmetic and still collide** — changing `*emphasis*` to
+  `_emphasis_` counts, because union grades edits by position, not by significance. See
+  "A cosmetic reformat is a semantic collision" below.
 - **Union ate the blank line between two entries.** Inserting a new entry directly above an existing
   one can consume the separator at the seam, leaving a `### ` heading welded to the previous entry's
   last bullet — even though *both* parents had the blank line (WIC-1567, fixed by #185). This is the
   most common of the three by a wide margin and has a one-line prevention: **write your inserted
-  block so it both begins and ends with a blank line** (measured below — the trailing one is the one
-  that does the work). **Do not treat the weld as cosmetic** — it is the precondition for the fourth
+  block so it both begins and ends with a blank line** — *both*, because the two merges your entry
+  undergoes consume opposite edges, and because for two PRs on a shared base no per-branch
+  arrangement is safe in every merge order (both measured below). **Do not treat the weld as
+  cosmetic** — it is the precondition for the fourth
   mode; see "A weld you commit is a misfile you have armed for whoever branches off you next".
 - **One side moved a block, the other edited inside it.** The two do not line up as one diff3 region,
   so union keeps the relocated copy *and* the edited copy — a whole `### ` entry, duplicated. Note
@@ -443,6 +473,43 @@ check on it. A claim about someone else's branch is exactly as perishable as a b
 lines in `git diff` starts with a blank and ends with a blank, on top of the separator already in
 the file. Check the shape of the `+` run in `git diff`, not whether the file "looks" spaced.
 
+**Do not run Prettier over `CHANGELOG.md`, and do not widen the format glob to reach it — the
+formatter deletes the pad you just added.** `format` and `format:check` are scoped to
+`packages/**/*.{ts,tsx,css,md}`, so the root changelog sits outside every gate the repo has; a
+Prettier editor plugin on format-on-save ignores that glob entirely, which is the realistic way this
+happens to you. Measured 2026-08-30 with the pinned Prettier 3.8.3, `--parser markdown` over the
+whole file at `main` = `e3533d7`: the reformat removes **10 blank lines, and every one of them sits
+immediately above a `### ` heading** — eight entry seams, which is exactly the leading padding the
+paragraph above prescribes. The count moves with the file; the ratio is the durable part.
+Prettier collapses any run of blank lines to one and cannot tell a separator from a pad, so widening
+the glob would strip the remedy from eight entries in one commit and re-arm the weld on each. The
+two conventions are in direct conflict, the padding wins, and the changelog stays out of the
+formatter's scope on purpose.
+
+**Never escape a backtick inside a code span — CommonMark ignores the escape, and the mis-parse is
+silent and total.** The escape does not stop the backtick from closing the span, so the span ends
+early and every code span in the rest of the paragraph inverts: prose renders as code and the code
+fragments render as prose. Measured on the WIC-1377 entry, which carried
+`` sql`…` `` written the escaped way: **all 8** code spans in that paragraph were prose, and its
+`**parameter list**` reached the rendered page as literal asterisks. Prettier then faithfully
+re-serialises that inverted tree, and because a code span needs no surrounding whitespace the reflow
+**eats word-boundary spaces**, while exiting 0 and reporting success. Use the padded double-backtick
+form, which round-trips through Prettier unchanged (WIC-1732):
+
+```markdown
+wrong:  `sql\`${companyCatalog.id} = ANY(${sourceIds})\``
+right:  `` sql`${companyCatalog.id} = ANY(${sourceIds})` ``
+
+what the wrong form costs on the next reformat, silently, in prose nobody edited:
+  ... interpolated into a `sql`template as a comma-separated ...
+  ... `($1, $2)`is a row constructor and `= ANY(...)`requires an array ...
+```
+
+The two padding spaces just inside the doubled delimiters are load-bearing: CommonMark strips one
+leading and one trailing space from a code span, and without them the span's own trailing backtick
+runs into the closing delimiter. Render-check any paragraph that mixes code spans with literal
+backticks — this class is invisible in the source and shows up only in the parsed output.
+
 Re-measured 2026-08-30 at `main` = `30b61a2`, across the 86 open PRs, of which **82** have a
 `CHANGELOG.md` differing from their true base, each simulated in the real orientation with the
 content-addressed three-input control: **9 will weld a `### ` heading onto the previous entry's last
@@ -464,7 +531,8 @@ it — the exact outcome the pre-merge re-measure exists to prevent, and the fir
 failed because the accused set had grown from one branch to eleven, and re-checking eleven by hand
 is work that quietly gets skipped. **Re-run the same command that produced the roster** — it is one
 sweep, not eleven checks — and let the diff in the roster be the answer. The two dropouts are also
-the good news in this section: the trailing-blank remedy is being adopted and it works in practice.
+the good news in this section: the blank-line discipline is being adopted and it works in practice,
+on a single branch merging its own base in. (Which edge, and when that is not enough, is below.)
 
 **Do not restrict this sweep to `main`-based PRs.** An earlier revision reported nine welders and
 asserted all were `main`-based, while a stacked PR was welding against its own base the whole time
@@ -480,14 +548,35 @@ The cause is that both sides insert at the same blank-line separator. The base h
 once; union emits both insertion blocks around it, the **first** block keeps the blank, and the
 **second** block's heading lands directly against the first block's last bullet.
 
-**⛔ Which blank you need follows from that, and it is the opposite of what this file said until
-2026-08-30.** The block that loses its separator is the one emitted *second*, and union emits
-ours-then-theirs — so in the real orientation, where your PR head is `ours`, **your block is emitted
-first and it is the blank at its *end* that gets consumed.** You need a **trailing** blank. The
-previous revision prescribed a *leading* blank and stated flatly that padding the end "does
-nothing"; that was measured with the sides swapped, and in the orientation that actually occurs it
-is exactly backwards. Re-tested 2026-08-30 at `main` = `30b61a2` over all 9 current welders by
-rebuilding each branch with an extra blank added to each inserted run:
+**⛔ The blank that gets eaten is the one at the join between the two competing insertions — which
+is a different edge of *your* block depending on which merge you are looking at.** Union emits
+ours-then-theirs, so the block emitted **first** loses the blank at its **end** and the block emitted
+**second** loses the blank at its **start**. Those are not two blanks. They are the same physical
+line in the merged file, named from the two sides of it.
+
+Every entry goes through two merges, and they point in opposite directions:
+
+| the merge | who is `ours` | the edge of your block at the join |
+|---|---|---|
+| **pre-push** — `git merge <base>` on your branch, to clear `CONFLICTING` | your PR head | its **trailing** edge |
+| **landing** — `main` or your base branch takes your PR | the base | its **leading** edge |
+
+Measured 2026-08-30 by running one pair of inputs both ways — PRs #188 (`fcc5e4e`) and #180
+(`c6cf108`), siblings on `fix/wic1478-dashboard-attention-aggregates` (`a18981e`), `main` at
+`a46c63a`. `main` merges #180 in: the weld lands on **#180's**
+heading, its leading blank consumed. #180's branch merges that same `main` in: the weld lands on
+**#188's** heading, and the blank that went is #180's *trailing* one. Same two files, opposite
+direction, opposite edge.
+
+**So pad both edges, and treat the old tie-break as retired.** A previous revision of this section
+said "if you only add one, add the trailing one." That is right for the pre-push merge and wrong for
+the landing merge — and it is the landing merge that publishes a weld to `main`, where it arms the
+misfile for every branch that subsequently merges `main` (next section). Of the two, the leading
+blank is the one with the larger blast radius. Add both, and stop choosing.
+
+The table below stands as measured, and what it measured was the **pre-push** merge only. Re-tested
+2026-08-30 at `main` = `30b61a2` over all 9 then-current welders by rebuilding each branch with an
+extra blank added to each inserted run:
 
 | variant | welders remaining, of 9 |
 |---|---|
@@ -498,15 +587,71 @@ rebuilding each branch with an extra blank added to each inserted run:
 
 Confirmed with a real merge rather than a simulation: PR #92 rebuilt each way and actually merged
 with `git merge origin/main` in a scratch worktree welds with the leading blank and **does not weld
-with the trailing one**. Keep doing both — the leading blank costs nothing, and the two known
-benign-looking arrangements are cheap insurance against the next orientation surprise — but if you
-only add one, **add the trailing one.**
+with the trailing one**.
 
 **One of the nine resists the remedy: #149 still welds with a trailing blank, and with both.** So
 a blank-line discipline is a very good default, not a guarantee; the simulation is still the thing
 that answers the question for your branch. **And it is a prevention, not a repair** — it stops a
 weld being created, it does nothing about one already committed, and once a committed weld reaches a
 merge base you share with someone the damage is no longer yours to undo (next section).
+
+#### Two PRs on a shared base: the remedy is order-dependent, and it does not compose
+
+Everything above treats the blank as something you can get right on your own branch. For **sibling
+PRs stacked on the same base** that is not true, and the failure is not a corner case — it is the
+arrangement the advice above produces if both authors follow it.
+
+When two siblings insert at the same seam, their entries land adjacent to each other on `main`, so
+the contested join is *between the two of them*. The edge that needs padding therefore belongs to
+whichever sibling merges **second** — and merge order is not under either author's control.
+
+Measured 2026-08-30, `main` = `a46c63a`. PRs #188 (`test/wic1574-…`, `fcc5e4e`) and #180
+(`fix/wic1497-…`, `c6cf108`), siblings on `fix/wic1478-…` (`a18981e`). Every figure is the weld
+count on the simulated post-merge `main`, from
+a real `git merge` in a scratch worktree with the union driver active. Control: **all ten input refs
+are individually weld-free**, and so is `main`, so every weld below is introduced by the merge.
+
+| extra blank added | order 160, 188, 180 | order 160, 180, 188 |
+|---|---|---|
+| none | 1 | 1 |
+| leading, on #188 | 1 | **0** |
+| leading, on #180 | **0** | 1 |
+| leading, on both | 1 | 1 |
+| trailing, on #188 | **0** | 1 |
+| trailing, on #180 | 1 | **0** |
+| trailing, on both | 1 | 1 |
+| **both edges, on #188 only** | **0** | **0** |
+| **both edges, on #180 only** | **0** | **0** |
+| **both edges, on both** | 1 | 1 |
+
+Three things follow, and the third is the one that matters:
+
+- **Every single-edge remedy is order-dependent.** Each works in exactly one of the two orders and
+  welds in the other. Since the weld always lands on the heading of whichever sibling merges second,
+  and neither author schedules that, no single-edge choice is safe.
+- **Padding both edges of exactly one sibling is clean in both orders** — the only arrangement here
+  that is. This is why the standing advice is *both* edges, not a tie-break between them.
+- **Padding both edges of both siblings welds in both orders, exactly as badly as padding neither.**
+  So the obvious move — every author applies the documented remedy to their own branch — is
+  precisely the arrangement that fails.
+
+That last row means **the remedy is not composable, and you cannot reason about your edge one branch
+at a time.** The blanks are real lines that travel with their blocks, so adding one at an
+*uncontested* seam changes how diff3 aligns the contested one. With a leading blank on both
+siblings the merged file ends up carrying a visible stray double blank above the first entry and
+still welding at the join below it: the padding moved to a seam nobody was competing for, and the
+one that was contested was eaten anyway.
+
+**So for siblings on a shared base, prevention is not something either author can apply
+unilaterally.** Two honest options: coordinate, so that exactly one of the two pads both edges and
+the other leaves its block alone; or accept that the check on the merge *result* is the only
+control. Prefer the second — it does not require the two authors to be awake at the same time.
+
+**Whoever merges the second of two siblings owns running that check,** in the merge commit, before
+pushing. That is the first moment the two blocks are adjacent, so it is the first moment the weld
+either exists or does not, and it is the last moment before it becomes a committed weld in a merge
+base other branches will inherit. Neither PR page shows it, both branch tips report clean, and
+nothing in CI runs the check today (WIC-1792).
 
 **Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
 Resolved to content anchors, the 9 welds sit on four seams: three onto
@@ -521,6 +666,55 @@ blank-terminated, differ only in how diff3 happened to align the *other* side's 
 So the anchor command answers "will GitHub call this CONFLICTING"; only the union simulation
 answers "will the driver corrupt the result". Different questions, and their answers disagree.
 Run the simulation.
+
+### A cosmetic reformat is a semantic collision
+
+**Never reformat a `CHANGELOG.md` line you are not otherwise changing.** Every pre-existing line your
+branch rewrites — even if only `*emphasis*` → `_emphasis_`, even if it renders identically — becomes
+a collision candidate. Union compares positions, not meaning: if `main` also edits that line before
+you land, both copies survive, and the reader gets one bullet twice in two different states of truth.
+
+The damaging direction is the likely one. `main`'s edits to an *existing* entry are overwhelmingly
+**corrections**, because that is the only reason anyone goes back to a shipped entry. So the pairing
+is almost always your stale copy against `main`'s corrected copy — and union emits yours first,
+putting the retracted claim above its own retraction.
+
+Measured 2026-08-30, `main` at `3b0c0d3`, PR #209 head `fdd800d`: nine pre-existing lines rewritten
+with emphasis-only changes, one of which `main` had corrected four hours earlier in `70396b0`. The
+merge carried that bullet twice — the uncorrected copy first — and the union simulation was
+byte-identical to a real `git merge origin/main` in a scratch worktree, so that is what would have
+shipped. Filed as WIC-1884 and fixed the same day in `cdb1c24`, which reverted all nine; at head
+`2085803` the union introduces nothing.
+
+Across all 100 open PRs, **four** still carry emphasis-only rewrites of pre-existing lines — #299
+(91 lines), #261 (48), #249 (10), #226 (2), **151 lines total**, none of them colliding today. They
+are dormant purely because `main` has not touched those lines yet, and each converts the moment it
+does.
+
+⚠️ **Re-measure this roster immediately before you quote it anywhere.** #209 went from nine lines to
+zero in the interval between this section being drafted and the PR carrying it being merged. A
+roster of accused branches is the fastest-decaying thing in this file: quote every entry at a head
+SHA, and re-run the sweep — diffing the roster — right before you push.
+
+That the dormant ones are one edit from live is a controlled result, not an inference. Run it on any
+branch in the roster: take a line it only reformatted, synthesise a `main` that appends a correction
+to that line, and re-run the union — copies go **1 → 2**, while the negative control with `main`
+untouched stays at **1**. Measured on `fdd800d`, which still carried eight such lines at the time.
+
+**This is the second independent reason `format` and `format:check` stay scoped to `packages/**` and
+exclude root `CHANGELOG.md`** (the first is that prettier strips the blank line above every `### `
+heading, re-arming the weld on every entry at once — WIC-1732). The scoping is load-bearing. Do not
+widen it, and do not "tidy" the changelog as a drive-by.
+
+The fix on a branch that already did it is to **restore the original spelling on every line you only
+reformatted**, keeping whatever you genuinely add. Byte-identical lines give union nothing to
+resolve, which retires the latent cases too. Fixing it after the merge does not work: the corruption
+exists only in the merge result, so there is nothing to see on either branch until it has shipped.
+
+⚠️ **The byte-exact multiset conservation check cannot see this class.** The two copies are
+*different strings* — that is the whole point — so no line is lost and no line count changes. Only
+the normalised-prefix bullet check in the detector above catches it. This is the concrete case the
+prefix normalisation was worth paying for.
 
 ### A weld you commit is a misfile you have armed for whoever branches off you next
 
