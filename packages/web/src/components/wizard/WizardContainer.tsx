@@ -347,10 +347,17 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
               <STARInput value={currentSTAR} onChange={setCurrentSTAR} />
 
               {/* Technologies for this accomplishment */}
-              <div>
-                <label className="block text-body font-medium text-neutral-800 mb-2">
+              {/*
+                TechStackPicker is a multi-control composite, not a single form control, so
+                a <label> has nothing to point at. The group carries the name instead.
+              */}
+              <div role="group" aria-labelledby="wizard-tech-stack-label">
+                <span
+                  id="wizard-tech-stack-label"
+                  className="block text-body font-medium text-neutral-800 mb-2"
+                >
                   Technologies used (optional)
-                </label>
+                </span>
                 <TechStackPicker value={currentTech} onChange={setCurrentTech} />
               </div>
 
