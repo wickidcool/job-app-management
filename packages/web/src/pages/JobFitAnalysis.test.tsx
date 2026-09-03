@@ -43,7 +43,10 @@ vi.mock('../hooks/useJobFitAnalysis', () => ({
 }));
 
 const RESULTS: AnalyzeJobFitResponse = {
+  id: 'jfa_1',
+  applicationId: null,
   recommendation: 'moderate_fit',
+  fitScore: 62,
   summary: 'A reasonable match with two gaps.',
   confidence: 'medium',
   parsedJd: {

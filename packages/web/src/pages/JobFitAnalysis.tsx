@@ -102,8 +102,16 @@ export function JobFitAnalysis() {
     (isTextValid && !jobDescriptionUrl.trim()) || (isUrlValid && !jobDescriptionText.trim());
 
   const onSubmit = (data: JobFitFormData) => {
-    // Build request with mutually exclusive fields
-    const request: AnalyzeJobFitRequest = {};
+    // Build request with mutually exclusive fields.
+    //
+    // `applicationId` is not one of them — which application this is about is
+    // orthogonal to which form the job description arrived in. It rides along
+    // whenever the page was reached with an `appId`, which is how
+    // `WorkflowChecklist`'s "Job Fit Analysis" link arrives here. Without it the
+    // association the browser already has is dropped at the API boundary, the
+    // stored analysis belongs to no application, and the checklist that sent
+    // the user here can never tick (WIC-1652).
+    const request: AnalyzeJobFitRequest = { applicationId: appId };
 
     if (data.jobDescriptionText.trim() && !data.jobDescriptionUrl.trim()) {
       request.jobDescriptionText = data.jobDescriptionText.trim();
