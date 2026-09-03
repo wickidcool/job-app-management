@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
-vi.mock('../src/services/extraction.service.js', () => ({
+vi.mock('../src/services/extraction.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/extraction.service.js')>()),
   processCatalogChange: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -25,6 +26,7 @@ import {
   updateTechStackTag,
 } from '../src/services/catalog.service.js';
 import { NotFoundError } from '../src/types/index.js';
+import { scopedReadStub } from './helpers/scoped-read-stub.js';
 
 /**
  * UC-2 (WIC-101) named exactly two integrity constraints: "no duplicate entries
@@ -901,15 +903,36 @@ describe('tag update tenancy scoping', () => {
   });
 });
 
-/** db double for generateDiff: select().from().where().orderBy().limit(). */
-function stubDiffDb(rows: unknown[]) {
+/**
+ * db double for generateDiff.
+ *
+ * Two selects now share this `where` spy, in this order:
+ *   0. the source-ownership probe — `select().from().where()`, awaited directly;
+ *   1. the diff lookup — `select().from().where().orderBy().limit()`.
+ *
+ * So `where` returns an object that is both chainable *and* thenable. The
+ * ownership probe is skipped entirely in single-user mode (`userId` undefined),
+ * which is why the assertions below index the diff lookup by
+ * `DIFF_LOOKUP_CALL` / `0` rather than assuming a fixed position.
+ *
+ * @param owned rows the ownership probe resolves; `[]` means the caller does
+ *   not own the source, which is the AC-1 case.
+ */
+function stubDiffDb(rows: unknown[], owned: unknown[] = [{ id: '01HZ_RESUME_001' }]) {
   const where = vi.fn();
   const orderBy = vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue(rows) });
-  where.mockReturnValue({ orderBy });
+  where.mockReturnValue({
+    orderBy,
+    then: (resolve: (v: unknown[]) => unknown, reject?: (e: unknown) => unknown) =>
+      Promise.resolve(owned).then(resolve, reject),
+  });
   const db = { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where }) }) };
   vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
   return { selectWhere: where };
 }
+
+/** Index of the diff lookup's `.where()` once the ownership probe precedes it. */
+const DIFF_LOOKUP_CALL = 1;
 
 function diffRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -981,7 +1004,7 @@ describe('generateDiff tenancy', () => {
 
     await generateDiff('resume', '01HZ_RESUME_001', CALLER);
 
-    expectDiffLookup(selectWhere.mock.calls[0][0], {
+    expectDiffLookup(selectWhere.mock.calls[DIFF_LOOKUP_CALL][0], {
       userId: CALLER,
       triggerId: '01HZ_RESUME_001',
     });
@@ -1010,6 +1033,116 @@ describe('generateDiff tenancy', () => {
     await expect(generateDiff('resume', '01HZ_RESUME_001', CALLER)).rejects.toThrow(
       new NotFoundError('CatalogDiff')
     );
+  });
+});
+
+/**
+ * WIC-1414 — the ownership decision at the entry point itself.
+ *
+ * The block above pins the *diff lookup* predicate. It cannot see this defect,
+ * because the leak happens strictly earlier: `processCatalogChange` reads the
+ * source row by id alone (`getTextContent`, extraction.service.ts — no userId
+ * parameter on `main` at cfbd3a6), extracts the owner's text, and auto-applies
+ * it into the **caller's** catalog. By the time the scoped lookup runs, the
+ * write has already happened and it finds the caller's own fresh row, so a
+ * lookup-only assertion reports success on a call that just exfiltrated.
+ *
+ * So these drive the observable the lookup tests cannot: whether
+ * `processCatalogChange` is reachable at all for a foreign sourceId.
+ * `scopedReadStub` evaluates the real drizzle clause against the fixtures, so
+ * dropping the `user_id` term admits the foreign row and the guard goes quiet —
+ * which is the mutation these are written to kill.
+ */
+describe('generateDiff source ownership (WIC-1414)', () => {
+  const RESUME = '01HZ_RESUME_OWNED_BY_OTHER';
+  const APP = '01HZ_APP_OWNED_BY_OTHER';
+
+  beforeEach(() => vi.clearAllMocks());
+
+  /** Fixtures where the named source belongs to OTHER_USER, not CALLER. */
+  function foreignSources() {
+    return scopedReadStub({
+      resumes: [{ id: RESUME, userId: OTHER_USER }],
+      applications: [{ id: APP, userId: OTHER_USER }],
+      catalog_diffs: [],
+    });
+  }
+
+  it('AC-1: refuses a resume the caller does not own, before any extraction', async () => {
+    const stub = foreignSources();
+    vi.mocked(getDb).mockReturnValue(stub.db as unknown as ReturnType<typeof getDb>);
+
+    await expect(generateDiff('resume', RESUME, CALLER)).rejects.toThrow(
+      new NotFoundError('Resume')
+    );
+
+    // The whole point: the extraction that would read and auto-apply the
+    // owner's text never runs. Asserting only on the thrown error would pass
+    // just as well with the leak intact and a 404 issued afterwards.
+    expect(processCatalogChange).not.toHaveBeenCalled();
+    expect(stub.opsOn('catalog_diffs')).toHaveLength(0);
+  });
+
+  it('AC-1: refuses an application the caller does not own, before any extraction', async () => {
+    const stub = foreignSources();
+    vi.mocked(getDb).mockReturnValue(stub.db as unknown as ReturnType<typeof getDb>);
+
+    await expect(generateDiff('application', APP, CALLER)).rejects.toThrow(
+      new NotFoundError('Application')
+    );
+
+    expect(processCatalogChange).not.toHaveBeenCalled();
+    expect(stub.opsOn('catalog_diffs')).toHaveLength(0);
+  });
+
+  it('scopes the ownership probe by id AND owner', async () => {
+    const stub = foreignSources();
+    vi.mocked(getDb).mockReturnValue(stub.db as unknown as ReturnType<typeof getDb>);
+
+    await expect(generateDiff('resume', RESUME, CALLER)).rejects.toThrow(NotFoundError);
+
+    // Structural half: an id-only probe would resolve the foreign row and let
+    // the call through, so the owner term is the reason the read comes back
+    // empty — not an accident of the fixture set.
+    const { sql, params } = queryFor(stub.clausesOn('resumes')[0]);
+    expect(sql).toContain('"resumes"."id" = $');
+    expect(sql).toContain('"resumes"."user_id" = $');
+    expect(params).toContain(RESUME);
+    expect(params).toContain(CALLER);
+    expect(params).not.toContain(OTHER_USER);
+  });
+
+  it('AC-2: the owner’s own call proceeds unchanged', async () => {
+    const stub = scopedReadStub({
+      resumes: [{ id: RESUME, userId: CALLER }],
+      // camelCase keys — `readColumn` resolves a rendered `trigger_id` to
+      // `triggerId` first, so diffRow()'s own camelCase fields would otherwise
+      // shadow any snake_case override and the fixture would never match.
+      catalog_diffs: [{ ...diffRow(), triggerId: RESUME, userId: CALLER, id: '01HZ_DIFF_OK' }],
+    });
+    vi.mocked(getDb).mockReturnValue(stub.db as unknown as ReturnType<typeof getDb>);
+
+    const result = await generateDiff('resume', RESUME, CALLER);
+
+    expect(processCatalogChange).toHaveBeenCalledTimes(1);
+    expect(result.id).toBe('01HZ_DIFF_OK');
+  });
+
+  it('skips the probe in single-user mode rather than failing closed', async () => {
+    // authMiddleware sets userId null when Supabase is unconfigured, and the
+    // route passes that through as undefined. Requiring ownership there would
+    // 404 every local-dev call, so the guard is scoped to the case where an
+    // identity actually exists to compare against.
+    const stub = scopedReadStub({
+      resumes: [{ id: RESUME, userId: OTHER_USER }],
+      catalog_diffs: [{ ...diffRow(), triggerId: RESUME, userId: null, id: '01HZ_DIFF_SU' }],
+    });
+    vi.mocked(getDb).mockReturnValue(stub.db as unknown as ReturnType<typeof getDb>);
+
+    await generateDiff('resume', RESUME, undefined);
+
+    expect(stub.opsOn('resumes')).toHaveLength(0);
+    expect(processCatalogChange).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1052,24 +1185,43 @@ function stubPagedOwnedRow(row: { userId: string }) {
 
 const SCOPED_DIFF_CLAUSE = '("catalog_diffs"."user_id" = $1 and "catalog_diffs"."status" = $2)';
 
+// The *default* (no explicit status) filter is two-armed since WIC-1428: a diff
+// is listed when it is still `pending` OR when it carries open review items,
+// whatever its apply status. The tenancy term stays an outer conjunct, so it
+// still binds the whole disjunction rather than just one arm of it — which is
+// the property these tests exist to pin.
+const SCOPED_DEFAULT_DIFF_CLAUSE =
+  '("catalog_diffs"."user_id" = $1 and ("catalog_diffs"."status" = $2 or "catalog_diffs"."open_review_count" > $3))';
+
 describe('listDiffs tenancy', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it.each([
-    ['the default pending filter', {} as ListDiffsOptions, 'pending'],
-    ['an explicit status filter', { status: 'approved' } as ListDiffsOptions, 'approved'],
-  ])('scopes the page to the caller alongside %s', async (_name, opts, status) => {
+    [
+      'the default pending filter',
+      {} as ListDiffsOptions,
+      SCOPED_DEFAULT_DIFF_CLAUSE,
+      ['pending', 0],
+    ],
+    [
+      'an explicit status filter',
+      { status: 'approved' } as ListDiffsOptions,
+      SCOPED_DIFF_CLAUSE,
+      ['approved'],
+    ],
+  ] as const)('scopes the page to the caller alongside %s', async (_name, opts, clause, rest) => {
     const { selectWhere } = stubPagedListDb([]);
 
     await listDiffs(opts, CALLER);
 
-    // Both conjuncts, table-qualified, with each value pinned to the column
-    // that binds it: $1 is the tenancy term, $2 the status term. A mutation
-    // that drops either half — or swaps which column a value lands on —
-    // changes one of these two lines.
+    // Every conjunct, table-qualified, with each value pinned to the column
+    // that binds it: $1 is always the tenancy term. A mutation that drops any
+    // half — or swaps which column a value lands on — changes one of these two
+    // lines. An explicit status collapses the disjunction to a single arm,
+    // which is why the two cases pin different clauses.
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
-    expect(params).toEqual([CALLER, status]);
+    expect(sql).toBe(clause);
+    expect(params).toEqual([CALLER, ...rest]);
   });
 
   it('binds the caller it was handed, not a fixed owner', async () => {
@@ -1078,8 +1230,8 @@ describe('listDiffs tenancy', () => {
     await listDiffs({}, OTHER_USER);
 
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe(SCOPED_DIFF_CLAUSE);
-    expect(params).toEqual([OTHER_USER, 'pending']);
+    expect(sql).toBe(SCOPED_DEFAULT_DIFF_CLAUSE);
+    expect(params).toEqual([OTHER_USER, 'pending', 0]);
   });
 
   it('leaves the page unscoped in single-user mode', async () => {
@@ -1087,11 +1239,11 @@ describe('listDiffs tenancy', () => {
 
     await listDiffs({}, undefined);
 
-    // No tenancy term — and the status half survives its removal, which a bare
-    // `not.toContain('user_id')` would not have shown.
+    // No tenancy term — and both arms of the default filter survive its
+    // removal, which a bare `not.toContain('user_id')` would not have shown.
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe('"catalog_diffs"."status" = $1');
-    expect(params).toEqual(['pending']);
+    expect(sql).toBe('("catalog_diffs"."status" = $1 or "catalog_diffs"."open_review_count" > $2)');
+    expect(params).toEqual(['pending', 0]);
   });
 
   it("does not page another user's diffs", async () => {
