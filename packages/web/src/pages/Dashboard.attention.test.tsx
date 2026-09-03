@@ -30,9 +30,16 @@ const STALE_APPLICATIONS = 40;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * The threshold this fixture serves, used both to build the response and to
+ * build the expectation. Writing the number twice is how the defect in
+ * WIC-1479 started, so this test does not get to hold a second copy either.
+ */
+const STALE_THRESHOLD_DAYS = 14;
+
 /** The attention row renders `{message} →`, so match the message, not the whole node. */
 const STALE_WARNING = new RegExp(
-  `^${STALE_APPLICATIONS} applications need follow-up \\(>7 days\\)`
+  `^${STALE_APPLICATIONS} applications need follow-up \\(>${STALE_THRESHOLD_DAYS} days\\)`
 );
 
 interface SeedRow {
@@ -97,18 +104,17 @@ function seedDashboardResponse(rows: SeedRow[]): DashboardResponse {
     },
     recentActivity: [],
     attention: {
-      staleThresholdDays: 7,
-      savedThresholdDays: 3,
+      staleThresholdDays: STALE_THRESHOLD_DAYS,
+      unsubmittedThresholdDays: 3,
       counts: {
         interviewing: 0,
         stale: staleRows.length,
-        staleActive: staleRows.length,
         missingJobDescription: 0,
-        staleSaved: 0,
+        unsubmittedSaved: 0,
       },
       samples: {
         interviewing: [],
-        staleActive: staleRows.slice(-2).map((r) => ({
+        stale: staleRows.slice(-2).map((r) => ({
           id: r.id,
           jobTitle: r.jobTitle,
           company: r.company,
@@ -117,7 +123,7 @@ function seedDashboardResponse(rows: SeedRow[]): DashboardResponse {
           updatedAt: r.updatedAt,
         })),
         missingJobDescription: [],
-        staleSaved: [],
+        unsubmittedSaved: [],
       },
     },
   };

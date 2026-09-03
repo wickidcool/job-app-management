@@ -36,6 +36,7 @@ import { getDb } from '../db/client.js';
 import { resumes, resumeExports, companyCatalog } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import {
+  AppError,
   NotFoundError,
   ResumeDTO,
   ResumeExportDTO,
@@ -451,6 +452,13 @@ export async function uploadResume(
   // Analytics: server-side event taxonomy (WIC-814, metrics-baseline.md §3.1).
   // `processing_time_ms` is measured from buffer receipt to export write completion.
   const startTime = Date.now();
+  // Correlates the three upload legs: `submitted` -> `completed` | `failed`. Declared
+  // before the `try` so the `catch` can emit it too. `session_id` is one-to-many over
+  // uploads, and `resume_id`/`export_id` are produced *by* the work that may fail, so
+  // this is the only id that can appear on all three legs — which is what makes the
+  // gap-derived failure KPI (dashboard-spec.md §6) joinable per upload rather than
+  // only in aggregate. See WIC-1487.
+  const uploadId = ulid();
   const fileType: 'pdf' | 'docx' = mimeType === 'application/pdf' ? 'pdf' : 'docx';
   // `errorStage` tracks pipeline progress so `resume_upload_failed` can report where
   // a failure occurred; it advances as each stage begins.
@@ -458,7 +466,12 @@ export async function uploadResume(
 
   await track(
     'resume_upload_submitted',
-    { session_id: sessionId ?? null, file_type: fileType, file_size_bytes: fileBuffer.length },
+    {
+      session_id: sessionId ?? null,
+      upload_id: uploadId,
+      file_type: fileType,
+      file_size_bytes: fileBuffer.length,
+    },
     sessionId,
     userId
   );
@@ -495,6 +508,7 @@ export async function uploadResume(
           'resume_upload_completed',
           {
             session_id: sessionId ?? null,
+            upload_id: uploadId,
             resume_id: existing.id,
             export_id: exportDto?.id ?? '',
             file_type: fileType,
@@ -606,6 +620,7 @@ export async function uploadResume(
       'resume_upload_completed',
       {
         session_id: sessionId ?? null,
+        upload_id: uploadId,
         resume_id: resumeId,
         export_id: exportId,
         file_type: fileType,
@@ -655,6 +670,20 @@ export async function uploadResume(
           // Catalog write is always attempted — project file write is best-effort.
           // Separating them so an R2 write failure doesn't prevent catalog updates.
           try {
+            // WIC-1434 — a resume-derived project is filed under its owner. With
+            // no `sub` claim there is no owner, and the slug lookup used to
+            // resolve globally: this user's STAR content was filed into whichever
+            // user already held the company slug. Throwing here reproduces what
+            // `createProject` already did on the create branch — the catch below
+            // logs it and the upload still succeeds, project write skipped.
+            if (!userId) {
+              throw new AppError(
+                'BAD_REQUEST',
+                'userId is required to file a resume-derived project',
+                undefined,
+                400
+              );
+            }
             const slug = toProjectSlug(aiProject.company) || resumeId;
             const project = await getOrCreateProjectBySlug(slug, aiProject.company, userId);
             await addCompanyToCatalog(aiProject.company, userId);
@@ -696,6 +725,15 @@ export async function uploadResume(
         const slug = toProjectSlug(entry.company) || resumeId;
         console.log(`[resume] Heuristic: processing company="${entry.company}" slug="${slug}"`);
         try {
+          // WIC-1434 — see the AI path above; same owner requirement.
+          if (!userId) {
+            throw new AppError(
+              'BAD_REQUEST',
+              'userId is required to file a resume-derived project',
+              undefined,
+              400
+            );
+          }
           const project = await getOrCreateProjectBySlug(slug, entry.company, userId);
           await addCompanyToCatalog(entry.company, userId);
           companiesAddedToCatalog.push(entry.company);
@@ -769,6 +807,7 @@ export async function uploadResume(
       'resume_upload_failed',
       {
         session_id: sessionId ?? null,
+        upload_id: uploadId,
         file_type: fileType,
         error_code: errorCode,
         error_stage: errorStage,

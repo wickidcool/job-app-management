@@ -25,7 +25,6 @@ export function AttentionCard({ attention }: AttentionCardProps) {
   const items: AttentionItem[] = [];
   const counts = attention?.counts;
   const interviewCount = counts?.interviewing ?? 0;
-  const staleThresholdDays = attention?.staleThresholdDays ?? 7;
 
   // Check for upcoming interviews
   if (interviewCount > 0) {
@@ -38,14 +37,21 @@ export function AttentionCard({ attention }: AttentionCardProps) {
     });
   }
 
-  // Check for stale applications (no update in the stale window)
+  // Stale applications. Both the count and the threshold in the label come from
+  // the server, which derives them from the same predicate `/reports/stale`
+  // runs — so clicking through can never contradict what this row just said.
+  //
+  // The threshold is deliberately *not* defaulted to a literal here. A fallback
+  // number would be a second definition of stale living on the client, which is
+  // precisely the defect WIC-1479 fixed; with no aggregates there is also no
+  // count to label, so there is nothing to fall back for.
   const staleCount = counts?.stale ?? 0;
 
-  if (staleCount > 0) {
+  if (attention && staleCount > 0) {
     items.push({
       type: 'warning',
       icon: '🟡',
-      message: `${staleCount} application${staleCount > 1 ? 's' : ''} need follow-up (>${staleThresholdDays} days)`,
+      message: `${staleCount} application${staleCount > 1 ? 's' : ''} need follow-up (>${attention.staleThresholdDays} days)`,
       link: '/reports/stale',
       count: staleCount,
     });

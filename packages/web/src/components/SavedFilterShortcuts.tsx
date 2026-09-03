@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { FilterOptions } from './FilterPanel';
 import type { ApplicationStatus } from '../types/application';
 import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
+import { SAVED_FILTERS_KEY } from '../services/appStorage';
 
 interface SavedFilterShortcutsProps {
   onApplyFilter: (filters: FilterOptions) => void;
@@ -14,8 +15,6 @@ interface FilterShortcut {
   filters: FilterOptions;
   isPredefined: boolean;
 }
-
-const SAVED_FILTERS_KEY = 'wic-saved-filters';
 
 const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
   {
@@ -121,7 +120,10 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
   return (
     <div className="bg-white rounded-lg border border-neutral-200 p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-neutral-700">Filter Shortcuts</h3>
+        {/* h2, not h3: this panel is a direct child of the `/applications` page h1, so an
+            h3 here left the route opening h1 -> h3 with nothing in between (WIC-1675
+            AC-2). The visual size is carried by the class, not the tag. */}
+        <h2 className="text-sm font-medium text-neutral-700">Filter Shortcuts</h2>
         {hasActiveFilters && !showSaveDialog && (
           <button
             onClick={() => setShowSaveDialog(true)}

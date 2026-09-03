@@ -89,8 +89,28 @@ export interface ListApplicationsParams {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /**
+   * Applications whose `appliedAt` falls in the last 7 days, **regardless of
+   * current status** — a count of submissions, not of applications still
+   * sitting at `applied`. Advancing an application never decreases it.
+   */
   appliedThisWeek: number;
+  /**
+   * Applications whose `appliedAt` falls in the last **30 days** — a fixed
+   * rolling window, NOT calendar month-to-date. Any surface that renders this
+   * must label it "last 30 days"; "this month" would be untrue.
+   */
   appliedThisMonth: number;
+  /**
+   * Share of applications that drew a response, as a **ratio in [0, 1]**,
+   * rounded to two decimal places. `0.75` means 75%.
+   *
+   * The ratio is the contract (`docs/architecture/API_CONTRACTS.md`,
+   * `GET /dashboard`) and consumers convert for display. Do not scale to 0-100
+   * here: the web client brands this field as `Ratio` and multiplies by 100 at
+   * its render site, so a percentage sent from here renders 100x too large
+   * (WIC-1514).
+   */
   responseRate: number;
 }
 
@@ -129,27 +149,39 @@ export interface AttentionApplication {
  * expected and is not truncation of the count.
  */
 export interface DashboardAttention {
-  /** Days without an update after which a non-terminal application is stale. */
+  /**
+   * The window `/reports/stale` applies by default. Sent down the wire so the
+   * dashboard's label always states the threshold the report will actually use
+   * (WIC-1479).
+   */
   staleThresholdDays: number;
   /** Days after which a `saved` application counts as not-yet-submitted. */
-  savedThresholdDays: number;
+  unsubmittedThresholdDays: number;
   counts: {
     /** `phone_screen` + `interview`. */
     interviewing: number;
-    /** Non-terminal and not updated within `staleThresholdDays`. */
+    /**
+     * `applied` or `phone_screen`, not updated within `staleThresholdDays`.
+     *
+     * This is the product's one definition of stale, shared with
+     * `/reports/stale` — the surface the attention card links to. See
+     * `services/stale.ts`.
+     */
     stale: number;
-    /** `applied`/`phone_screen`/`interview` and not updated within `staleThresholdDays`. */
-    staleActive: number;
     /** Non-terminal and missing a job description. */
     missingJobDescription: number;
-    /** `saved` and created more than `savedThresholdDays` ago. */
-    staleSaved: number;
+    /**
+     * `saved` and created more than `unsubmittedThresholdDays` ago. Keyed off
+     * `createdAt`, and deliberately *not* called stale: nothing was submitted,
+     * so there is nobody to follow up with.
+     */
+    unsubmittedSaved: number;
   };
   samples: {
     interviewing: AttentionApplication[];
-    staleActive: AttentionApplication[];
+    stale: AttentionApplication[];
     missingJobDescription: AttentionApplication[];
-    staleSaved: AttentionApplication[];
+    unsubmittedSaved: AttentionApplication[];
   };
 }
 
@@ -270,6 +302,17 @@ export type GapSeverity = 'critical' | 'moderate' | 'minor';
 export interface AnalyzeJobFitInput {
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
+  /**
+   * The application this analysis is about (WIC-1652).
+   *
+   * Optional, because analysing a bare job description with no application in
+   * hand is a supported flow. When supplied it is validated against the
+   * caller's own applications — an id that names an application they do not own
+   * is rejected exactly as one that does not exist, so this is not an existence
+   * oracle. Only an analysis carrying an application can ever tick that
+   * application's workflow checklist.
+   */
+  applicationId?: string;
 }
 
 export interface ParsedJobDescriptionDTO {
@@ -307,7 +350,31 @@ export interface RecommendedStarEntryDTO {
 }
 
 export interface AnalyzeJobFitResponse {
+  /**
+   * The id of the persisted analysis (WIC-1652).
+   *
+   * Before this field existed the response was unaddressable: the caller could
+   * not name the analysis it had just paid an LLM call and a rate-limit slot
+   * for, so `jobFitAnalysisId` on the generation endpoints could never be
+   * populated honestly by any client.
+   */
+  id: string;
+  /** The application this analysis is about, or `null` for a scratch analysis. */
+  applicationId: string | null;
   recommendation: FitRecommendation | null;
+  /**
+   * Weighted required-skill match, 0-100.
+   *
+   * This is the `matchPct` the UC-3 scoring algorithm already computes and used
+   * to discard — exact matches count 1, partial (alias/related) matches count
+   * 0.5, over `parsedJd.requiredStack.length`. It is therefore not a second,
+   * independent score that could disagree with `recommendation`; the two are
+   * read off the same number.
+   *
+   * `null` exactly when `recommendation` is `null` — the "unscored" result, not
+   * the absence of an analysis.
+   */
+  fitScore: number | null;
   summary: string;
   confidence: Confidence;
   parsedJd: ParsedJobDescriptionDTO;
@@ -317,6 +384,34 @@ export interface AnalyzeJobFitResponse {
   recommendedStarEntries: RecommendedStarEntryDTO[];
   catalogEmpty: boolean;
   analysisTimestamp: string;
+}
+
+/**
+ * A stored analysis as returned by `GET /api/catalog/job-fit/analyses`.
+ *
+ * Deliberately a summary rather than the whole analysis: the caller this exists
+ * for is the application workflow checklist, which needs to know *whether* an
+ * analysis exists and *what it scored*, and would otherwise pull four JSONB
+ * payloads per application to render a tick and a percentage.
+ */
+export interface JobFitAnalysisSummaryDTO {
+  id: string;
+  applicationId: string | null;
+  recommendation: FitRecommendation | null;
+  fitScore: number | null;
+  summary: string;
+  confidence: Confidence;
+  catalogEmpty: boolean;
+  analyzedAt: string;
+}
+
+export interface ListJobFitAnalysesParams {
+  applicationId?: string;
+  limit?: number;
+}
+
+export interface ListJobFitAnalysesResponse {
+  analyses: JobFitAnalysisSummaryDTO[];
 }
 
 export class JobFitInputError extends AppError {
@@ -412,6 +507,7 @@ export interface RevisionEntryDTO {
 
 export interface CoverLetterDTO {
   id: string;
+  applicationId?: string | null;
   status: CoverLetterStatus;
   title: string;
   targetCompany: string;
@@ -432,6 +528,7 @@ export interface CoverLetterDTO {
 
 export interface CoverLetterSummaryDTO {
   id: string;
+  applicationId?: string | null;
   status: CoverLetterStatus;
   title: string;
   targetCompany: string;
@@ -468,6 +565,7 @@ export interface GenerationWarningDTO {
 }
 
 export interface GenerateCoverLetterInput {
+  applicationId?: string;
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
   jobFitAnalysisId?: string;
@@ -827,6 +925,7 @@ export interface VariantRevisionEntryDTO {
 
 export interface ResumeVariantDTO {
   id: string;
+  applicationId?: string | null;
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;
@@ -852,6 +951,7 @@ export interface ResumeVariantDTO {
 
 export interface ResumeVariantSummaryDTO {
   id: string;
+  applicationId?: string | null;
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;
@@ -876,6 +976,7 @@ export interface VariantGenerationWarningDTO {
 }
 
 export interface GenerateResumeVariantInput {
+  applicationId?: string;
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
   jobFitAnalysisId?: string;

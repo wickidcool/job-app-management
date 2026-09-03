@@ -11,6 +11,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import { filterByDateRange } from '../utils/dateRangeFilter';
 import { parseStatusParam } from '../constants/applicationStatus';
 import type { Application, ApplicationStatus } from '../types/application';
+import { DEFAULT_STALE_THRESHOLD_DAYS, isStale } from '../constants/stale';
 
 const ACTIVE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'phone_screen', 'interview'];
 
@@ -32,8 +33,10 @@ function calculatePipelineStats(applications: Application[]) {
       else if (daysUntilDue <= 3) dueSoon++;
     }
 
-    const daysSinceUpdate = differenceInDays(today, new Date(app.updatedAt));
-    if (daysSinceUpdate >= 14) stale++;
+    // WIC-1479: this counted every *active* status at 14 days, so `saved` and
+    // `interview` rows landed in a tile whose neighbours all lead to the same
+    // follow-up workflow the report drives. One definition, one count.
+    if (isStale(app)) stale++;
   }
 
   return { active: activeApps.length, overdue, dueToday, dueSoon, stale };
@@ -185,7 +188,9 @@ export function ApplicationsList() {
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-3">
           <div className="text-2xl font-bold text-neutral-600">{pipelineStats.stale}</div>
-          <div className="text-sm text-neutral-600">Stale (14+ days)</div>
+          <div className="text-sm text-neutral-600">
+            Stale ({DEFAULT_STALE_THRESHOLD_DAYS}+ days)
+          </div>
         </div>
       </div>
 
