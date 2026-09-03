@@ -2,6 +2,42 @@
 
 This document defines all reusable UI components with their states, variants, props, and behaviors.
 
+## Reading the props: score and rate units
+
+**Every normalized score, rate and proportion in a props interface below is a ratio in `[0, 1]`,
+and the component multiplies by 100 at render.** A prop that deviates carries `Pct` in its name.
+The convention is [ADR-008](../architecture/adr/ADR-008-score-and-rate-unit-convention.md) and its
+normative statement is the "Units: normalized scores and rates" section of
+[API_CONTRACTS.md](../architecture/API_CONTRACTS.md) — this document does not restate the rule,
+it obeys it.
+
+This is worth reading before you write a threshold or a `%`. Six of this document's own
+`relevanceScore` declarations were annotated `0-100` while shipped code produced `0-1`; five of
+them were simply wrong, and `StarEntryPicker`'s `>= 80` filter is the bug those comments
+authorised (WIC-1516). The rule of thumb:
+
+| You wrote | On a ratio prop, that means |
+|---|---|
+| `score >= 80` | never true — you want `>= 0.8` |
+| `{score}%` | renders `0.85%` — you want `{formatRatioAsPercent(score)}` |
+
+`packages/web/src/types/units.ts` exports `Ratio`, `Percent`, `toPercent` and
+`formatRatioAsPercent`.
+
+**Do not read the `Ratio` brand as covering the two mistakes in that table — it does not.**
+The brand catches *assignment*: a `Percent`, or a bare `number` off a wire parse, landing in a
+`Ratio` prop. Arithmetic and rendering erase it. `Ratio` is assignable to `number`, so
+`score >= 80` is a well-typed comparison and `{score}%` is a well-typed `ReactNode`; **both
+compile.** (Measured, not assumed — see ADR-008 §3.)
+
+So, concretely, for a prop you are writing:
+
+- **Render through `formatRatioAsPercent(score)`**, never a hand-written `* 100`. Routing the
+  render through a function that takes the brand is what makes a wrong-unit render a compile
+  error; the bare `{score}%` form gets you nothing.
+- **Write a test for every threshold.** `>= 0.8` vs `>= 80` is invisible to the compiler and
+  always will be. A test is the only thing holding that line.
+
 ## Reading the wireframes: casing
 
 The ASCII wireframes below depict **rendered output**, not source strings. An all-caps label in a
@@ -77,10 +113,12 @@ convention checks itself rather than only being looked up.
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | §13 `MODERATE FIT`                                                 | Runtime `.toUpperCase()` in `JobFitAnalysis.tsx`                                                                                             | WIC-1125, WIC-1288                |
 | StoryEditor / answer-composer `SITUATION` `TASK` `ACTION` `RESULT` | Wireframes depict an unbuilt component; `wizard/STARInput.tsx` ships different strings                                                       | Resolve when StoryEditor is built |
-| §26 `KEY PHRASES:` `REDIRECT TO:`                                  | `GapMitigationPanel.tsx:211/:227` still ships literal caps. De-shout the wireframe once the source lands, per rule 2 — no `uppercase` class. | WIC-1205 (PR #103)                |
 
 The QuickReferenceExport Main View, Mobile Preview and PDF Layout wireframes are no longer listed here:
 PR #98, PR #100 and PR #102 have all merged, so those lines now match the strings the component ships.
+The §26 `KEY PHRASES:` / `REDIRECT TO:` rows are likewise gone: this change ships the
+`GapMitigationPanel.tsx:211/:227` source fix, so per rule 3 the wireframe is de-shouted to match in the
+same commit rather than left marked against a merged ticket.
 
 ### Why this note is shaped this way
 
@@ -91,6 +129,12 @@ That produced four tickets finding the same defect further down the same file (W
 WIC-1187 → WIC-1195). It also stated that a shouted heading must always be de-shouted, which is too
 strong: a heading uppercased by a CSS class is correct, because the caps never reach the accessibility
 tree. Marking intent per line removes the derivation, and with it the recurrence (WIC-1195).
+
+The source-side half of this is enforced in CI by `local/no-literal-caps-jsx-text`
+(`packages/web/eslint-rules/no-literal-caps-jsx-text.js`, WIC-1209): a literal all-caps JSX text node
+fails lint, while mixed-case source plus a CSS `uppercase` class passes. See
+`CONTENT_STYLE.md` §"ALL CAPS is a typographic treatment, not casing" for the rule's scope and its
+three known blind spots.
 
 ---
 
@@ -266,8 +310,38 @@ Modal form for creating or editing job applications.
 
 ### Variants
 
-- **Create Mode:** Empty form, title "Add New Application"
-- **Edit Mode:** Pre-filled form, title "Edit Application"
+- **Create Mode:** Empty form, title "New application" — ~~"Add New Application"~~
+- **Edit Mode:** Pre-filled form, title "Edit application" — ~~"Edit Application"~~
+
+Re-cased to sentence case 2026-08-29 (WIC-1099) when these strings became headings rather than
+decoration: `CONTENT_STYLE.md` governs heading copy and asks for sentence case. The `Add` was
+dropped because the title now names the screen — the tab label for `/applications/new` is a
+verbatim copy of it (`ROUTE_TITLE_CONVENTION.md` §0.3, §5), and "Add New Application" reads as an
+instruction to the user rather than a name for where they are.
+
+### Heading level
+
+```tsx
+/** Heading level for the dialog title. Default 2. */
+titleLevel?: 1 | 2;
+```
+
+This is the §10 → *Heading level* treatment, and it is the one case in this document where **`1`
+is a legal value** — contrast `EmptyState`, where §10 rules `1` out on the grounds that an empty
+state is never the route. Here the dialog sometimes *is* the route:
+
+- **`2` (default) — `ApplicationDetail`.** The dialog opens over a page that owns the route's
+  `<h1>`. This is the ordinary case and the reason the prop stays optional.
+- **`1` — `ApplicationNew` (`/applications/new`).** The route mounts this form with `open={true}`
+  and never closes it, so the dialog is the entire route. A Radix modal marks every node outside
+  its portal `aria-hidden`, which means the page cannot hold the `<h1>` here: it would be in the
+  DOM and absent from the accessibility tree. The title is the route's only reachable candidate.
+
+**The section heading moves with the title.** "Extended Tracking" sits directly beneath the dialog
+title, so promoting the title alone would run the outline `h1 → h3` — the level skip
+`ROUTE_HEADING_OUTLINE.md` §1.3 forbids, introduced by the fix for a missing heading. Both tags are
+derived from `titleLevel` together for that reason, and `ApplicationNew.test.tsx` asserts the whole
+sequence rather than the presence of an `<h1>`, which is what catches it.
 
 ### Form Fields
 
@@ -421,20 +495,46 @@ interface DashboardStatsProps {
   stats: {
     total: number;
     appliedThisWeek: number;
-    responseRate: number; // 0-100
+    responseRate: Ratio; // 0-1 — a ratio, NOT a percentage
     inReview: number; // phone_screen + interview count
   };
   loading?: boolean;
 }
 ```
 
+> **Unit of `responseRate`: a ratio in [0, 1]** — `0.75` means 75%. The source of
+> record for this unit is
+> [`docs/architecture/API_CONTRACTS.md`](../architecture/API_CONTRACTS.md)
+> (`GET /dashboard`), which is also what the API ships. The API sends the ratio
+> unchanged and **the presentation layer converts**, matching the convention UC-3
+> already uses for `relevanceScore`.
+>
+> This spec previously said `0-100`, contradicting API_CONTRACTS. Nothing adapted
+> between the two, so the component ran `Math.round(0.75)` and the "Response" card
+> could only ever read "0%" or "1%" (WIC-1514). The unit is now branded as `Ratio`
+> in `packages/web/src/types/units.ts`; convert with `toPercent(...)` at the render
+> site.
+
+### Window semantics
+
+`appliedThisWeek` is a **rolling window ending now** — the API counts applications with
+`appliedAt` in the last seven days (`packages/api/src/services/dashboard.service.ts`), not
+applications submitted since the start of the current calendar week. Its tile is therefore
+labelled `Last 7 Days` and not `This Week`.
+
+Per **AC-N12** of the UC-5 spec, every surface rendering a window metric must label the
+window it actually measures; a label the user reads as a calendar period may not be attached
+to a rolling one. The prop name is a legacy of the original calendar-week reading and is kept
+for API-contract compatibility — it is not a statement about the window. The rule is pinned in
+code by `packages/web/src/constants/appliedWindow.ts` and its tests (WIC-1743).
+
 ### Layout
 
 ```
-┌──────────┬──────────┬──────────┬──────────┐
-│   24     │    8     │   33%    │    3     │
-│  Total   │This Week │ Response │In Review │
-└──────────┴──────────┴──────────┴──────────┘
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│     24      │      8      │     33%     │      3      │
+│    Total    │ Last 7 Days │  Response   │  In Review  │
+└─────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
 ### Stat Card Anatomy
@@ -479,21 +579,90 @@ interface FilterOptions {
   search?: string;
   status?: ApplicationStatus[];
   company?: string[];
-  dateRange?: { start: Date; end: Date };
-  salaryMin?: number;
-  salaryMax?: number;
+  // WIC-1613: `YYYY-MM-DD` local calendar days, each end independently optional.
+  // NOT `Date` — `SavedFilterShortcuts` persists whole `FilterOptions` objects
+  // through `JSON.stringify`, which a `Date` does not survive. See
+  // `packages/web/src/utils/dateRangeFilter.ts`.
+  dateRange?: { start?: string; end?: string };
+  activeOnly?: boolean;
 }
 ```
 
+`salaryMin` / `salaryMax` were specified here and never built; they are omitted above
+rather than left as a declaration nobody implements. `activeOnly` is the reverse — built
+and never specified — and is now written down. (WIC-1613 exists because `dateRange` sat
+in the third category: declared, spelled the way the requirement spells it, and wired to
+nothing. A field listed in this block is a promise, so this block only lists what is real.)
+
+**Ruling (WIC-1731): salary filtering is dropped, and this is why.** Striking the salary
+fields above was a statement of fact; this paragraph is the decision that fact was
+waiting on, so the clause is closed rather than silently absent — deleting an unbuilt
+clause without recording why is how `dateRange` came to read as delivered for four
+months.
+
+Salary is stored as **free text**, not as a number. `salary_range` is a nullable `TEXT`
+column (`DATA_MODEL.md:74`), surfaced as `salaryRange?: string` — "Optional, 1-50 chars"
+(`API_CONTRACTS.md:408`) — and captured by a plain text input on the application form.
+The repository's own fixtures already spell it three different ways (`$140k - $180k`,
+`$150k-180k`, `$180k-220k`), and nothing constrains a user to any of them: hourly rates,
+currencies, single values and "DOE" are all equally valid today. `salaryMin` / `salaryMax`
+were the **only** numeric salary in the entire codebase; nothing produced them.
+
+So the specified control — a range slider, min $0k, max $500k, step $10k — could not be
+built as written without first inventing a parser, and then answering a question nobody
+has asked: what a numeric bound should do with a row it cannot parse. Any bound would
+**hide** those rows, which for a sparsely and inconsistently populated optional field
+means silently hiding much of the user's own data. That is a worse outcome than not
+offering the filter.
+
+Salary is also not owed. Unlike date, it is not named in any accepted US- clause —
+US-6.3 asks for "Filter by status, company, date" (`WIC-15.plan.md:48`) — so dropping it
+gives up nothing that was promised.
+
+**If salary filtering is ever wanted**, it is a data-model change first, not a UI change:
+give `Application` structured numeric bounds (and a currency and a period) at capture
+time, then respecify this control against them. Re-opening it as a filter-panel task
+would reproduce exactly the fossil this section exists to prevent. Full evidence:
+[`SALARY_FILTER_RULING_WIC1731.md`](./SALARY_FILTER_RULING_WIC1731.md).
+
+This ruling covers filtering *only*. Salary remains captured on the application form and
+displayed on the card, detail and reports views; none of that is affected.
+
 ### UI Elements
 
-| Element    | Type                      | Behavior                                      |
-| ---------- | ------------------------- | --------------------------------------------- |
-| Search     | Text input                | Debounced (300ms), searches title + company   |
-| Status     | Multi-select checkboxes   | Filter by one or more statuses                |
-| Company    | Multi-select autocomplete | Filter by company name                        |
-| Date Range | Date picker               | Presets: This Week, This Month, Last 3 Months |
-| Salary     | Range slider              | Min $0k, Max $500k, step $10k                 |
+| Element     | Type                      | Behavior                                                                  |
+| ----------- | ------------------------- | ------------------------------------------------------------------------- |
+| Search      | Text input                | Debounced (300ms), searches title + company                               |
+| Status      | Multi-select checkboxes   | Filter by one or more statuses                                            |
+| Company     | Multi-select autocomplete | Filter by company name                                                    |
+| Date Range  | Two date inputs + presets | Presets: This Week, This Month, Last 3 Months. Either end may stand alone |
+| Active Only | Toggle switch             | Hides the terminal statuses (Offer, Rejected, Withdrawn)                  |
+
+**Which date the Date Range filters on.** US-6.3 says "filter by ... date" and does not
+say which; `Application` carries `createdAt`, `appliedAt` and `updatedAt`, and they
+select different rows. The control filters on **`appliedAt`, falling back to `createdAt`**
+and is labelled **"Date added / applied"** so the user is told rather than left to infer
+it. `updatedAt` is excluded deliberately: it moves whenever a status changes, so a row
+would leave and re-enter a fixed window without the user touching it. Both bounds are
+inclusive local calendar days.
+
+The presets are shorthand for the two inputs, not a separate filter — each writes the
+same `dateRange`, and either end stays editable afterwards. Presets alone cannot satisfy
+US-6.3, which asks for filtering by date, not by three enumerated windows.
+
+**The presets are calendar-anchored, and deliberately differ from the Dashboard's
+rolling stats.** "This Week" is `startOfWeek(now)` — the current Sunday-start calendar
+week — and "This Month" is month-to-date. The Dashboard's `appliedThisWeek` /
+`appliedThisMonth` (`dashboard.service.ts`) are *rolling*: `now - 7 days` and
+`setMonth(getMonth() - 1)`. So the two can disagree sharply — on a Sunday, "This Week"
+spans one day
+and `appliedThisWeek` spans seven. This is the same US-6.3 acceptance row naming both
+"filter by ... date" and "applied this week", so the divergence is written down here
+rather than left for each layer to rediscover (the WIC-1515/WIC-1516 shape). A filter
+bound is a boundary the user *picks and can see*, so it should land where they expect a
+week to start; a headline stat is a trailing measure, where a rolling window is the
+honest one. ("Last 3 Months" is `subMonths(now, 3)` and is rolling, which is what its
+name says.) If these are ever unified, change both and update this paragraph.
 
 ### Active Filter Chips
 
@@ -506,9 +675,23 @@ Applied Filters:  [Status: Applied ✕]  [Company: TechCo ✕]  [Clear All]
 
 ### Accessibility
 
-- **Focus Order:** Search → Status → Company → Date → Salary
+- **Focus Order:** Search → Active Only → Status → Company → Date (presets, then From,
+  then To) → Clear All → filter chips.
+  Transcribed from the rendered DOM order in `FilterPanel.tsx`, not from the order the
+  UI Elements table happens to list. The panel sets no `tabindex`, so DOM order *is*
+  focus order; note that **Active Only sits second, directly after Search** — it is not
+  last despite being the newest control.
 - **Screen Reader:** Announces filter count changes
-- **Keyboard:** Space/Enter to toggle checkboxes
+- **Keyboard:** Space/Enter to toggle checkboxes. Active Only is a `role="switch"` with
+  `aria-checked`, reached in sequence and toggled the same way — it is a control, not a
+  chip. The Clear All button and the chip row appear only while a filter is active, so
+  the tail of the order is conditional.
+
+> This line is part of the same promise as the UI Elements table above: it must name the
+> controls that exist, in the order they are actually reached. It named **Salary** — a
+> control this panel never had — until WIC-1731, and omitted **Active Only**, which
+> shipped without being written down. Any change to the control set or to render order
+> changes this line too.
 
 ---
 
@@ -755,7 +938,20 @@ here rather than merely tidy.
   occurrence is the same host at the same depth, one shown at a time, so there is no host
   decision to delegate and both were verified gap-free as they stand. That leaves five:
   `EmptyState` (fixed in WIC-1417), `CoverLetterPreview` and `ApplicationCard` (below), and
-  `PersonalInfoForm` and `ApplicationForm`, which were already correct at both of their depths.
+  `PersonalInfoForm` and ~~`ApplicationForm`, which were~~ `ApplicationForm` — `PersonalInfoForm`
+  was already correct at both of its depths, and **`ApplicationForm` was not** (corrected
+  2026-08-29, WIC-1099; it now takes `titleLevel`, see §3).
+
+  **Why WIC-1563's measurement read `ApplicationForm` as correct, since the method above is the
+  one to trust and it still missed this.** The two depths were compared for a *skip* — does the
+  dialog title sit one level below its host's `<h1>` — and at both sites it did. What no
+  comparison of depths can see is that on `/applications/new` there is no host `<h1>` **and
+  cannot be one**: the form is a Radix modal opened unconditionally, so the page behind it is
+  `aria-hidden` in its entirety. The outline is not too deep there, it is missing its root, and
+  a check for level-skips is satisfied by an outline that never starts. The general point is the
+  one in the bullet above — count where the _heading_ renders — extended one step: also ask
+  whether anything the host renders is **reachable**, because a correct level under an
+  unreachable parent is not a correct outline.
 - **The criterion is where the _heading_ renders, not where the _component_ mounts** (WIC-1563).
   These come apart whenever the heading sits behind a conditional, and `CoverLetterPreview` is
   the worked example in both directions. It mounts at two depths, which reads like a clear case
@@ -1211,7 +1407,7 @@ interface CatalogMatch {
   type: 'skill' | 'experience' | 'achievement';
   catalogItemId: string;
   title: string;
-  matchConfidence: number; // 0-100
+  confidence: number; // Ratio in [0,1] — the API field is `confidence` (API_CONTRACTS.md:974). ADR-008 §4
   reasoning: string;
 }
 
@@ -1223,7 +1419,7 @@ interface Gap {
 
 interface STARRecommendation {
   experienceId: string;
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — job-fit population (ADR-008)
   reasoning: string;
 }
 
@@ -2097,12 +2293,16 @@ Short-form message composer for LinkedIn InMail, email subject/body, or other ou
 
 ### Props
 
+> **The composer owns `platform`. A host must not hold a copy of it.** Ruled 2026-08-29 (WIC-1583, commit `9c71079`), after `/outreach/new` shipped two platform pickers — the page's and the composer's — that silently disagreed. `platform` decides the character budget, the warning thresholds and whether a Subject field exists at all, so the control belongs with the fields it governs and there must be exactly one of it on the route. **This spec previously declared `platform` as a prop; that line is struck, not merely edited.** A `platform` prop is what let a host paint a second picker.
+>
+> The remaining props are read on mount only. `initialContext` (renamed from `prefillContext` in the same commit) seeds editable fields the user then owns; the name states the contract. **A host that needs a later change to take effect must remount with a `key` — do not add a resync effect**, which `react-hooks/set-state-in-effect` rejects in this repo (WIC-1612). `OutreachNew` keys on every prop it seeds from.
+
 ```tsx
 interface OutreachComposerProps {
-  platform: 'linkedin' | 'email' | 'twitter';
-  applicationId?: string;
+  // `platform: 'linkedin' | 'email' | 'twitter'` — REMOVED, see the note above.
+  // `applicationId?: string` — never implemented; the route reads it from the query string.
   fitAnalysisId?: string;
-  prefillContext?: {
+  initialContext?: {
     company: string;
     jobTitle: string;
     hiringManager?: string;
@@ -2121,13 +2321,15 @@ interface OutreachMessage {
 
 ### Layout
 
+Two lines below are corrections, not aspiration — the diagram asserted both of them after the code had stopped doing them, which is the failure mode a prose-only amendment leaves behind. The panel carries **no heading of its own**: it is the sole body of `/outreach/new`, whose page `<h1>` already says "Compose Outreach Message", and repeating it here was WIC-1581. And there is **no Twitter DM option** — `OutreachPlatform` is `'linkedin' | 'email'`; the `twitter` entry under "Platform Constraints" below is unimplemented and should be read as a proposal.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Compose Outreach Message                               │
+│  (no panel heading — the page <h1> names the route)      │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
-│  │ Platform                                          │ │
-│  │ ● LinkedIn InMail    ○ Email    ○ Twitter DM      │ │
+│  │ Platform          ← the route's only platform picker│
+│  │ ● LinkedIn InMail    ○ Email                       │ │
 │  └───────────────────────────────────────────────────┘ │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐ │
@@ -2403,7 +2605,7 @@ interface STAREntry {
   result: string;
   tags: string[];
   timeframe: string; // e.g., "Q3 2024"
-  relevanceScore?: number; // 0-100, from fit analysis
+  relevanceScore?: number; // Ratio in [0,1] — from fit analysis, so it is the job-fit population (ADR-008). Render as `Math.round(s * 100)`; a `>= 80` threshold is a bug, use `>= 0.8`
   relevanceReasoning?: string;
 }
 ```
@@ -2740,7 +2942,7 @@ interface ScoredBullet {
   company: string;
   timeframe: string;
   tags: string[];
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string;
   selected: boolean;
 }
@@ -2997,7 +3199,7 @@ interface ScoredBullet {
   company: string;
   timeframe: string;
   tags: string[];
-  relevanceScore: number; // 0-100
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   reasoning: string;
   starEntry: {
     situation: string;
@@ -3342,7 +3544,7 @@ interface MarkdownResumePreviewProps {
 
 interface BulletTrace {
   starEntryId: string;
-  relevanceScore: number;
+  relevanceScore: number; // Ratio in [0,1] — resume-variant population (ADR-008)
   company: string;
   title: string;
 }
@@ -3631,7 +3833,7 @@ interface STARStory {
   id: string;
   title: string;
   themes: string[]; // 'leadership' | 'technical' | 'teamwork' | 'problem_solving' | 'communication' | 'innovation'
-  relevanceScore: number; // 0-100
+  relevanceScorePct: number; // Percent in [0,100], integer — interview-prep population, the one deviation (ADR-008 §4)
   situation: string;
   task: string;
   action: string;
@@ -3761,7 +3963,7 @@ type Theme = {
 - **ARIA Role:** `tablist` for themes, `listbox` for stories
 - **Tab Navigation:** Tab between theme tabs, Enter to select
 - **Arrow Keys:** Navigate between story cards
-- **Screen Reader:** "{title}, {relevanceScore}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
+- **Screen Reader:** "{title}, {relevanceScorePct}% relevant, themes: {themes}, {isFavorite ? 'favorited' : ''}"
 
 ### Responsive Behavior
 
@@ -4034,10 +4236,10 @@ type MitigationStrategy = 'acknowledge_pivot' | 'growth_mindset' | 'adjacent_exp
 │ │   directly, I've deployed containerized apps with       │ │
 │ │   Docker and worked closely with DevOps teams..."       │ │
 │ │                                                         │ │
-│ │   KEY PHRASES: "containerized applications",            │ │   ‹deferred›
+│ │   Key phrases: "containerized applications",            │ │
 │ │   "Docker experience", "DevOps collaboration"           │ │
 │ │                                                         │ │
-│ │   REDIRECT TO: Docker & CI/CD expertise                 │ │   ‹deferred›
+│ │   Redirect to: Docker & CI/CD expertise                 │ │
 │ │   [Copy Script] [Practice]                              │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────────────────┐ │

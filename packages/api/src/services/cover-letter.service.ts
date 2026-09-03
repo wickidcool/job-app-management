@@ -1,9 +1,11 @@
-import { eq, ilike, or, desc, inArray, and, sql } from 'drizzle-orm';
+import { eq, ilike, or, desc, inArray, and, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
-import { coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
+import { applications, coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
 import type { CoverLetter, OutreachMessage, RevisionEntry } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { fetchJobDescriptionFromUrl } from './job-fit.service.js';
@@ -24,11 +26,66 @@ import {
   VersionConflictError,
 } from '../types/index.js';
 
+// ── Application association (WIC-1544) ────────────────────────────────────────
+
+/**
+ * Resolve a caller-supplied `applicationId` to an application this caller owns.
+ *
+ * Scoped, and scoped unconditionally. The owner term is `eq` for an identified
+ * caller and `IS NULL` for an anonymous one, never *absent*: an unscoped lookup
+ * here would both confirm the existence of another user's application id and
+ * write that id into this user's `cover_letters.application_id`, manufacturing
+ * a cross-tenant reference out of a field the client fully controls. `IS NULL`
+ * is the right anonymous branch rather than a dead one because `applications`
+ * is one of the tables migration 0017 left `user_id` nullable on.
+ *
+ * Returns the id on success so the caller can persist it, and throws 404 rather
+ * than silently dropping it — a letter that quietly forgets the application it
+ * was asked to record is the defect this card exists to fix.
+ */
+/**
+ * Fail closed: an absent owner scopes to `user_id IS NULL`, never to the whole
+ * table. Mirrors the helper of the same name in interviewPrep/job-fit/
+ * resume-variant, and is the shape the owner-predicate audit recognises.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+/**
+ * Resolve an application id the caller is entitled to reference.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a
+ * single-expression fail-closed helper (an absent owner scopes to `IS NULL`,
+ * never to the whole table), so the absent-owner decision is made once, in the
+ * one place the owner-predicate audit recognises and checks by shape — instead
+ * of this function carrying an optional owner of its own, which is the [SIG]
+ * shape that audit exists to stop spreading.
+ */
+async function resolveOwnedApplicationId(applicationId: string, owner: SQL): Promise<string> {
+  const db = getDb();
+  const [app] = await db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(and(eq(applications.id, applicationId), owner))
+    .limit(1);
+  if (!app) {
+    throw new CoverLetterError(
+      'APPLICATION_NOT_FOUND',
+      'Referenced application does not exist',
+      undefined,
+      404
+    );
+  }
+  return app.id;
+}
+
 // ── DTO mappers ───────────────────────────────────────────────────────────────
 
 function toDTO(cl: CoverLetter): CoverLetterDTO {
   return {
     id: cl.id,
+    applicationId: cl.applicationId,
     status: cl.status as CoverLetterDTO['status'],
     title: cl.title,
     targetCompany: cl.targetCompany,
@@ -56,6 +113,7 @@ function toDTO(cl: CoverLetter): CoverLetterDTO {
 function toSummaryDTO(cl: CoverLetter): CoverLetterSummaryDTO {
   return {
     id: cl.id,
+    applicationId: cl.applicationId,
     status: cl.status as CoverLetterSummaryDTO['status'],
     title: cl.title,
     targetCompany: cl.targetCompany,
@@ -117,13 +175,39 @@ const EMPHASIS_DESCRIPTORS: Record<string, string> = {
   balanced: 'Balance technical skills and leadership qualities equally.',
 };
 
-async function fetchStarEntries(ids: string[]): Promise<{ id: string; rawText: string }[]> {
+// `userId` is positionally required — not optional — so that no call site can
+// silently forget to scope a caller-supplied id list. It still accepts
+// `undefined` to match the auth-bypass path the eight row-addressed handlers
+// use (`c.get('userId') ?? undefined`); see the sibling lookups below.
+//
+// WIC-1482. The owner term is always present. It used to be the whole
+// conjunction that was conditional — `userId ? and(ids, owner) : ids` — which
+// scoped the authenticated branch and left the anonymous one selecting purely
+// by caller-supplied ids, i.e. the original defect, narrowed rather than
+// closed. An absent caller scopes to `IS NULL`, never to nothing, matching
+// `bulletOwnerScope` in `resume-variant.service.ts` / `interviewPrep.service.ts`,
+// both of which carry this exact `userId ? eq : isNull` shape. Those two are cited
+// deliberately and `job-fit.service.ts` is not: its `quantified_bullets` read is the
+// other half of WIC-1482 and lands on a separate branch, so its state here depends on
+// merge order and any claim about it would be stale in one tree or the other.
+// `quantified_bullets.user_id` is
+// `uuid NOT NULL` (`schema.ts:265`), so there is no legacy-null cohort for
+// `IS NULL` to reach and the anonymous local-dev caller gets zero rows — the
+// `STAR_ENTRY_NOT_FOUND` / `CATALOG_EMPTY` empty state, not a global read.
+async function fetchStarEntries(
+  ids: string[],
+  userId: string | undefined
+): Promise<{ id: string; rawText: string }[]> {
   if (ids.length === 0) return [];
   const db = getDb();
+  const whereClause = and(
+    inArray(quantifiedBullets.id, ids),
+    userId ? eq(quantifiedBullets.userId, userId) : isNull(quantifiedBullets.userId)
+  );
   const rows = await db
     .select({ id: quantifiedBullets.id, rawText: quantifiedBullets.rawText })
     .from(quantifiedBullets)
-    .where(inArray(quantifiedBullets.id, ids));
+    .where(whereClause);
   return rows;
 }
 
@@ -168,7 +252,11 @@ export async function generateCoverLetter(
     );
   }
 
-  const starEntries = await fetchStarEntries(input.selectedStarEntryIds);
+  const applicationId = input.applicationId
+    ? await resolveOwnedApplicationId(input.applicationId, ownerScope(applications, userId))
+    : null;
+
+  const starEntries = await fetchStarEntries(input.selectedStarEntryIds, userId);
 
   // Validate all IDs exist
   const foundIds = new Set(starEntries.map((e) => e.id));
@@ -292,6 +380,7 @@ Rules:
     .values({
       id,
       userId: userId ?? null,
+      applicationId,
       status: 'draft',
       title,
       targetCompany,
@@ -335,7 +424,7 @@ export async function getCoverLetter(
   const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
-  const starEntries = await fetchStarEntries(row.selectedStarEntryIds ?? []);
+  const starEntries = await fetchStarEntries(row.selectedStarEntryIds ?? [], userId);
   const usedStarEntries: UsedStarEntryDTO[] = starEntries.map((e, i) => ({
     id: e.id,
     rawText: e.rawText,
@@ -350,6 +439,7 @@ export async function getCoverLetter(
 export async function listCoverLetters(
   params: {
     status?: string;
+    applicationId?: string;
     company?: string;
     search?: string;
     limit?: number;
@@ -367,6 +457,12 @@ export async function listCoverLetters(
   }
   if (params.status === 'draft' || params.status === 'finalized') {
     conditions.push(eq(coverLetters.status, params.status as any));
+  }
+  if (params.applicationId) {
+    // `eq`, not `ilike`. See the route schema note: an id is matched whole or
+    // not at all, so one application's letters never leak into another's list
+    // through a shared ULID prefix (WIC-1544 AC-3).
+    conditions.push(eq(coverLetters.applicationId, params.applicationId) as any);
   }
   if (params.company) {
     conditions.push(ilike(coverLetters.targetCompany, `%${params.company}%`) as any);
@@ -473,7 +569,7 @@ export async function reviseCoverLetter(
   if (!existing) throw new NotFoundError('Cover letter');
 
   const selectedIds = input.selectedStarEntryIds ?? existing.selectedStarEntryIds ?? [];
-  const starEntries = await fetchStarEntries(selectedIds);
+  const starEntries = await fetchStarEntries(selectedIds, userId);
 
   const tone = (input.tone ?? existing.tone) as string;
   const lengthVariant = (input.lengthVariant ?? existing.lengthVariant) as string;
@@ -595,11 +691,10 @@ export async function generateOutreach(
 
   if (input.coverLetterId) {
     const db = getDb();
-    const [cl] = await db
-      .select()
-      .from(coverLetters)
-      .where(eq(coverLetters.id, input.coverLetterId))
-      .limit(1);
+    const whereClause = userId
+      ? and(eq(coverLetters.id, input.coverLetterId), eq(coverLetters.userId, userId))
+      : eq(coverLetters.id, input.coverLetterId);
+    const [cl] = await db.select().from(coverLetters).where(whereClause).limit(1);
     if (!cl)
       throw new CoverLetterError(
         'COVER_LETTER_NOT_FOUND',
@@ -609,7 +704,7 @@ export async function generateOutreach(
       );
     contextText = `Based on this cover letter excerpt:\n${cl.content.slice(0, 500)}`;
   } else if (input.selectedStarEntryIds?.length) {
-    const entries = await fetchStarEntries(input.selectedStarEntryIds);
+    const entries = await fetchStarEntries(input.selectedStarEntryIds, userId);
     contextText = `Key achievements:\n${entries.map((e) => `- ${e.rawText}`).join('\n')}`;
   } else {
     contextText = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;

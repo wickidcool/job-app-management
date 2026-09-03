@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { CoverLetterPreview } from '../components/CoverLetterPreview';
 import {
   useCoverLetter,
@@ -83,6 +83,16 @@ export function CoverLetterDetail() {
 
   const wordCount =
     coverLetter.content.trim() === '' ? 0 : coverLetter.content.trim().split(/\s+/).length;
+
+  // The outreach composer's only entry point (WIC-1530). `coverLetterId` is what keeps
+  // the API's `JOB_CONTEXT_REQUIRED` guard satisfied; `company` and `jobTitle` are the
+  // names OutreachNew reads off the query string, and they prefill the composer's two
+  // required fields so its Generate button is enabled on arrival.
+  const outreachParams = new URLSearchParams({
+    coverLetterId: coverLetter.id,
+    company: coverLetter.targetCompany,
+    jobTitle: coverLetter.targetRole,
+  });
   const variant: CoverLetterVariant = {
     tone: coverLetter.tone,
     length: coverLetter.lengthVariant,
@@ -104,6 +114,12 @@ export function CoverLetterDetail() {
             <h1 className="text-2xl font-bold text-gray-900">Cover Letter</h1>
           </div>
           <div className="flex gap-3">
+            <Link
+              to={`/outreach/new?${outreachParams.toString()}`}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Write Outreach Message
+            </Link>
             <button
               onClick={handleDelete}
               disabled={deleteMutation.isPending}

@@ -11,7 +11,9 @@ import {
   suggestBullets,
   exportResumeVariant,
 } from '../services/resume-variant.service.js';
+import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
+import { readJsonBody } from '../lib/request.js';
 
 const formatValues = ['chronological', 'functional', 'hybrid'] as const;
 const emphasisValues = ['experience_heavy', 'skills_heavy', 'balanced'] as const;
@@ -31,6 +33,7 @@ const bulletSelectionSchema = z.object({
 
 const generateSchema = z
   .object({
+    applicationId: z.string().min(1).max(64).optional(),
     jobDescriptionText: z.string().min(50).max(50000).optional(),
     jobDescriptionUrl: z.string().url().optional(),
     jobFitAnalysisId: z.string().optional(),
@@ -85,6 +88,8 @@ const suggestBulletsSchema = z
 
 const listQuerySchema = z.object({
   status: z.enum(['draft', 'finalized']).optional(),
+  // Exact match — see the note on the cover-letter list schema (WIC-1544 AC-3).
+  applicationId: z.string().min(1).max(64).optional(),
   company: z.string().optional(),
   search: z.string().optional(),
   format: z.enum(formatValues).optional(),
@@ -114,19 +119,19 @@ const exportSchema = z
 
 export const resumeVariantsRoutes = new Hono<AppEnv>()
   .post('/resume-variants/generate', async (c) => {
-    const parsed = generateSchema.safeParse(await c.req.json());
+    const parsed = generateSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateResumeVariant(parsed.data, c.get('userId') ?? undefined);
+    const result = await generateResumeVariant(parsed.data, requireOwner(c));
     return c.json(result, 201);
   })
   .post('/resume-variants/suggest-bullets', async (c) => {
-    const parsed = suggestBulletsSchema.safeParse(await c.req.json());
+    const parsed = suggestBulletsSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await suggestBullets(parsed.data, c.get('userId') ?? undefined);
+    const result = await suggestBullets(parsed.data, requireOwner(c));
     return c.json(result);
   })
   .get('/resume-variants', async (c) => {
@@ -138,11 +143,11 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .get('/resume-variants/:id', async (c) => {
-    const result = await getResumeVariant(c.req.param('id'), c.get('userId') ?? undefined);
+    const result = await getResumeVariant(c.req.param('id'), requireOwner(c));
     return c.json(result);
   })
   .patch('/resume-variants/:id', async (c) => {
-    const parsed = updateSchema.safeParse(await c.req.json());
+    const parsed = updateSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
@@ -158,19 +163,15 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   .post('/resume-variants/:id/revise', async (c) => {
-    const parsed = reviseSchema.safeParse(await c.req.json());
+    const parsed = reviseSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await reviseResumeVariant(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await reviseResumeVariant(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json(result);
   })
   .post('/resume-variants/:id/export', async (c) => {
-    const parsed = exportSchema.safeParse(await c.req.json());
+    const parsed = exportSchema.safeParse(await readJsonBody(c));
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }

@@ -3,6 +3,8 @@
  * These types match the backend API response structure
  */
 
+import type { Ratio } from '../../types/units';
+
 export type ApplicationStatus =
   | 'saved'
   | 'applied'
@@ -137,9 +139,24 @@ export interface APIConfig {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /** Submissions in the last 7 days, regardless of current status. */
   appliedThisWeek: number;
+  /**
+   * Submissions in the last **30 days** — a rolling window, not calendar
+   * month-to-date. Label it "last 30 days" if you bind it to a surface.
+   */
   appliedThisMonth: number;
-  responseRate: number;
+  /**
+   * Share of applications that drew a response, as a **ratio in [0, 1]** —
+   * `0.75` means 75%. Source of record for the unit is
+   * `docs/architecture/API_CONTRACTS.md` (`GET /dashboard`), which is what the
+   * API actually ships.
+   *
+   * Branded so it cannot be rendered as though it were already a percentage;
+   * convert with `toPercent` from `../../types/units` at the display site
+   * (WIC-1514).
+   */
+  responseRate: Ratio;
 }
 
 /**
@@ -156,11 +173,62 @@ export interface ActivityItem {
 }
 
 /**
+ * A single application referenced by the dashboard attention block.
+ *
+ * Deliberately minimal: enough to label and link a row, never the full
+ * application (`jobDescription` in particular can be very large).
+ */
+export interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+}
+
+/**
+ * Full-table aggregates behind the Dashboard's "Attention Required" and
+ * "Quick Wins" cards.
+ *
+ * Every `counts` field is computed server-side over *all* of the user's
+ * applications, never over a page of them. `samples` are short top-N lists used
+ * to render individual action rows; a sample list shorter than its count is
+ * expected and does not mean the count is truncated.
+ */
+export interface DashboardAttention {
+  /**
+   * The window `/reports/stale` applies by default. The attention card renders
+   * this rather than a hardcoded number, so its label can never promise a
+   * threshold different from the one the report it links to will apply
+   * (WIC-1479).
+   */
+  staleThresholdDays: number;
+  /** Days after which a `saved` application counts as not-yet-submitted. */
+  unsubmittedThresholdDays: number;
+  counts: {
+    interviewing: number;
+    /** `applied` or `phone_screen`, not updated within `staleThresholdDays`. */
+    stale: number;
+    missingJobDescription: number;
+    /** `saved`, created over `unsubmittedThresholdDays` ago. Not staleness. */
+    unsubmittedSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];
+    stale: AttentionApplication[];
+    missingJobDescription: AttentionApplication[];
+    unsubmittedSaved: AttentionApplication[];
+  };
+}
+
+/**
  * Dashboard Response
  */
 export interface DashboardResponse {
   stats: DashboardStats;
   recentActivity: ActivityItem[];
+  attention: DashboardAttention;
 }
 
 /**
@@ -196,12 +264,25 @@ export interface CoverLetterVariant {
   emphasis: CoverLetterEmphasis;
 }
 
+/**
+ * Mirrors the API's `CoverLetterSummaryDTO` (`packages/api/src/types/index.ts`), which is
+ * what `GET /api/cover-letters` returns for each row. Keep the two in step: they are
+ * separate `interface` declarations in separate packages, so `tsc` cannot compare them and
+ * drift here is silent. This type previously declared a `keywords: string[]` the API has
+ * never sent, and omitted `targetCompany`/`targetRole` — the only fields that relate a
+ * letter back to the application it was written for (WIC-1533).
+ */
 export interface CoverLetterSummary {
   id: string;
+  status: 'draft' | 'finalized';
   title: string;
-  keywords: string[];
-  createdAt: string;
+  targetCompany: string;
+  targetRole: string;
+  tone: CoverLetterTone;
+  lengthVariant: CoverLetterLength;
   preview: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CoverLetterResult {
@@ -215,6 +296,7 @@ export interface CoverLetterResult {
 
 export interface ListCoverLettersResponse {
   coverLetters: CoverLetterSummary[];
+  nextCursor?: string;
 }
 
 /**
@@ -240,6 +322,12 @@ export interface GenerateCoverLetterResponse {
     id: string;
     title: string;
     content: string;
+    // Both are NOT NULL on `cover_letters` and are mapped unconditionally by the API's
+    // `toDTO` (cover-letter.service.ts), so they are always present on the wire. They
+    // were simply missing from this type, which is why nothing downstream could read
+    // the letter's own job context (WIC-1530).
+    targetCompany: string;
+    targetRole: string;
     tone: CoverLetterTone;
     lengthVariant: CoverLetterLength;
     emphasis: CoverLetterEmphasis;
@@ -261,20 +349,12 @@ export interface ReviseCoverLetterRequest {
 }
 
 export interface ReviseCoverLetterResponse {
-  coverLetter: {
-    id: string;
-    title: string;
-    content: string;
-    tone: CoverLetterTone;
-    lengthVariant: CoverLetterLength;
-    emphasis: CoverLetterEmphasis;
-    wordCount: number;
-    selectedStarEntryIds: string[];
-    status: 'draft' | 'finalized';
-    version: number;
-    createdAt: string;
-    updatedAt: string;
-  };
+  // `POST /cover-letters/:id/revise` and `POST /cover-letters` return the same server
+  // shape — both map the row through `toDTO`. This was a second, hand-copied
+  // declaration of it, which is how it came to be missing `targetCompany`/`targetRole`
+  // while the generate response was corrected (WIC-1530). Referencing the one
+  // declaration keeps the two from drifting apart again.
+  coverLetter: GenerateCoverLetterResponse['coverLetter'];
 }
 
 export interface UpdateCoverLetterRequest {
@@ -336,7 +416,17 @@ export interface CatalogEntry {
   result: string;
   tags: string[];
   timeframe?: string;
-  relevanceScore?: number; // For fit analysis context
+  /**
+   * How relevant this entry is to the job under analysis. A ratio in `[0, 1]` per ADR-008 §1 —
+   * this entry belongs to the job-fit population (`packages/api/src/types/index.ts` →
+   * `CatalogEntryDTO`), whose producers all emit `Math.round(x * 100) / 100`. Populated only
+   * when the list is fetched in a fit-analysis context; `undefined` otherwise.
+   *
+   * Branded so it cannot be assigned to a `Percent` sink. Note that the brand does not stop
+   * `score >= 80` or `{score}%` — arithmetic and rendering both erase it — so the unit is
+   * *also* pinned by `StarEntryPicker.test.tsx`.
+   */
+  relevanceScore?: Ratio;
   relevanceReasoning?: string;
 }
 
