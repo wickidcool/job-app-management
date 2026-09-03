@@ -19,7 +19,12 @@ import {
   listStarEntries,
   listThemes,
 } from '../services/catalog.service.js';
-import { analyzeJobFit } from '../services/job-fit.service.js';
+import {
+  analyzeJobFit,
+  jobFitAnalysesScope,
+  listJobFitAnalyses,
+} from '../services/job-fit.service.js';
+import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
 
@@ -129,6 +134,11 @@ const analyzeJobFitSchema = z
   .object({
     jobDescriptionText: z.string().min(50).max(50000).optional(),
     jobDescriptionUrl: z.string().url().max(2048).optional(),
+    // Not part of the xor refinement below: the application this analysis is
+    // about is orthogonal to which form the job description arrived in.
+    // `.min(1)` so `''` is a 400 here rather than an id that reaches the
+    // service and has to be told apart from "absent" (WIC-1818).
+    applicationId: z.string().min(1).max(100).optional(),
   })
   .refine(
     (data) => {
@@ -138,6 +148,11 @@ const analyzeJobFitSchema = z
     },
     { message: 'Provide either jobDescriptionText or jobDescriptionUrl, not both or neither' }
   );
+
+const listJobFitAnalysesSchema = z.object({
+  applicationId: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
 
 export const catalogRoutes = new Hono<AppEnv>()
   // ── Diffs ──────────────────────────────────────────────────────────────────
@@ -155,11 +170,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = generateDiffSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const diff = await generateDiff(
-      parsed.data.sourceType,
-      parsed.data.sourceId,
-      c.get('userId') ?? undefined
-    );
+    const diff = await generateDiff(parsed.data.sourceType, parsed.data.sourceId, requireOwner(c));
     return c.json(diff, 201);
   })
   .post('/catalog/diffs/:id/apply', async (c) => {
@@ -198,7 +209,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const result = await mergeCompanies(
       parsed.data.sourceCompanyIds,
       parsed.data.targetCompanyId,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json(result);
   })
@@ -260,19 +271,11 @@ export const catalogRoutes = new Hono<AppEnv>()
 
     if (type === 'job-fit') {
       return c.json(
-        await mergeJobFitTags(
-          parsed.data.sourceTagIds,
-          parsed.data.targetTagId,
-          c.get('userId') ?? undefined
-        )
+        await mergeJobFitTags(parsed.data.sourceTagIds, parsed.data.targetTagId, requireOwner(c))
       );
     } else if (type === 'tech-stack') {
       return c.json(
-        await mergeTechStackTags(
-          parsed.data.sourceTagIds,
-          parsed.data.targetTagId,
-          c.get('userId') ?? undefined
-        )
+        await mergeTechStackTags(parsed.data.sourceTagIds, parsed.data.targetTagId, requireOwner(c))
       );
     } else {
       return c.json(
@@ -289,13 +292,13 @@ export const catalogRoutes = new Hono<AppEnv>()
       const parsed = updateJobFitTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-      const tag = await updateJobFitTag(id, parsed.data, c.get('userId') ?? undefined);
+      const tag = await updateJobFitTag(id, parsed.data, requireOwner(c));
       return c.json(tag);
     } else if (type === 'tech-stack') {
       const parsed = updateTechStackTagSchema.safeParse(await readJsonBody(c));
       if (!parsed.success)
         return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-      const tag = await updateTechStackTag(id, parsed.data, c.get('userId') ?? undefined);
+      const tag = await updateTechStackTag(id, parsed.data, requireOwner(c));
       return c.json(tag);
     } else {
       return c.json(
@@ -350,4 +353,18 @@ export const catalogRoutes = new Hono<AppEnv>()
         'X-RateLimit-Reset': String(rateLimitHeaders.reset),
       },
     });
+  })
+  // The read half of UC-3 persistence (WIC-1652). Without this, an analysis is
+  // stored but unfindable, so `ApplicationDetail` still could not tell whether
+  // an application has been analysed.
+  .get('/catalog/job-fit/analyses', async (c) => {
+    const parsed = listJobFitAnalysesSchema.safeParse(c.req.query());
+    if (!parsed.success)
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
+
+    const result = await listJobFitAnalyses(
+      parsed.data,
+      jobFitAnalysesScope(c.get('userId') ?? undefined)
+    );
+    return c.json(result);
   });

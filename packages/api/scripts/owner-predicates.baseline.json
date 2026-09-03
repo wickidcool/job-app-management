@@ -27,7 +27,7 @@
     "file": "src/services/catalog.service.ts",
     "check": "COND",
     "detail": "'userId' branched on in a ternary test",
-    "count": 19
+    "count": 9
   },
   {
     "file": "src/services/catalog.service.ts",
@@ -39,7 +39,7 @@
     "file": "src/services/catalog.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 18
+    "count": 12
   },
   {
     "file": "src/services/cover-letter.service.ts",
@@ -81,7 +81,7 @@
     "file": "src/services/interviewPrep.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 7
+    "count": 6
   },
   {
     "file": "src/services/job-fit.service.ts",
@@ -97,15 +97,9 @@
   },
   {
     "file": "src/services/project.service.ts",
-    "check": "COND",
-    "detail": "'userId' branched on in a ternary test",
-    "count": 4
-  },
-  {
-    "file": "src/services/project.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 20
+    "count": 22
   },
   {
     "file": "src/services/reports.service.ts",
@@ -129,7 +123,7 @@
     "file": "src/services/resume-variant.service.ts",
     "check": "SIG",
     "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 8
+    "count": 4
   },
   {
     "file": "src/services/resume.service.ts",

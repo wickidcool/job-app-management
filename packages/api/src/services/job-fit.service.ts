@@ -1,14 +1,26 @@
-import { desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { lookup } from 'node:dns/promises';
+import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
-import { techStackTags, jobFitTags, quantifiedBullets } from '../db/schema.js';
+import {
+  applications,
+  techStackTags,
+  jobFitTags,
+  jobFitAnalyses,
+  quantifiedBullets,
+  type JobFitAnalysis,
+} from '../db/schema.js';
 import { AppError, JobFitInputError, JobFitUrlFetchError, RateLimitError } from '../types/index.js';
 import { getConfig } from '../config.js';
 import { LLMService } from './llm.service.js';
 import type {
   AnalyzeJobFitInput,
   AnalyzeJobFitResponse,
+  JobFitAnalysisSummaryDTO,
+  ListJobFitAnalysesParams,
+  ListJobFitAnalysesResponse,
   ParsedJobDescriptionDTO,
   FitMatchDTO,
   FitGapDTO,
@@ -552,18 +564,49 @@ export function matchCatalogEntry(
 
 // ── Scoring ──────────────────────────────────────────────────────────────────
 
+/**
+ * The weighted required-skill match, as a fraction in `[0, 1]`.
+ *
+ * This is the first of the three variables the `recommendation` cascade is
+ * ordered over, and it is also the number `AnalyzeJobFitResponse.fitScore`
+ * publishes as a percentage (WIC-1652). It is extracted rather than duplicated
+ * for exactly that reason: a separately-written "match percent" would be free to
+ * disagree with the tier printed beside it, which is the class of defect
+ * WIC-1309 already cost this endpoint once.
+ *
+ * `null` for `totalRequired === 0` — the job description named no required
+ * skills, so there is no denominator and no score. That is the same condition
+ * under which `computeRecommendation` returns `null`, which is what keeps
+ * `fitScore === null` and `recommendation === null` in lockstep.
+ */
+export function computeMatchFraction(
+  requiredMatches: FitMatchDTO[],
+  totalRequired: number
+): number | null {
+  if (totalRequired === 0) return null;
+  const exactCount = requiredMatches.filter((m) => m.matchType === 'exact').length;
+  const partialCount = requiredMatches.filter((m) => m.matchType !== 'exact').length;
+  return (exactCount + partialCount * 0.5) / totalRequired;
+}
+
+/** `computeMatchFraction` as the 0-100 integer the wire and the DB carry. */
+export function computeFitScore(
+  requiredMatches: FitMatchDTO[],
+  totalRequired: number
+): number | null {
+  const fraction = computeMatchFraction(requiredMatches, totalRequired);
+  return fraction === null ? null : Math.round(fraction * 100);
+}
+
 export function computeRecommendation(
   requiredMatches: FitMatchDTO[],
   requiredGaps: FitGapDTO[],
   totalRequired: number,
   hasSeniorityMismatch: boolean
 ): FitRecommendation | null {
-  if (totalRequired === 0) return null;
+  const matchPct = computeMatchFraction(requiredMatches, totalRequired);
+  if (matchPct === null) return null;
 
-  const exactCount = requiredMatches.filter((m) => m.matchType === 'exact').length;
-  const partialCount = requiredMatches.filter((m) => m.matchType !== 'exact').length;
-  const weightedMatches = exactCount + partialCount * 0.5;
-  const matchPct = weightedMatches / totalRequired;
   const criticalGaps = requiredGaps.filter((g) => g.severity === 'critical').length;
 
   if (matchPct >= 0.8 && criticalGaps <= 1) return 'strong_fit';
@@ -700,6 +743,14 @@ export async function analyzeJobFit(
     );
   }
 
+  // Before the rate-limit slot and before the LLM call, both of which are
+  // billable and neither of which is refundable: an unresolvable `applicationId`
+  // should cost the caller nothing.
+  const applicationId = await resolveOwnedApplicationId(
+    input.applicationId,
+    ownerScope(applications, userId)
+  );
+
   let jdText: string;
   let rateLimitHeaders: { remaining: number; reset: number };
 
@@ -777,8 +828,9 @@ export async function analyzeJobFit(
 
   if (catalogEmpty) {
     return {
-      response: {
+      response: await persistAnalysis(input, userId ?? null, applicationId, {
         recommendation: null,
+        fitScore: null,
         summary:
           'Your catalog is empty. Upload a resume or add application history to enable fit analysis.',
         confidence: 'high',
@@ -789,7 +841,7 @@ export async function analyzeJobFit(
         recommendedStarEntries: [],
         catalogEmpty: true,
         analysisTimestamp: new Date().toISOString(),
-      },
+      }),
       rateLimitHeaders,
     };
   }
@@ -903,6 +955,7 @@ export async function analyzeJobFit(
     totalRequired,
     hasSeniorityMismatch
   );
+  const fitScore = computeFitScore(requiredTechMatches, totalRequired);
 
   const confidence: Confidence =
     parsed.requiredStack.length > 3 ? 'high' : parsed.requiredStack.length > 0 ? 'medium' : 'low';
@@ -927,8 +980,9 @@ export async function analyzeJobFit(
     }));
 
   return {
-    response: {
+    response: await persistAnalysis(input, userId ?? null, applicationId, {
       recommendation,
+      fitScore,
       summary: computeSummary(recommendation, strongMatches, partialMatches, gaps, totalRequired),
       confidence,
       parsedJd,
@@ -938,7 +992,148 @@ export async function analyzeJobFit(
       recommendedStarEntries,
       catalogEmpty: false,
       analysisTimestamp: new Date().toISOString(),
-    },
+    }),
     rateLimitHeaders,
+  };
+}
+
+// ── Persistence (WIC-1652 / ADR-012) ─────────────────────────────────────────
+
+/**
+ * The analysis itself, before it has an identity.
+ *
+ * Splitting this out is what lets both `analyzeJobFit` exits — the
+ * catalog-empty short circuit and the scored path — go through one write. An
+ * earlier shape that persisted only the scored path would have made
+ * `catalogEmpty: true` the one result a caller could never name, which is
+ * exactly the result they are most likely to want to re-open.
+ */
+type AnalysisBody = Omit<AnalyzeJobFitResponse, 'id' | 'applicationId'>;
+
+/**
+ * Narrow a caller-supplied `applicationId` to one the caller owns.
+ *
+ * Returns `null` when nothing was supplied. Throws when something was supplied
+ * that does not resolve — including the empty string, because
+ * `z.string().optional()` admits `''` and a truthiness test would silently read
+ * it as "not supplied" (the WIC-1818 trap, one layer up).
+ *
+ * The read is scoped by `user_id` and the error does not distinguish "no such
+ * application" from "not yours", so this cannot be used to enumerate other
+ * users' application ids.
+ */
+async function resolveOwnedApplicationId(
+  applicationId: string | undefined,
+  owner: SQL
+): Promise<string | null> {
+  if (applicationId === undefined) return null;
+
+  const db = getDb();
+  const whereClause = and(eq(applications.id, applicationId), owner);
+
+  const [row] = await db.select().from(applications).where(whereClause);
+  if (!row) {
+    throw new AppError('APPLICATION_NOT_FOUND', 'Application not found', { applicationId }, 404);
+  }
+  return row.id;
+}
+
+/**
+ * Write the analysis down and return it with the id it was given.
+ *
+ * The write is not best-effort. Before WIC-1652 this endpoint returned a result
+ * the caller could not name, so `jobFitAnalysisId` on the five generation
+ * entry points was unpopulatable by any honest client; swallowing a failure
+ * here would reproduce that state intermittently, which is worse than failing
+ * the request. `analysisTimestamp` is the value already computed by the caller,
+ * so the stored `analyzed_at` and the wire timestamp cannot disagree.
+ */
+async function persistAnalysis(
+  input: AnalyzeJobFitInput,
+  owner: string | null,
+  applicationId: string | null,
+  body: AnalysisBody
+): Promise<AnalyzeJobFitResponse> {
+  const db = getDb();
+  const id = ulid();
+
+  await db.insert(jobFitAnalyses).values({
+    id,
+    userId: owner,
+    applicationId,
+    jobDescriptionText: input.jobDescriptionText ?? null,
+    jobDescriptionUrl: input.jobDescriptionUrl ?? null,
+    recommendation: body.recommendation,
+    fitScore: body.fitScore,
+    summary: body.summary,
+    confidence: body.confidence,
+    parsedJd: body.parsedJd,
+    strongMatches: body.strongMatches,
+    partialMatches: body.partialMatches,
+    gaps: body.gaps,
+    recommendedStarEntries: body.recommendedStarEntries,
+    catalogEmpty: body.catalogEmpty,
+    analyzedAt: new Date(body.analysisTimestamp),
+  });
+
+  return { id, applicationId, ...body };
+}
+
+const DEFAULT_ANALYSIS_LIMIT = 20;
+const MAX_ANALYSIS_LIMIT = 100;
+
+/**
+ * Stored analyses for this caller, newest first.
+ *
+ * `applicationId` is a filter rather than a required argument so the endpoint
+ * can also answer "everything I have analysed". The owner term is applied
+ * unconditionally and in conjunction with it — an application filter is not a
+ * substitute for scoping, because application ids are caller-supplied.
+ */
+/**
+ * The owner term for the analyses table, in the fail-closed shape the
+ * owner-predicate audit recognises: an absent owner selects the genuinely
+ * unowned rows, never the whole table. Exported so the route can build the
+ * scope without `listJobFitAnalyses` having to carry an optional owner of its
+ * own — which is the [SIG] shape that audit exists to stop spreading.
+ */
+export function jobFitAnalysesScope(userId?: string) {
+  return userId ? eq(jobFitAnalyses.userId, userId) : isNull(jobFitAnalyses.userId);
+}
+
+export async function listJobFitAnalyses(
+  params: ListJobFitAnalysesParams,
+  ownerTerm: SQL
+): Promise<ListJobFitAnalysesResponse> {
+  const db = getDb();
+
+  const whereClause =
+    params.applicationId === undefined
+      ? ownerTerm
+      : and(ownerTerm, eq(jobFitAnalyses.applicationId, params.applicationId));
+
+  const limit = Math.min(Math.max(params.limit ?? DEFAULT_ANALYSIS_LIMIT, 1), MAX_ANALYSIS_LIMIT);
+
+  const rows = await db
+    .select()
+    .from(jobFitAnalyses)
+    .where(whereClause)
+    .orderBy(desc(jobFitAnalyses.analyzedAt))
+    .limit(limit);
+
+  return { analyses: rows.map(analysisToSummaryDTO) };
+}
+
+function analysisToSummaryDTO(row: JobFitAnalysis): JobFitAnalysisSummaryDTO {
+  return {
+    id: row.id,
+    applicationId: row.applicationId,
+    recommendation: row.recommendation ?? null,
+    fitScore: row.fitScore,
+    summary: row.summary,
+    confidence: row.confidence,
+    catalogEmpty: row.catalogEmpty,
+    analyzedAt:
+      row.analyzedAt instanceof Date ? row.analyzedAt.toISOString() : String(row.analyzedAt),
   };
 }

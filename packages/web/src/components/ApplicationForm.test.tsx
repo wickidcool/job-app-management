@@ -57,8 +57,8 @@ function renderForm(mode: 'create' | 'edit' = 'create') {
 
 describe('ApplicationForm — the dialog is described without stealing Radix’s id (WIC-1854)', () => {
   it.each([
-    ['create', 'Add New Application', 'Form to add a new job application'],
-    ['edit', 'Edit Application', 'Form to edit an existing job application'],
+    ['create', 'New application', 'Form to add a new job application'],
+    ['edit', 'Edit application', 'Form to edit an existing job application'],
   ] as const)('names and describes the %s dialog exactly', (mode, name, description) => {
     const dialog = renderForm(mode);
 

@@ -20,6 +20,7 @@ import {
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { AppError, NotFoundError } from '../types/index.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import { clampPercent, type Percent } from '../types/units.js';
 
 // ── Tenancy ───────────────────────────────────────────────────────────────────
@@ -53,6 +54,20 @@ import { clampPercent, type Percent } from '../types/units.js';
  * `0017_enforce_userid_not_null.sql`, so `IS NULL` matches **no rows** and an
  * anonymous caller reaches an empty catalog and this service raises
  * `CATALOG_EMPTY`. Failing closed is the intent.
+ *
+ * `userId` stays optional here and the fallback stays with it (WIC-1764). WIC-1638
+ * made the owner *required* on the bullet-catalog path and deleted the equivalent
+ * branch from the `bulletOwnerScope` this replaced — but that helper served one
+ * `.notNull()` table, and this one also serves `applications` and `interview_preps`,
+ * which are nullable and whose insert paths write `userId ?? null`. Requiring the
+ * owner here would break the ADR-003 local-dev anonymous path and the entry points
+ * in this file that still take `userId?: string`.
+ *
+ * WIC-1638's guarantee is therefore carried where it holds without that cost:
+ * `requireOwner(c)` rejects an absent owner at the route edge with `401
+ * OWNER_REQUIRED`, and `generateInterviewPrep` takes `userId: string`. The
+ * `IS NULL` branch is unreachable from that path, and fail-closed on this table
+ * regardless. Do not "finish the job" by making `userId` required here.
  */
 function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
@@ -428,7 +443,7 @@ Rules:
 
 export async function generateInterviewPrep(
   input: GenerateInterviewPrepInput,
-  userId?: string
+  userId: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
   storiesGenerated: number;
@@ -437,6 +452,12 @@ export async function generateInterviewPrep(
   catalogEntriesUsed: number;
   warnings: Array<{ code: string; message: string }>;
 }> {
+  // Resolved at the top, ahead of the application read: a malformed field in
+  // the request is a boundary rejection, and doing it here also keeps the
+  // NO_FIT_ANALYSIS decision below tied to a resolved row rather than to a
+  // non-empty string (WIC-1818 AC-5a/AC-5c).
+  const analysis = await resolveJobFitAnalysis(input.jobFitAnalysisId, userId);
+
   const db = getDb();
 
   const [app] = await db
@@ -500,7 +521,10 @@ export async function generateInterviewPrep(
       message: 'Fewer than 5 STAR entries in catalog',
     });
   }
-  if (!input.jobFitAnalysisId) {
+  // Was `if (!input.jobFitAnalysisId)`, so any non-empty string silenced a
+  // warning about the quality of the output while nothing ever read an
+  // analysis. Keyed on the resolved row now (WIC-1818 AC-5c).
+  if (!analysis) {
     warnings.push({
       code: 'NO_FIT_ANALYSIS',
       message: 'Generated without job fit analysis (gaps may be incomplete)',
@@ -533,7 +557,9 @@ export async function generateInterviewPrep(
     id: prepId,
     userId: userId ?? null,
     applicationId: input.applicationId,
-    jobFitAnalysisId: input.jobFitAnalysisId ?? null,
+    // The resolved analysis, never the raw request field — an id that does not
+    // resolve must not reach the column (WIC-1818 AC-5a).
+    jobFitAnalysisId: analysis?.id ?? null,
     interviewType,
     timeAvailable,
     focusAreas,

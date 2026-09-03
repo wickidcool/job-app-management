@@ -16,12 +16,24 @@ queries, which carry no SQL -- those two keep their pasteable form under `_hogql
 single source of truth for all three routes. `resolve_hogql()` prefers the inline form and falls
 back to the variant; anything with neither aborts the run before a byte is written.
 """
+import argparse
+import copy
 import json
 import os
+import sys
 import textwrap
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Route 1 (build_dashboards.py) already owns the synthetic-exclusion rewriter -- the
+# predicate derivation (`synthetic_predicate`) and the scope-aware HogQL/native
+# injectors (`apply_exclusion`). Route 2 reuses that exact code rather than carrying a
+# second copy, so a rewriter fix is found and applied once, not twice (WIC-1664/WIC-1845).
+# The path shim lets this run from any cwd.
+sys.path.insert(0, HERE)
+import build_dashboards as bd  # noqa: E402  (path shim above must run first)
+
 PROJECT = "551963"
 HOST = "https://us.posthog.com"
 
@@ -96,6 +108,48 @@ def resolve_all(payloads):
             "(description + DataTableNode/HogQLQuery node) to each in insight-payloads.json."
         )
     return [(p, desc, query) for p, (desc, query) in resolved]
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Generate the zero-scope console build pack from insight-payloads.json.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Default (no flags) regenerates the committed pack, which is deliberately\n"
+            "UNFILTERED -- the committed dashboard-templates.json proves it was built\n"
+            "against probe data, and default output stays byte-identical (the WIC-1302\n"
+            "gate). Pass --exclude-synthetic --out-dir DIR on build day to get a copy\n"
+            "with the probe-registry predicate already applied to every tile."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-synthetic",
+        action="store_true",
+        help="apply build_dashboards.py's probe-registry exclusion predicate to every "
+             "tile (WIC-1664); requires --out-dir outside docs/analytics/",
+    )
+    parser.add_argument(
+        "--out-dir",
+        metavar="DIR",
+        help="write the pack here instead of next to this script; required with "
+             "--exclude-synthetic",
+    )
+    args = parser.parse_args(argv)
+
+    out_dir = os.path.abspath(args.out_dir) if args.out_dir else HERE
+    # Refuse HERE *and any subdirectory of it* -- `docs/analytics/subdir` is still "inside
+    # docs/analytics/", the tree the runbook promises a filtered pack can never land in.
+    if args.exclude_synthetic and (out_dir == HERE or out_dir.startswith(HERE + os.sep)):
+        parser.error(
+            "--exclude-synthetic needs --out-dir pointing outside "
+            f"{HERE} (subdirectories of it are refused too).\nA filtered pack embeds the "
+            "registry as it stands today, so "
+            "committing it would ship a snapshot that goes stale the next time a probe "
+            "fires -- the WIC-1389/WIC-1392 transcription bug, one layer down. Generate "
+            "it outside the repo, use it, throw it away."
+        )
+    args.out_dir = out_dir
+    return args
 
 
 def synthetic_count(reg):
@@ -229,7 +283,9 @@ def day_one_paragraph(reg, lifetime, synthetic, organic):
             "the predicate in, and what Route 1 never shows at all.")
 
 
-def main():
+def main(argv=None):
+    args = parse_args(argv)
+
     with open(os.path.join(HERE, "insight-payloads.json"), encoding="utf-8") as fh:
         all_payloads = json.load(fh)
     # Mirrors build_dashboards.py: `_enabled: false` entries are authored and validated
@@ -243,6 +299,20 @@ def main():
     # guarantees synthetic + organic == lifetime, so the two are the same number only
     # until the first real user arrives.
     synthetic = synthetic_count(reg)
+
+    if args.exclude_synthetic:
+        # Fatal on any registry problem (synthetic_predicate exits non-zero): a pack that
+        # quietly fell back to the raw queries would look exactly like a filtered one and
+        # count probes as product usage. Filter the *resolved* node -- the one Routes 2/3
+        # actually paste -- so A1/C1 get their `_hogql_variant` filtered, not the native
+        # FunnelsQuery/RetentionQuery that no console route imports.
+        predicate, _src, _counts = bd.synthetic_predicate()
+        filtered = []
+        for p, desc, query in resolved:
+            query = copy.deepcopy(query)
+            bd.apply_exclusion({"_key": p["_key"], "query": query}, predicate)
+            filtered.append((p, desc, query))
+        resolved = filtered
 
     templates = []
     for name, description in DASHBOARDS:
@@ -342,12 +412,25 @@ def main():
     w("3. Paste the **first array element** of `dashboard-templates.json` (Dashboard A). Create.")
     w("4. Repeat for elements 2 (Dashboard B) and 3 (Dashboard C).")
     w("")
-    w("> **Route 2 carries NO synthetic exclusion, and that is deliberate.** The committed JSON is")
-    w("> unfiltered on purpose: baking today's registry into an artifact a human imports would ship a")
-    w("> snapshot that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription")
-    w("> bug one layer down, in the file that is hardest to notice. So an imported dashboard counts")
-    w("> probe residue as product usage until you apply the exclusion by hand, exactly as Route 3")
-    w("> does. See **Before you paste anything** below; it applies to Routes 2 and 3 alike.")
+    w("> **The committed `dashboard-templates.json` carries NO synthetic exclusion, and that is")
+    w("> deliberate.** Baking today's registry into an artifact a human imports would ship a snapshot")
+    w("> that goes stale the next time a probe fires — the WIC-1389/WIC-1392 transcription bug one")
+    w("> layer down, in the file that is hardest to notice — and it would stop the committed pack from")
+    w("> proving it was built against probe data. So the committed file counts probe residue as product")
+    w("> usage until you filter it.")
+    w(">")
+    w("> **On build day, regenerate a filtered pack instead of importing the committed one** (WIC-1664):")
+    w(">")
+    w("> ```bash")
+    w("> python3 docs/analytics/make_console_pack.py --exclude-synthetic --out-dir /tmp/console-pack")
+    w("> ```")
+    w(">")
+    w("> Import the three dashboards from `/tmp/console-pack/dashboard-templates.json`, whose every tile")
+    w("> already carries the `NOT (...)` predicate derived from `probe-registry.json` at generation")
+    w("> time — the same rewriter Route 1 uses (`build_dashboards.py`), so there is nothing to")
+    w("> hand-transcribe. The command **refuses to write into `docs/analytics/`**, so a filtered pack")
+    w("> can never be committed. See **Before you paste anything** below; it applies to Routes 2 and 3")
+    w("> alike.")
     w("")
     w("> **Caveat, stated honestly:** I cannot exercise the console to confirm the exact wording or")
     w("> presence of the JSON-import affordance on your PostHog version — my key is 403 on every")
@@ -510,12 +593,13 @@ def main():
 
     # Both artifacts are fully built before either is written, so a failure above can
     # never leave a half-regenerated pack on disk.
-    out_json = os.path.join(HERE, "dashboard-templates.json")
+    os.makedirs(args.out_dir, exist_ok=True)
+    out_json = os.path.join(args.out_dir, "dashboard-templates.json")
     with open(out_json, "w", encoding="utf-8") as fh:
         json.dump(templates, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
 
-    out_md = os.path.join(HERE, "console-build-runbook.md")
+    out_md = os.path.join(args.out_dir, "console-build-runbook.md")
     with open(out_md, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
 
@@ -524,6 +608,13 @@ def main():
         print(f"  {name}: {n} tiles")
     print(f"wrote {out_json}")
     print(f"wrote {out_md}")
+    if args.exclude_synthetic:
+        # No Prettier note: a filtered pack is a throwaway for one console session, not a
+        # committed file, so there is nothing for a format check to diff.
+        print("\nSynthetic traffic is already excluded in both files above. This pack is a "
+              "throwaway\nfor one console session — do not commit it; it embeds the registry "
+              "as of today.")
+        return
     # Both artifacts are Prettier-formatted in the repo, and this script does not emit
     # Prettier's exact style (short-array collapsing, md table padding). Without this the
     # regenerated pack diffs cosmetically against the committed one and CI format-checks fail.
