@@ -95,6 +95,11 @@ export const CHECKS = {
    */
   WHEN_SEQUENCE: 'when-sequence',
 };
+// Deliberately NOT a member of CHECKS: every value in that object must be
+// provable by a synthetic mutant fed to `auditMigrationJournal`, and the suite
+// asserts exactly that. `journal-unavailable` (WIC-1981) is emitted by the CLI
+// wrapper before any text exists to audit, so it has no mutant and would only
+// weaken the invariant. It lives in `audit-migration-journal.mjs`.
 
 // AC-1 asked to exempt `*_rls.sql` from the "every file is journaled" rule.
 // Deliberately NOT implemented as a suffix rule: the only two `_rls.sql` files

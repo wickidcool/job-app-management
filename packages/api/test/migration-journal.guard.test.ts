@@ -14,16 +14,36 @@
 // values. No fixture directory to leave behind, no ordering coupling with other
 // suites, and the duplicate-key mutant can be expressed as raw text — which is
 // the whole point, since `JSON.parse` cannot represent it.
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CHECKS,
   auditMigrationJournal,
   parseJsonReportingDuplicateKeys,
 } from '../scripts/migration-journal-guard.mjs';
-import { JOURNAL_PATH, auditRealMigrationTree } from '../scripts/audit-migration-journal.mjs';
+import {
+  JOURNAL_UNAVAILABLE,
+  auditRealMigrationTree,
+  readRealJournalText,
+} from '../scripts/audit-migration-journal.mjs';
 
 type Violation = { check: string; message: string };
+
+// WIC-1981: go through the same resolver the CLI uses rather than reading
+// JOURNAL_PATH directly. Under WIC-1963 the journal is generated and
+// git-ignored, so a bare `readFileSync(JOURNAL_PATH)` here fails with ENOENT at
+// module-evaluation time — which takes the whole file down before a single test
+// registers, exactly as the CLI did. Resolved once: `readRealJournalText`
+// generates on the first miss, so later calls are plain reads.
+const realJournal = readRealJournalText();
+if (realJournal.journalText === null) {
+  throw new Error(
+    `the real migration tree cannot produce a journal: ${realJournal.violation?.message}`
+  );
+}
+const realJournalText: string = realJournal.journalText;
 
 const firedChecks = (violations: Violation[]): string[] =>
   [...new Set(violations.map((v) => v.check))].sort();
@@ -311,7 +331,7 @@ describe('the guard rejects every journal drizzle would skip a migration from', 
     return [...lost].sort();
   };
 
-  const realEntries: Entry[] = JSON.parse(readFileSync(JOURNAL_PATH, 'utf8')).entries;
+  const realEntries: Entry[] = JSON.parse(realJournalText).entries;
 
   it('positive control: a fresh database applies the broken tree fine, which is why CI cannot catch it', () => {
     const tied: Entry[] = [
@@ -389,13 +409,107 @@ describe('parseJsonReportingDuplicateKeys', () => {
   });
 
   it('agrees with JSON.parse on the real journal, escapes and all', () => {
-    const journalText = readFileSync(JOURNAL_PATH, 'utf8');
-    const { value, duplicates } = parseJsonReportingDuplicateKeys(journalText);
+    const { value, duplicates } = parseJsonReportingDuplicateKeys(realJournalText);
     expect(duplicates).toEqual([]);
-    expect(value).toEqual(JSON.parse(journalText));
+    expect(value).toEqual(JSON.parse(realJournalText));
   });
 
   it('rejects trailing content instead of silently accepting a truncated file', () => {
     expect(() => parseJsonReportingDuplicateKeys('{"a": 1} {"b": 2}')).toThrow(/trailing content/);
+  });
+});
+
+// --- resolving the journal when it is a generated artifact (WIC-1981) --------
+//
+// WIC-1963 makes `meta/_journal.json` generated and git-ignored, so it is simply
+// absent from a fresh checkout. The audit used to `readFileSync` it unguarded,
+// which threw ENOENT — and because the deploy workflow runs the audit
+// unconditionally on every PR, that turned every build red the moment the two
+// changes met, in either merge order.
+//
+// The real tree can only ever demonstrate the branch the current checkout is in,
+// so these drive a synthetic one. Each fixture is a directory, not a mock: the
+// resolver shells out to `npm run`, and stubbing that away would test the stub.
+describe('readRealJournalText (journal-as-generated-artifact)', () => {
+  const JOURNAL_BODY = '{"version":"7","dialect":"postgresql","entries":[]}\n';
+
+  const RELATIVE_JOURNAL = join('src', 'db', 'migrations', 'meta', '_journal.json');
+
+  /**
+   * A throwaway package dir whose `db:journal` script runs `gen.mjs`, whose body
+   * we choose. The generator body goes in a file rather than inline in the npm
+   * script so no part of this depends on shell quoting.
+   */
+  const fixture = (opts: { journal?: string; generator?: boolean; generatorBody?: string }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'wic1981-'));
+    const journalPath = join(dir, RELATIVE_JOURNAL);
+    // The marker whose presence means "this tree can derive its journal".
+    const generatorPath = join(dir, 'src', 'db', 'generate-journal.ts');
+    mkdirSync(dirname(journalPath), { recursive: true });
+    if (opts.journal !== undefined) writeFileSync(journalPath, opts.journal);
+    if (opts.generator) writeFileSync(generatorPath, '// stand-in for the WIC-1963 generator\n');
+    writeFileSync(join(dir, 'gen.mjs'), opts.generatorBody ?? '');
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ name: 'wic1981-fixture', scripts: { 'db:journal': 'node gen.mjs' } })
+    );
+    return { dir, journalPath, generatorPath };
+  };
+
+  /** A generator that writes JOURNAL_BODY, i.e. a working WIC-1963 generator. */
+  const WORKING_GENERATOR =
+    "import { writeFileSync } from 'node:fs';\n" +
+    `writeFileSync(${JSON.stringify(RELATIVE_JOURNAL)}, ${JSON.stringify(JOURNAL_BODY)});\n`;
+
+  it('reads the file when it is present, without invoking the generator', () => {
+    // The committed-journal world: unchanged behaviour, and no subprocess. The
+    // generator is rigged to fail, so a pass proves it was never run.
+    const { dir, journalPath, generatorPath } = fixture({
+      journal: JOURNAL_BODY,
+      generator: true,
+      generatorBody: 'process.exit(1);\n',
+    });
+    const got = readRealJournalText({ journalPath, generatorPath, packageDir: dir });
+    expect(got.violation).toBeNull();
+    expect(got.journalText).toBe(JOURNAL_BODY);
+  });
+
+  it('generates the journal when it is absent, then audits what the generator wrote', () => {
+    // The WIC-1963 world, and the case that used to throw ENOENT.
+    const { dir, journalPath, generatorPath } = fixture({
+      generator: true,
+      generatorBody: WORKING_GENERATOR,
+    });
+    expect(existsSync(journalPath)).toBe(false);
+    const got = readRealJournalText({ journalPath, generatorPath, packageDir: dir });
+    expect(got.violation).toBeNull();
+    expect(got.journalText).toBe(JOURNAL_BODY);
+  });
+
+  it('reports a violation — not a crash — when there is no journal and no generator', () => {
+    const { dir, journalPath, generatorPath } = fixture({});
+    const got = readRealJournalText({ journalPath, generatorPath, packageDir: dir });
+    expect(got.journalText).toBeNull();
+    expect(got.violation?.check).toBe(JOURNAL_UNAVAILABLE);
+  });
+
+  it('reports a violation carrying the generator stderr when generation fails', () => {
+    // The WIC-1963 generator throws on a same-number collision by design. That
+    // must reach the operator as a named violation, not an opaque non-zero exit.
+    const { dir, journalPath, generatorPath } = fixture({
+      generator: true,
+      generatorBody: "console.error('numbering is not dense');\nprocess.exit(1);\n",
+    });
+    const got = readRealJournalText({ journalPath, generatorPath, packageDir: dir });
+    expect(got.journalText).toBeNull();
+    expect(got.violation?.check).toBe(JOURNAL_UNAVAILABLE);
+    expect(got.violation?.message).toContain('numbering is not dense');
+  });
+
+  it('reports a violation when the generator exits 0 but writes nothing', () => {
+    const { dir, journalPath, generatorPath } = fixture({ generator: true, generatorBody: '' });
+    const got = readRealJournalText({ journalPath, generatorPath, packageDir: dir });
+    expect(got.journalText).toBeNull();
+    expect(got.violation?.check).toBe(JOURNAL_UNAVAILABLE);
   });
 });
