@@ -1,4 +1,6 @@
-import { eq, and, or, gt, ilike, asc, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, gt, ilike, asc, desc, inArray, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
@@ -13,6 +15,7 @@ import {
   wikilinkRegistry,
   resumes,
   applications,
+  jobFitAnalyses,
 } from '../db/schema.js';
 import type { DiffChange, ReviewItem } from '../db/schema.js';
 import {
@@ -22,9 +25,14 @@ import {
   VALID_TECH_STACK_CATEGORIES,
   validateTechStackCategory,
   validateJobFitCategory,
+  type CatalogEntryDTO,
   type JobFitCategory,
   type TechStackCategory,
 } from '../types/index.js';
+import { clampRatio, type Ratio } from '../types/units.js';
+// Imported from the boundary module rather than `job-fit.service.ts` on purpose: that module
+// pulls in the LLM client, `node:dns` and config, and this one is a plain catalog read.
+import { JobFitAnalysisNotFoundError } from './job-fit-analysis.service.js';
 import { processCatalogChange } from './extraction.service.js';
 
 /**
@@ -477,8 +485,74 @@ export async function listBullets(opts: ListBulletsOptions = {}, userId?: string
 
 // ── STAR Catalog Entries ──────────────────────────────────────────────────────
 
-export async function listStarEntries(userId?: string) {
+/**
+ * Fail-closed owner term: an absent owner selects the genuinely unowned rows, never the whole
+ * table. Single-expression by design — this is the one shape `audit-owner-predicates.mjs`
+ * recognises, and a function carrying an optional owner of its own is the `[SIG]` shape that
+ * audit exists to stop spreading.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+/**
+ * Relevance scores from a stored job-fit analysis, keyed by STAR entry id.
+ *
+ * This is the join WIC-1820 was filed for. `recommendedStarEntries[].id` is a
+ * `quantified_bullets` id — `analyzeJobFit` scores the rows it read from that table and stores
+ * their ids verbatim — and `listStarEntries` lists the same table, so the two id spaces are
+ * identical and the join needs no mapping.
+ *
+ * Unresolvable ids throw rather than degrading to "no scores". An id that validates and then
+ * silently means nothing is precisely the defect this card was filed about (WIC-1818), and the
+ * lenient reading would make a stale id indistinguishable from an analysis that recommended
+ * nothing. The owner term makes "not yours" and "no such analysis" the same answer, so this
+ * cannot be used to enumerate other users' analyses.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a single-expression
+ * fail-closed helper, so the absent-owner decision is made once, in the one place the
+ * owner-predicate audit recognises and checks by shape — instead of this function carrying an
+ * optional owner of its own, which is the `[SIG]` shape that audit exists to stop spreading.
+ */
+async function relevanceByStarEntryId(
+  jobFitAnalysisId: string,
+  ownerTerm: SQL
+): Promise<Map<string, Ratio>> {
   const db = getDb();
+  const [row] = await db
+    .select({ recommendedStarEntries: jobFitAnalyses.recommendedStarEntries })
+    .from(jobFitAnalyses)
+    .where(and(eq(jobFitAnalyses.id, jobFitAnalysisId), ownerTerm));
+
+  if (!row) throw new JobFitAnalysisNotFoundError();
+
+  // `clampRatio`, not `ratio()`: the column is `jsonb`, so its contents are whatever was written
+  // rather than something the type system still guarantees. The live producer already emits
+  // `Math.min(1, …)`, so this is a no-op today and a guard against a legacy or hand-edited row
+  // rendering as `4700%`. `NaN` folds to 0, which simply fails the picker's threshold.
+  return new Map(row.recommendedStarEntries.map((e) => [e.id, clampRatio(e.relevanceScore)]));
+}
+
+/**
+ * List the caller's STAR catalog entries, optionally scored against a stored job-fit analysis.
+ *
+ * `jobFitAnalysisId` is what makes `StarEntryPicker`'s "Recommended" section reachable: without
+ * it every entry carries `relevanceScore: undefined` and the section is filtered down to empty.
+ */
+export async function listStarEntries(
+  userId?: string,
+  jobFitAnalysisId?: string
+): Promise<CatalogEntryDTO[]> {
+  const db = getDb();
+
+  // ⚠ Presence is `!== undefined`, not truthiness. `z.string().min(1)` at the route rejects the
+  // empty string, but a direct caller can still pass `''` — and reading that as "not supplied"
+  // is the exact trap WIC-1818 documents one layer up.
+  const relevance =
+    jobFitAnalysisId === undefined
+      ? undefined
+      : await relevanceByStarEntryId(jobFitAnalysisId, ownerScope(jobFitAnalyses, userId));
+
   const rows = await db
     .select()
     .from(quantifiedBullets)
@@ -498,7 +572,9 @@ export async function listStarEntries(userId?: string) {
       ...(r.secondaryMetricType ? [r.secondaryMetricType] : []),
     ].filter(Boolean),
     timeframe: undefined,
-    relevanceScore: undefined,
+    // `undefined` for an entry the analysis did not recommend — it scores only bullets that
+    // matched at least one required term, and keeps the top 5.
+    relevanceScore: relevance?.get(r.id),
     relevanceReasoning: undefined,
   }));
 }
