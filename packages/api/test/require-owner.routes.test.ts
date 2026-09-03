@@ -73,7 +73,8 @@ vi.mock('../src/middleware/auth.js', async (importOriginal) => {
  * a query that merely happened to match no rows.
  */
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -92,7 +93,8 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/resume-variant.service.js', () => ({
+vi.mock('../src/services/resume-variant.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume-variant.service.js')>()),
   generateResumeVariant: vi.fn(),
   listResumeVariants: vi.fn(),
   getResumeVariant: vi.fn(),
@@ -103,7 +105,8 @@ vi.mock('../src/services/resume-variant.service.js', () => ({
   exportResumeVariant: vi.fn(),
 }));
 
-vi.mock('../src/services/interviewPrep.service.js', () => ({
+vi.mock('../src/services/interviewPrep.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/interviewPrep.service.js')>()),
   generateInterviewPrep: vi.fn(),
   listInterviewPreps: vi.fn(),
   getInterviewPrep: vi.fn(),
@@ -114,7 +117,10 @@ vi.mock('../src/services/interviewPrep.service.js', () => ({
   deleteInterviewPrep: vi.fn(),
 }));
 
-vi.mock('../src/services/job-fit.service.js', () => ({ analyzeJobFit: vi.fn() }));
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
+  analyzeJobFit: vi.fn(),
+}));
 
 import * as catalogService from '../src/services/catalog.service.js';
 import * as resumeVariantService from '../src/services/resume-variant.service.js';

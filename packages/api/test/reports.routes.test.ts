@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-vi.mock('../src/services/reports.service.js', () => ({
+vi.mock('../src/services/reports.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/reports.service.js')>()),
   getPipelineReport: vi.fn(),
   getNeedsActionReport: vi.fn(),
   getStaleReport: vi.fn(),
@@ -10,7 +11,8 @@ vi.mock('../src/services/reports.service.js', () => ({
 }));
 
 // Silence other service modules pulled in by app.ts
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -18,7 +20,10 @@ vi.mock('../src/services/application.service.js', () => ({
   deleteApplication: vi.fn(),
   updateApplicationStatus: vi.fn(),
 }));
-vi.mock('../src/services/dashboard.service.js', () => ({ getDashboardStats: vi.fn() }));
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
+  getDashboardStats: vi.fn(),
+}));
 
 import * as reportsService from '../src/services/reports.service.js';
 import { AppError } from '../src/types/index.js';

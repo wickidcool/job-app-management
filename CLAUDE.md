@@ -72,7 +72,7 @@ npm run dev:worker         # API as a Worker via `wrangler dev` (top-level confi
 npm run dev:api            # API on Node.js via tsx (:3000) — faster iteration
 
 npm run build              # Build all packages — the type check that actually gates a PR
-npm run typecheck          # tsc -b web + api --noEmit — CI runs this too, but it is weaker (see below)
+npm run typecheck          # tsc -b web + api --noEmit — same compiler as the build (see below)
 npm run lint               # Lint all packages
 npm run test               # Unit tests (Vitest)
 npm run test:e2e           # Playwright E2E tests
@@ -81,24 +81,56 @@ npm run db:migrate         # Run migrations (reads DATABASE_URL)
 npm run db:push            # Push schema directly (dev only)
 ```
 
-### `npm run typecheck` goes green on code CI rejects
+### One TypeScript compiler, and `strict` is declared, not inherited
 
-`npm run typecheck` and `npm run build` disagree, and **`npm run build` is the stronger of the two: it rejects code that `npm run typecheck` accepts.** Measured on `7a9ee29` — the exact commit CI rejected — with both build caches cleared first: `npm run typecheck` exits **0**, `npm run build` exits **2**. CI runs *both*, so the weak check going green tells you nothing. Reproduce CI with the build:
+`typescript` is pinned to the same `~6.0.2` in the root, `packages/web` and `packages/api`, so
+`npm ci` installs exactly one copy at `node_modules/typescript` and every cwd resolves it. Keep it
+that way: if the three ranges drift apart, npm nests a second compiler under the package that
+disagrees, and then **which compiler runs is decided by cwd rather than by config** — a root script
+gets the hoisted one, `packages/web`'s own `build` (cwd `packages/web`) gets the nested one. That is
+how `npm run typecheck` and `npm run build` came to disagree, with the root binary the weaker of the
+two (WIC-1744).
+
+`strict: true` is stated explicitly in `packages/web/tsconfig.app.json`, `tsconfig.node.json` and
+`packages/api/tsconfig.json`. It is written out rather than left to default because the default
+moved — TypeScript 6 turns `strict` on where 5.9 left it off — so an inherited default makes a
+package's strictness a property of the installed version. Note that `tsc --showConfig` echoes only
+options the file sets: it prints nothing for an inherited `strict`, so it cannot tell you which
+default is in force. Do not delete these lines to "clean up"; they are load-bearing.
+
+### `npm run build` is still the check that gates a PR
+
+`npm run typecheck` and `npm run build` have historically disagreed, with **`npm run build` the stronger
+of the two.** Measured on `7a9ee29` — the exact commit CI rejected — with both build caches cleared
+first: `npm run typecheck` exited **0**, `npm run build` exited **2**. CI runs *both*, so the weaker
+check going green told you nothing. Reproduce CI with the build:
 
 ```bash
 rm -rf packages/*/node_modules/.tmp   # the tsbuildinfo files; CI never has one
 npm run build                         # what `Lint & Test` → "Build packages" runs
 ```
 
-There are two independent reasons they diverge.
+That measurement predates the single pin above, and it had **two independent causes. The pin removes
+the first; the second is still live.**
 
-**They run different compilers.** `typescript` is pinned twice in `package-lock.json`: `node_modules/typescript` is **5.9.3**, and `packages/web/node_modules/typescript` is **6.0.3**. A root script resolves the root binary, while `packages/web`'s own `build` (`tsc -b && vite build`) runs with cwd `packages/web` and resolves 6.0.3. `packages/web/tsconfig.app.json` declares no `strict`, and **TypeScript 6 defaults `strict` on where 5.9 defaults it off** — so this package's strictness is decided by which binary you invoke, not by its tsconfig. Verified on an empty project: `export function f(x) { return x; }` is clean under 5.9.3 and `TS7006` under 6.0.3. This is also why `npx tsc -b packages/web packages/api --force` from the repo root is **not** a CI reproduction, `--force` notwithstanding — it exits 0 on the tree CI rejected. From inside the package, `npx tsc -b --force`, it exits 2.
+**Different compilers — fixed, and the fix is the pin.** `typescript` used to resolve twice: 5.9.3 at
+the root and 6.0.3 nested under `packages/web`, so a root script got the weaker binary while
+`packages/web`'s own `build` (cwd `packages/web`) got the stricter one. With `strict` inherited rather
+than declared, that made the package's strictness a property of *which binary you invoked*. Verified on
+an empty project: `export function f(x) { return x; }` is clean under 5.9.3 and `TS7006` under 6.0.3.
+Both halves of that trap are now closed — one pin, and `strict` written out — which is exactly why
+neither is safe to undo.
 
-**Both are incremental, and CI is always cold.** `packages/web/tsconfig.app.json:3` and `tsconfig.node.json:3` put `tsBuildInfoFile` under `./node_modules/.tmp/`, which `.gitignore:44` ignores and `npm ci` never restores. Your machine always builds warm; CI always builds cold. The risk is highest right after adding a new source file — the state a stale buildinfo has never seen.
+**Both are incremental, and CI is always cold.** `packages/web/tsconfig.app.json:3` and
+`tsconfig.node.json:3` put `tsBuildInfoFile` under `./node_modules/.tmp/`, which `.gitignore:44`
+ignores and `npm ci` never restores. Your machine always builds warm; CI always builds cold. The risk
+is highest right after adding a new source file — the state a stale buildinfo has never seen. **This
+one the pin does not touch**, so keep reproducing CI with the cache-clearing recipe above rather than
+trusting a warm local run.
 
 ### Only import direct dependencies
 
-A package that is merely a transitive dependency can resolve at runtime and still be invisible to `tsc`. The hoisted `dom-accessibility-api@0.5.16` (present via `@testing-library`) declares an `exports` block with `import` and `require` conditions and **no `types` condition**, so under `moduleResolution: bundler` TypeScript resolves the import to `dist/index.mjs` — the JavaScript — and reports `TS7016: Could not find a declaration file`, even though `dist/index.d.ts` is sitting beside it. That is the error that failed PR #224's first push, and it is invisible to `npm run typecheck`: under the root's non-strict 5.9.3 the same import silently becomes `any`, so the weaker check does not merely miss the error, it accepts unchecked code.
+A package that is merely a transitive dependency can resolve at runtime and still be invisible to `tsc`. The hoisted `dom-accessibility-api@0.5.16` (present via `@testing-library`) declares an `exports` block with `import` and `require` conditions and **no `types` condition**, so under `moduleResolution: bundler` TypeScript resolves the import to `dist/index.mjs` — the JavaScript — and reports `TS7016: Could not find a declaration file`, even though `dist/index.d.ts` is sitting beside it. That is the error that failed PR #224's first push. It used to be invisible to `npm run typecheck`, because under the root's non-strict 5.9.3 the same import silently became `any` — the weaker check did not merely miss the error, it accepted unchecked code. With one strict compiler over the repo both scripts now report it, which is the concrete payoff of the pin.
 
 For accessible-name assertions use jest-dom's `toHaveAccessibleName`, which is declared and registered for every test file by `packages/web/src/test/setup.ts`. The helpers in `packages/web/src/test/prohibitedName.ts` carry the same instruction at the call site.
 

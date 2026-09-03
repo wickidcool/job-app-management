@@ -126,7 +126,8 @@ def fail(msg: str) -> None:
 # scope. `AND`/`OR`/`NOT` are deliberately absent -- they continue the condition.
 _SQL_WORD = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 _WHERE_END = frozenset(
-    {"GROUP", "ORDER", "LIMIT", "HAVING", "WINDOW", "OFFSET", "UNION", "SETTINGS", "FORMAT"}
+    {"GROUP", "ORDER", "LIMIT", "HAVING", "WINDOW", "OFFSET", "UNION", "INTERSECT",
+     "EXCEPT", "SETTINGS", "FORMAT"}
 )
 
 

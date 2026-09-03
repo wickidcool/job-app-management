@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
 // Mock the service layer so tests don't need a real DB
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -11,7 +12,8 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
