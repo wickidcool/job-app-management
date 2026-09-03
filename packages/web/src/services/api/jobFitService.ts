@@ -1,5 +1,10 @@
 import type { APIClient } from './apiClient';
-import type { AnalyzeJobFitRequest, AnalyzeJobFitResponse } from '../../types/jobFit';
+import type {
+  AnalyzeJobFitRequest,
+  AnalyzeJobFitResponse,
+  ListJobFitAnalysesParams,
+  ListJobFitAnalysesResponse,
+} from '../../types/jobFit';
 
 export interface JobFitService {
   /**
@@ -7,6 +12,11 @@ export interface JobFitService {
    * POST /catalog/job-fit/analyze
    */
   analyze(request: AnalyzeJobFitRequest): Promise<AnalyzeJobFitResponse>;
+  /**
+   * List stored analyses for the caller, newest first.
+   * GET /catalog/job-fit/analyses
+   */
+  listAnalyses(params?: ListJobFitAnalysesParams): Promise<ListJobFitAnalysesResponse>;
 }
 
 /**
@@ -24,6 +34,18 @@ export function createJobFitService(client: APIClient): JobFitService {
       }
 
       return client.post<AnalyzeJobFitResponse>('/catalog/job-fit/analyze', request);
+    },
+
+    async listAnalyses(params: ListJobFitAnalysesParams = {}): Promise<ListJobFitAnalysesResponse> {
+      // `applicationId` is forwarded rather than filtered on the client: an
+      // analysis carrying no application is a supported, and common, row, so an
+      // unfiltered page can be entirely rows that could never match. Narrowing
+      // after the server has already chosen a page can only remove rows, never
+      // recover one it did not send (WIC-1533).
+      return client.get<ListJobFitAnalysesResponse>('/catalog/job-fit/analyses', {
+        applicationId: params.applicationId,
+        limit: params.limit,
+      });
     },
   };
 }

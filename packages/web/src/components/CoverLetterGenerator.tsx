@@ -220,10 +220,14 @@ export function CoverLetterGenerator({
                 <h2 className="text-lg font-semibold text-gray-900">Target Position</h2>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="cover-letter-company-name"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Company Name <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="cover-letter-company-name"
                     {...registerStep1('companyName', {
                       required: 'Company name is required',
                       minLength: { value: 2, message: 'Minimum 2 characters' },
@@ -238,10 +242,14 @@ export function CoverLetterGenerator({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="cover-letter-job-title"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Job Title <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="cover-letter-job-title"
                     {...registerStep1('jobTitle', {
                       required: 'Job title is required',
                       minLength: { value: 2, message: 'Minimum 2 characters' },
@@ -258,11 +266,15 @@ export function CoverLetterGenerator({
                 {fitAnalysisId && (
                   <div className="flex items-center gap-2">
                     <input
+                      id="cover-letter-use-fit-analysis"
                       {...registerStep1('useFitAnalysis')}
                       type="checkbox"
                       className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
                     />
-                    <label className="text-sm text-gray-700">
+                    <label
+                      htmlFor="cover-letter-use-fit-analysis"
+                      className="text-sm text-gray-700"
+                    >
                       Use job fit analysis results (includes job description)
                     </label>
                   </div>
@@ -270,10 +282,14 @@ export function CoverLetterGenerator({
 
                 {!useFitAnalysisChecked && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label
+                      htmlFor="cover-letter-job-description"
+                      className="block text-sm font-medium text-gray-700 mb-1"
+                    >
                       Job Description <span className="text-red-500">*</span>
                     </label>
                     <textarea
+                      id="cover-letter-job-description"
                       {...registerStep1('jobDescription', {
                         validate: (val, values) =>
                           (values.useFitAnalysis && !!fitAnalysisId) ||
@@ -381,6 +397,12 @@ export function CoverLetterGenerator({
                     ].map((option) => (
                       <label
                         key={option.value}
+                        // The radio's name comes from this label, and the visible title sits
+                        // three levels down (`div > div > span`), past the depth a static
+                        // check — or a terse screen-reader summary — will reach. Naming it
+                        // explicitly announces "Enthusiastic" rather than the run-on of
+                        // title + "Recommended" badge + description the subtree would give.
+                        aria-label={option.label}
                         className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
                       >
                         <input
@@ -431,6 +453,12 @@ export function CoverLetterGenerator({
                     ].map((option) => (
                       <label
                         key={option.value}
+                        // The radio's name comes from this label, and the visible title sits
+                        // three levels down (`div > div > span`), past the depth a static
+                        // check — or a terse screen-reader summary — will reach. Naming it
+                        // explicitly announces "Enthusiastic" rather than the run-on of
+                        // title + "Recommended" badge + description the subtree would give.
+                        aria-label={option.label}
                         className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
                       >
                         <input
@@ -480,6 +508,12 @@ export function CoverLetterGenerator({
                     ].map((option) => (
                       <label
                         key={option.value}
+                        // The radio's name comes from this label, and the visible title sits
+                        // three levels down (`div > div > span`), past the depth a static
+                        // check — or a terse screen-reader summary — will reach. Naming it
+                        // explicitly announces "Enthusiastic" rather than the run-on of
+                        // title + "Recommended" badge + description the subtree would give.
+                        aria-label={option.label}
                         className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
                       >
                         <input

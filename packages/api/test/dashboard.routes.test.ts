@@ -32,14 +32,13 @@ import type { DashboardAttention } from '../src/types/index.js';
  */
 
 const attention: DashboardAttention = {
-  staleThresholdDays: 7,
-  savedThresholdDays: 3,
+  staleThresholdDays: 14,
+  unsubmittedThresholdDays: 3,
   counts: {
     interviewing: 6,
     stale: 40,
-    staleActive: 31,
     missingJobDescription: 3,
-    staleSaved: 9,
+    unsubmittedSaved: 9,
   },
   samples: {
     interviewing: [
@@ -52,7 +51,7 @@ const attention: DashboardAttention = {
         updatedAt: '2026-08-25T08:00:00.000Z',
       },
     ],
-    staleActive: [
+    stale: [
       {
         id: 'app-2',
         jobTitle: 'Backend Engineer',
@@ -63,7 +62,7 @@ const attention: DashboardAttention = {
       },
     ],
     missingJobDescription: [],
-    staleSaved: [],
+    unsubmittedSaved: [],
   },
 };
 
@@ -117,14 +116,13 @@ describe('GET /api/dashboard', () => {
       'interviewing',
       'missingJobDescription',
       'stale',
-      'staleActive',
-      'staleSaved',
+      'unsubmittedSaved',
     ]);
     expect(Object.keys(body.attention.samples).sort()).toEqual([
       'interviewing',
       'missingJobDescription',
-      'staleActive',
-      'staleSaved',
+      'stale',
+      'unsubmittedSaved',
     ]);
   });
 
@@ -133,8 +131,8 @@ describe('GET /api/dashboard', () => {
 
     const body = await (await app.request('/api/dashboard', { method: 'GET' })).json();
 
-    expect(body.attention.staleThresholdDays).toBe(7);
-    expect(body.attention.savedThresholdDays).toBe(3);
+    expect(body.attention.staleThresholdDays).toBe(14);
+    expect(body.attention.unsubmittedThresholdDays).toBe(3);
   });
 
   it('counts are independent of sample length', async () => {
@@ -145,6 +143,6 @@ describe('GET /api/dashboard', () => {
     // 40 stale rows, 1 sampled. The whole point of the split: a bounded sample
     // must never bound the count beside it.
     expect(body.attention.counts.stale).toBe(40);
-    expect(body.attention.samples.staleActive).toHaveLength(1);
+    expect(body.attention.samples.stale).toHaveLength(1);
   });
 });

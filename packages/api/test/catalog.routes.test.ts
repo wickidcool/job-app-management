@@ -510,11 +510,25 @@ describe('Catalog Routes', () => {
         'utf-8'
       );
 
-      const minters = source
-        .split('export async function ')
-        .slice(1)
-        .filter((body) => body.includes('nextCursor'))
-        .map((body) => body.slice(0, body.indexOf('(')));
+      // Match every exported declaration form, not just `export async function`
+      // (WIC-1351). Splitting on that one literal made the guard blind to a
+      // minter declared as `export const x = async () =>`: its text fell inside
+      // the *previous* match's segment, which already contained `nextCursor`,
+      // so the set was unchanged and a seventh list endpoint landed green.
+      // Anchoring at line start keeps the word `export` inside a string or a
+      // comment from opening a bogus segment.
+      const declaration = /^export (?:async function|function|const|let|var)\s+(\w+)/gm;
+      const declarations = [...source.matchAll(declaration)];
+
+      // Bound each segment at the next declaration of *any* form. The old code
+      // ran every segment to the next `export async function`, so a trailing
+      // arrow-const minter was blamed on whichever function preceded it.
+      const minters = declarations
+        .filter((match, i) => {
+          const end = declarations[i + 1]?.index ?? source.length;
+          return source.slice(match.index, end).includes('nextCursor');
+        })
+        .map((match) => match[1]);
 
       expect(new Set(minters)).toEqual(new Set(LIST_ROUTES.map(([fn]) => fn)));
       expect(minters).toHaveLength(LIST_ROUTES.length);
