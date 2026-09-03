@@ -641,6 +641,14 @@ GET /dashboard
 
 Returns aggregated statistics for the authenticated user.
 
+`appliedThisWeek` and `appliedThisMonth` count the **act of applying** — every
+application whose `appliedAt` falls inside a rolling 7- or 30-day window,
+whatever its current status. Advancing an application to `phone_screen` (or
+even to `rejected`) therefore never decreases either number. `appliedThisMonth`
+is a fixed **30 days**, not calendar month-to-date; a surface that renders it
+must label it "last 30 days". Definitions and the two ways they have previously
+been got wrong: `docs/architecture/DATA_MODEL.md`, "Window metric definitions".
+
 **Response**: `200 OK`
 
 ```typescript
@@ -648,8 +656,8 @@ interface DashboardResponse {
   stats: {
     total: number;
     byStatus: Record<ApplicationStatus, number>;
-    appliedThisWeek: number;
-    appliedThisMonth: number;
+    appliedThisWeek: number;  // submissions in the last 7 days, any status
+    appliedThisMonth: number; // submissions in the last 30 days, any status
     responseRate: number;     // Ratio in [0,1] — applications with a response / applied. NOT a percentage; multiply at render
   };
   recentActivity: ActivityItem[];
@@ -1714,6 +1722,9 @@ AI-powered cover letter generation from catalog STAR entries, with support for r
 ```typescript
 interface CoverLetter {
   id: string;                    // ULID
+  applicationId?: string | null; // Application this was written for; null for
+                                 // rows created before this was recorded, and
+                                 // cleared if that application is deleted
   status: 'draft' | 'finalized';
   title: string;                 // Auto-generated or user-provided
   targetCompany: string;
@@ -1770,6 +1781,11 @@ Generates a new cover letter using catalog STAR entries and optional job fit ana
 
 ```typescript
 interface GenerateCoverLetterRequest {
+  // The application this letter is being written for (optional).
+  // Persisted as `cover_letters.application_id`. Must belong to the caller —
+  // an id the caller does not own is a 404, not a silent drop.
+  applicationId?: string;
+
   // Job context (at least one required)
   jobDescriptionText?: string;   // 50-50,000 characters
   jobDescriptionUrl?: string;    // Valid URL to job posting
@@ -2217,6 +2233,7 @@ Returns saved cover letters with search and filtering.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `status` | string | No | Filter by status: `draft`, `finalized` |
+| `applicationId` | string | No | Filter to one application's letters (**exact** match, unlike `company`) |
 | `company` | string | No | Filter by target company (partial match) |
 | `search` | string | No | Search in title, company, role, content |
 | `limit` | number | No | Max results (default: 20, max: 100) |
@@ -2232,6 +2249,7 @@ interface ListCoverLettersResponse {
 
 interface CoverLetterSummary {
   id: string;
+  applicationId?: string | null; // Application this was written for, if recorded
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;

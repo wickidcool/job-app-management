@@ -1,4 +1,4 @@
-import { eq, and, ilike, asc, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, gt, ilike, asc, desc, inArray, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
@@ -11,6 +11,8 @@ import {
   catalogDiffs,
   catalogChangeLog,
   wikilinkRegistry,
+  resumes,
+  applications,
 } from '../db/schema.js';
 import type { DiffChange, ReviewItem } from '../db/schema.js';
 import {
@@ -564,9 +566,16 @@ export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
   const conditions = [];
   if (userId) conditions.push(eq(catalogDiffs.userId, userId));
   if (opts.status) {
+    // An explicit status means exactly that status, unchanged. Callers asking for
+    // `approved` want the apply decision, not the review state.
     conditions.push(eq(catalogDiffs.status, opts.status as any));
   } else {
-    conditions.push(eq(catalogDiffs.status, 'pending'));
+    // The default list is "everything still wanting the user's attention", which is
+    // two independent things: a diff whose changes have not been applied yet, and a
+    // diff carrying an ambiguity nobody has decided. Resume uploads auto-apply and
+    // land on `approved`, so before WIC-1428 the second arm did not exist and every
+    // `pending_review` item raised on a resume was listed to nobody.
+    conditions.push(or(eq(catalogDiffs.status, 'pending'), gt(catalogDiffs.openReviewCount, 0))!);
   }
 
   const rows = await db
@@ -589,6 +598,7 @@ export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
       summary: r.summary,
       changeCount: (r.changes as DiffChange[]).length,
       pendingReviewCount: (r.pendingReview as ReviewItem[]).length,
+      openReviewCount: r.openReviewCount,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt?.toISOString() ?? null,
@@ -612,6 +622,7 @@ export async function getDiff(id: string, userId?: string) {
     summary: diff.summary,
     changeCount: (diff.changes as DiffChange[]).length,
     pendingReviewCount: (diff.pendingReview as ReviewItem[]).length,
+    openReviewCount: diff.openReviewCount,
     status: diff.status,
     createdAt: diff.createdAt.toISOString(),
     expiresAt: diff.expiresAt?.toISOString() ?? null,
@@ -649,9 +660,13 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
   let rejectedCount = 0;
 
   if (input.action === 'reject_all') {
+    // `applyDiff` dispositions the whole diff, ambiguities included, so nothing is
+    // left open. Without this the diff would satisfy the `openReviewCount > 0` arm
+    // of the default list forever, with no way left to clear it — `applyDiff` is
+    // gated on `status = 'pending'` and would now refuse it (WIC-1428).
     await db
       .update(catalogDiffs)
-      .set({ status: 'rejected', resolvedAt: now, userDecisions: input })
+      .set({ status: 'rejected', resolvedAt: now, userDecisions: input, openReviewCount: 0 })
       .where(eq(catalogDiffs.id, id));
     return { applied: 0, rejected: changes.length, pendingReview: 0, status: 'rejected' };
   }
@@ -697,7 +712,7 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
 
     await tx
       .update(catalogDiffs)
-      .set({ status: finalStatus, resolvedAt: now, userDecisions: input })
+      .set({ status: finalStatus, resolvedAt: now, userDecisions: input, openReviewCount: 0 })
       .where(eq(catalogDiffs.id, id));
   });
 
@@ -874,6 +889,29 @@ export async function generateDiff(
   userId: string
 ) {
   const db = getDb();
+  // The route validates only the *shape* of sourceId, so an authenticated
+  // caller may name any user's document ULID. Nothing downstream re-checks it
+  // on the way in: getTextContent reads the source row by id alone, and the
+  // extraction that follows auto-applies whatever it finds into the *caller's*
+  // catalog before the scoped lookup below ever runs. Resolving ownership here
+  // is what makes the 404 a decision this boundary takes, rather than a side
+  // effect of a predicate two layers down — so it holds even if the reader
+  // beneath is later widened.
+  if (userId) {
+    const [owned] =
+      sourceType === 'resume'
+        ? await db
+            .select({ id: resumes.id })
+            .from(resumes)
+            .where(and(eq(resumes.id, sourceId), eq(resumes.userId, userId)))
+        : await db
+            .select({ id: applications.id })
+            .from(applications)
+            .where(and(eq(applications.id, sourceId), eq(applications.userId, userId)));
+    // Same 404 the owner's own missing document yields — a foreign id and an
+    // absent one must stay indistinguishable to the caller.
+    if (!owned) throw new NotFoundError(sourceType === 'resume' ? 'Resume' : 'Application');
+  }
   // processCatalogChange reads the owner off event.metadata.userId (the shape
   // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
   // and every catalog row auto-applied alongside it — with user_id null, which
@@ -919,6 +957,7 @@ export async function generateDiff(
     summary: diff.summary,
     changeCount: (diff.changes as DiffChange[]).length,
     pendingReviewCount: (diff.pendingReview as ReviewItem[]).length,
+    openReviewCount: diff.openReviewCount,
     status: diff.status,
     createdAt: diff.createdAt.toISOString(),
     expiresAt: diff.expiresAt?.toISOString() ?? null,
@@ -972,7 +1011,23 @@ export async function resolveDiffItem(
   }
   const decisions = { changeDecisions, reviewDecisions };
 
-  await db.update(catalogDiffs).set({ userDecisions: decisions }).where(eq(catalogDiffs.id, id));
+  // Recompute rather than decrement: this route is idempotent per item index, and a
+  // client re-submitting a decision for an index it already sent must not drive the
+  // count below the number of items genuinely left. Both `approve` and `reject`
+  // count as decided — rejecting an ambiguity is dismissing it, which is exactly as
+  // resolved as picking an option. Once this reaches 0 the diff drops out of the
+  // default list (WIC-1428, AC-2).
+  const reviewItems = (diff.pendingReview as ReviewItem[]) ?? [];
+  const decidedIndices = Object.keys(reviewDecisions).filter((k) => {
+    const i = Number(k);
+    return Number.isInteger(i) && i >= 0 && i < reviewItems.length;
+  });
+  const openReviewCount = Math.max(0, reviewItems.length - decidedIndices.length);
 
-  return { id, updated: true };
+  await db
+    .update(catalogDiffs)
+    .set({ userDecisions: decisions, openReviewCount })
+    .where(eq(catalogDiffs.id, id));
+
+  return { id, updated: true, openReviewCount };
 }
