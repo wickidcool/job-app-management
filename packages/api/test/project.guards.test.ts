@@ -54,6 +54,7 @@ vi.mock('../src/config.js', () => ({
   getConfig: () => ({ dataDir: './data' }),
 }));
 
+// deliberate-total-mock: a real in-memory fake backed by OBJECTS, not a spy stub — spreading the real module would pull in R2/filesystem I/O this suite has no way to satisfy
 vi.mock('../src/services/storage.service.js', () => ({
   isStorageAvailable: () => true,
   uploadObject: async (key: string, body: Buffer | string) => {

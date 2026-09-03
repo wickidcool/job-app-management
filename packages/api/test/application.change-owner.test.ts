@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
-vi.mock('../src/services/change-queue.service.js', () => ({
+vi.mock('../src/services/change-queue.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/change-queue.service.js')>()),
   enqueueChange: vi.fn(),
   flush: vi.fn().mockResolvedValue(undefined),
 }));
