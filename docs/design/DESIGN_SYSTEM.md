@@ -462,8 +462,9 @@ contradict the heading above it.
 fails `npm run typecheck` naming the offending word if a fit label ever reuses one. Adding a member
 to either scale extends the guard automatically. Extend the same guard before introducing a third
 scale to this screen — in particular, the fit-quality colour ramp still open in
-`JOBFIT_CAPS_DECISION_WIC1122.md` §3a should not be designed against labels that have not passed
-it.
+`JOBFIT_CAPS_DECISION_WIC1122.md` §3 should not be designed against labels that have not passed
+it. *(Correction, 2026-08-30: this cited `§3a`, a section label that document has never had. Its
+sections are `## 3.` and `### 3.1`; the preconditions this sentence is one of are in §3.1.)*
 
 ---
 
@@ -495,6 +496,31 @@ it.
 | Body-sm | 14px | 1.5 | 400 | Secondary text, labels |
 | Caption | 12px | 1.4 | 400 | Timestamps, meta info |
 | Overline | 10px | 1.4 | 600 | All-caps labels |
+
+#### Overline is the wrong instrument for a primary result
+
+Overline is the **smallest step in the scale** — 10px, smaller even than Caption. That makes it a
+label for the thing beside it, never the thing itself.
+
+The rule: **if the string is the answer a screen exists to give, it does not go in Overline.**
+Rendering a headline answer as an Overline badge makes the primary result *smaller than its own
+metadata*, inverting the hierarchy the scale exists to express. Measured on the job-fit screen at
+`a59b869`: the overall-fit recommendation's confidence caption is `text-sm` — 14px
+(`JobFitAnalysis.tsx:162`) — so an Overline verdict above it would render the verdict at 10px and
+its own footnote at 14px.
+
+Where caps are wanted on a primary result, the answer is a **quiet small label over a large
+emphatic value**, using existing type-scale steps (e.g. Overline label + H2/H3 value). It is not a
+new caps token — adding one to carry emphasis re-creates the same inversion at a larger size.
+
+This is a *typographic* rule, not a casing rule. Whether the underlying string is stored
+capitalised is a separate question, settled in `CONTENT_STYLE.md` §
+*ALL CAPS is a typographic treatment, not casing* — caps are applied with `text-transform`, so a
+value that needs emphasis gets it from size and weight, not from the shape of the letters.
+
+Settled by WIC-1122 (job-fit overall-fit badge) and ported here by WIC-1629, because the type-scale
+row above records *what Overline is* and nothing recorded *when it is wrong to reach for* — which
+is the part that took a full design pass to settle and the part that gets re-litigated.
 
 ### CSS Custom Properties
 

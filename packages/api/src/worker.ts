@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { buildApp } from './app.js';
 import { runWithEnv } from './db/context.js';
-import { isHyperdriveTimeout } from './db/hyperdrive.js';
+import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
 import type { Env } from './types/env.js';
 
 const app = buildApp();
@@ -18,6 +18,21 @@ export default {
           Promise.resolve(app.fetch(request, env as Record<string, unknown>, ctx))
         );
       } catch (err) {
+        // A retry costs subrequests we no longer have, and it cannot succeed:
+        // the budget does not refill mid-invocation. Answer on the first failure
+        // so the response itself still fits in what is left.
+        if (isSubrequestExhaustion(err)) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: 'SERVICE_UNAVAILABLE',
+                message:
+                  'Database unreachable: the request exhausted its outbound connection budget.',
+              },
+            }),
+            { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5' } }
+          );
+        }
         if (isHyperdriveTimeout(err) && attempt < MAX_HYPERDRIVE_RETRIES) {
           await new Promise<void>((r) => setTimeout(r, 50 * attempt));
           continue;

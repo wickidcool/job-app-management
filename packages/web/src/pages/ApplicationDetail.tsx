@@ -15,7 +15,10 @@ import { Breadcrumb } from '../components/Breadcrumb';
 import { useCoverLetters } from '../hooks/useCoverLetters';
 import { useResumeVariants } from '../hooks/useResumeVariants';
 import { useInterviewPrepByApplication } from '../hooks/useInterviewPrep';
+import { useJobFitAnalyses } from '../hooks/useJobFitAnalysis';
 import { TARGETED_LIST_PAGE_MAX, itemsForApplication } from '../constants/applicationMatch';
+import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
 export function ApplicationDetail() {
@@ -25,6 +28,11 @@ export function ApplicationDetail() {
 
   // Fetch data using React Query
   const { data: application, isLoading: loading } = useApplication(id);
+
+  // Mirrors the page <h1> (`application.jobTitle`). The fallback covers the loading and
+  // not-found renders, so the tab never reads `undefined — Careerpin` and never keeps the
+  // previous route's title (docs/design/ROUTE_TITLE_CONVENTION.md §3).
+  useDocumentTitle(application?.jobTitle || DYNAMIC_TITLE_FALLBACKS.application);
 
   // Cover letters written for this application. The endpoint has no
   // `applicationId` filter — no such column exists — so `company` narrows
@@ -90,6 +98,32 @@ export function ApplicationDetail() {
   // than pinning a row at "unknown" forever.
   const artefactStatus = (loading: boolean, present: boolean): ArtefactStatus =>
     loading ? 'unknown' : present ? 'present' : 'absent';
+
+  // Job fit analyses for this application, which — like the interview prep and
+  // unlike the two artefact lists above — are *looked up* rather than
+  // reconstructed. `job_fit_analyses.application_id` is a real foreign key and
+  // the endpoint filters on it, so none of the company-substring/page-cap
+  // machinery applies here and `limit: 1` is safe: the server has already
+  // narrowed to this application and ordered newest first, so the one row it
+  // returns is the one the checklist wants (WIC-1652).
+  //
+  // Asking the server to filter is not an optimisation. `application_id` is
+  // nullable — analysing a bare job description from `/job-fit-analysis` with
+  // no `appId` is a supported flow — so an unfiltered page can be entirely rows
+  // that belong to no application, and a client filter over it could only
+  // remove rows, never recover the one this page needed (WIC-1533).
+  const { data: fitAnalyses } = useJobFitAnalyses(
+    { applicationId: id, limit: 1 },
+    { enabled: !!id }
+  );
+  const latestFitAnalysis = fitAnalyses?.analyses?.[0];
+  // "An analysis exists", not "an analysis scored something". An unscored
+  // analysis — empty catalog, or a job description naming no required skills —
+  // is still one the user has run, and the step must stop offering to create
+  // it. The score is carried separately and stays nullable all the way to the
+  // badge so that `null` (unscored) and `0` (a real zero) do not collapse.
+  const hasFitAnalysis = !!latestFitAnalysis;
+  const fitScore = latestFitAnalysis?.fitScore;
 
   const updateStatusMutation = useUpdateApplicationStatus();
   const updateMutation = useUpdateApplication();
@@ -226,6 +260,8 @@ export function ApplicationDetail() {
             applicationId={id!}
             status={application.status}
             hasJobDescription={!!application.jobDescription}
+            hasFitAnalysis={hasFitAnalysis}
+            fitScore={fitScore}
             coverLetterStatus={artefactStatus(coverLettersLoading, coverLetters.length > 0)}
             coverLetterId={latestCoverLetter?.id}
             resumeVariantStatus={artefactStatus(resumeVariantsLoading, resumeVariants.length > 0)}

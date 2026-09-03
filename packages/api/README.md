@@ -5,8 +5,10 @@ runs both as a **Cloudflare Worker** (production and `wrangler dev`) and on **No
 (fast local iteration via `@hono/node-server`). It serves the `/api/*` routes; in
 production the same Worker also serves the built React SPA.
 
-Backed by **Supabase PostgreSQL** (reached through a Cloudflare **Hyperdrive** connection
-pool at the edge, via Drizzle ORM) and **Cloudflare R2** for document storage.
+Backed by **Supabase PostgreSQL** via Drizzle ORM — pooled through Cloudflare **Hyperdrive**
+in `preview` only; **production has no Hyperdrive binding** and connects to the Supabase
+transaction pooler (port 6543) through a `DATABASE_URL` Worker secret. Document storage is
+**Cloudflare R2**.
 
 See [`docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md`](../../docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md)
 for the full picture and [`ADR-006`](../../docs/architecture/adr/ADR-006-hono-framework-workers.md)
@@ -45,8 +47,9 @@ Two local modes, depending on what you need:
 # Node.js runtime via tsx — fastest iteration, hot reload, listens on :3000
 npm run dev:api
 
-# Cloudflare Workers runtime via wrangler dev — emulates R2 + Hyperdrive bindings,
-# closest to production
+# Cloudflare Workers runtime via wrangler dev — bare `wrangler dev`, so it loads the
+# top-level config: ASSETS + R2, no HYPERDRIVE. Reads DATABASE_URL from .dev.vars,
+# which is the same database path production takes.
 npm run dev:worker
 ```
 
@@ -96,10 +99,14 @@ Transitions are validated server-side by `VALID_TRANSITIONS` in
 
 ## Environment & Secrets
 
-At the edge the Worker uses **Cloudflare bindings** (declared in the repo-root
-`wrangler.jsonc`, typed in `src/types/env.ts`), not `process.env`. Because Workers are
-stateless, the DB client and env are created per request (`runWithEnv` in
-`src/db/context.ts`) rather than as a global singleton.
+At the edge the Worker prefers **Cloudflare bindings** (declared in the repo-root
+`wrangler.jsonc`, typed in `src/types/env.ts`). Two read paths coexist, so don't assume
+either alone: object bindings (`ASSETS`, `HYPERDRIVE`, `R2_BUCKET`) are reachable _only_
+off the request `env`, while text vars and secrets are reachable **both** ways —
+`nodejs_compat` is enabled, so the runtime also exposes them on `process.env`, which is
+what `config.ts` reads. Call sites generally do `c.env?.X ?? getConfig().x` (see
+`middleware/auth.ts`). Because Workers are stateless, the DB client and env are created
+per request (`runWithEnv` in `src/db/context.ts`) rather than as a global singleton.
 
 Local dev secrets go in `.dev.vars` (copy from `.dev.vars.example`). Production secrets are
 set with `wrangler secret put`.
@@ -114,14 +121,18 @@ set with `wrangler secret put`.
 
 Bindings (not env vars):
 
-| Binding      | Purpose                                                      |
-| ------------ | ------------------------------------------------------------ |
-| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`) |
-| `R2_BUCKET`  | Document storage bucket (`jobtrail-documents`)               |
+| Binding      | Purpose                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ASSETS`     | Built React SPA (`packages/web/dist`), with `not_found_handling: "single-page-application"`                                                                         |
+| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`). **Declared under `env.preview` only** — production and bare `wrangler dev` have no Hyperdrive binding |
+| `R2_BUCKET`  | Document storage bucket (`jobtrail-documents`)                                                                                                                      |
 
-> `DATABASE_URL` is **not** used by the Worker — the `HYPERDRIVE` binding handles Postgres.
-> It is only read by the migration runner (`src/db/migrate.ts`); point it at the Supabase
-> transaction-pooler URL.
+> `DATABASE_URL` **is** used by the production Worker. `db/client.ts` resolves
+> `HYPERDRIVE` → `DATABASE_URL` → Node singleton; since `wrangler.jsonc` declares
+> `HYPERDRIVE` only under `env.preview`, production takes the second path, and
+> `deploy.yml` pushes the Supabase transaction-pooler URL (port 6543) as a production
+> Worker secret. It is also read by the migration runner (`src/db/migrate.ts`), and by
+> `npm run dev:worker`, which loads the top-level config and so gets no binding either.
 
 ## Running Tests
 

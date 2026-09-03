@@ -19,6 +19,8 @@ export interface CoverLetter {
   id: string;
   title: string;
   content: string;
+  targetCompany: string;
+  targetRole: string;
   tone: CoverLetterTone;
   lengthVariant: CoverLetterLength;
   emphasis: CoverLetterEmphasis;
@@ -36,6 +38,8 @@ function transformCoverLetter(
     id: apiCoverLetter.id,
     title: apiCoverLetter.title,
     content: apiCoverLetter.content,
+    targetCompany: apiCoverLetter.targetCompany,
+    targetRole: apiCoverLetter.targetRole,
     tone: apiCoverLetter.tone,
     lengthVariant: apiCoverLetter.lengthVariant,
     emphasis: apiCoverLetter.emphasis ?? 'balanced',

@@ -23,29 +23,38 @@ interface WorkflowChecklistProps {
   /**
    * Whether a job fit analysis exists for this application.
    *
-   * **No caller can currently supply `true`, and that is a system gap, not an
-   * oversight here.** A job fit analysis is never persisted: there is no
-   * `job_fit_analyses` table (`packages/api/src/db/schema.ts`), the only
-   * endpoint is `POST /catalog/job-fit/analyze`, which computes and returns
-   * without writing a row, and `AnalyzeJobFitResponse` carries no id to
-   * remember it by. The `job_fit_analysis_id` columns on `cover_letters`,
-   * `resume_variants`, `outreach_messages` and `interview_preps` are bare
-   * `text` referencing nothing.
+   * "Exists", not "scored something". An analysis that produced no score — the
+   * catalog was empty, or the job description named no required skills — is
+   * still an analysis the user has run, and the step ticks for it. Ticking off
+   * the score instead would keep offering to create an analysis that already
+   * exists, which was WIC-1652's user-visible complaint.
    *
-   * The prop is kept rather than deleted because the step is real and the
-   * component is right; only the data is missing. Filed as **WIC-1652**, which
-   * also lifts {@link fitScore} and the two `recommended` flags below.
+   * The caller resolves this from `GET /catalog/job-fit/analyses?applicationId=`
+   * as `analyses.length > 0`. Filtering by application is required, not a
+   * convenience: `job_fit_analyses.application_id` is nullable, so an
+   * unfiltered list is not a substitute (WIC-1835).
    *
-   * Note this is a *different* gap from WIC-1544. There, the row exists and
-   * only its `application_id` link is missing; here there is no row at all, so
-   * WIC-1544 landing does not make this reachable.
+   * This is a *different* gap from WIC-1544, which is still open. There the row
+   * exists and only its `application_id` link is missing, on `cover_letters`
+   * and `resume_variants` — which is why those two steps below are still
+   * reconstructed by company-and-role rather than looked up.
    */
   hasFitAnalysis?: boolean;
   /**
-   * The match percentage for the "Job Fit Analysis" badge. Unreachable for the
-   * same reason as {@link hasFitAnalysis} — nothing persists a score.
+   * The match percentage for the "Job Fit Analysis" badge, 0-100.
+   *
+   * Three states, and they stay three: `undefined` is no analysis, `null` is an
+   * analysis that scored nothing, and `0` is a real score of zero. The badge
+   * renders for the third and not the first two, so the test below is
+   * `!= null` and **not** truthiness — `fitScore ? …` swallowed a genuine `0`
+   * and showed a user with a real 0% match the same bare row as a user with no
+   * analysis at all.
+   *
+   * A null score renders no badge on purpose: there is no percentage to show
+   * and "0% match" would be a false one. The tick, driven by
+   * {@link hasFitAnalysis}, is what tells that user their analysis exists.
    */
-  fitScore?: number;
+  fitScore?: number | null;
   /**
    * Whether a cover letter exists for this application, or whether the query
    * that would say has not settled yet. Defaults to `'absent'` so a caller that
@@ -140,7 +149,9 @@ export function WorkflowChecklist({
       unknown: false,
       recommended: hasJobDescription && !hasFitAnalysis,
       link: hasFitAnalysis ? undefined : `/job-fit-analysis?appId=${applicationId}`,
-      badge: fitScore ? `${fitScore}% match` : undefined,
+      // `!= null`, not truthiness: a genuine 0% match is a score, and the `?`
+      // this replaces rendered it as no badge at all. See {@link fitScore}.
+      badge: fitScore != null ? `${fitScore}% match` : undefined,
     },
     {
       label: 'Cover Letter',
