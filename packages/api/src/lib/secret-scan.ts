@@ -181,6 +181,10 @@ export function looksHighEntropy(token: string): boolean {
   if (/^[0-9a-fA-F]+$/.test(token)) return false;
   // All-lowercase alphanumeric with no digits-and-mixed-case signal → slug/id.
   if (/^[a-z0-9]+$/.test(token) && !/^[a-z]*[0-9][a-z0-9]*$/.test(token)) return false;
+  // Kebab-case slug (branch names, image tags, long identifiers): 3+ lowercase-alphanumeric
+  // segments joined by hyphens. Real secrets virtually never decompose this cleanly — they
+  // either contain uppercase, or are a single undelimited random string. WIC-1265 regression.
+  if (/^[a-z0-9]+(-[a-z0-9]+){2,}$/.test(token)) return false;
   // Require both letters and digits — real high-entropy tokens mix them.
   if (!/[A-Za-z]/.test(token) || !/[0-9]/.test(token)) return false;
   return shannonEntropy(token) >= ENTROPY_MIN_BITS;
@@ -288,7 +292,10 @@ export function scanText(
       }
     }
 
-    if (opts.enableEntropy) {
+    if (opts.enableEntropy && !/^\s*(#|\/\/)/.test(line)) {
+      // Skip comment lines for generic entropy — named patterns above still run on them,
+      // so a real credential pasted into a comment is still caught. The entropy heuristic
+      // only suppresses structured prose like branch names and slugs. WIC-1265.
       const tokenRe = /[A-Za-z0-9_-]{32,}/g;
       let t: RegExpExecArray | null;
       while ((t = tokenRe.exec(line)) !== null) {

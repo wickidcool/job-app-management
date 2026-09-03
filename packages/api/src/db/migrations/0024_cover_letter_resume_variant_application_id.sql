@@ -1,4 +1,4 @@
--- Migration: 0022_cover_letter_resume_variant_application_id.sql
+-- Migration: 0024_cover_letter_resume_variant_application_id.sql
 -- WIC-1544 — record the application a cover letter / resume variant was written for.
 --
 -- The defect. Both tables carry `target_company` and `target_role` and nothing
@@ -12,10 +12,10 @@
 -- ceiling pinned as an explicit test in `packages/web/src/constants/
 -- coverLetterMatch.test.ts`. It is not liftable from the web side.
 --
--- Numbering. 0020 is claimed by three open PRs (#238, #244, #249) and 0021 by
--- #261, so this takes 0022 to avoid a fourth filename collision. Drizzle
--- resolves migrations by the `tag` in `meta/_journal.json`, not by the numeric
--- prefix, so the gap is cosmetic if any of those land out of order.
+-- Numbering. 0021-0023 were independently claimed by #259/#244/#261 before this
+-- branch merged main, so this takes 0024. Drizzle resolves migrations by the
+-- `tag` in `meta/_journal.json`, not by the numeric prefix, so the exact number
+-- is cosmetic — but it still has to be unique on disk.
 --
 -- Nullable, and deliberately not backfilled. Every existing row predates the
 -- association, and the only way to guess one is the (company, role) heuristic
