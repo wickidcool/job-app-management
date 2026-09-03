@@ -444,6 +444,7 @@ export interface RevisionEntryDTO {
 
 export interface CoverLetterDTO {
   id: string;
+  applicationId?: string | null;
   status: CoverLetterStatus;
   title: string;
   targetCompany: string;
@@ -464,6 +465,7 @@ export interface CoverLetterDTO {
 
 export interface CoverLetterSummaryDTO {
   id: string;
+  applicationId?: string | null;
   status: CoverLetterStatus;
   title: string;
   targetCompany: string;
@@ -500,6 +502,7 @@ export interface GenerationWarningDTO {
 }
 
 export interface GenerateCoverLetterInput {
+  applicationId?: string;
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
   jobFitAnalysisId?: string;
@@ -859,6 +862,7 @@ export interface VariantRevisionEntryDTO {
 
 export interface ResumeVariantDTO {
   id: string;
+  applicationId?: string | null;
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;
@@ -884,6 +888,7 @@ export interface ResumeVariantDTO {
 
 export interface ResumeVariantSummaryDTO {
   id: string;
+  applicationId?: string | null;
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;
@@ -908,6 +913,7 @@ export interface VariantGenerationWarningDTO {
 }
 
 export interface GenerateResumeVariantInput {
+  applicationId?: string;
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
   jobFitAnalysisId?: string;
