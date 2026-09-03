@@ -89,7 +89,17 @@ export interface ListApplicationsParams {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /**
+   * Applications whose `appliedAt` falls in the last 7 days, **regardless of
+   * current status** — a count of submissions, not of applications still
+   * sitting at `applied`. Advancing an application never decreases it.
+   */
   appliedThisWeek: number;
+  /**
+   * Applications whose `appliedAt` falls in the last **30 days** — a fixed
+   * rolling window, NOT calendar month-to-date. Any surface that renders this
+   * must label it "last 30 days"; "this month" would be untrue.
+   */
   appliedThisMonth: number;
   /**
    * Share of applications that drew a response, as a **ratio in [0, 1]**,
@@ -434,6 +444,7 @@ export interface RevisionEntryDTO {
 
 export interface CoverLetterDTO {
   id: string;
+  applicationId?: string | null;
   status: CoverLetterStatus;
   title: string;
   targetCompany: string;
@@ -454,6 +465,7 @@ export interface CoverLetterDTO {
 
 export interface CoverLetterSummaryDTO {
   id: string;
+  applicationId?: string | null;
   status: CoverLetterStatus;
   title: string;
   targetCompany: string;
@@ -490,6 +502,7 @@ export interface GenerationWarningDTO {
 }
 
 export interface GenerateCoverLetterInput {
+  applicationId?: string;
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
   jobFitAnalysisId?: string;
@@ -849,6 +862,7 @@ export interface VariantRevisionEntryDTO {
 
 export interface ResumeVariantDTO {
   id: string;
+  applicationId?: string | null;
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;
@@ -874,6 +888,7 @@ export interface ResumeVariantDTO {
 
 export interface ResumeVariantSummaryDTO {
   id: string;
+  applicationId?: string | null;
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;
@@ -898,6 +913,7 @@ export interface VariantGenerationWarningDTO {
 }
 
 export interface GenerateResumeVariantInput {
+  applicationId?: string;
   jobDescriptionText?: string;
   jobDescriptionUrl?: string;
   jobFitAnalysisId?: string;

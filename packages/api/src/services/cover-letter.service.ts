@@ -1,9 +1,11 @@
 import { eq, ilike, or, desc, inArray, and, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
-import { coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
+import { applications, coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
 import type { CoverLetter, OutreachMessage, RevisionEntry } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { fetchJobDescriptionFromUrl } from './job-fit.service.js';
@@ -24,11 +26,66 @@ import {
   VersionConflictError,
 } from '../types/index.js';
 
+// ── Application association (WIC-1544) ────────────────────────────────────────
+
+/**
+ * Resolve a caller-supplied `applicationId` to an application this caller owns.
+ *
+ * Scoped, and scoped unconditionally. The owner term is `eq` for an identified
+ * caller and `IS NULL` for an anonymous one, never *absent*: an unscoped lookup
+ * here would both confirm the existence of another user's application id and
+ * write that id into this user's `cover_letters.application_id`, manufacturing
+ * a cross-tenant reference out of a field the client fully controls. `IS NULL`
+ * is the right anonymous branch rather than a dead one because `applications`
+ * is one of the tables migration 0017 left `user_id` nullable on.
+ *
+ * Returns the id on success so the caller can persist it, and throws 404 rather
+ * than silently dropping it — a letter that quietly forgets the application it
+ * was asked to record is the defect this card exists to fix.
+ */
+/**
+ * Fail closed: an absent owner scopes to `user_id IS NULL`, never to the whole
+ * table. Mirrors the helper of the same name in interviewPrep/job-fit/
+ * resume-variant, and is the shape the owner-predicate audit recognises.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+/**
+ * Resolve an application id the caller is entitled to reference.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a
+ * single-expression fail-closed helper (an absent owner scopes to `IS NULL`,
+ * never to the whole table), so the absent-owner decision is made once, in the
+ * one place the owner-predicate audit recognises and checks by shape — instead
+ * of this function carrying an optional owner of its own, which is the [SIG]
+ * shape that audit exists to stop spreading.
+ */
+async function resolveOwnedApplicationId(applicationId: string, owner: SQL): Promise<string> {
+  const db = getDb();
+  const [app] = await db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(and(eq(applications.id, applicationId), owner))
+    .limit(1);
+  if (!app) {
+    throw new CoverLetterError(
+      'APPLICATION_NOT_FOUND',
+      'Referenced application does not exist',
+      undefined,
+      404
+    );
+  }
+  return app.id;
+}
+
 // ── DTO mappers ───────────────────────────────────────────────────────────────
 
 function toDTO(cl: CoverLetter): CoverLetterDTO {
   return {
     id: cl.id,
+    applicationId: cl.applicationId,
     status: cl.status as CoverLetterDTO['status'],
     title: cl.title,
     targetCompany: cl.targetCompany,
@@ -56,6 +113,7 @@ function toDTO(cl: CoverLetter): CoverLetterDTO {
 function toSummaryDTO(cl: CoverLetter): CoverLetterSummaryDTO {
   return {
     id: cl.id,
+    applicationId: cl.applicationId,
     status: cl.status as CoverLetterSummaryDTO['status'],
     title: cl.title,
     targetCompany: cl.targetCompany,
@@ -194,6 +252,10 @@ export async function generateCoverLetter(
     );
   }
 
+  const applicationId = input.applicationId
+    ? await resolveOwnedApplicationId(input.applicationId, ownerScope(applications, userId))
+    : null;
+
   const starEntries = await fetchStarEntries(input.selectedStarEntryIds, userId);
 
   // Validate all IDs exist
@@ -318,6 +380,7 @@ Rules:
     .values({
       id,
       userId: userId ?? null,
+      applicationId,
       status: 'draft',
       title,
       targetCompany,
@@ -376,6 +439,7 @@ export async function getCoverLetter(
 export async function listCoverLetters(
   params: {
     status?: string;
+    applicationId?: string;
     company?: string;
     search?: string;
     limit?: number;
@@ -393,6 +457,12 @@ export async function listCoverLetters(
   }
   if (params.status === 'draft' || params.status === 'finalized') {
     conditions.push(eq(coverLetters.status, params.status as any));
+  }
+  if (params.applicationId) {
+    // `eq`, not `ilike`. See the route schema note: an id is matched whole or
+    // not at all, so one application's letters never leak into another's list
+    // through a shared ULID prefix (WIC-1544 AC-3).
+    conditions.push(eq(coverLetters.applicationId, params.applicationId) as any);
   }
   if (params.company) {
     conditions.push(ilike(coverLetters.targetCompany, `%${params.company}%`) as any);
