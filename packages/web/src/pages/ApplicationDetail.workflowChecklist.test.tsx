@@ -7,14 +7,17 @@ import { useApplication } from '../hooks/useApplications';
 import { useCoverLetters } from '../hooks/useCoverLetters';
 import { useResumeVariants } from '../hooks/useResumeVariants';
 import { useInterviewPrepByApplication } from '../hooks/useInterviewPrep';
+import { useJobFitAnalyses } from '../hooks/useJobFitAnalysis';
 import { TARGETED_LIST_PAGE_MAX } from '../constants/applicationMatch';
 import type { Application } from '../types/application';
 import type { CoverLetterSummary, ResumeVariantSummary } from '../services/api/types';
+import type { JobFitAnalysisSummary } from '../types/jobFit';
 
 vi.mock('../hooks/useApplications');
 vi.mock('../hooks/useCoverLetters');
 vi.mock('../hooks/useResumeVariants');
 vi.mock('../hooks/useInterviewPrep');
+vi.mock('../hooks/useJobFitAnalysis');
 
 /**
  * WIC-1536 — the checklist's props, asserted at the only call site that has to
@@ -99,16 +102,40 @@ function variant(overrides: Partial<ResumeVariantSummary> = {}): ResumeVariantSu
 const otherRoleLetter = letter({ id: 'cl_other', targetRole: 'Engineering Manager' });
 const otherRoleVariant = variant({ id: 'rv_other', targetRole: 'Engineering Manager' });
 
+/**
+ * A stored job fit analysis (WIC-1835).
+ *
+ * `fitScore` is spelled out at every call site below rather than defaulted,
+ * because the three states it can be in — a number, `null`, and absent — are
+ * the whole point of the assertions that read it, and a default would let one
+ * of them be inherited by accident.
+ */
+function analysis(overrides: Partial<JobFitAnalysisSummary> = {}): JobFitAnalysisSummary {
+  return {
+    id: 'jfa_1',
+    applicationId: 'app_1',
+    recommendation: 'strong_fit',
+    fitScore: 72,
+    summary: 'Strong match on the required stack.',
+    confidence: 'high',
+    catalogEmpty: false,
+    analyzedAt: '2026-08-05T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 interface Fixture {
   coverLetters?: CoverLetterSummary[];
   resumeVariants?: ResumeVariantSummary[];
   hasInterviewPrep?: boolean;
+  fitAnalyses?: JobFitAnalysisSummary[];
 }
 
 function renderDetail({
   coverLetters = [],
   resumeVariants = [],
   hasInterviewPrep = false,
+  fitAnalyses = [],
 }: Fixture = {}) {
   vi.mocked(useApplication).mockReturnValue({
     data: application,
@@ -132,6 +159,16 @@ function renderDetail({
     isLoading: false,
   } as unknown as ReturnType<typeof useInterviewPrepByApplication>);
 
+  // The endpoint is filtered and ordered server-side, so the fixture is the
+  // page the server would have returned — already narrowed to this application
+  // and newest first. That is why there is no sibling row here of the kind the
+  // two artefact lists above carry: there is no client predicate for one to
+  // defeat. What replaces it is the request assertion in AC-2 below.
+  vi.mocked(useJobFitAnalyses).mockReturnValue({
+    data: { analyses: fitAnalyses },
+    isLoading: false,
+  } as unknown as ReturnType<typeof useJobFitAnalyses>);
+
   return render(
     <MemoryRouter initialEntries={['/applications/app_1']}>
       <Routes>
@@ -151,6 +188,8 @@ interface Step {
   label: string;
   completed: boolean;
   href: string | null;
+  recommended: boolean;
+  badge: string | null;
 }
 
 /**
@@ -160,18 +199,33 @@ interface Step {
  * component prints for a completed step, and `href` is whatever the row
  * actually links to (`null` when the row is a plain `<span>`). A prop-shaped
  * assertion would re-state the wiring instead of checking it.
+ *
+ * `recommended` and `badge` read the two pills the row can carry. Both are
+ * rendered text, for the same reason — the "Recommended" pill is suppressed for
+ * a completed step (`item.recommended && !item.completed`), so reading the flag
+ * rather than the pill would claim a badge the user never sees (WIC-1835).
  */
 function steps(): Step[] {
   return within(checklist())
     .getAllByRole('listitem')
     .map((li) => {
       const link = within(li).queryByRole('link');
+      const match = li.textContent?.match(/(\d+)% match/);
       return {
         label: (link?.textContent ?? within(li).getAllByText(/\S/)[1]?.textContent ?? '').trim(),
         completed: li.textContent?.includes('✓') ?? false,
         href: link?.getAttribute('href') ?? null,
+        recommended: !!within(li).queryByText('Recommended'),
+        badge: match ? match[0] : null,
       };
     });
+}
+
+/** The labels of the rows currently carrying a "Recommended" pill. */
+function recommendedSteps(): string[] {
+  return steps()
+    .filter((s) => s.recommended)
+    .map((s) => s.label);
 }
 
 function step(label: string): Step {
@@ -386,16 +440,38 @@ describe('ApplicationDetail — workflow checklist wiring', () => {
   });
 
   /**
-   * WIC-1652's tripwire.
+   * WIC-1835 AC-2 — the fit analysis step, resolved from the stored analysis.
    *
-   * `hasFitAnalysis` and `fitScore` are unreachable: no job fit analysis is
-   * ever persisted, so no caller can supply them truthfully. This asserts the
-   * honest current state rather than pretending the step works, and it is what
-   * should start failing when WIC-1652 lands — at which point the ceiling below
-   * stops being 3 of 4.
+   * This suite replaces WIC-1536's tripwire, which asserted the opposite:
+   * that the step could *not* tick, because nothing persisted an analysis and
+   * so no caller could supply `hasFitAnalysis` truthfully. PR #283 added the
+   * `job_fit_analyses` table and `GET /catalog/job-fit/analyses`, so the
+   * ceiling that test pinned — 3 of 4 — is no longer the honest one, and the
+   * assertion it made is now the regression.
    */
-  describe('WIC-1652 — the fit analysis step cannot yet be completed', () => {
-    it('leaves Job Fit Analysis unticked even when everything else is done', () => {
+  describe('WIC-1835 AC-2 — the fit analysis step ticks from the stored analysis', () => {
+    it('ticks Job Fit Analysis and badges the stored score', () => {
+      renderDetail({
+        fitAnalyses: [analysis({ fitScore: 72 })],
+        coverLetters: [letter()],
+        resumeVariants: [variant()],
+        hasInterviewPrep: true,
+      });
+
+      expect(step('Job Fit Analysis').completed).toBe(true);
+      expect(step('Job Fit Analysis').badge).toBe('72% match');
+      // A completed step drops its "go create one" link, as the other two do.
+      expect(step('Job Fit Analysis').href).toBeNull();
+      expect(within(checklist()).getByText('4 of 4 steps completed')).toBeInTheDocument();
+      expect(within(checklist()).getByText('100%')).toBeInTheDocument();
+    });
+
+    /**
+     * The negative control, and the only case that survives unchanged from
+     * WIC-1536's tripwire. Without it every assertion above could be satisfied
+     * by a page that ticks the step unconditionally.
+     */
+    it('leaves the step unticked and still offering to create one when there is no analysis', () => {
       renderDetail({
         coverLetters: [letter()],
         resumeVariants: [variant()],
@@ -404,8 +480,111 @@ describe('ApplicationDetail — workflow checklist wiring', () => {
 
       expect(step('Job Fit Analysis').completed).toBe(false);
       expect(step('Job Fit Analysis').href).toBe('/job-fit-analysis?appId=app_1');
-      expect(within(checklist()).queryByText(/% match/)).not.toBeInTheDocument();
+      expect(step('Job Fit Analysis').badge).toBeNull();
       expect(within(checklist()).getByText('3 of 4 steps completed')).toBeInTheDocument();
+    });
+
+    /**
+     * `hasFitAnalysis` means "an analysis exists", not "an analysis scored
+     * something". `fitScore` is `null` exactly when `recommendation` is — the
+     * catalog was empty, or the job description named no required skills — and
+     * that analysis is still one the user has run. Ticking off the score would
+     * keep offering to create an analysis they already have, which is WIC-1652's
+     * user-visible complaint restated.
+     */
+    it('ticks an unscored analysis, with no badge to show for it', () => {
+      renderDetail({ fitAnalyses: [analysis({ fitScore: null, recommendation: null })] });
+
+      expect(step('Job Fit Analysis').completed).toBe(true);
+      expect(step('Job Fit Analysis').badge).toBeNull();
+      expect(within(checklist()).getByText('1 of 4 steps completed')).toBeInTheDocument();
+    });
+
+    /**
+     * The discriminating case for the badge, and the reason the component tests
+     * `fitScore != null` rather than `fitScore ?`.
+     *
+     * Under truthiness a genuine 0% match rendered no badge, so a user whose
+     * catalog matched none of the required stack saw exactly what a user with
+     * no analysis at all saw. Every other assertion in this suite passes on the
+     * truthiness version — 72 is truthy and `null` is falsy either way — so
+     * this one is the whole of the coverage for that change.
+     */
+    it('renders a genuine zero as a badge rather than swallowing it', () => {
+      renderDetail({ fitAnalyses: [analysis({ fitScore: 0, recommendation: 'low_fit' })] });
+
+      expect(step('Job Fit Analysis').completed).toBe(true);
+      expect(step('Job Fit Analysis').badge).toBe('0% match');
+    });
+
+    /**
+     * Asserted on the **request**, because no render assertion can see this.
+     *
+     * `job_fit_analyses.application_id` is nullable: an analysis run from
+     * `/job-fit-analysis` with no `appId` belongs to no application and can
+     * never tick any checklist. So a page that dropped `applicationId` from the
+     * query would tick this application's step for someone else's analysis, and
+     * every assertion above would still pass — the fixture is whatever this
+     * file hands over. The filter has to be the server's.
+     */
+    it('narrows the analyses query to this application server-side', () => {
+      renderDetail();
+
+      expect(vi.mocked(useJobFitAnalyses)).toHaveBeenCalledWith(
+        expect.objectContaining({ applicationId: 'app_1' }),
+        expect.objectContaining({ enabled: true })
+      );
+    });
+  });
+
+  /**
+   * WIC-1835 AC-3 — the two `recommended` badges.
+   *
+   * Both are `hasFitAnalysis && !hasX`, so on a tree where nothing could supply
+   * `hasFitAnalysis` they were dead branches: the pill existed in the markup
+   * and no state reached it. AC-2's wiring is what makes them reachable, and
+   * these assertions are what pin that they arrive on the right two rows.
+   */
+  describe('WIC-1835 AC-3 — the analysis makes the Cover Letter and Resume steps recommended', () => {
+    /**
+     * Read as a set, not one row at a time. The *whole* recommendation state of
+     * the checklist moves here — off "Job Fit Analysis" and onto the two rows
+     * the analysis unlocks — and a per-row assertion would miss a pill that
+     * stayed behind. Interview Prep is never in this set for an `applied`
+     * application; it is recommended at `interview`/`phone_screen`.
+     */
+    it('moves the recommendation off the analysis and onto the next two steps', () => {
+      const { unmount } = renderDetail();
+      expect(recommendedSteps()).toEqual(['Job Fit Analysis']);
+      unmount();
+
+      renderDetail({ fitAnalyses: [analysis()] });
+      expect(recommendedSteps()).toEqual(['Cover Letter', 'Tailored Resume']);
+    });
+
+    /**
+     * A step that is already done is not recommended, however unlocked it is —
+     * the pill is suppressed by `!item.completed`. Without this the assertion
+     * above passes for a component that recommends both rows unconditionally
+     * once an analysis exists.
+     */
+    it('drops the recommendation from a step that has been completed', () => {
+      renderDetail({ fitAnalyses: [analysis()], coverLetters: [letter()] });
+
+      expect(step('Cover Letter').completed).toBe(true);
+      expect(recommendedSteps()).toEqual(['Tailored Resume']);
+    });
+
+    /**
+     * The control that makes the two above able to fail on the wiring rather
+     * than on the component. An unscored analysis is still an analysis, so it
+     * unlocks the two steps exactly as a scored one does — this is the same
+     * "exists, not scored" rule AC-2 pins, observed through the badges.
+     */
+    it('recommends the next two steps for an unscored analysis too', () => {
+      renderDetail({ fitAnalyses: [analysis({ fitScore: null, recommendation: null })] });
+
+      expect(recommendedSteps()).toEqual(['Cover Letter', 'Tailored Resume']);
     });
   });
 });

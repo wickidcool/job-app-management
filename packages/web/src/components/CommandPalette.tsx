@@ -4,6 +4,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useApplications } from '../hooks/useApplications';
 import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import { RECENT_SEARCHES_KEY } from '../services/appStorage';
+import { useNavigationGuardControls } from '../contexts/CommandPaletteContext';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -161,6 +162,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [prevQuery, setPrevQuery] = useState('');
   const [prevOpen, setPrevOpen] = useState(false);
   const navigate = useNavigate();
+  const { requestNavigation } = useNavigationGuardControls();
   const { data: applications = [] } = useApplications();
 
   // Load recent searches - recalculate when palette opens
@@ -261,6 +263,22 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     }
   }
 
+  /**
+   * The palette's single exit. The ⌘/Ctrl+K listener is on `window`, so the
+   * palette opens over an open modal — and until WIC-1765 that made it the one
+   * way to navigate out of the dialogue wizard without the wizard hearing about
+   * it, discarding every unsaved answer silently. A registered guard gets first
+   * refusal; with none registered this is exactly the previous behaviour.
+   *
+   * The palette closes *first* either way, so a guard that opens a confirmation
+   * does not render it underneath this dialog.
+   */
+  const goTo = (path: string) => {
+    onOpenChange(false);
+    if (requestNavigation(path)) return;
+    navigate(path);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -270,8 +288,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       setSelectedIndex((prev) => (prev - 1 + searchResults.length) % searchResults.length);
     } else if (e.key === 'Enter' && searchResults.length > 0) {
       e.preventDefault();
-      navigate(searchResults[selectedIndex].path);
-      onOpenChange(false);
+      goTo(searchResults[selectedIndex].path);
     }
   };
 
@@ -280,8 +297,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     if (query.trim()) {
       addRecentSearch(query);
     }
-    navigate(path);
-    onOpenChange(false);
+    goTo(path);
   };
 
   return (

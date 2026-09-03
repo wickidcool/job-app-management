@@ -1,12 +1,15 @@
 import { eq, ilike, or, desc, inArray, and, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
-import { coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
+import { applications, coverLetters, outreachMessages, quantifiedBullets } from '../db/schema.js';
 import type { CoverLetter, OutreachMessage, RevisionEntry } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import { fetchJobDescriptionFromUrl } from './job-fit.service.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import {
   CoverLetterDTO,
   CoverLetterSummaryDTO,
@@ -24,11 +27,66 @@ import {
   VersionConflictError,
 } from '../types/index.js';
 
+// ── Application association (WIC-1544) ────────────────────────────────────────
+
+/**
+ * Resolve a caller-supplied `applicationId` to an application this caller owns.
+ *
+ * Scoped, and scoped unconditionally. The owner term is `eq` for an identified
+ * caller and `IS NULL` for an anonymous one, never *absent*: an unscoped lookup
+ * here would both confirm the existence of another user's application id and
+ * write that id into this user's `cover_letters.application_id`, manufacturing
+ * a cross-tenant reference out of a field the client fully controls. `IS NULL`
+ * is the right anonymous branch rather than a dead one because `applications`
+ * is one of the tables migration 0017 left `user_id` nullable on.
+ *
+ * Returns the id on success so the caller can persist it, and throws 404 rather
+ * than silently dropping it — a letter that quietly forgets the application it
+ * was asked to record is the defect this card exists to fix.
+ */
+/**
+ * Fail closed: an absent owner scopes to `user_id IS NULL`, never to the whole
+ * table. Mirrors the helper of the same name in interviewPrep/job-fit/
+ * resume-variant, and is the shape the owner-predicate audit recognises.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+/**
+ * Resolve an application id the caller is entitled to reference.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a
+ * single-expression fail-closed helper (an absent owner scopes to `IS NULL`,
+ * never to the whole table), so the absent-owner decision is made once, in the
+ * one place the owner-predicate audit recognises and checks by shape — instead
+ * of this function carrying an optional owner of its own, which is the [SIG]
+ * shape that audit exists to stop spreading.
+ */
+async function resolveOwnedApplicationId(applicationId: string, owner: SQL): Promise<string> {
+  const db = getDb();
+  const [app] = await db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(and(eq(applications.id, applicationId), owner))
+    .limit(1);
+  if (!app) {
+    throw new CoverLetterError(
+      'APPLICATION_NOT_FOUND',
+      'Referenced application does not exist',
+      undefined,
+      404
+    );
+  }
+  return app.id;
+}
+
 // ── DTO mappers ───────────────────────────────────────────────────────────────
 
 function toDTO(cl: CoverLetter): CoverLetterDTO {
   return {
     id: cl.id,
+    applicationId: cl.applicationId,
     status: cl.status as CoverLetterDTO['status'],
     title: cl.title,
     targetCompany: cl.targetCompany,
@@ -56,6 +114,7 @@ function toDTO(cl: CoverLetter): CoverLetterDTO {
 function toSummaryDTO(cl: CoverLetter): CoverLetterSummaryDTO {
   return {
     id: cl.id,
+    applicationId: cl.applicationId,
     status: cl.status as CoverLetterSummaryDTO['status'],
     title: cl.title,
     targetCompany: cl.targetCompany,
@@ -167,7 +226,13 @@ export async function generateCoverLetter(
   // Validation
   const hasJdText = !!input.jobDescriptionText;
   const hasJdUrl = !!input.jobDescriptionUrl;
-  const hasAnalysis = !!input.jobFitAnalysisId;
+  // Resolved before any other guard, and before the model spend and the write:
+  // an unresolvable id is rejected 422 rather than being allowed to satisfy
+  // JOB_CONTEXT_REQUIRED and waive TARGET_INFO_REQUIRED below (WIC-1818 AC-5a).
+  // Always false today — nothing resolves until `job_fit_analyses` exists — but
+  // the two guards keep reading it so AC-5b restores the waiver by changing
+  // `resolveJobFitAnalysis` alone.
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
     throw new CoverLetterError(
@@ -193,6 +258,10 @@ export async function generateCoverLetter(
       'targetCompany and targetRole are required when jobFitAnalysisId is not provided'
     );
   }
+
+  const applicationId = input.applicationId
+    ? await resolveOwnedApplicationId(input.applicationId, ownerScope(applications, userId))
+    : null;
 
   const starEntries = await fetchStarEntries(input.selectedStarEntryIds, userId);
 
@@ -240,7 +309,16 @@ export async function generateCoverLetter(
       );
     }
   } else {
-    jdContext = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
+    // Was `jdContext = \`Job Fit Analysis ID: ${input.jobFitAnalysisId}\``, which
+    // handed the model a caller-controlled id as the entire job description.
+    // Unreachable today (an analysis is the only other way past
+    // JOB_CONTEXT_REQUIRED, and none resolve), and fails closed rather than
+    // silently prompting with no job context if that ever changes. AC-5b fills
+    // this branch with the stored analysis.
+    throw new CoverLetterError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+    );
   }
 
   const starBullets = starEntries.map((e, i) => `${i + 1}. ${e.rawText}`).join('\n');
@@ -318,6 +396,7 @@ Rules:
     .values({
       id,
       userId: userId ?? null,
+      applicationId,
       status: 'draft',
       title,
       targetCompany,
@@ -376,6 +455,7 @@ export async function getCoverLetter(
 export async function listCoverLetters(
   params: {
     status?: string;
+    applicationId?: string;
     company?: string;
     search?: string;
     limit?: number;
@@ -393,6 +473,12 @@ export async function listCoverLetters(
   }
   if (params.status === 'draft' || params.status === 'finalized') {
     conditions.push(eq(coverLetters.status, params.status as any));
+  }
+  if (params.applicationId) {
+    // `eq`, not `ilike`. See the route schema note: an id is matched whole or
+    // not at all, so one application's letters never leak into another's list
+    // through a shared ULID prefix (WIC-1544 AC-3).
+    conditions.push(eq(coverLetters.applicationId, params.applicationId) as any);
   }
   if (params.company) {
     conditions.push(ilike(coverLetters.targetCompany, `%${params.company}%`) as any);
@@ -625,10 +711,17 @@ export async function generateOutreach(
 ): Promise<{
   message: OutreachMessageDTO;
 }> {
-  // Validation
+  // Validation.
+  //
+  // Site the WIC-1818 card does not enumerate: the id satisfied
+  // JOB_CONTEXT_REQUIRED here too, and became `contextText` below. Resolved
+  // first, so an unresolvable id is 422 rather than the sole context for an
+  // outreach message sent to a named human (WIC-1818 AC-5a).
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
+
   if (
     !input.coverLetterId &&
-    !input.jobFitAnalysisId &&
+    !hasAnalysis &&
     (!input.selectedStarEntryIds || input.selectedStarEntryIds.length === 0)
   ) {
     throw new CoverLetterError(
@@ -669,7 +762,13 @@ export async function generateOutreach(
     const entries = await fetchStarEntries(input.selectedStarEntryIds, userId);
     contextText = `Key achievements:\n${entries.map((e) => `- ${e.rawText}`).join('\n')}`;
   } else {
-    contextText = `Job Fit Analysis ID: ${input.jobFitAnalysisId}`;
+    // Was `contextText = \`Job Fit Analysis ID: ${input.jobFitAnalysisId}\``.
+    // See the equivalent branch in generateCoverLetter — unreachable today,
+    // fails closed, and is where AC-5b puts the stored analysis.
+    throw new CoverLetterError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide coverLetterId, jobFitAnalysisId, or selectedStarEntryIds'
+    );
   }
 
   const recipientLine = input.targetName ? `Hi ${input.targetName},` : 'Hi there,';

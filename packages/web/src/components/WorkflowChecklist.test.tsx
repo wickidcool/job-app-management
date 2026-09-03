@@ -6,10 +6,10 @@ import { WorkflowChecklist } from './WorkflowChecklist';
 
 /**
  * Cover for WIC-1533's AC-4, and specifically for the correction made on that
- * card: passing `hasCoverLetter` alone is **not** the fix.
+ * card: passing `coverLetterStatus` alone is **not** the fix.
  *
  * A completed step drops its link (`link: hasX ? undefined : …`), so wiring
- * `hasCoverLetter={true}` from `ApplicationDetail` would have turned a
+ * `coverLetterStatus="present"` from `ApplicationDetail` would have turned a
  * wrong-but-clickable row ("Cover Letter" → go write *another* one) into a
  * correct-but-inert one — the checklist would finally read "done" and the
  * letter would still be unreachable. The row has to be repointed at the letter,
@@ -30,7 +30,7 @@ function renderChecklist(props: Partial<React.ComponentProps<typeof WorkflowChec
 
 describe('WorkflowChecklist — Cover Letter step', () => {
   it('points at the generator when no letter exists', () => {
-    renderChecklist({ hasCoverLetter: false });
+    renderChecklist({ coverLetterStatus: 'absent' });
 
     expect(screen.getByRole('link', { name: 'Cover Letter' })).toHaveAttribute(
       'href',
@@ -39,7 +39,7 @@ describe('WorkflowChecklist — Cover Letter step', () => {
   });
 
   it('points at the letter once one exists', () => {
-    renderChecklist({ hasCoverLetter: true, coverLetterId: 'cl_42' });
+    renderChecklist({ coverLetterStatus: 'present', coverLetterId: 'cl_42' });
 
     expect(screen.getByRole('link', { name: 'Cover Letter' })).toHaveAttribute(
       'href',
@@ -55,7 +55,7 @@ describe('WorkflowChecklist — Cover Letter step', () => {
    * so the pre-fix behaviour (no link at all when completed) fails here.
    */
   it('does not send a completed step back to the generator', () => {
-    renderChecklist({ hasCoverLetter: true, coverLetterId: 'cl_42' });
+    renderChecklist({ coverLetterStatus: 'present', coverLetterId: 'cl_42' });
 
     expect(screen.getByRole('link', { name: 'Cover Letter' })).not.toHaveAttribute(
       'href',
@@ -64,12 +64,12 @@ describe('WorkflowChecklist — Cover Letter step', () => {
   });
 
   /**
-   * The id is optional, because `hasCoverLetter` can in principle be true with
+   * The id is optional, because a letter can in principle be `'present'` with
    * no id to hand. That must degrade to the old inert row rather than to
    * `/cover-letters/undefined`.
    */
   it('falls back to an inert row when a letter exists but its id is unknown', () => {
-    renderChecklist({ hasCoverLetter: true, coverLetterId: undefined });
+    renderChecklist({ coverLetterStatus: 'present', coverLetterId: undefined });
 
     expect(screen.queryByRole('link', { name: 'Cover Letter' })).not.toBeInTheDocument();
     expect(screen.getByText('Cover Letter')).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe('WorkflowChecklist — Cover Letter step', () => {
    * two rows). One tick is one quarter.
    */
   it('counts a completed cover letter toward the progress readout', () => {
-    const { rerender } = renderChecklist({ hasCoverLetter: false });
+    const { rerender } = renderChecklist({ coverLetterStatus: 'absent' });
     expect(screen.getByText('0 of 4 steps completed')).toBeInTheDocument();
     expect(screen.getByText('0%')).toBeInTheDocument();
 
@@ -92,7 +92,7 @@ describe('WorkflowChecklist — Cover Letter step', () => {
           applicationId="app_1"
           status="applied"
           hasJobDescription={true}
-          hasCoverLetter={true}
+          coverLetterStatus="present"
           coverLetterId="cl_42"
         />
       </MemoryRouter>
