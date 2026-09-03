@@ -10,8 +10,8 @@ import { describeOutline, findOutlineSkips, getOutline } from '../test/headingOu
  * Regression cover for WIC-1563 (heading-level skip in the Kanban path).
  *
  * `KanbanColumn` rendered its column title as `<h3>`, and `ApplicationCard` renders the
- * job title as `<h3>` too. The host chain is `ApplicationsList:113` `<h1>Applications</h1>`
- * -> `KanbanBoard` (no heading of its own) -> `KanbanColumn`, so the outline read
+ * job title as `<h3>` too. The chain measured here is `<h1>Applications</h1>` ->
+ * `KanbanBoard` (no heading of its own) -> `KanbanColumn`, so the outline read
  * h1 -> h3 -> h3: a skipped level, *and* every card sitting as a structural sibling of its
  * own column rather than inside it. The column's contents were not nested under the column
  * at all — which is precisely the navigation a screen-reader user moves between columns
@@ -45,7 +45,26 @@ const APPLICATIONS: Application[] = [
   app({ id: 'a3', jobTitle: 'Design Engineer', status: 'interview' }),
 ];
 
-/** The `ApplicationsList` shape: the page h1, then the board. */
+/**
+ * A minimal host for the board: one page-level `<h1>`, then `KanbanBoard`.
+ *
+ * **This is not the `ApplicationsList` composition, and it must not be described as one**
+ * (WIC-1834). It said it was for two months, and it was wrong in a way that mattered: the
+ * real page mounts `SavedFilterShortcuts` between the `<h1>` and the board, that panel
+ * rendered an `<h3>`, and so the live route read `h1 -> h3 -> h2` — a skip, on every
+ * render branch — while this file stayed green. A rendered-outline assertion certifies
+ * the composition it renders, not the route it is named after, and nothing ties a
+ * hand-written fixture to the page it approximates.
+ *
+ * The `<h1>` stays because `KanbanBoard`'s columns are only correct *relative to* a page
+ * heading, and this file's subject is the board's internal depth — that a column is one
+ * level below the page and a card one level below its column. That question is answered
+ * at this layer and is worth keeping here.
+ *
+ * The page's own outline is asserted against the real thing in
+ * `src/pages/ApplicationsList.headingOutline.test.tsx`, and every route's is swept in
+ * `src/test/routeOutline.render.test.tsx` (WIC-1675).
+ */
 function renderBoard(applications: Application[]) {
   return render(
     <>

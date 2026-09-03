@@ -219,11 +219,45 @@ export interface StatusHistoryEntry {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /**
+   * Applications whose `appliedAt` falls in the last 7 days, **regardless of
+   * current status**. This counts the act of applying, so advancing an
+   * application never decreases it. Surfaces may label it "Applied This Week".
+   */
   appliedThisWeek: number;
+  /**
+   * Applications whose `appliedAt` falls in the last **30 days** — a fixed
+   * rolling window, not calendar month-to-date. Any surface that renders this
+   * must say "last 30 days" rather than "this month".
+   */
   appliedThisMonth: number;
-  responseRate: number;
+  responseRate: number; // 0-1 — a ratio, not a percentage (see API_CONTRACTS.md)
 }
 ```
+
+### Window metric definitions (WIC-1515)
+
+`appliedThisWeek` and `appliedThisMonth` count **submissions**, keyed on
+`appliedAt`, and are deliberately blind to `status`:
+
+| | Window | Predicate |
+|---|---|---|
+| `appliedThisWeek` | rolling 7 days | `applied_at >= now() - 7d` |
+| `appliedThisMonth` | rolling 30 days | `applied_at >= now() - 30d` |
+
+Two rules follow, and both have already been violated once:
+
+1. **Never add a `status` term.** `appliedAt` survives a status transition, so a
+   `status = 'applied'` filter makes the metric *fall* when an application
+   progresses — the opposite of what a submission count means, and a direct
+   penalty for the outcome the product exists to produce.
+2. **Never derive the cutoff with `setMonth`.** `setMonth(getMonth() - 1)`
+   overflows short months: read on March 31 it yields March 3 (a 28-day
+   window), and read on January 31 it yields December 31 (a 31-day window).
+   Subtract a fixed span instead.
+
+Rows that were never submitted need no special handling — their `applied_at` is
+NULL, and `NULL >= $1` is UNKNOWN, which `WHERE` does not treat as a match.
 
 ## Status Transition Rules
 
@@ -330,19 +364,20 @@ async function getDashboardStats(): Promise<DashboardStats> {
     .from(applications)
     .groupBy(applications.status);
   
-  // Applied this week
-  const oneWeekAgo = new Date();
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  // Applied this week — a rolling 7 days, counting the ACT of applying.
+  //
+  // The predicate is `applied_at` inside the window and nothing else. Do NOT
+  // add `eq(applications.status, 'applied')`: `applied_at` is preserved across
+  // status transitions, so filtering on current status makes the count fall
+  // when an application advances (3 submissions become "2 applied this week"
+  // the moment one reaches `phone_screen`). Rows never submitted carry a NULL
+  // `applied_at` and fall out of the window on their own. See WIC-1515.
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   
   const [weekStats] = await db
     .select({ count: count() })
     .from(applications)
-    .where(
-      and(
-        eq(applications.status, 'applied'),
-        gte(applications.appliedAt, oneWeekAgo)
-      )
-    );
+    .where(gte(applications.appliedAt, oneWeekAgo));
   
   // Build response
   const byStatus = Object.fromEntries(
@@ -360,7 +395,11 @@ async function getDashboardStats(): Promise<DashboardStats> {
     total,
     byStatus,
     appliedThisWeek: weekStats?.count || 0,
-    appliedThisMonth: 0, // Similar query for month
+    // Same query over a rolling 30 days. Derive the cutoff by subtracting a
+    // fixed span, never with `setMonth(getMonth() - 1)` — that overflows short
+    // months and silently varies the window between 28 and 31 days depending on
+    // the day it is read (WIC-1515).
+    appliedThisMonth: monthStats?.count || 0,
     responseRate: applied > 0 ? responded / applied : 0,
   };
 }
@@ -814,6 +853,67 @@ Diffs expire 7 days after creation (`expires_at = created_at + INTERVAL '7 days'
 
 ---
 
+## Job Fit Analyses (UC-3)
+
+Results of `POST /api/catalog/job-fit/analyze`: a parsed job description scored against the user's
+catalog, optionally attached to the application it is about.
+
+> **This table was specified before it existed.** The `interview_preps` DDL below has given
+> `job_fit_analysis_id TEXT REFERENCES job_fit_analyses(id) ON DELETE SET NULL` since UC-7 was
+> written, and the relationship index lists `interview_preps -> job_fit_analyses` — but this document
+> never defined the referent, and it was never built. Four tables therefore shipped
+> `job_fit_analysis_id` as bare `TEXT` referencing nothing, and `analyzeJobFit` returned a result it
+> did not write down. Closed by WIC-1652 / ADR-012; the omission is recorded here because a
+> half-specified FK is what let it pass review.
+
+```sql
+CREATE TABLE job_fit_analyses (
+  id                       TEXT PRIMARY KEY,
+  user_id                  UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  application_id           TEXT REFERENCES applications(id) ON DELETE CASCADE,
+  job_description_text     TEXT,
+  job_description_url      TEXT,
+  recommendation           TEXT CHECK (recommendation IS NULL OR recommendation IN
+                             ('strong_fit', 'moderate_fit', 'stretch', 'low_fit')),
+  fit_score                INTEGER CHECK (fit_score IS NULL OR (fit_score >= 0 AND fit_score <= 100)),
+  summary                  TEXT NOT NULL,
+  confidence               TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+  parsed_jd                JSONB NOT NULL,
+  strong_matches           JSONB NOT NULL DEFAULT '[]',
+  partial_matches          JSONB NOT NULL DEFAULT '[]',
+  gaps                     JSONB NOT NULL DEFAULT '[]',
+  recommended_star_entries JSONB NOT NULL DEFAULT '[]',
+  catalog_empty            BOOLEAN NOT NULL DEFAULT FALSE,
+  analyzed_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_job_fit_analyses_user_application
+  ON job_fit_analyses(user_id, application_id, created_at DESC);
+CREATE INDEX idx_job_fit_analyses_application ON job_fit_analyses(application_id);
+```
+
+Three nullability decisions carry meaning and are not oversights:
+
+- **`application_id` is nullable.** Analysing a bare job description with no application in hand is a
+  shipped flow — `/job-fit-analysis` is reachable without an `appId` — so `NOT NULL` here would
+  reject requests that are valid today. Only an analysis that *has* an application can tick that
+  application's workflow checklist; one without is a scratch analysis.
+- **`recommendation` and `fit_score` are nullable together.** `NULL` is a *result* — "unscored", i.e.
+  the catalog was empty or the job description named no required skills — and not "not analysed".
+  The by-fit-tier report keeps `unscored` and `not_analyzed` as distinct tiers for exactly this
+  reason. A `NOT NULL` `fit_score` would force a `0` that renders as "0% match".
+- **`recommendation` is `TEXT` with a CHECK, not a Postgres enum.** It is a wire value that `FitTier`
+  is *defined in terms of*; pinning it into an enum would make adding a member a two-place change
+  with a migration in the middle. The CHECK gives the same integrity without that coupling.
+
+`fit_score` is the weighted required-skill match percentage the UC-3 scoring cascade already computes
+(exact matches count 1, alias/related count 0.5, over `parsed_jd.requiredStack` length). It is stored
+rather than recomputed so the tier and the percentage shown beside it are read off one number and
+cannot drift.
+
+---
+
 ## Resume Variants (UC-6)
 
 Resume variants are tailored resume versions generated for specific job applications.
@@ -832,7 +932,7 @@ Resume variants are tailored resume versions generated for specific job applicat
 │    │ format                │ resume_format     │ chronological/etc   │
 │    │ section_emphasis      │ section_emphasis  │ balanced/etc        │
 │ FK │ base_resume_id        │ TEXT              │ references resumes  │
-│    │ job_fit_analysis_id   │ TEXT              │ nullable            │
+│ FK │ job_fit_analysis_id   │ TEXT              │ refs job_fit_analyses│
 │    │ selected_bullets      │ JSONB             │ bullet selections   │
 │    │ selected_tech_tags    │ JSONB             │ tag IDs array       │
 │    │ selected_themes       │ JSONB             │ theme slugs array   │
@@ -886,7 +986,7 @@ Interview prep records store generated preparation materials for upcoming interv
 │ FK │ interview_prep_id       │ TEXT              │ NOT NULL, references  │
 │ FK │ star_entry_id           │ TEXT              │ NOT NULL, catalog ref │
 │    │ themes                  │ JSONB             │ classified themes     │
-│    │ relevance_score         │ INTEGER           │ 0-100 from analysis   │
+│    │ relevance_score_pct     │ INTEGER           │ 0-100 pct (ADR-008 §4)│
 │    │ one_min_version         │ TEXT              │ time-boxed summary    │
 │    │ two_min_version         │ TEXT              │ time-boxed summary    │
 │    │ five_min_version        │ TEXT              │ full story version    │
@@ -1007,7 +1107,7 @@ CREATE TABLE interview_prep_stories (
   interview_prep_id     TEXT NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
   star_entry_id         TEXT NOT NULL,  -- References catalog quantified_bullets or STAR entries
   themes                JSONB NOT NULL DEFAULT '[]',
-  relevance_score       INTEGER NOT NULL CHECK (relevance_score >= 0 AND relevance_score <= 100),
+  relevance_score_pct   INTEGER NOT NULL CHECK (relevance_score_pct >= 0 AND relevance_score_pct <= 100),
   one_min_version       TEXT NOT NULL,
   two_min_version       TEXT NOT NULL,
   five_min_version      TEXT NOT NULL,
@@ -1126,6 +1226,10 @@ interface PracticeSession {
 |--------------|--------------|--------------|-------|
 | `interview_preps` | `applications` | N:1 | One prep per application (UNIQUE constraint) |
 | `interview_preps` | `job_fit_analyses` | N:1 (optional) | Uses fit analysis for gap mitigations |
+| `cover_letters` | `job_fit_analyses` | N:1 (optional) | Generated against a stored analysis |
+| `resume_variants` | `job_fit_analyses` | N:1 (optional) | Generated against a stored analysis |
+| `outreach_messages` | `job_fit_analyses` | N:1 (optional) | Generated against a stored analysis |
+| `job_fit_analyses` | `applications` | N:1 (optional) | The application the analysis is about |
 | `interview_prep_stories` | `interview_preps` | N:1 | Stories belong to a prep |
 | `interview_prep_stories` | `quantified_bullets` | N:1 | References catalog STAR entries |
 | `prep_question_story_links` | `interview_prep_stories` | N:1 | Links questions to suggested stories |
@@ -1225,7 +1329,7 @@ export const interviewPrepStories = pgTable('interview_prep_stories', {
     .references(() => interviewPreps.id, { onDelete: 'cascade' }),
   starEntryId: text('star_entry_id').notNull(),
   themes: jsonb('themes').notNull().default([]),
-  relevanceScore: integer('relevance_score').notNull(),
+  relevanceScorePct: integer('relevance_score_pct').notNull(),
   oneMinVersion: text('one_min_version').notNull(),
   twoMinVersion: text('two_min_version').notNull(),
   fiveMinVersion: text('five_min_version').notNull(),
@@ -1284,7 +1388,7 @@ CREATE TABLE interview_prep_stories (
   interview_prep_id     TEXT NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
   star_entry_id         TEXT NOT NULL,
   themes                JSONB NOT NULL DEFAULT '[]',
-  relevance_score       INTEGER NOT NULL CHECK (relevance_score >= 0 AND relevance_score <= 100),
+  relevance_score_pct   INTEGER NOT NULL CHECK (relevance_score_pct >= 0 AND relevance_score_pct <= 100),
   one_min_version       TEXT NOT NULL,
   two_min_version       TEXT NOT NULL,
   five_min_version      TEXT NOT NULL,

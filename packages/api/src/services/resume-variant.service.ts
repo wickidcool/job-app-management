@@ -1,10 +1,12 @@
 import { eq, ilike, or, desc, and, sql, inArray, notInArray, isNull } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
 import {
+  applications,
   resumeVariants,
   quantifiedBullets,
   techStackTags,
@@ -15,6 +17,7 @@ import {
   type SectionBulletSelection,
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import {
   ResumeVariantDTO,
   ResumeVariantSummaryDTO,
@@ -78,9 +81,63 @@ import {
  * one predicate with one name is the point. `rawText` is the user-authored
  * accomplishment sentence and is returned verbatim to the caller and persisted
  * into `resume_variants.content`, so every read of that table must carry this.
+ *
+ * `userId` stays optional here and the fallback stays with it (WIC-1764). WIC-1638
+ * made the owner *required* on the bullet-catalog path and deleted the equivalent
+ * branch from the `bulletOwnerScope` this replaced — but that helper served one
+ * `.notNull()` table, and this one also serves `resume_variants` and `resumes`,
+ * which are nullable and whose insert paths write `userId ?? null`. Requiring the
+ * owner here would break the ADR-003 local-dev anonymous path and the entry points
+ * in this file that still take `userId?: string`.
+ *
+ * WIC-1638's guarantee is therefore carried where it holds without that cost:
+ * `requireOwner(c)` rejects an absent owner at the route edge with `401
+ * OWNER_REQUIRED`, and `generateResumeVariant` / `getResumeVariant` /
+ * `reviseResumeVariant` / `suggestBullets` take `userId: string`. The `IS NULL`
+ * branch is unreachable from those paths, and fail-closed on `quantified_bullets`
+ * regardless. Do not "finish the job" by making `userId` required here.
  */
 function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+// ── Application association (WIC-1544) ────────────────────────────────────────
+
+/**
+ * Resolve a caller-supplied `applicationId` to an application this caller owns.
+ *
+ * Uses the same `ownerScope` as every other read in this file, for the same
+ * reason and one more: `applicationId` is a client-supplied foreign key, so an
+ * unscoped lookup would let a caller staple another user's application id onto
+ * their own variant. Throws 404 rather than dropping the id silently, matching
+ * `BASE_RESUME_NOT_FOUND` below.
+ */
+/**
+ * Resolve an application id the caller is entitled to reference.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a
+ * single-expression fail-closed helper (an absent owner scopes to `IS NULL`,
+ * never to the whole table), so the absent-owner decision is made once, in the
+ * one place the owner-predicate audit recognises and checks by shape — instead
+ * of this function carrying an optional owner of its own, which is the [SIG]
+ * shape that audit exists to stop spreading.
+ */
+async function resolveOwnedApplicationId(applicationId: string, owner: SQL): Promise<string> {
+  const db = getDb();
+  const [app] = await db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(and(eq(applications.id, applicationId), owner))
+    .limit(1);
+  if (!app) {
+    throw new ResumeVariantError(
+      'APPLICATION_NOT_FOUND',
+      'Referenced application does not exist',
+      undefined,
+      404
+    );
+  }
+  return app.id;
 }
 
 // ── DTO mappers ───────────────────────────────────────────────────────────────
@@ -88,6 +145,7 @@ function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
 function toDTO(row: ResumeVariantRow): ResumeVariantDTO {
   return {
     id: row.id,
+    applicationId: row.applicationId,
     status: row.status as ResumeVariantDTO['status'],
     title: row.title,
     targetCompany: row.targetCompany,
@@ -120,6 +178,7 @@ function toDTO(row: ResumeVariantRow): ResumeVariantDTO {
 function toSummaryDTO(row: ResumeVariantRow): ResumeVariantSummaryDTO {
   return {
     id: row.id,
+    applicationId: row.applicationId,
     status: row.status as ResumeVariantSummaryDTO['status'],
     title: row.title,
     targetCompany: row.targetCompany,
@@ -197,7 +256,7 @@ function extractKeywords(jdText: string): string[] {
 
 export async function generateResumeVariant(
   input: GenerateResumeVariantInput,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
@@ -208,7 +267,10 @@ export async function generateResumeVariant(
 }> {
   const hasJdText = !!input.jobDescriptionText;
   const hasJdUrl = !!input.jobDescriptionUrl;
-  const hasAnalysis = !!input.jobFitAnalysisId;
+  // See generateCoverLetter: resolved before every other guard, so an
+  // unresolvable id cannot satisfy JOB_CONTEXT_REQUIRED or waive
+  // TARGET_INFO_REQUIRED below (WIC-1818 AC-5a).
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
     throw new ResumeVariantError(
@@ -230,6 +292,10 @@ export async function generateResumeVariant(
   }
 
   const db = getDb();
+
+  const applicationId = input.applicationId
+    ? await resolveOwnedApplicationId(input.applicationId, ownerScope(applications, userId))
+    : null;
 
   // Validate base resume if provided
   if (input.baseResumeId) {
@@ -348,11 +414,18 @@ export async function generateResumeVariant(
   const sectionEmphasis = input.sectionEmphasis ?? 'balanced';
   const atsOptimized = input.atsOptimized ?? true;
 
+  // The third arm was `Job fit analysis ID: ${input.jobFitAnalysisId}` — a
+  // caller-controlled id standing in for the job description. Unreachable today
+  // and fails closed; AC-5b puts the stored analysis here.
+  if (!hasJdText && !hasJdUrl) {
+    throw new ResumeVariantError(
+      'JOB_CONTEXT_REQUIRED',
+      'Provide jobDescriptionText, jobDescriptionUrl, or jobFitAnalysisId'
+    );
+  }
   const jdContext = hasJdText
     ? input.jobDescriptionText!
-    : hasJdUrl
-      ? `Job posting URL: ${input.jobDescriptionUrl}`
-      : `Job fit analysis ID: ${input.jobFitAnalysisId}`;
+    : `Job posting URL: ${input.jobDescriptionUrl}`;
 
   const keywords = hasJdText ? extractKeywords(input.jobDescriptionText!) : [];
 
@@ -521,6 +594,7 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
     .values({
       id,
       userId: userId ?? null,
+      applicationId,
       status: 'draft',
       title,
       targetCompany,
@@ -565,7 +639,7 @@ Return ONLY valid JSON matching this structure (no markdown, no commentary):
 
 export async function getResumeVariant(
   id: string,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   usedBullets: UsedBulletDTO[];
@@ -623,6 +697,7 @@ export async function getResumeVariant(
 export async function listResumeVariants(
   params: {
     status?: string;
+    applicationId?: string;
     company?: string;
     search?: string;
     format?: string;
@@ -647,6 +722,10 @@ export async function listResumeVariants(
     if (validFormats.includes(params.format)) {
       conditions.push(eq(resumeVariants.format, params.format as any));
     }
+  }
+  if (params.applicationId) {
+    // `eq`, not `ilike` — see the route schema note (WIC-1544 AC-3).
+    conditions.push(eq(resumeVariants.applicationId, params.applicationId) as any);
   }
   if (params.company) {
     conditions.push(ilike(resumeVariants.targetCompany, `%${params.company}%`) as any);
@@ -731,7 +810,7 @@ export async function deleteResumeVariant(id: string, userId?: string): Promise<
 export async function reviseResumeVariant(
   id: string,
   input: ReviseResumeVariantInput,
-  userId?: string
+  userId: string
 ): Promise<{
   variant: ResumeVariantDTO;
   changesApplied: string[];
@@ -870,14 +949,18 @@ Rules:
 
 export async function suggestBullets(
   input: SuggestBulletsInput,
-  userId?: string
+  userId: string
 ): Promise<{
   suggestions: BulletSuggestionDTO[];
   totalCatalogBullets: number;
 }> {
   const hasJdText = !!input.jobDescriptionText;
   const hasJdUrl = !!input.jobDescriptionUrl;
-  const hasAnalysis = !!input.jobFitAnalysisId;
+  // Site the WIC-1818 card does not enumerate. The id satisfied
+  // JOB_CONTEXT_REQUIRED here, so `{"jobFitAnalysisId":"x"}` alone reached the
+  // catalog and returned bullet suggestions scored against no job context at
+  // all (`keywords` is `[]` without `jobDescriptionText`).
+  const hasAnalysis = (await resolveJobFitAnalysis(input.jobFitAnalysisId, userId)) !== null;
 
   if (!hasJdText && !hasJdUrl && !hasAnalysis) {
     throw new ResumeVariantError(

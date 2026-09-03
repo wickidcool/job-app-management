@@ -107,17 +107,30 @@ export function ResumeExportList({
                     </div>
                   </div>
 
+                  {/*
+                    fileSize and experienceIds are optional because resume_exports
+                    records neither (WIC-1707). Render each chip only when the value
+                    exists — defaulting to 0 would show a false "0 B" / "0 experiences".
+                  */}
                   <div className="flex items-center gap-4 text-xs text-neutral-500">
                     <span>
                       Created{' '}
                       {formatDistance(exportItem.createdAt, new Date(), { addSuffix: true })}
                     </span>
-                    <span>•</span>
-                    <span>{formatFileSize(exportItem.fileSize)}</span>
+                    {exportItem.fileSize !== undefined && (
+                      <>
+                        <span>•</span>
+                        <span>{formatFileSize(exportItem.fileSize)}</span>
+                      </>
+                    )}
                     <span>•</span>
                     <span className="uppercase">{exportItem.format}</span>
-                    <span>•</span>
-                    <span>{exportItem.experienceIds.length} experiences</span>
+                    {exportItem.experienceIds !== undefined && (
+                      <>
+                        <span>•</span>
+                        <span>{exportItem.experienceIds.length} experiences</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
