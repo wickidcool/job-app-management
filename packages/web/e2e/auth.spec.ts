@@ -17,18 +17,16 @@ test.describe('Authentication - UI Components', () => {
 
     await expect(page).toHaveURL('/login');
 
-    // The login heading is the product name, and the product name is `PRODUCT_NAME` in
-    // `src/constants/title.ts` — the same constant that suffixes every page title
-    // (WIC-1089). It read "Job Application Manager" until that landed. Asserted here as a
-    // string rather than imported because no e2e spec imports from `src/`, and the
-    // coupling is already pinned on the unit side: `constants/title.test.ts` asserts
-    // `PRODUCT_NAME === 'Careerpin'`, so changing the brand fails there first and points
-    // back at this line.
-    //
-    // `level: 1` is deliberate and not incidental — WIC-1675 AC-3 promoted this from an
-    // <h2> precisely because `/login` is the one route `ProtectedRoute` does not wrap, so
-    // it had no <h1> at all. A nameless `getByRole('heading')` would pass if it regressed.
-    await expect(page.getByRole('heading', { level: 1, name: /careerpin/i })).toBeVisible();
+    // This assertion used to read `getByRole('heading', { level: 1, name: /careerpin/i })`:
+    // WIC-1675 AC-3 promoted the login heading from `<h2>` to `<h1>` because `/login` is the
+    // one route `ProtectedRoute` does not wrap, but kept its text as the *product* name — so
+    // heading navigation still landed on a string that says nothing about what the user is
+    // being asked to do. WIC-1099 finishes that: the `<h1>` now names the *screen*, and the
+    // product name (`PRODUCT_NAME`, "Careerpin" — WIC-1089) is still on the page, just no
+    // longer a heading.
+    await expect(page.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
+    await expect(page.getByText('Careerpin')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /careerpin/i })).toHaveCount(0);
     await expect(page.getByText(/sign in to manage your job applications/i)).toBeVisible();
   });
 
