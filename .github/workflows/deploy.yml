@@ -139,10 +139,23 @@ jobs:
       # /query/ leg began 504-ing on any HogQL touching `events`, so the watcher returned
       # exit 1 on every run and would have returned exit 1 on the day a real first user
       # arrived. The fallback to the async leg is what makes it able to fire at all, and
-      # nothing ran its 70 self-test cases until this step existed. Needs no credential:
-      # every case stubs the transport.
+      # nothing ran its self-test cases until this step existed. Needs no credential:
+      # every case stubs the transport — including, since WIC-1906, the async submit and
+      # poll loops themselves, which the original suite stubbed past rather than covered.
       - name: Organic-watch dispatch self-test
         run: python3 docs/analytics/organic_watch.py --selftest
+
+      # ADR-010 / AC-T0 (WIC-1600): an authenticated request with no resolved
+      # owner must match zero rows. 48 predicates reached `main` doing the
+      # opposite, in three different syntactic shapes, because nothing executed
+      # the criterion. ESLint cannot be that check — packages/api has no ESLint
+      # config at all — and `tsc` makes the fail-open branch unreachable but not
+      # rejected. This runs against the frozen baseline in
+      # packages/api/scripts/owner-predicates.baseline.json and fails only on
+      # NEW sites, so it lands before the burndown rather than after it.
+      # Burn the baseline down; never append to it.
+      - name: Audit owner-absent tenancy predicates
+        run: node packages/api/scripts/audit-owner-predicates.mjs
 
       - name: Run tests
         run: npm run test

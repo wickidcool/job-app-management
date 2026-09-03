@@ -54,6 +54,13 @@ export interface CreateProjectInput {
  * so resume and project artefacts share one namespacing convention: in
  * production the JWT always supplies a `userId`, and `anon` is only reached in
  * the local auth-bypass dev mode where there is a single implicit user.
+ *
+ * The parity is on that fallback only — **the traversal guard below is
+ * deliberately not in `buildObjectKey`** (WIC-1469). `storage.service` never
+ * touches the filesystem, so its keys are only ever R2/S3 object keys, where
+ * `..` is an ordinary key character. This owner segment is also joined into a
+ * real path by `localProjectsDir` on the local-filesystem backend, which is
+ * what makes the guard load-bearing here and inert there.
  */
 function storageOwner(userId?: string): string {
   const owner = userId ?? 'anon';
@@ -85,31 +92,74 @@ function validateFileName(fileName: string): void {
 }
 
 /**
- * The `where` every project row lookup and every project row write must carry.
- * Slug alone matches one row per user, so an unscoped predicate reaches (and,
- * for an UPDATE with no `LIMIT`, rewrites) every tenant holding that slug.
+ * WIC-1554 — the owner is **required** for every `projects` row access.
+ *
+ * The decision, written down because the recurrence this closes is that each
+ * previous fix scoped itself to one function and left the shared fallback
+ * intact: *there is no owner-less caller this module serves.* Both halves hold.
+ *
+ * 1. No owner-less row can exist. `createProject` is the only `insert(projects)`
+ *    in `src/` and it rejects a missing `userId`; `projects.user_id` is
+ *    `NOT NULL` (schema, and migration `0017_enforce_userid_not_null.sql:29`).
+ *    So an owner-less predicate cannot match "the anonymous user's project" —
+ *    it can only match *somebody else's*. There is no correct outcome to
+ *    preserve, which is what makes "require it" a total fix rather than a trade.
+ * 2. No owner-less caller should reach here. `middleware/auth.ts` now rejects a
+ *    token that verifies but carries no `sub`, so `userId: null` no longer
+ *    survives into a request in any configuration that has auth switched on.
+ *
+ * The cost is deliberate and stated: in the local auth-bypass dev mode
+ * (`SUPABASE_URL` *and* `SUPABASE_JWT_SECRET` both absent — ADR-003) every
+ * project route now answers 400 rather than operating on an implicit shared
+ * user. That mode already could not *create* a project since WIC-1434, so this
+ * makes an existing dead end honest instead of letting reads and deletes wander
+ * into a real user's rows.
+ *
+ * `action` is not decoration: several of these guards answer the same
+ * `BAD_REQUEST`/400, so without a distinct message a test cannot tell which one
+ * fired and grades the wrong function (the AC-R1/AC-R8 lesson from WIC-1434).
  */
-function projectScope(slug: string, userId?: string) {
-  return userId
-    ? and(eq(projects.slug, slug), eq(projects.userId, userId))
-    : eq(projects.slug, slug);
+function requireOwner(userId: string | undefined, action: string): string {
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', `userId is required to ${action}`, undefined, 400);
+  }
+  return userId;
 }
 
 /**
- * Throw `NotFoundError` unless `userId` owns a project with this slug. A no-op
- * when `userId` is absent — that is the local auth-bypass dev mode, where there
- * is a single implicit user. This only establishes *whether the caller has a
- * project by this name*; it is the owner-namespaced storage key, not this
+ * The `where` every slug-keyed project lookup and write must carry.
+ * Slug alone matches one row per user, so an unscoped predicate reaches (and,
+ * for an UPDATE with no `LIMIT`, rewrites) every tenant holding that slug.
+ * The owner is required rather than optional — see `requireOwner`.
+ */
+function projectScope(slug: string, userId: string | undefined, action: string) {
+  const owner = requireOwner(userId, action);
+  return and(eq(projects.slug, slug), eq(projects.userId, owner));
+}
+
+/**
+ * The same, keyed on the primary key. An id is not a capability: `projects.id`
+ * is a ULID belonging to exactly one user, so an id-only predicate is a
+ * cross-tenant reach the moment the id is guessed, logged or leaked.
+ */
+function projectIdScope(projectId: string, userId: string | undefined, action: string) {
+  const owner = requireOwner(userId, action);
+  return and(eq(projects.id, projectId), eq(projects.userId, owner));
+}
+
+/**
+ * Throw `NotFoundError` unless `userId` owns a project with this slug.
+ *
+ * Until WIC-1554 this returned early when `userId` was absent, so it backstopped
+ * nothing for exactly the caller that needed backstopping. It now requires the
+ * owner like every other access here. This only establishes *whether the caller
+ * has a project by this name*; it is the owner-namespaced storage key, not this
  * check, that decides which files the call then touches.
  */
 async function assertProjectOwned(slug: string, userId?: string): Promise<void> {
-  if (!userId) return;
+  const where = projectScope(slug, userId, 'access a project');
   const db = getDb();
-  const [project] = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(and(eq(projects.slug, slug), eq(projects.userId, userId)))
-    .limit(1);
+  const [project] = await db.select({ id: projects.id }).from(projects).where(where).limit(1);
   if (!project) throw new NotFoundError('Project');
 }
 
@@ -117,11 +167,14 @@ async function assertProjectOwned(slug: string, userId?: string): Promise<void> 
  * Re-stamp `updated_at` after a file mutation. Scoped: an UPDATE keyed on slug
  * alone carries no `LIMIT`, so before WIC-1433 one user saving a file re-stamped
  * *every* user's row holding that slug and reshuffled their `listProjects`
- * ordering (which sorts on `updatedAt DESC`).
+ * ordering (which sorts on `updatedAt DESC`). WIC-1433 routed it through
+ * `projectScope`, which still degraded to that same slug-only UPDATE whenever
+ * the caller had no identity; WIC-1554 removed the degradation.
  */
 async function touchProject(slug: string, userId?: string): Promise<void> {
+  const where = projectScope(slug, userId, 'update a project');
   const db = getDb();
-  await db.update(projects).set({ updatedAt: new Date() }).where(projectScope(slug, userId));
+  await db.update(projects).set({ updatedAt: new Date() }).where(where);
 }
 
 // ── Local filesystem helpers (used only when R2 is not available) ────────────
@@ -207,7 +260,11 @@ export async function createProject(
     throw new AppError('BAD_REQUEST', 'userId is required to create a project', undefined, 400);
   }
 
-  const existing = await db.select().from(projects).where(projectScope(slug, userId)).limit(1);
+  const existing = await db
+    .select()
+    .from(projects)
+    .where(projectScope(slug, userId, 'create a project'))
+    .limit(1);
   if (existing.length > 0) {
     throw new ConflictError('Project with this slug already exists');
   }
@@ -245,10 +302,10 @@ export async function createProject(
 }
 
 export async function getProject(projectId: string, userId?: string): Promise<ProjectMeta> {
+  // Guard before `getDb()`: no query should be issued on behalf of a caller
+  // with no identity, and an id-only predicate is a cross-tenant read.
+  const whereClause = projectIdScope(projectId, userId, 'load a project');
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(projects.id, projectId), eq(projects.userId, userId))
-    : eq(projects.id, projectId);
   const [project] = await db.select().from(projects).where(whereClause).limit(1);
 
   if (!project) {
@@ -272,8 +329,9 @@ export async function getProject(projectId: string, userId?: string): Promise<Pr
 }
 
 export async function getProjectBySlug(slug: string, userId?: string): Promise<ProjectMeta> {
+  const where = projectScope(slug, userId, 'resolve a project by slug');
   const db = getDb();
-  const [project] = await db.select().from(projects).where(projectScope(slug, userId)).limit(1);
+  const [project] = await db.select().from(projects).where(where).limit(1);
 
   if (project) {
     const fileCount = await getFileCount(project.userId, project.slug);
@@ -329,12 +387,17 @@ export async function getProjectBySlug(slug: string, userId?: string): Promise<P
 }
 
 export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
+  // The widest of the three degradations this file carried: a falsy `userId`
+  // handed Drizzle `undefined`, which is not a permissive predicate so much as
+  // *no* predicate — the SELECT returned every tenant's projects, not one
+  // slug's worth. Same requirement as the rest, for the same reason.
+  const owner = requireOwner(userId, 'list projects');
   const db = getDb();
 
   const dbProjects = await db
     .select()
     .from(projects)
-    .where(userId ? eq(projects.userId, userId) : undefined)
+    .where(eq(projects.userId, owner))
     .orderBy(desc(projects.updatedAt));
 
   const result: ProjectMeta[] = [];
@@ -401,10 +464,12 @@ export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
 }
 
 export async function deleteProject(projectId: string, userId?: string): Promise<void> {
+  // The destructive site. `whereClause` is reused for the DELETE below, and the
+  // storage prefix on line ~478 is built from `project.userId` — the *row's*
+  // owner — so an id-only match here did not merely disclose another user's
+  // project, it deleted their row and emptied their object-store namespace.
+  const whereClause = projectIdScope(projectId, userId, 'delete a project');
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(projects.id, projectId), eq(projects.userId, userId))
-    : eq(projects.id, projectId);
   const [project] = await db.select().from(projects).where(whereClause).limit(1);
 
   if (!project) {
@@ -632,10 +697,13 @@ export async function generateProjectIndex(
 /**
  * Resolve the caller's project with this slug, creating it if they have none.
  *
- * `userId` is **required**, unlike everywhere else in this file. The other
- * lookups fall back to a slug-only predicate when `userId` is absent, which is
- * the deliberate local auth-bypass dev mode (`projectScope`, `assertProjectOwned`).
- * That fallback is never correct *here*, and WIC-1434 is the proof:
+ * `userId` is **required**. It was the first function here to require it and
+ * for a while the only one — WIC-1434 landed while the other lookups still fell
+ * back to a slug-only predicate on an absent `userId`, described then as the
+ * deliberate local auth-bypass dev mode. WIC-1554 measured that fallback and
+ * removed it everywhere (`requireOwner`); the reasoning below generalised, so
+ * this is no longer the exception it was written as.
+ * The fallback is never correct here, and WIC-1434 is the proof:
  * `createProject` is the only `insert(projects)` in the codebase and it rejects
  * a missing `userId`, so every row in `projects` has a real owner. An
  * owner-less call therefore has exactly two possible outcomes — the reuse

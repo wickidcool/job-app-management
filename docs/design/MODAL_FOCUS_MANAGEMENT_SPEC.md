@@ -645,8 +645,97 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
   expected result is that they already pass; the point is that nothing currently *measures* it, and
   "they share a hook" is an argument from construction. `OnboardingModal` is the one to do first: it
   instantiates the hook three times (§5), the only dialog that does.
+- **Pin `outerFocusRestore` on `OnboardingModal`.** Of its three hook instances, two are now
+  guarded — `resumeSkipFocusRestore` by WIC-1711, `dismissFocusRestore` by WIC-1868 (§11). The
+  panel's own binding still kills **zero** tests: delete `{...outerFocusRestore}` and the suite stays
+  green. It is the awkward one to test, which is why it is last — the panel is opened by the
+  onboarding flow rather than by a trigger inside the page, so there is no obvious element to assert
+  focus returns *to*. That is a reason to think about what the right target is, not a reason to skip
+  it; §5's fallback-target rule is what should decide it.
 
-## 11. Related
+## 11. Rule — a nested confirmation must hide the panel behind it
+
+**Shipped 2026-09-01 (WIC-1868).** Applies to any dialog that renders a confirmation as a nested
+`Dialog.Root` *inside* its own `Dialog.Content`. Today that is `OnboardingModal` and only
+`OnboardingModal` — its dismiss confirmation (WIC-1141) and its resume-skip warning (WIC-1383).
+
+### The rule
+
+> A dialog that nests another dialog inside its own content **must** set `aria-hidden` on its own
+> `Dialog.Content` for exactly as long as the nested one is open. Radix will not do it for you.
+
+In `OnboardingModal` that is one derived boolean and one attribute:
+
+```tsx
+const confirmationOpen = showDismissConfirm || showResumeSkipConfirm;
+// ...
+<Dialog.Content aria-hidden={confirmationOpen || undefined} {...outerFocusRestore}>
+```
+
+It is safe to drive straight off state: while a confirmation is open, focus is inside *it* — a DOM
+sibling under `<body>`, via its own portal — so this never hides the focused element. Use
+`|| undefined` rather than `aria-hidden={false}`, so the attribute is absent when the panel is live.
+
+### Why Radix leaves this to you
+
+`Dialog.Content` applies `hideOthers` to everything **outside** the topmost content. A dialog nested
+inside that content is not "outside" it, so the outer panel is never a candidate for hiding.
+
+### What the defect actually was — measured, because the difference decides the fix
+
+Measured against the pre-fix component under vitest/jsdom, resume step, warning open:
+
+| | measured |
+|---|---|
+| `[role="dialog"]` in the DOM | **2** — both direct children of `<body>` (each nested dialog has its own `Dialog.Portal`) |
+| panel's **content subtree** | already `aria-hidden="true"`, one wrapper below the dialog node |
+| panel's controls reachable? | **No** — `queryAllByRole('button')` returned only `Go Back` / `Skip Anyway` |
+| panel's **own `role="dialog"` node** | **not hidden**, and still computed a name off `onboarding-title` |
+
+⚠️ **WIC-1868 as filed said the panel's "controls stay reachable" and that a screen-reader user
+"can navigate back out into the wizard underneath it." That is not what happens** — Radix had
+already hidden the content subtree. The real symptom was narrower: an **empty second dialog** in the
+a11y tree, carrying a name (`aria-labelledby` resolves into hidden subtrees by spec, so the name
+survived the hiding of the element it points at). A user browsing dialogs found two and the first
+had nothing in it. Confusing, and worth fixing — but not a focus-trap escape.
+
+### Ruling on the two options WIC-1868 offered
+
+The card offered **(1)** re-portal the confirmations as siblings so Radix hides the panel itself, or
+**(2)** keep the nesting and hide the panel explicitly — and asked for a UI/UX decision because (1)
+changes focus behaviour WIC-1141 chose deliberately.
+
+**Ruled: option 2.** Option 1 was the right instinct for the defect as described, and the wrong one
+for the defect as measured. Since Radix already hides everything a user could reach, the entire
+remaining gap is one attribute on one node — and option 1 pays for it by giving up
+focus-return-to-panel, which is the reason the confirmations were nested in the first place (§7),
+and which for the resume-skip warning is load-bearing for a second reason: the parent holds live
+upload state (`uploadedResume`, possibly a request in flight) that must stay mounted. Trading a
+deliberate focus decision and a state-preservation constraint for an attribute is not a trade.
+
+**Do not read this as a general preference for nesting.** For a *new* dialog, prefer siblings — the
+platform does the work and there is nothing to keep in sync. This rule governs the case where
+nesting has already been chosen for a reason.
+
+### Verification
+
+`OnboardingModal.step-actions.test.tsx`, describe block *"nested confirmations hide the panel behind
+them (WIC-1868)"*. Four tests, and each is there for a distinct reason:
+
+1. resume-skip warning open ⇒ exactly one dialog exposed, and the panel is `aria-hidden` **and still
+   in the DOM** — both directions, so "fixing" it by unmounting the panel fails.
+2. dismiss confirmation open ⇒ same. This is the **control**: it is pure WIC-1141 code, so a fix
+   reaching only the WIC-1383 warning passes (1) and fails (2). It also had no test of any kind
+   before this.
+3. confirmation closed ⇒ panel exposed again, attribute gone. Guards the failure mode a static
+   `aria-hidden` would introduce, which is worse than the bug and invisible to (1) and (2).
+4. focus returns to the ✕ when the dismiss confirmation is cancelled.
+
+(1) and (2) fail on the pre-fix component; (4) fails against a mutant with `{...dismissFocusRestore}`
+deleted. WIC-1868 measured that binding, and `outerFocusRestore`, as killing **zero** tests —
+(4) closes the dismiss half. **`outerFocusRestore` is still unguarded**; see §10.
+
+## 12. Related
 
 - `docs/design/ACCESSIBILITY.md` — §Modals, §Focus Management (`:246`), §Live Regions (`:149`) and
   *Where app-level live regions must be mounted* (`:187`), which cites §6 of this document.

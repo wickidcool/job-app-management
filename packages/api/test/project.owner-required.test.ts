@@ -49,7 +49,8 @@ vi.mock('../src/config.js', () => ({
   getConfig: () => ({ dataDir: './data' }),
 }));
 
-vi.mock('../src/services/storage.service.js', () => ({
+vi.mock('../src/services/storage.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/storage.service.js')>()),
   isStorageAvailable: () => true,
   uploadObject: async (key: string, body: Buffer | string) => {
     OBJECTS.set(key, typeof body === 'string' ? body : body.toString('utf-8'));

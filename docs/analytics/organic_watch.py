@@ -114,8 +114,12 @@ HOST = "https://us.posthog.com"
 #
 # Why the watcher cares. "0 organic events" is only a demand signal if the app a
 # visitor lands on actually works. It does not, today: every DB-touching endpoint
-# fails with Workers subrequest exhaustion, pending the pooler-vs-Hyperdrive board
-# decision on WIC-1473. That splits the WIC-814 taxonomy in two:
+# fails with Workers subrequest exhaustion. The pooler-vs-Hyperdrive DESIGN question
+# is settled -- WIC-1473 closed `done` deciding ADR-007 option 1, give prod its own
+# Hyperdrive binding mirroring `env.preview`. What is still outstanding is EXECUTION,
+# which needs a Cloudflare credential no agent run holds, and is gated on the pending
+# board approval on WIC-1386. Do not cite WIC-1473 as the live blocker; it is closed.
+# That splits the WIC-814 taxonomy in two:
 #
 #   * CLIENT leg (`resume_upload_started` / `_validation_failed` / `_cta_clicked`)
 #     goes browser -> us.i.posthog.com directly and is UNAFFECTED by the outage.
@@ -330,6 +334,22 @@ ASYNC_SUBMIT_ATTEMPTS = 3
 ASYNC_POLL_SECONDS = 5.0
 ASYNC_BUDGET_SECONDS = 240.0
 
+# A poll is a status GET on a query id: it starts no ClickHouse work and returns whatever
+# the queue already knows, so it answers in well under a second or not at all. The old bare
+# `timeout=60` here was the single value that let one hung poll eat a quarter of the budget
+# below -- and 60s is precisely the wait SYNC_TIMEOUT_SECONDS above just argued against.
+ASYNC_POLL_TIMEOUT_SECONDS = 10.0
+
+# ASYNC_BUDGET_SECONDS bounds the POLL LOOP, not the call: `_run_async` submits first and
+# only then starts the clock, so the submit sits outside it. The honest worst case for one
+# run() round-trip is
+#     20 (sync) + 3x25 (submit attempts) + 240 (poll budget)
+#     + 10 (a poll started just under the deadline, since the deadline is checked before
+#           the request, not during it)
+#     = 345s,
+# and main() makes up to two round-trips, so ~690s. Say "the 240s poll budget", never "the
+# 240s budget" -- the gap is everything that runs before the clock starts.
+
 
 def _query_url(suffix=""):
     return f"{HOST}/api/projects/{PROJECT}/query/{suffix}"
@@ -339,21 +359,54 @@ def _auth_headers(key):
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
 
+# "The connection died without delivering an answer." Retrying opens a NEW TCP+TLS
+# connection, so -- unlike a 401 or a malformed-HogQL 400 -- none of these has any reason to
+# reproduce on the second try.
+#
+#   socket.timeout / TimeoutError -- hung, we gave up waiting. (Since 3.10 socket.timeout
+#                                    IS TimeoutError; both are named for readers on either.)
+#   ConnectionResetError          -- the peer sent RST. This is the canonical dead
+#                                    connection, and it was missing until WIC-1906 while
+#                                    the rationale above named exactly it.
+#                                    `http.client.RemoteDisconnected` subclasses it (with
+#                                    BadStatusLine), so "server closed the connection
+#                                    without a response" is covered here too.
+#   BrokenPipeError               -- the peer went away mid-write.
+#   ConnectionAbortedError        -- the local stack tore the connection down.
+#
+# Deliberately absent: socket.gaierror (DNS -- the hostname is as wrong on the async leg)
+# and ssl.SSLError (the certificate is the same certificate). Those are OSError subclasses
+# that a broad `except OSError: retry` would have swallowed, which is why this is a list of
+# classes and not a catch-all.
+NO_ANSWER_TRANSPORT_FAULTS = (
+    socket.timeout,
+    TimeoutError,
+    ConnectionResetError,
+    BrokenPipeError,
+    ConnectionAbortedError,
+)
+
+
 def should_retry_async(exc):
     """Does `exc` mean the sync leg never got an answer to an otherwise-good query?
 
-    Deliberately narrow. HTTPError is tested BEFORE URLError because it subclasses it,
-    and TimeoutError before OSError for the same reason -- order is load-bearing here.
+    Deliberately narrow. HTTPError is tested BEFORE URLError because it subclasses it, and
+    the transport classes before any OSError handling for the same reason -- order is
+    load-bearing here.
+
+    Used by BOTH the sync->async dispatch in `run()` and the submit retry in
+    `_async_submit()`, and now by the poll loop in `_run_async()`. One predicate, because
+    the question all three ask is identical: was the query fine and the connection not?
     """
     if isinstance(exc, urllib.error.HTTPError):
         # 408/502/503/504 are the gateway saying "I gave up waiting", not "your query is
         # wrong". 500 is deliberately NOT here: a ClickHouse-side query error surfaces as
         # 500 and is perfectly reproducible on the async leg.
         return exc.code in (408, 502, 503, 504)
-    if isinstance(exc, (socket.timeout, TimeoutError)):
+    if isinstance(exc, NO_ANSWER_TRANSPORT_FAULTS):
         return True
     if isinstance(exc, urllib.error.URLError):
-        return isinstance(exc.reason, (socket.timeout, TimeoutError))
+        return isinstance(exc.reason, NO_ANSWER_TRANSPORT_FAULTS)
     return False
 
 
@@ -371,11 +424,15 @@ def _run_sync(query, key):
 def _async_submit(query, key):
     """POST the query on the async leg and return its query id, retrying a hung submit.
 
-    Only the *submit* is retried, and only on the retryable transport faults. A submit is
-    idempotent in the sense that matters here -- a duplicate merely queues a second
-    read-only aggregate -- whereas a poll failure is handled by the budget loop instead.
+    Retried on the same faults as everything else here (`should_retry_async`), and safe to
+    retry because a submit is idempotent in the sense that matters: a duplicate merely
+    queues a second read-only aggregate.
+
+    A previous revision of this docstring said "a poll failure is handled by the budget loop
+    instead". It was not -- the loop had no handler at all and any transient poll fault
+    aborted the whole fallback. `_run_async` now retries the poll on this same predicate
+    (WIC-1906).
     """
-    last = None
     for attempt in range(1, ASYNC_SUBMIT_ATTEMPTS + 1):
         req = urllib.request.Request(
             _query_url(),
@@ -391,7 +448,6 @@ def _async_submit(query, key):
         except (urllib.error.URLError, OSError) as exc:
             if not should_retry_async(exc) or attempt == ASYNC_SUBMIT_ATTEMPTS:
                 raise
-            last = exc
             print(
                 f"(async submit attempt {attempt}/{ASYNC_SUBMIT_ATTEMPTS} failed: {exc}; retrying)",
                 file=sys.stderr,
@@ -401,7 +457,11 @@ def _async_submit(query, key):
         if query_id:
             return query_id
         raise RuntimeError("async query submit returned no query id")
-    raise RuntimeError(f"async submit exhausted {ASYNC_SUBMIT_ATTEMPTS} attempts: {last}")
+    # Not the "attempts exhausted" case -- that path re-raises the underlying fault above,
+    # on the `attempt == ASYNC_SUBMIT_ATTEMPTS` arm, so the loop cannot fall through while
+    # the constant is >= 1. This guards only a misconfigured constant, which would
+    # otherwise return None and send `_run_async` off to poll query id `None`.
+    raise RuntimeError(f"ASYNC_SUBMIT_ATTEMPTS must be >= 1, got {ASYNC_SUBMIT_ATTEMPTS!r}")
 
 
 def _run_async(query, key, budget=ASYNC_BUDGET_SECONDS):
@@ -410,7 +470,16 @@ def _run_async(query, key, budget=ASYNC_BUDGET_SECONDS):
     Returns the same `{"columns": [...], "results": [...]}` shape as `_run_sync`, so both
     call sites in main() are indifferent to which leg answered. Every failure path raises
     something inside QUERY_FAULTS, so an async fault still lands on exit 1 (fail-safe) and
-    never on a false "no organic traffic".
+    never on a false "no organic traffic". That claim covers the RETURN value too, not only
+    the `raise` statements: a payload whose `results` is not the expected object is rejected
+    here as a KeyError rather than handed to main() to blow up on `body["columns"]` as an
+    un-absorbed TypeError (WIC-1906).
+
+    The poll is retried on the same predicate as the submit. At ASYNC_POLL_SECONDS=5 against
+    a 240s budget this loop runs up to ~48 times, so it is by far the likeliest place for a
+    transient fault to land -- and until WIC-1906 a single one aborted the entire fallback,
+    on a backend flaky enough to need a fallback in the first place. The retry cannot spin:
+    the deadline below bounds the loop regardless of how any individual poll ends.
     """
     query_id = _async_submit(query, key)
     deadline = time.monotonic() + budget
@@ -423,8 +492,21 @@ def _run_async(query, key, budget=ASYNC_BUDGET_SECONDS):
             )
         time.sleep(ASYNC_POLL_SECONDS)
         poll = urllib.request.Request(_query_url(f"{query_id}/"), headers=_auth_headers(key))
-        with urllib.request.urlopen(poll, timeout=60) as resp:
-            status = (json.load(resp) or {}).get("query_status") or {}
+        try:
+            with urllib.request.urlopen(poll, timeout=ASYNC_POLL_TIMEOUT_SECONDS) as resp:
+                status = (json.load(resp) or {}).get("query_status") or {}
+        except (urllib.error.URLError, OSError) as exc:
+            # A retryable fault here means this ONE status read got no answer; the query is
+            # still running server-side and the next poll asks the same question again. A
+            # non-retryable one (401, 404 on an unknown id, a ClickHouse 500) propagates
+            # untouched, exactly as on the sync leg -- it will not read differently in 5s.
+            if not should_retry_async(exc):
+                raise
+            print(
+                f"(async poll of {query_id} failed: {exc}; retrying within budget)",
+                file=sys.stderr,
+            )
+            continue
         if not status.get("complete"):
             continue
         if status.get("error"):
@@ -433,6 +515,11 @@ def _run_async(query, key, budget=ASYNC_BUDGET_SECONDS):
         if not results:
             # Same shape of lie as a 200 with no "columns" -- KeyError, per QUERY_FAULTS.
             raise KeyError("results")
+        if not isinstance(results, dict) or "columns" not in results:
+            # `query_status.results` carries the whole `{"columns", "results"}` body on this
+            # leg. Anything else is a 200 that does not answer the question, and it must
+            # fail here (KeyError, absorbed) rather than in main() (TypeError, not).
+            raise KeyError("columns")
         return results
 
 
@@ -882,13 +969,27 @@ ASYNC_DISPATCH_CASES = [
     ("HTTP 408 Request Timeout", urllib.error.HTTPError(HOST, 408, "Request Timeout", {}, None), True),
     ("bare socket read timeout", socket.timeout("The read operation timed out"), True),
     ("URLError wrapping a timeout", urllib.error.URLError(socket.timeout("timed out")), True),
+    # Dead connections (WIC-1906). The async leg dials a NEW TCP+TLS connection, so a
+    # connection that died mid-flight has no mechanism to die the same way again -- these
+    # are the *canonical* case for the "short timeout and another try" rationale above, and
+    # the reset row sat at False until WIC-1906 while that rationale named it in prose.
+    ("peer reset the connection", ConnectionResetError(104, "Connection reset by peer"), True),
+    ("broken pipe mid-write", BrokenPipeError(32, "Broken pipe"), True),
+    ("connection aborted locally", ConnectionAbortedError(103, "Software caused connection abort"), True),
+    ("server closed without responding",
+     http.client.RemoteDisconnected("Remote end closed connection without response"), True),
+    ("URLError wrapping a reset",
+     urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer")), True),
     # Everything below reproduces identically on the async leg -- do not spend the budget.
+    # Note what separates these from the rows above: same key (401), same HogQL (400), same
+    # ClickHouse (500), same hostname (DNS), same certificate (TLS). A new connection changes
+    # none of them. That is the test, not "is it a transport error".
     ("HTTP 401 Unauthorized", urllib.error.HTTPError(HOST, 401, "Unauthorized", {}, None), False),
     ("HTTP 400 malformed HogQL", urllib.error.HTTPError(HOST, 400, "Bad Request", {}, None), False),
     ("HTTP 500 ClickHouse query error", urllib.error.HTTPError(HOST, 500, "Internal Server Error", {}, None), False),
     ("DNS resolution failure", urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), False),
     ("TLS bad certificate", urllib.error.URLError(ssl.SSLError(1, "bad server certificate")), False),
-    ("peer reset the connection", ConnectionResetError(104, "Connection reset by peer"), False),
+    ("bare TLS record failure", ssl.SSLError(1, "record layer failure"), False),
 ]
 
 
@@ -933,6 +1034,184 @@ def selftest_async_dispatch():
     return failures
 
 
+# The async leg's own transport loop (WIC-1906).
+#
+# ASYNC_DISPATCH_CASES above stubs BOTH legs, because it measures run()'s dispatch decision
+# and nothing else. The cost of that -- correct for what it tests -- was that the suite
+# executed **zero** lines of `_async_submit` and `_run_async`, which is precisely the half
+# where the unguarded poll lived. A test that stubs the thing it is meant to cover cannot
+# report the thing it is meant to cover.
+#
+# So these cases stub `urllib.request.urlopen` instead and run the real submit/poll loop.
+# The clock is stubbed too, so the 240s budget and the 5s poll interval are exercised at
+# full scale in microseconds -- including the 48-poll ceiling, which is both the reason a
+# poll fault is ~48x likelier than a submit fault and the proof that retrying one cannot
+# spin.
+_SUBMIT_OK = {"query_status": {"id": "q-selftest"}}
+_POLL_PENDING = {"query_status": {"complete": False}}
+_POLL_DONE = {"query_status": {"complete": True, "results": _FAKE_AGGREGATE}}
+_POLL_RETRY_NOTICE = "retrying within budget"
+
+ASYNC_TRANSPORT_CASES = [
+    # -- The poll leg. Every fault here aborted the entire fallback before WIC-1906, and
+    #    every one of them recovered on the submit leg, which is what made it a defect
+    #    rather than a policy: one predicate, two opposite behaviours.
+    {"label": "poll 504 once, then completes",
+     "poll": [urllib.error.HTTPError(HOST, 504, "Gateway Timeout", {}, None), _POLL_DONE],
+     "want": "body", "counts": {"poll": 2}, "stderr": _POLL_RETRY_NOTICE},
+    {"label": "poll times out once, then completes",
+     "poll": [socket.timeout("The read operation timed out"), _POLL_DONE],
+     "want": "body", "counts": {"poll": 2}, "stderr": _POLL_RETRY_NOTICE},
+    {"label": "poll 502 once, then completes",
+     "poll": [urllib.error.HTTPError(HOST, 502, "Bad Gateway", {}, None), _POLL_DONE],
+     "want": "body", "counts": {"poll": 2}, "stderr": _POLL_RETRY_NOTICE},
+    {"label": "poll reset once, then completes",
+     "poll": [ConnectionResetError(104, "Connection reset by peer"), _POLL_DONE],
+     "want": "body", "counts": {"poll": 2}, "stderr": _POLL_RETRY_NOTICE},
+    {"label": "poll pending, then completes",
+     "poll": [_POLL_PENDING, _POLL_DONE], "want": "body", "counts": {"poll": 2}},
+    # -- The poll leg's load-bearing negatives. A second look cannot change these answers,
+    #    so they must still cost one poll and propagate, not 48 polls and a stall.
+    {"label": "poll 401 propagates on the first fault",
+     "poll": [urllib.error.HTTPError(HOST, 401, "Unauthorized", {}, None)],
+     "want": urllib.error.HTTPError, "counts": {"poll": 1}},
+    {"label": "poll DNS failure propagates on the first fault",
+     "poll": [urllib.error.URLError(socket.gaierror(-2, "Name or service not known"))],
+     "want": urllib.error.URLError, "counts": {"poll": 1}},
+    # -- The retry is bounded by the budget, not by a retry count. Both a permanently
+    #    pending query and a permanently faulting poll must stop at the same 48 polls and
+    #    raise the honest "did not finish" RuntimeError -> exit 1.
+    {"label": "pending forever, budget stops it",
+     "poll": [_POLL_PENDING], "want": RuntimeError, "counts": {"poll": 48}},
+    {"label": "504 forever, budget stops it (retry cannot spin)",
+     "poll": [urllib.error.HTTPError(HOST, 504, "Gateway Timeout", {}, None)],
+     "want": RuntimeError, "counts": {"poll": 48}},
+    # -- Answers that are not answers. Each must land inside QUERY_FAULTS.
+    {"label": "async query reports a ClickHouse error",
+     "poll": [{"query_status": {"complete": True, "error": True,
+                                "error_message": "Memory limit exceeded"}}],
+     "want": RuntimeError},
+    {"label": "complete with no results", "poll": [{"query_status": {"complete": True}}],
+     "want": KeyError},
+    {"label": "complete with a non-dict results (would TypeError in main)",
+     "poll": [{"query_status": {"complete": True, "results": [[1, 2, 3]]}}], "want": KeyError},
+    {"label": "complete with a dict lacking columns",
+     "poll": [{"query_status": {"complete": True, "results": {"results": [[1]]}}}],
+     "want": KeyError},
+    # -- The submit leg, now driven for real rather than asserted about.
+    {"label": "submit 504 once, then succeeds",
+     "submit": [urllib.error.HTTPError(HOST, 504, "Gateway Timeout", {}, None), _SUBMIT_OK],
+     "want": "body", "counts": {"submit": 2}},
+    {"label": "submit reset once, then succeeds (WIC-1906)",
+     "submit": [ConnectionResetError(104, "Connection reset by peer"), _SUBMIT_OK],
+     "want": "body", "counts": {"submit": 2}},
+    {"label": "submit times out twice, then succeeds",
+     "submit": [socket.timeout("timed out"), socket.timeout("timed out"), _SUBMIT_OK],
+     "want": "body", "counts": {"submit": 3}},
+    {"label": "submit fails every attempt, propagates the underlying fault",
+     "submit": [socket.timeout("timed out")], "want": TimeoutError,
+     "counts": {"submit": ASYNC_SUBMIT_ATTEMPTS, "poll": 0}},
+    {"label": "submit 401 propagates without retrying",
+     "submit": [urllib.error.HTTPError(HOST, 401, "Unauthorized", {}, None)],
+     "want": urllib.error.HTTPError, "counts": {"submit": 1, "poll": 0}},
+    {"label": "submit returns no query id",
+     "submit": [{"query_status": {}}], "want": RuntimeError, "counts": {"submit": 1, "poll": 0}},
+]
+
+
+class _FakeResponse:
+    """The minimum urlopen contract `_async_submit`/`_run_async` use: a context manager
+    whose read() feeds json.load."""
+
+    def __init__(self, payload):
+        self._body = json.dumps(payload).encode()
+
+    def read(self, *_args):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+def _drive_async_transport(submit_script, poll_script):
+    """Run the real `_run_async` with urlopen and the clock stubbed.
+
+    Each script entry is either an exception (raised) or a payload (returned); the LAST
+    entry repeats, so a script describes a prefix and a steady state. POSTs are routed to
+    `submit_script` and GETs to `poll_script`, which is exactly how the two legs differ.
+
+    Returns (result, escaped, counts, stderr).
+    """
+    counts = {"submit": 0, "poll": 0}
+
+    def stub_urlopen(req, *_args, **_kwargs):
+        leg = "submit" if req.get_method() == "POST" else "poll"
+        script = submit_script if leg == "submit" else poll_script
+        step = script[min(counts[leg], len(script) - 1)]
+        counts[leg] += 1
+        if isinstance(step, BaseException):
+            raise step
+        return _FakeResponse(step)
+
+    clock = [1000.0]
+    real_urlopen, real_sleep, real_monotonic = urllib.request.urlopen, time.sleep, time.monotonic
+    urllib.request.urlopen = stub_urlopen
+    time.sleep = lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    time.monotonic = lambda: clock[0]
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(captured):
+            return (_run_async("SELECT 1", "selftest-stub-key"), None, counts, captured.getvalue())
+    # `Exception`, not `BaseException` -- a stray KeyboardInterrupt still aborts the suite.
+    except Exception as escaped:  # noqa: BLE001 -- the raise IS the behaviour under test
+        return (None, escaped, counts, captured.getvalue())
+    finally:
+        urllib.request.urlopen = real_urlopen
+        time.sleep, time.monotonic = real_sleep, real_monotonic
+
+
+def selftest_async_transport():
+    """Drive the real submit and poll loops over a stubbed transport.
+
+    The observable is what `_run_async` returns or raises, plus how many round-trips it
+    took -- never `should_retry_async` directly, for the same anti-circularity reason as
+    the two suites above. The call counts are what separate "recovered" from "never
+    faulted", and they are the assertion that pins the budget bound.
+    """
+    failures = 0
+    for case in ASYNC_TRANSPORT_CASES:
+        submit_script = case.get("submit", [_SUBMIT_OK])
+        poll_script = case.get("poll", [_POLL_DONE])
+        result, escaped, counts, stderr = _drive_async_transport(submit_script, poll_script)
+        expect = case["want"]
+        if expect == "body":
+            ok = escaped is None and result == _FAKE_AGGREGATE
+            want = "the aggregate body"
+        else:
+            ok = escaped is not None and isinstance(escaped, expect)
+            want = f"raised {expect.__name__}"
+        if escaped is not None:
+            got = f"raised {type(escaped).__name__}"
+        else:
+            got = "the aggregate body" if result == _FAKE_AGGREGATE else f"returned {result!r}"
+        for leg, n in (case.get("counts") or {}).items():
+            got += f", {leg}s={counts[leg]}"
+            want += f", {leg}s={n}"
+            ok = ok and counts[leg] == n
+        if case.get("stderr"):
+            noted = case["stderr"] in stderr
+            got += f", {'announced' if noted else 'SILENT'} on stderr"
+            want += ", announced on stderr"
+            ok = ok and noted
+        failures += 0 if ok else 1
+        print(f"  [{'PASS' if ok else 'FAIL'}] async transport, {case['label']}: "
+              f"got {got}, want {want}")
+    return failures
+
+
 def selftest():
     """Exercise classify_health against captured/constructed payloads. Exit 0 = all pass."""
     failures = 0
@@ -953,6 +1232,7 @@ def selftest():
     failures += selftest_probe_faults()
     failures += selftest_query_faults()
     failures += selftest_async_dispatch()
+    failures += selftest_async_transport()
     total = (
         len(HEALTH_CASES)
         + len(EDGE_CASES)
@@ -960,6 +1240,7 @@ def selftest():
         + 2 * len(QUERY_FAULT_CASES)
         + len(AGGREGATE_ONLY_FAULTS)
         + len(ASYNC_DISPATCH_CASES)
+        + len(ASYNC_TRANSPORT_CASES)
     )
     print(f"\n{total - failures}/{total} cases pass.")
     return 1 if failures else 0
@@ -1042,7 +1323,7 @@ def main():
                 "WIC-1024 hold while prod is degraded. `resume_upload_completed` sits "
                 "after the DB writes and cannot fire, so completion/timing insights and "
                 "the C1-C3 person_id tiles would render empty or 100%-failure. Report "
-                "the traffic, but keep the dashboard build held on WIC-1473.\n"
+                "the traffic, but keep the dashboard build held on WIC-1386.\n"
                 "Expect this candidate to be resume_upload_started or "
                 "resume_upload_validation_failed -- they are the only 2 of 9 events "
                 "that can arrive while prod is degraded. A candidate bearing any OTHER "
@@ -1093,7 +1374,9 @@ def main():
             "The detector still works -- a real first user trips those 2 -- but do not "
             "quote 0 organic as clean demand evidence. Per-event split with call sites: "
             "docs/analytics/event-reachability-matrix.md. "
-            "Unblock owner: WIC-1473 (board decision)."
+            "Unblock owner: WIC-1386 (pending board approval -- needs a Cloudflare "
+            "credential to provision the prod Hyperdrive config; the design decision "
+            "itself is already made and closed on WIC-1473, ADR-007 option 1)."
         )
     return 0
 

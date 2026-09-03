@@ -16,9 +16,11 @@
     "db:rls:verify": "node scripts/verify-rls.mjs",
     "storage:migrate-project-keys": "node scripts/migrate-project-storage-keys.mjs",
     "db:push": "drizzle-kit push",
+    "census:catalog-diffs": "node scripts/census-catalog-diff-owners.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "audit:star-leak": "node scripts/audit-foreign-star-text.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -45,7 +47,7 @@
     "@vitest/coverage-v8": "^1.6.0",
     "drizzle-kit": "^0.21.4",
     "tsx": "^4.15.1",
-    "typescript": "^5.4.5",
+    "typescript": "~6.0.2",
     "vitest": "^1.6.0"
   }
 }

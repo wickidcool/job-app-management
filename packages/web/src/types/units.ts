@@ -1,78 +1,158 @@
 /**
- * Branded numeric units.
+ * Branded units for normalized scores and rates.
  *
- * A plain `number` carries no unit, so a comment is the only thing telling you
- * whether `0.75` means "75%" or "0.75%". Comments do not typecheck. WIC-1514:
- * `responseRate` crossed the API/web boundary as a bare `number` documented
- * `// 0-1` on the API side and `// 0-100` on the component side, with no adapter
- * between them — so the Dashboard's "Response" card rendered `Math.round(0.75)`
- * and could only ever show "0%" or "1%".
+ * The convention is ADR-008 (`docs/architecture/adr/ADR-008-score-and-rate-unit-convention.md`):
+ * **every normalized score, rate, fraction and proportion at the API boundary is a ratio in
+ * `[0, 1]`; the presentation layer multiplies.** A field that deviates carries `Pct` in its
+ * name, not in a comment.
  *
- * The unit of record is the API's. `responseRate` is a **ratio in [0, 1]**
- * (`docs/architecture/API_CONTRACTS.md`, `GET /dashboard`), matching the
- * convention UC-3 already uses for `relevanceScore`. **The presentation layer
- * converts**, via `toPercent` at the render site.
+ * These types exist because the failure mode is two `number`s a compiler cannot distinguish.
+ * `dashboard.service.ts` returned `responded / totalApplied` (a ratio) into a component that
+ * rendered it raw with a `%`, so a 75% response rate displayed as `1%` (WIC-1514). Both sides
+ * were `number`; both sides carried a `//` comment; the comments disagreed and nothing checked
+ * them. Branding the unit into the type makes that assignment a compile error.
  *
- * ## What the brand does and does not catch
+ * `Ratio` is assignable to `number` (arithmetic still works). `number` is *not* assignable to
+ * `Ratio`, and `Ratio` and `Percent` are not assignable to each other — so a conversion has to
+ * be written down, at a site a reviewer can see.
  *
- * Branding makes **declaration sites** checkable: a plain `number` can no longer
- * be assigned into a `Ratio` slot, and a `Ratio` can no longer be passed where a
- * `Percent` is expected. That is the direction WIC-1514 travelled — the wrong
- * unit reached the screen through an untyped passthrough — so it is the direction
- * worth guarding, and reverting the transport type in `services/api/types.ts` to
- * plain `number` does now fail `tsc`.
+ * This file is mirrored at `packages/api/src/types/units.ts`. The two must stay identical; the
+ * repo has no shared package, and duplicating ~90 lines is cheaper than introducing one for
+ * this alone. If a shared package ever lands, this is a straight move.
  *
- * It does **not** make the value opaque. `Ratio` is an intersection, so it is
- * still a `number` and arithmetic silently erases the brand. All of the following
- * compile today, verified against this file:
- *
- * ```ts
- * Math.round(r);      r * 100;      r >= 0.8;
- * r.toFixed(0);       `${r}%`;      const n: number = r;
- * ```
- *
- * So `toPercent` is the *sanctioned* ratio-to-percentage path, not the only
- * possible one, and the `* 100` it owns is the only one **for a `Ratio`** — the
- * package contains nine other `* 100` sites, two of which are this same
- * ratio-to-percent render on fields that are not branded yet
- * (`JobFitAnalysis.tsx`, `CatalogDiff/AmbiguityResolver.tsx`).
- *
- * The practical consequence: **a brand cannot protect a render site.** Nothing
- * here would stop someone writing `Math.round(stats.responseRate)` again. What
- * stops that is `DashboardStats.test.tsx`, which asserts six distinct ratios
- * render as six distinct readings. Keep that test.
+ * Adoption is incremental: a bare `number` is still legal, so new and touched fields get
+ * branded without a big-bang refactor.
  */
 
-declare const unitBrand: unique symbol;
+/** A normalized value in `[0, 1]`. The unit of every score and rate at the API boundary. */
+export type Ratio = number & { readonly __unit: 'ratio-0-1' };
+
+/** A value in `[0, 100]`. A display unit, or a persisted deviation named with a `Pct` suffix. */
+export type Percent = number & { readonly __unit: 'percent-0-100' };
+
+/* ------------------------------------------------------------------------------------------
+ * Compile-time proof that the brands actually discriminate.
+ *
+ * These are types, so they erase to nothing at runtime — but `npm run typecheck` evaluates
+ * them, and any of them becoming `false` is a build error. That matters: the brands are the
+ * entire enforcement mechanism of ADR-008, and nothing else in the repo checks them.
+ * `packages/api/tsconfig.json` excludes `test/`, and Vitest transpiles without type-checking,
+ * so a `@ts-expect-error` assertion written in a test file would be checked by nobody. This is
+ * the assertion that has teeth; the one in `test/units.test.ts` is documentation of it.
+ * ---------------------------------------------------------------------------------------- */
+
+type Assert<T extends true> = T;
+type NotAssignable<A, B> = [A] extends [B] ? false : true;
+type Assignable<A, B> = [A] extends [B] ? true : false;
 
 /**
- * A proportion in [0, 1]. `0.75` means 75%.
- *
- * This is the unit every rate crosses the API boundary in. Do not render it
- * directly — run it through {@link toPercent} first.
+ * The invariants, as a single exported tuple. Exported rather than declared as loose aliases
+ * because `noUnusedLocals` (on in `packages/web`) rejects an unreferenced type alias, and these
+ * have no runtime referent to give them one.
  */
-export type Ratio = number & { readonly [unitBrand]: 'ratio-0-1' };
+export type UnitBrandInvariants = [
+  // A Ratio and a Percent are not interchangeable — the defect class ADR-008 exists to stop.
+  Assert<NotAssignable<Ratio, Percent>>,
+  Assert<NotAssignable<Percent, Ratio>>,
+  // A bare number cannot be silently widened into either brand.
+  Assert<NotAssignable<number, Ratio>>,
+  Assert<NotAssignable<number, Percent>>,
+  // But both remain usable as numbers, so arithmetic and `toFixed` keep working unchanged.
+  Assert<Assignable<Ratio, number>>,
+  Assert<Assignable<Percent, number>>,
+];
 
-/** A percentage in [0, 100]. `75` means 75%. Suitable for display. */
-export type Percent = number & { readonly [unitBrand]: 'percent-0-100' };
+export const isRatio = (n: number): boolean => Number.isFinite(n) && n >= 0 && n <= 1;
+
+export const isPercent = (n: number): boolean => Number.isFinite(n) && n >= 0 && n <= 100;
 
 /**
- * Tag a plain number as a {@link Ratio}.
+ * Assert that `n` is a ratio and brand it. Throws on anything outside `[0, 1]` — including
+ * `NaN`, which is the shape a bad division produces and the one most worth failing loudly on.
+ */
+export function ratio(n: number): Ratio {
+  if (!isRatio(n)) {
+    throw new RangeError(`Expected a ratio in [0, 1], received ${n}`);
+  }
+  return n as Ratio;
+}
+
+/** Assert that `n` is a percent and brand it. Throws outside `[0, 100]`. */
+export function percent(n: number): Percent {
+  if (!isPercent(n)) {
+    throw new RangeError(`Expected a percent in [0, 100], received ${n}`);
+  }
+  return n as Percent;
+}
+
+/**
+ * Tag a plain number as a {@link Ratio} without checking it.
  *
- * Use this only where a value genuinely enters the type system for the first
- * time — a literal default, a test fixture, a parsed response. Every such call
- * is an unchecked assertion that the number really is in [0, 1], so keep them
- * few and keep them obvious.
+ * Use this only where a value genuinely enters the type system for the first time — a literal
+ * default, a test fixture, a value a caller has already proven. Every such call is an unchecked
+ * assertion that the number really is in `[0, 1]`, so keep them few and keep them obvious.
+ *
+ * It is the fourth and weakest of the constructors, and the choice between them is the whole
+ * point: `ratio()` throws on a bad value, `clampRatio()` folds one into range, `ratioFromWire()`
+ * validates at a trust boundary, and this one asserts. Prefer any of the other three wherever the
+ * value could actually be wrong — reach for `asRatio` when checking a literal `0` would be noise.
  */
 export function asRatio(value: number): Ratio {
   return value as Ratio;
 }
 
 /**
- * Convert a {@link Ratio} to a {@link Percent}.
- *
- * The only sanctioned ratio-to-percentage path in the web package. `0.75` -> `75`.
+ * Brand `n` as a ratio, clamping instead of throwing. For values from a source that is expected
+ * to drift slightly out of range — floating-point accumulation, or an LLM asked for a score.
+ * `NaN` clamps to `0`; a caller that would rather know should use `ratio()`.
  */
-export function toPercent(ratio: Ratio): Percent {
-  return (ratio * 100) as Percent;
-}
+export const clampRatio = (n: number): Ratio =>
+  (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0) as Ratio;
+
+/** Brand `n` as a percent, clamping instead of throwing. `NaN` clamps to `0`. */
+export const clampPercent = (n: number): Percent =>
+  (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0) as Percent;
+
+/** The one ratio → percent conversion. Rounds to a whole percent, matching how scores render. */
+export const toPercent = (r: Ratio): Percent => Math.round(r * 100) as Percent;
+
+/** The one percent → ratio conversion. */
+export const toRatio = (p: Percent): Ratio => (p / 100) as Ratio;
+
+/** Render a ratio for display: `0.75` → `"75%"`. The only place the multiplication belongs. */
+export const formatRatioAsPercent = (r: Ratio, fractionDigits = 0): string =>
+  `${(r * 100).toFixed(fractionDigits)}%`;
+
+/**
+ * Brand a value parsed from JSON, where the wire has no types to carry a brand.
+ *
+ * This is a deliberate, reviewable assertion — the point is that there is exactly *one* such
+ * site per DTO field, rather than an unstated assumption at every use. It validates rather than
+ * blindly casting, so a producer that regresses to the wrong unit fails here and not three
+ * layers later in a render.
+ */
+export const ratioFromWire = (n: number, field: string): Ratio => {
+  if (!isRatio(n)) {
+    throw new RangeError(
+      `${field}: expected a ratio in [0, 1] per ADR-008, received ${n}. ` +
+        `If this field is genuinely 0-100 it must be named with a Pct suffix.`
+    );
+  }
+  return n as Ratio;
+};
+
+/**
+ * As `ratioFromWire`, for a field whose name carries the `Pct` deviation suffix.
+ *
+ * Note the asymmetry: this check is one-sided. `[0, 1]` is a subset of `[0, 100]`, so a producer
+ * that regresses from `85` to `0.85` passes here and renders as `0.85%`. `ratioFromWire` has no
+ * such blind spot — `85` is unambiguously not a ratio. That is one of the reasons ADR-008 §1
+ * puts ratios at the boundary: only the ratio side can be validated at runtime, and the percent
+ * side is defended by the `Percent` brand at compile time alone.
+ */
+export const percentFromWire = (n: number, field: string): Percent => {
+  if (!isPercent(n)) {
+    throw new RangeError(`${field}: expected a percent in [0, 100] per ADR-008, received ${n}`);
+  }
+  return n as Percent;
+};

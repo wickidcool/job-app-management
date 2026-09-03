@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsPipeline } from '../hooks/useReports';
 import type { PipelineApplication, ActiveStatus } from '../services/api';
+import { DEFAULT_STALE_THRESHOLD_DAYS, isStale } from '../constants/stale';
 
 const STATUS_LABELS: Record<ActiveStatus, string> = {
   saved: 'Saved',
@@ -40,24 +41,32 @@ function isOverdue(nextActionDue: string | null | undefined): boolean {
   return new Date(nextActionDue) < today;
 }
 
-function isStale(updatedAt: string, now: number): boolean {
-  const updated = new Date(updatedAt);
-  const daysSince = Math.floor((now - updated.getTime()) / (1000 * 60 * 60 * 24));
-  return daysSince >= 14;
-}
+// WIC-1479: this page held two more copies of the stale rule — a local
+// `isStale` with no status check at all, and a second inline copy in the stats
+// memo below. Both fired on every active row at 14 days, so a `saved` or
+// `interview` row was badged "⏱️ Stale" on `/reports/pipeline` and absent from
+// `/reports/stale`. Both now call the shared predicate.
+//
+// Neither had a status to check: `PipelineApplication` does not carry one,
+// because this report groups by status and puts it on the *group*. That is a
+// fair reading of why the rule drifted here rather than an oversight — so the
+// group's status is threaded down to the row rather than the definition being
+// bent to fit the shape of the data that happened to be in scope.
 
 function PipelineCard({
   app,
+  status,
   onClick,
   now,
 }: {
   app: PipelineApplication;
+  status: ActiveStatus;
   onClick: () => void;
   now: number;
 }) {
   const overdue = isOverdue(app.nextActionDue);
   const dueSoon = !overdue && isDueSoon(app.nextActionDue);
-  const stale = isStale(app.updatedAt, now);
+  const stale = isStale({ status, updatedAt: app.updatedAt }, { now: new Date(now) });
 
   return (
     <div
@@ -120,10 +129,9 @@ export function ReportsPipeline() {
           else if (diffDays === 0) dueToday++;
           else if (diffDays <= 7) dueSoon++;
         }
-        const daysSince = Math.floor(
-          (now - new Date(app.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
-        );
-        if (daysSince >= 14) stale++;
+        if (isStale({ status: group.status, updatedAt: app.updatedAt }, { now: new Date(now) })) {
+          stale++;
+        }
       }
     }
 
@@ -180,7 +188,9 @@ export function ReportsPipeline() {
         </div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
           <div className="text-2xl font-bold text-neutral-600">{stats.stale}</div>
-          <div className="text-sm text-neutral-600">Stale (14+ days)</div>
+          <div className="text-sm text-neutral-600">
+            Stale ({DEFAULT_STALE_THRESHOLD_DAYS}+ days)
+          </div>
         </div>
       </div>
 
@@ -209,6 +219,7 @@ export function ReportsPipeline() {
                   <PipelineCard
                     key={app.id}
                     app={app}
+                    status={group.status}
                     now={now}
                     onClick={() => navigate(`/applications/${app.id}`)}
                   />

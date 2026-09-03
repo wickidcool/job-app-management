@@ -653,10 +653,16 @@ user on an *optional* step and invites the reading that footer [Next Step] will 
 
 **Focus trap — the objection that expires.** WIC-1689 declined to render a form inline
 because this dialog has no focus trap (`MODAL_FOCUS_MANAGEMENT_SPEC.md` §2). That was true
-when written and is why the ruling did not exist earlier. **PR #97 (WIC-1141) migrates
+when written and is why the ruling did not exist earlier. ~~**PR #97 (WIC-1141) migrates
 `OnboardingModal` to a Radix `Dialog`**, which traps focus. So this is a **sequencing
 requirement, not a caveat**: land #97 first, then #146 rebased on it. Do not merge an inline
-form into an untrapped dialog — inputs are precisely the case §2 is about.
+form into an untrapped dialog — inputs are precisely the case §2 is about.~~
+**Expired as designed, 2026-09-01 (WIC-1902 residue).** The objection is gone and so is the
+sequencing requirement: `OnboardingModal` is a Radix `Dialog` and traps focus as of `ed71ed5`,
+and the quick-add landed on top of it at `2513309`. Both steps of the "land X, then Y" are
+done, so the paragraph is struck rather than amended — there is no remaining instruction in it.
+The rule it invoked still stands on its own terms (§2): do not put inputs in an untrapped
+dialog. This one is trapped.
 
 **Scope held.** The footer decline stays unconditional and writes
 `applicationStepSkipped: true` even if the form is open and half-typed. Discarding a partial

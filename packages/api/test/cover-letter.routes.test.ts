@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-vi.mock('../src/services/cover-letter.service.js', () => ({
+vi.mock('../src/services/cover-letter.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/cover-letter.service.js')>()),
   generateCoverLetter: vi.fn(),
   getCoverLetter: vi.fn(),
   listCoverLetters: vi.fn(),
@@ -12,7 +13,8 @@ vi.mock('../src/services/cover-letter.service.js', () => ({
   exportCoverLetter: vi.fn(),
 }));
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -21,7 +23,8 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -29,11 +32,13 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -52,15 +57,18 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/job-fit.service.js', () => ({
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
   analyzeJobFit: vi.fn(),
 }));
 
-vi.mock('../src/services/dialogue.service.js', () => ({
+vi.mock('../src/services/dialogue.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dialogue.service.js')>()),
   processDialogue: vi.fn(),
 }));
 
-vi.mock('../src/services/project.service.js', () => ({
+vi.mock('../src/services/project.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/project.service.js')>()),
   createProject: vi.fn(),
   getProject: vi.fn(),
   listProjects: vi.fn(),
