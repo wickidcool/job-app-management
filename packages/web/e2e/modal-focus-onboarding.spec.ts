@@ -180,10 +180,20 @@ test.describe('OnboardingModal — the outer panel', () => {
     await page.keyboard.press('Escape');
 
     await expect(page.getByRole('dialog', { name: 'Save progress and exit?' })).toBeVisible();
-    // ...and the onboarding panel is still mounted behind it.
-    await expect(
-      page.getByRole('dialog', { name: 'Welcome to Your Job Application Manager' })
-    ).toBeVisible();
+
+    // ...and the onboarding panel is still mounted behind it — the point of the test is
+    // that Escape opened the confirm instead of dropping the user out of onboarding.
+    //
+    // Assert that by locating the panel directly rather than by its `dialog` role.
+    // WIC-1868 sets `aria-hidden` on the panel for exactly as long as a nested confirm
+    // is open (§11 of MODAL_FOCUS_MANAGEMENT_SPEC.md), so it is deliberately *not* in
+    // the accessibility tree here and a role query cannot see it. Querying by role
+    // would therefore be asserting the opposite of what this file asserts at the
+    // bottom — that a nested confirm leaves exactly one dialog exposed — and the two
+    // cannot both hold. Mounted, not exposed, is the correct reading.
+    const panel = page.locator('[aria-labelledby="onboarding-title"]');
+    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute('aria-hidden', 'true');
   });
 });
 
