@@ -106,7 +106,7 @@ test.describe('OnboardingModal — the outer panel', () => {
     // The name and description are the step's own heading and blurb rendered by
     // `OnboardingStep`, wired via aria-labelledby/-describedby rather than a
     // `Dialog.Title`, because they change per step.
-    await expect(dialog).toHaveAccessibleName('Welcome to Your Job Application Manager');
+    await expect(dialog).toHaveAccessibleName('Welcome to Careerpin');
     await expect(dialog).toHaveAccessibleDescription(/.+/);
   });
 
@@ -245,9 +245,7 @@ test.describe('OnboardingModal — the nested dismiss confirm', () => {
 
     await expect(page.getByRole('dialog', { name: 'Save progress and exit?' })).toBeHidden();
     // Escape is a cancel: onboarding stays open...
-    await expect(
-      page.getByRole('dialog', { name: 'Welcome to Your Job Application Manager' })
-    ).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Welcome to Careerpin' })).toBeVisible();
     // ...and focus comes back to the control that opened the confirm, not to <body>.
     // This is the assertion `useDialogFocusRestore`'s second instance exists for: the
     // ✕ is *inside* another dialog, so the hook's `focusin` capture deliberately skips
