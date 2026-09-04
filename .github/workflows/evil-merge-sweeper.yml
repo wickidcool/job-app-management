@@ -1,6 +1,6 @@
 name: Evil-Merge Sweeper
 
-# WIC-2055. Companion to evil-merge-guard.yml (WIC-1979), which is correct but
+# WIC-2055 liveness probe. Companion to evil-merge-guard.yml (WIC-1979), which is correct but
 # CANNOT BE A REQUIRED STATUS CHECK — and, unlike the skip-ci pair, cannot be
 # reshaped into one either. That collision is the whole reason this file exists.
 #
