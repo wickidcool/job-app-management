@@ -36,9 +36,12 @@
  * the same shape as this window.
  *
  * What still disqualifies it as support is the *other* half, which is unchanged:
- * it has no label to be consistent with, because its only non-type occurrence in
- * `packages/web/src` is the zeroed pre-fetch fallback in `Dashboard.tsx`. It
- * reaches no surface, so AC-N12 does not currently reach it either. If a surface
+ * it has no label to be consistent with, because it reaches no surface. Setting
+ * aside the DTO declaration in `services/api/types.ts` and two test fixtures
+ * that supply it as part of a whole `DashboardResponse`, its only occurrence in
+ * `packages/web/src` is the zeroed pre-fetch fallback in `Dashboard.tsx` —
+ * `DashboardStats.tsx`, the component that renders the stat tiles, never names
+ * the field at all. So AC-N12 does not currently reach it either. If a surface
  * ever renders it, that label must say "last 30 days" and not "this month" —
  * the field name is the thing still out of step with the computation.
  *
