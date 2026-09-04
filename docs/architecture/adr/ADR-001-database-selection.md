@@ -7,7 +7,7 @@
 
 ## Context
 
-The Job Application Manager requires persistent storage for user application tracking data. The requirements document ([WIC-15](/WIC/issues/WIC-15)) identified this as an open technical question:
+Careerpin requires persistent storage for user application tracking data. The requirements document ([WIC-15](/WIC/issues/WIC-15)) identified this as an open technical question:
 
 > **Database:** SQLite (simpler, local-first) or PostgreSQL (scalable, cloud-ready)?
 

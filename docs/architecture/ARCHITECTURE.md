@@ -1,8 +1,8 @@
-# Job Application Manager — Architecture Overview
+# Careerpin — Architecture Overview
 
 ## Executive Summary
 
-CareerPin (the Job Application Manager) is a **cloud-hosted, multi-tenant web application**. The API is a [Hono](https://hono.dev) app running on **Cloudflare Workers**; persistence is **Supabase Postgres** reached through Drizzle ORM; documents live in **Cloudflare R2**; and authentication is a **Supabase-issued JWT presented as a bearer token**.
+Careerpin is a **cloud-hosted, multi-tenant web application**. The API is a [Hono](https://hono.dev) app running on **Cloudflare Workers**; persistence is **Supabase Postgres** reached through Drizzle ORM; documents live in **Cloudflare R2**; and authentication is a **Supabase-issued JWT presented as a bearer token**.
 
 The application was originally designed local-first — a Node.js/Fastify server, a PostgreSQL instance on `localhost`, and documents on the local filesystem. **None of that is still true.** There is no Fastify dependency in the tree, no local data directory, and no session-cookie auth. See [Historical note](#historical-note-the-local-first-origins) for where that design is recorded.
 

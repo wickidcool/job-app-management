@@ -1,8 +1,8 @@
-# Job Application Manager — API Contracts
+# Careerpin — API Contracts
 
 ## Overview
 
-This document defines the REST API contracts for the Job Application Manager backend.
+This document defines the REST API contracts for the Careerpin backend.
 The API is a **Hono** application deployed as a single **Cloudflare Worker**
 (`packages/api/src/worker.ts`), which serves both the `/api/*` routes and the built React
 SPA. It is backed by Supabase Postgres and by Cloudflare R2 for document storage. The
