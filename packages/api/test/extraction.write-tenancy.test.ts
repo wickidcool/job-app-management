@@ -161,7 +161,8 @@ let stub = makeStub({});
 vi.mock('../src/db/client.js', () => ({
   getDb: () => stub.db,
 }));
-vi.mock('../src/services/storage.service.js', () => ({
+vi.mock('../src/services/storage.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/storage.service.js')>()),
   isStorageAvailable: () => false,
   getObject: async () => null,
 }));

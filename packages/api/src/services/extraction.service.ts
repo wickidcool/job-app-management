@@ -19,12 +19,23 @@ import { getConfig } from '../config.js';
 import { parseResumeText, extractExperienceEntries } from './resume.service.js';
 import { validateTechStackCategory, validateJobFitCategory } from '../types/index.js';
 
-// `userId` is required, not optional. Every table written below has
-// `user_id NOT NULL` (migration 0017) and a *composite* `(user_id, slug)` unique
-// index — the global slug uniques were dropped — so a slug-only WHERE matches
-// every tenant's row at once and Drizzle emits it without a LIMIT. Making the
-// owner non-optional is what stops an unscoped UPDATE from being expressible
-// here at all; `processCatalogChange` refuses to call this without one.
+/**
+ * `userId` is required, not optional. Two independent reasons, both load-bearing:
+ *
+ * 1. Every table written below has `user_id NOT NULL` as of migration 0017
+ *    (`company_catalog`, `tech_stack_tags`, `job_fit_tags`,
+ *    `quantified_bullets`, `recurring_themes`). An absent owner rendered as
+ *    `user_id => NULL` and aborted the enclosing transaction on a 23502, which
+ *    `flush()` then swallowed into a console.error — silently.
+ * 2. Those tables carry a *composite* `(user_id, slug)` unique index; the global
+ *    slug uniques were dropped. So a slug-only WHERE matches every tenant's row
+ *    at once, and Drizzle emits it without a LIMIT.
+ *
+ * Making the owner non-optional is what stops an unscoped UPDATE from being
+ * expressible here at all. The caller decides what to do when there is no owner
+ * — see `shouldAutoApply` in `processCatalogChange`, which refuses to call this
+ * without one.
+ */
 async function applyChangeToDb(
   tx: any,
   change: DiffChange,
@@ -859,6 +870,16 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   );
   // Resume uploads always auto-apply (companies from resumes are intentional).
   // Application changes require review when new companies are detected (potential duplicates/typos).
+  //
+  // No owner-absent case to handle here: `processCatalogChange` returns above
+  // when it cannot resolve one, so `userId` is a string by this point. An
+  // earlier revision of this branch instead recorded the diff as `pending` on
+  // the reasoning that `catalog_diffs.user_id` was nullable. Bailing out is the
+  // better contract — the five tables `applyChangeToDb` writes are all
+  // `user_id NOT NULL` (0017) so the inserts could not have landed, an
+  // anonymous reader scopes to `user_id IS NULL` and would not have been able
+  // to read them anyway, and WIC-1604 constrains `catalog_diffs.user_id` too,
+  // which would have made the pending row itself unwritable.
   const shouldAutoApply =
     changes.length > 0 &&
     (event.sourceType === 'resume' || (pendingReview.length === 0 && !hasNewCompany));
@@ -889,6 +910,23 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
+  // An ownerless diff row is unreachable, not "saved for later". `listDiffs`,
+  // `getDiff` and `applyDiff` all scope with `eq(catalogDiffs.userId, caller)`,
+  // and NULL equals nothing — so the user whose upload produced this diff could
+  // never see it. The only reader that could is one passing no `userId` at all,
+  // which applies no owner predicate: the fail-open path, not a feature.
+  // Writing the row anyway is what undid 0017's backfill at runtime (WIC-1604),
+  // and as of 0023 `catalog_diffs.user_id` is NOT NULL, so it would now abort
+  // the request on a 23502 instead of failing quietly. Decline the write and
+  // say why. (WIC-1617 separately stops an ownerless event from auto-applying;
+  // this is the last site that still laundered an absent owner into a row.)
+  if (userId === undefined) {
+    console.warn(
+      `[extraction] ${event.sourceType}=${event.sourceId}: discarding ${changes.length} catalog changes and ${pendingReview.length} review items — the event carries no owner (event.metadata.userId), and a diff with no owner is readable by nobody`
+    );
+    return;
+  }
+
   await db.insert(catalogDiffs).values({
     id: diffId,
     userId,
@@ -898,6 +936,14 @@ export async function processCatalogChange(event: ChangeEvent): Promise<void> {
     changes,
     pendingReview,
     status: shouldAutoApply ? 'approved' : 'pending',
+    // `status` answers "were the changes applied?" and nothing else. Whether an
+    // ambiguity is still outstanding is a separate question, and on the resume
+    // auto-apply path the two diverge: the changes ARE applied and an ambiguity IS
+    // open. Recording it here is what makes the item reachable — the default
+    // `GET /api/catalog/diffs` returns `pending OR openReviewCount > 0`, so an
+    // auto-applied diff carrying items is listed, and one carrying none is not
+    // (WIC-1428, AC-1/AC-3).
+    openReviewCount: pendingReview.length,
     expiresAt: shouldAutoApply ? null : expiresAt,
     resolvedAt: shouldAutoApply ? now : null,
   });
