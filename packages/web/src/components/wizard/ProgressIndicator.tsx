@@ -50,6 +50,7 @@ export function ProgressIndicator({
       aria-valuenow={currentStep}
       aria-valuemin={1}
       aria-valuemax={totalSteps}
+      aria-label={`Wizard progress: Step ${currentStep} of ${totalSteps}`}
     >
       {/* Step Labels */}
       <div className="flex items-center justify-between gap-2">

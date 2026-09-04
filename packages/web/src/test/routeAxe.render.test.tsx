@@ -23,10 +23,14 @@ import { forEachBranch, stubGlobalFetch, type Branch } from './routeOutlineHarne
  * ## The baseline is a frozen inventory, not a set of exemptions
  *
  * Every entry in `AXE_BASELINE` is a real finding on a real route, and none of them is
- * "fine". It exists so adoption can land today as a build gate rather than waiting on the
- * page fixes, exactly as Ruling 1 landed jsx-a11y behind its 8-rule baseline. Both
- * directions are pinned below — a new finding fails, and a *fixed* one fails too, so the
- * list cannot rot into a permanent hole the way an add-only allowlist does.
+ * "fine". It exists so adoption could land as a build gate rather than waiting on the page
+ * fixes, exactly as Ruling 1 landed jsx-a11y behind its 8-rule baseline. Both directions are
+ * pinned below — a new finding fails, and a *fixed* one fails too, so the list cannot rot
+ * into a permanent hole the way an add-only allowlist does.
+ *
+ * That ratchet has since done its job: WIC-1942 drove the list from 26 findings over 22 keys
+ * to **8 over 8**, and every one of the 8 that remain is third-party markup rather than a
+ * page of ours. See the header on `AXE_BASELINE` for why those are baselined and not excluded.
  */
 
 vi.mock('../services/api', async (importOriginal) =>
@@ -47,18 +51,31 @@ function key(rule: string, path: string, branch: Branch): string {
 /**
  * Every axe finding on this tree today, as `key -> number of offending elements`.
  *
- * Measured across all 120 (route, branch) pairs at `586712c`. Four routes carry all of it:
+ * Measured across all 120 (route, branch) pairs. Originally 26 findings over 22 keys at
+ * `586712c`; WIC-1942 fixed four of the five underlying defects, retiring 18 findings over
+ * 14 keys and leaving only the entries below:
  *
- *   - `/resume-variants` — two `<select>` filters with no accessible name, on every branch,
- *     plus an `<article>` on the loaded branch that takes a role it may not have and nests
- *     an interactive control inside another one.
- *   - `/resumes/upload` — the hidden `<input type="file">` behind the upload button has no
- *     label of its own.
- *   - `/projects/new/dialogue` — the wizard's `role="progressbar"` has no accessible name.
  *   - `/applications/new` and `/projects/new/dialogue` — `aria-hidden-focus`, needs-review,
- *     on Radix's own `data-radix-focus-guard` sentinels. Third-party markup, not ours;
- *     baselined rather than rule-excluded so a *real* `aria-hidden-focus` defect elsewhere
- *     in the app still fails.
+ *     on Radix's own `data-radix-focus-guard` sentinels.
+ *
+ * ## Why the remaining 8 stay baselined rather than fixed
+ *
+ * These are not our markup and there is no app-side edit that removes them. Measured on the
+ * `/applications/new` tree, the single offending node per pair is Radix's own sentinel:
+ *
+ *   <span data-radix-focus-guard="" tabindex="0"
+ *         style="outline: none; opacity: 0; position: fixed; pointer-events: none;">
+ *
+ * `FocusScope` brackets its dialog content with these, and they are load-bearing — they are
+ * how focus is trapped inside the dialog and returned when it closes. So the fix would be a
+ * patch to `@radix-ui/react-focus-scope`, not an edit here, and removing them would break
+ * the very behaviour the rule exists to protect. Note the finding is `incomplete`
+ * (needs-review), not a confirmed violation.
+ *
+ * It stays a *baseline entry* and not a `EXCLUDED_RULES` entry deliberately: excluding the
+ * rule would blind the sweep to a real `aria-hidden-focus` defect written anywhere else in
+ * the app, whereas these eight keys are pinned to two specific routes and cannot grow
+ * without failing `raises no axe finding that is not in the frozen baseline`.
  *
  * `aria-prohibited-attr` — the WIC-1185 / WIC-1191 class this adoption was argued for —
  * finds **nothing** here, because both instances of it were fixed. That is a clean result
@@ -66,28 +83,8 @@ function key(rule: string, path: string, branch: Branch): string {
  * what prove the rule is live and would fail if either regressed.
  */
 const AXE_BASELINE: Record<string, number> = {
-  // /resume-variants — two unlabelled <select> filters, all four branches.
-  'select-name|/resume-variants|loading': 2,
-  'select-name|/resume-variants|error': 2,
-  'select-name|/resume-variants|empty': 2,
-  'select-name|/resume-variants|loaded': 2,
-  // ...and, once a card renders, an <article> carrying an interactive role.
-  'aria-allowed-role|/resume-variants|loaded': 1,
-  'nested-interactive|/resume-variants|loaded': 1,
-
-  // /resumes/upload — the hidden file input has no label.
-  'label|/resumes/upload|loading': 1,
-  'label|/resumes/upload|error': 1,
-  'label|/resumes/upload|empty': 1,
-  'label|/resumes/upload|loaded': 1,
-
-  // /projects/new/dialogue — the wizard progressbar has no accessible name.
-  'aria-progressbar-name|/projects/new/dialogue|loading': 1,
-  'aria-progressbar-name|/projects/new/dialogue|error': 1,
-  'aria-progressbar-name|/projects/new/dialogue|empty': 1,
-  'aria-progressbar-name|/projects/new/dialogue|loaded': 1,
-
   // Radix focus-guard sentinels on the two routes whose body is a dialog. Needs-review.
+  // Third-party markup — see the header above for why these are baselined, not excluded.
   'aria-hidden-focus|/applications/new|loading': 1,
   'aria-hidden-focus|/applications/new|error': 1,
   'aria-hidden-focus|/applications/new|empty': 1,
@@ -221,8 +218,8 @@ describe('every route is axe-clean on every branch, against a frozen baseline', 
     // Paired with the staleness test above, this makes the list a one-way ratchet: it can
     // only shrink, and only by someone editing these numbers down deliberately.
     const total = Object.values(AXE_BASELINE).reduce((sum, n) => sum + n, 0);
-    expect(Object.keys(AXE_BASELINE)).toHaveLength(22);
-    expect(total).toBe(26);
+    expect(Object.keys(AXE_BASELINE)).toHaveLength(8);
+    expect(total).toBe(8);
   });
 
   it('confirms the prohibited-name class is clean across every route', () => {

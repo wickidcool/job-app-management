@@ -270,9 +270,12 @@ export function ResumeUpload({
 
   return (
     <div className="w-full">
+      {/* Driven by the drop zone / "Choose File" button rather than shown directly, but it is
+          still a real form control in the accessibility tree, so it needs its own name. */}
       <input
         ref={fileInputRef}
         type="file"
+        aria-label="Choose a resume file to upload"
         accept={acceptedFormats.join(',')}
         onChange={handleFileInputChange}
         className="hidden"
@@ -328,6 +331,7 @@ export function ResumeUpload({
               aria-valuenow={progress.percentage}
               aria-valuemin={0}
               aria-valuemax={100}
+              aria-label="Resume upload progress"
             />
           </div>
 
