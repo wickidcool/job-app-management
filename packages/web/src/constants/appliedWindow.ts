@@ -36,14 +36,16 @@
  * the same shape as this window.
  *
  * What still disqualifies it as support is the *other* half, which is unchanged:
- * it has no label to be consistent with, because it reaches no surface. Setting
- * aside the DTO declaration in `services/api/types.ts` and two test fixtures
- * that supply it as part of a whole `DashboardResponse`, its only occurrence in
- * `packages/web/src` is the zeroed pre-fetch fallback in `Dashboard.tsx` —
- * `DashboardStats.tsx`, the component that renders the stat tiles, never names
- * the field at all. So AC-N12 does not currently reach it either. If a surface
- * ever renders it, that label must say "last 30 days" and not "this month" —
- * the field name is the thing still out of step with the computation.
+ * it has no label to be consistent with, because **nothing in `packages/web/src`
+ * reads it**. Every occurrence is inert — the DTO declaration in
+ * `services/api/types.ts`, this sentence, two test fixtures supplying it as part
+ * of a whole `DashboardResponse`, and the pre-fetch fallback in `Dashboard.tsx`,
+ * which sets it to `0` to satisfy the DTO shape and then drops it: the
+ * `displayStats` object built directly below that fallback does not carry the
+ * field, and `DashboardStats.tsx` never names it at all. So AC-N12 does not
+ * currently reach it either. If a surface ever renders it, that label must say
+ * "last 30 days" and not "this month" — the field name is the thing still out
+ * of step with the computation.
  *
  * If week-to-date is ever judged the better product answer, AC-N10 has to be
  * amended first — `appliedWindow.test.ts` fails loudly if the API's window
