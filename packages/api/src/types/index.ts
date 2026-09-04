@@ -26,6 +26,8 @@ export interface ApplicationDTO {
   compTarget?: string | null;
   nextAction?: string | null;
   nextActionDue?: string | null;
+  // WIC-2023. ISO-8601 instant, or null when no interview is scheduled.
+  interviewDate?: string | null;
   jobDescription?: string | null;
 }
 
@@ -50,6 +52,7 @@ export interface CreateApplicationInput {
   compTarget?: string;
   nextAction?: string;
   nextActionDue?: string;
+  interviewDate?: string;
   jobDescription?: string;
 }
 
@@ -66,6 +69,7 @@ export interface UpdateApplicationInput {
   compTarget?: string | null;
   nextAction?: string | null;
   nextActionDue?: string | null;
+  interviewDate?: string | null;
   jobDescription?: string | null;
   version: number;
 }

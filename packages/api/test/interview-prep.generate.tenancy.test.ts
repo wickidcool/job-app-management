@@ -192,6 +192,7 @@ const DDL = `
     comp_target text,
     next_action text,
     next_action_due date,
+    interview_date timestamptz,
     job_description text,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),

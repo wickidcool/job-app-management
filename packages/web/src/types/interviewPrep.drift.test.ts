@@ -30,8 +30,15 @@ import webInterviewPrepTypes from './interviewPrep.ts?raw';
  * This is a baseline, not a permission. It is pinned in BOTH directions below: an entry
  * that the API starts sending fails just as loudly as a new unbacked field, so the list
  * cannot quietly become a hole that swallows the next occurrence of this defect.
+ *
+ * WIC-2023 emptied this list. `interviewDate` is now a real `applications.interview_date`
+ * column (migration 0026) that `interviewPrep.service.ts` selects and returns, so the two
+ * render sites above are live. An EMPTY baseline is the correct end state, not a disarmed
+ * guard: both assertions below still run, and the first one now demands that EVERY field
+ * the web type declares be backed. Do not add an entry here to make a failure go away --
+ * back the field instead, which is the whole point of the list being empty.
  */
-const KNOWN_UNBACKED_FIELDS = ['interviewDate'] as const;
+const KNOWN_UNBACKED_FIELDS: readonly string[] = [];
 
 /**
  * The `application` object the API's interview-prep read path returns, parsed out of its
@@ -98,7 +105,13 @@ describe('interview-prep `application` payload', () => {
   // vacuously. Pinning the exact expected scope means a dead parse fails HERE, loudly,
   // instead of turning the rest of this file green and blind.
   it('parses the API-declared shape (scope pin — fails loudly if the parse dies)', () => {
-    expect(readApiApplicationFields()).toEqual(['id', 'jobTitle', 'company', 'status']);
+    expect(readApiApplicationFields()).toEqual([
+      'id',
+      'jobTitle',
+      'company',
+      'status',
+      'interviewDate',
+    ]);
   });
 
   it('parses the web-declared shape (scope pin — fails loudly if the parse dies)', () => {

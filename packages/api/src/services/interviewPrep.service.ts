@@ -644,7 +644,13 @@ export async function getInterviewPrep(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: {
     id: string;
     recommendation?: string;
@@ -673,6 +679,9 @@ export async function getInterviewPrep(
       jobTitle: applications.jobTitle,
       company: applications.company,
       status: applications.status,
+      // WIC-2023. Backs `ApplicationSummary.interviewDate` on the web side, which
+      // `InterviewPrepCard:138` and `QuickReferenceExport:111` both gate on.
+      interviewDate: applications.interviewDate,
     })
     .from(applications)
     .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
@@ -680,9 +689,19 @@ export async function getInterviewPrep(
 
   return {
     interviewPrep: prepRowToDTO(prep, stories),
+    // The not-found fallback sends `interviewDate: null`, not `''`. The other
+    // fields use `''` because they are declared non-nullable strings; this one is
+    // nullable precisely so "no interview scheduled" is representable, and an
+    // empty string would make `new Date('')` produce an Invalid Date downstream.
     application: app
-      ? { id: app.id, jobTitle: app.jobTitle, company: app.company, status: app.status }
-      : { id: prep.applicationId, jobTitle: '', company: '', status: '' },
+      ? {
+          id: app.id,
+          jobTitle: app.jobTitle,
+          company: app.company,
+          status: app.status,
+          interviewDate: app.interviewDate?.toISOString() ?? null,
+        }
+      : { id: prep.applicationId, jobTitle: '', company: '', status: '', interviewDate: null },
     fitAnalysis: null,
   };
 }
@@ -694,7 +713,13 @@ export async function getInterviewPrepByApplication(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: { id: string } | null;
 }> {
   const db = getDb();
