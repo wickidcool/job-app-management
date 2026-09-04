@@ -56,6 +56,13 @@ export interface Env {
   NODE_ENV?: string;
   /** Opt in to trusting `x-forwarded-proto` for the HTTPS redirect (WIC-1011). */
   TRUST_PROXY_PROTO?: string;
+  /**
+   * The owner the auth bypass supplies in local dev (ADR-010 D3). Read only on
+   * the bypass path, so it has no effect on a deployment with Supabase
+   * configured. Defaults to the migration `0017` sentinel — see
+   * `LOCAL_DEV_USER_ID_DEFAULT` in `config.ts`.
+   */
+  LOCAL_DEV_USER_ID?: string;
 }
 
 export interface HonoVariables {

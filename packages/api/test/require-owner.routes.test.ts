@@ -5,6 +5,33 @@ import { _resetConfig } from '../src/config.js';
 import { _resetJwksCache } from '../src/middleware/auth.js';
 
 /**
+ * The injected absence. `vi.hoisted` because the `vi.mock` factory below is
+ * lifted above every `const`, so a plain module-level binding would be in its
+ * temporal dead zone when the factory runs.
+ *
+ * Flipping this to `true` makes the auth middleware resolve `userId: null` and
+ * call `next()` — precisely the state the app can no longer reach on its own
+ * after ADR-010 D3. Everything downstream is the real thing: the real routes,
+ * the real `requireOwner`, and only the service layer mocked. Left `false`, the
+ * genuine middleware runs, so the "caller with a sub" block below still
+ * exercises real JWT verification.
+ */
+const inject = vi.hoisted(() => ({ ownerless: false }));
+
+vi.mock('../src/middleware/auth.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/middleware/auth.js')>();
+  const { createMiddleware } = await import('hono/factory');
+  return {
+    ...actual,
+    authMiddleware: createMiddleware(async (c, next) => {
+      if (!inject.ownerless) return actual.authMiddleware(c, next);
+      c.set('userId', null);
+      await next();
+    }),
+  };
+});
+
+/**
  * WIC-1638 / ADR-010 AC-4 — the owner-absent request reads and writes nothing.
  *
  * The services these routes call now take `userId: string`, so the owner-absent
@@ -14,15 +41,26 @@ import { _resetJwksCache } from '../src/middleware/auth.js';
  * optional argument and pushed the decision down into the predicate.
  *
  * `requireOwner` is the single place that absence is turned into an error.
- * `requireOwner.ts` names two callers that reach it with no owner: a token that
- * verifies but carries no `sub`, and the local dev bypass (neither
- * `SUPABASE_URL` nor `SUPABASE_JWT_SECRET` configured). WIC-1554 closed the
- * first one at `middleware/auth.ts` itself — such a token is now rejected
- * `401 UNAUTHORIZED` before any route runs, so `requireOwner` never sees it.
- * The bypass is the one path still reaching this guard, and is what these
- * tests drive: the real Hono app with neither Supabase var set, which
- * `middleware/auth.ts` resolves to `userId: null` and lets through. Two
- * things are asserted per entry point:
+ * `requireOwner.ts` used to name two callers that reach it with no owner: a
+ * token that verifies but carries no `sub`, and the local dev bypass (neither
+ * `SUPABASE_URL` nor `SUPABASE_JWT_SECRET` configured). Both are now closed
+ * upstream. WIC-1554 closed the first at `middleware/auth.ts` itself — such a
+ * token is rejected `401 UNAUTHORIZED` before any route runs. ADR-010 D3
+ * (WIC-1964) closed the second: the bypass supplies a real `LOCAL_DEV_USER_ID`
+ * rather than `null`, so local dev is a tenant and not an absence.
+ *
+ * **So no path through the real app reaches this guard with no owner any more,
+ * and that is the point of D1 rather than a reason to delete these tests.**
+ * `requireOwner` is now defence in depth, and what has to stay true is the
+ * conditional: *if* an absence ever reaches a route again — a new caller, a
+ * regressed middleware, a future bypass — the request must still stop at the
+ * edge. These tests therefore inject the absence at the middleware boundary
+ * (see `ownerless` below) instead of manufacturing it through the bypass, which
+ * is what they did while the bypass still produced one. Driving it through the
+ * real routes and the real `requireOwner`, with only the service layer mocked,
+ * is what keeps assertion (2) meaningful.
+ *
+ * Two things are asserted per entry point:
  *
  *   1. the response is 401 `OWNER_REQUIRED`, and
  *   2. **the service was never called at all**.
@@ -35,7 +73,8 @@ import { _resetJwksCache } from '../src/middleware/auth.js';
  * a query that merely happened to match no rows.
  */
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -54,7 +93,8 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/resume-variant.service.js', () => ({
+vi.mock('../src/services/resume-variant.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume-variant.service.js')>()),
   generateResumeVariant: vi.fn(),
   listResumeVariants: vi.fn(),
   getResumeVariant: vi.fn(),
@@ -65,7 +105,8 @@ vi.mock('../src/services/resume-variant.service.js', () => ({
   exportResumeVariant: vi.fn(),
 }));
 
-vi.mock('../src/services/interviewPrep.service.js', () => ({
+vi.mock('../src/services/interviewPrep.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/interviewPrep.service.js')>()),
   generateInterviewPrep: vi.fn(),
   listInterviewPreps: vi.fn(),
   getInterviewPrep: vi.fn(),
@@ -76,7 +117,10 @@ vi.mock('../src/services/interviewPrep.service.js', () => ({
   deleteInterviewPrep: vi.fn(),
 }));
 
-vi.mock('../src/services/job-fit.service.js', () => ({ analyzeJobFit: vi.fn() }));
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
+  analyzeJobFit: vi.fn(),
+}));
 
 import * as catalogService from '../src/services/catalog.service.js';
 import * as resumeVariantService from '../src/services/resume-variant.service.js';
@@ -182,6 +226,11 @@ describe('requireOwner rejects an owner-less request before any read or write', 
   let valid: Record<string, string>;
 
   beforeEach(async () => {
+    // Default to the real middleware; only the owner-less block opts in. Reset
+    // here rather than in `afterEach` alone so a failure mid-test cannot leak
+    // the injection into the "caller with a sub" cases and make them pass for
+    // the wrong reason.
+    inject.ownerless = false;
     process.env = { ...originalEnv, SUPABASE_JWT_SECRET: JWT_SECRET };
     _resetConfig();
     _resetJwksCache();
@@ -199,26 +248,24 @@ describe('requireOwner rejects an owner-less request before any read or write', 
   });
 
   afterEach(() => {
+    inject.ownerless = false;
     process.env = originalEnv;
     _resetConfig();
     _resetJwksCache();
   });
 
   it.each(GUARDED)('$name rejects an owner-less caller and calls nothing', async (entry) => {
-    // Neither Supabase var set: `middleware/auth.ts` bypasses auth entirely and
-    // resolves `userId: null` (the local-dev case `requireOwner.ts` still
-    // guards — a sub-less-but-signed token is now rejected one layer up, by
-    // `middleware/auth.ts` itself, before any route or `requireOwner` runs).
-    // `getConfig()` is a module-level singleton, so the bypass env must be in
-    // effect for the whole request, not just around building the app.
-    const bypassEnv = { ...originalEnv };
-    delete bypassEnv.SUPABASE_URL;
-    delete bypassEnv.SUPABASE_JWT_SECRET;
-    process.env = bypassEnv;
-    _resetConfig();
-    const bypassApp = buildApp();
+    // Inject the absence at the middleware boundary. Nothing in the real app
+    // produces one any more — the sub-less token is rejected by
+    // `middleware/auth.ts` (WIC-1554) and the local-dev bypass now resolves a
+    // real owner (ADR-010 D3) — so this is the guard's defence-in-depth
+    // contract: whatever puts a null owner on the context, the route stops
+    // before the service. Injecting it here rather than through the bypass is
+    // what keeps this test about `requireOwner` instead of about auth config.
+    inject.ownerless = true;
+    const ownerlessApp = buildApp();
 
-    const response = await bypassApp.request(entry.path, {
+    const response = await ownerlessApp.request(entry.path, {
       method: entry.method,
       headers: { 'content-type': 'application/json' },
       ...(entry.body === undefined ? {} : { body: JSON.stringify(entry.body) }),

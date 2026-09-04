@@ -10,11 +10,12 @@ import {
 import { StatusBadge } from '../components/StatusBadge';
 import { StatusDropdown } from '../components/StatusDropdown';
 import { ApplicationForm } from '../components/ApplicationForm';
-import { WorkflowChecklist } from '../components/WorkflowChecklist';
+import { WorkflowChecklist, type ArtefactStatus } from '../components/WorkflowChecklist';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useCoverLetters } from '../hooks/useCoverLetters';
 import { useResumeVariants } from '../hooks/useResumeVariants';
 import { useInterviewPrepByApplication } from '../hooks/useInterviewPrep';
+import { useJobFitAnalyses } from '../hooks/useJobFitAnalysis';
 import { TARGETED_LIST_PAGE_MAX, itemsForApplication } from '../constants/applicationMatch';
 import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -48,7 +49,13 @@ export function ApplicationDetail() {
   // user with 20 newer letters for other roles at this company sees "No cover
   // letters yet for this role" and an unticked checklist — this card's own
   // defect, re-created at the tail. Residual: it still fails above 100.
-  const { data: companyCoverLetters = [] } = useCoverLetters(
+  //
+  // `isLoading` is read alongside `data` because the `= []` default cannot tell
+  // "the request has not come back" from "there are none", and rendering the
+  // second while the first is true is a false negative stated as fact — for a
+  // whole round-trip, since `enabled: !!application` means this query cannot
+  // even start until the application resolves (WIC-1630).
+  const { data: companyCoverLetters = [], isLoading: coverLettersLoading } = useCoverLetters(
     { company: application?.company, limit: TARGETED_LIST_PAGE_MAX },
     { enabled: !!application }
   );
@@ -61,7 +68,7 @@ export function ApplicationDetail() {
   // over-matching `ilike '%…%'`) and `itemsForApplication` makes it exact. The
   // two artefacts deliberately share one predicate rather than a copy — see the
   // module header for why (WIC-1536).
-  const { data: companyResumeVariants } = useResumeVariants(
+  const { data: companyResumeVariants, isLoading: resumeVariantsLoading } = useResumeVariants(
     { company: application?.company, limit: TARGETED_LIST_PAGE_MAX },
     { enabled: !!application }
   );
@@ -81,8 +88,42 @@ export function ApplicationDetail() {
   // null`, so a truthy-but-empty body would otherwise tick a step for a prep
   // that is not there. `ApplicationDetail.pageCap.test.tsx` serves exactly that
   // body and caught it.
-  const { data: interviewPrep } = useInterviewPrepByApplication(id);
+  const { data: interviewPrep, isLoading: interviewPrepLoading } =
+    useInterviewPrepByApplication(id);
   const hasInterviewPrep = !!interviewPrep?.interviewPrep;
+
+  // The three artefact steps, as the checklist reads them. `isLoading` is only
+  // ever true for an enabled, unsettled query in React Query v5 (it is
+  // `isPending && isFetching`), so a disabled query reads as settled rather
+  // than pinning a row at "unknown" forever.
+  const artefactStatus = (loading: boolean, present: boolean): ArtefactStatus =>
+    loading ? 'unknown' : present ? 'present' : 'absent';
+
+  // Job fit analyses for this application, which — like the interview prep and
+  // unlike the two artefact lists above — are *looked up* rather than
+  // reconstructed. `job_fit_analyses.application_id` is a real foreign key and
+  // the endpoint filters on it, so none of the company-substring/page-cap
+  // machinery applies here and `limit: 1` is safe: the server has already
+  // narrowed to this application and ordered newest first, so the one row it
+  // returns is the one the checklist wants (WIC-1652).
+  //
+  // Asking the server to filter is not an optimisation. `application_id` is
+  // nullable — analysing a bare job description from `/job-fit-analysis` with
+  // no `appId` is a supported flow — so an unfiltered page can be entirely rows
+  // that belong to no application, and a client filter over it could only
+  // remove rows, never recover the one this page needed (WIC-1533).
+  const { data: fitAnalyses } = useJobFitAnalyses(
+    { applicationId: id, limit: 1 },
+    { enabled: !!id }
+  );
+  const latestFitAnalysis = fitAnalyses?.analyses?.[0];
+  // "An analysis exists", not "an analysis scored something". An unscored
+  // analysis — empty catalog, or a job description naming no required skills —
+  // is still one the user has run, and the step must stop offering to create
+  // it. The score is carried separately and stays nullable all the way to the
+  // badge so that `null` (unscored) and `0` (a real zero) do not collapse.
+  const hasFitAnalysis = !!latestFitAnalysis;
+  const fitScore = latestFitAnalysis?.fitScore;
 
   const updateStatusMutation = useUpdateApplicationStatus();
   const updateMutation = useUpdateApplication();
@@ -219,11 +260,13 @@ export function ApplicationDetail() {
             applicationId={id!}
             status={application.status}
             hasJobDescription={!!application.jobDescription}
-            hasCoverLetter={coverLetters.length > 0}
+            hasFitAnalysis={hasFitAnalysis}
+            fitScore={fitScore}
+            coverLetterStatus={artefactStatus(coverLettersLoading, coverLetters.length > 0)}
             coverLetterId={latestCoverLetter?.id}
-            hasResumeVariant={resumeVariants.length > 0}
+            resumeVariantStatus={artefactStatus(resumeVariantsLoading, resumeVariants.length > 0)}
             resumeVariantId={latestResumeVariant?.id}
-            hasInterviewPrep={hasInterviewPrep}
+            interviewPrepStatus={artefactStatus(interviewPrepLoading, hasInterviewPrep)}
           />
         </div>
 
@@ -238,7 +281,17 @@ export function ApplicationDetail() {
               Write a new one
             </Link>
           </div>
-          {coverLetters.length === 0 ? (
+          {/*
+            Driven by the same `coverLettersLoading` as the checklist step above
+            so the two surfaces cannot disagree: the section saying "checking"
+            while the row next to it says "none yet" is the half-fix WIC-1630
+            was split out of WIC-1533 to avoid.
+          */}
+          {coverLettersLoading ? (
+            <p className="text-sm text-gray-500" aria-busy="true">
+              Checking for cover letters…
+            </p>
+          ) : coverLetters.length === 0 ? (
             <p className="text-sm text-gray-500">
               No cover letters yet for this role. Generating one from here keeps it linked to this
               application.

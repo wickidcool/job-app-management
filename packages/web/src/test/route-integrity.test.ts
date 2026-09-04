@@ -86,10 +86,26 @@ type StrippedSource = string & { readonly __commentsStripped: true };
  * enough — `<p>Sarah's applications</p>` above `<div title="Don't panic" />`: the possessive
  * opens the window, the contraction closes it mid-attribute, and the route table goes from 30
  * entries to 29, losing `/`. Regex literals are not tracked either, and `App.tsx` contains
- * none. The route-table floor assertions below are what catch both, and they name `/`
- * specifically because `path="/*"` is the only in-string comment opener in the file and `/` is
- * the only route between it and the next closer — so an over-strip that starts at the hazard
- * cannot avoid dropping a route the assertion names.
+ * none.
+ *
+ * ⚠️ The route-table floor assertions below no longer catch the over-strip, and the rationale
+ * that used to sit here — that `path="/*"` is the only in-string comment opener and `/` the only
+ * route between it and the next closer, so an over-strip "cannot avoid dropping a route the
+ * assertion names" — is **retracted**. It was true when written and `App.tsx` moved underneath
+ * it: WIC-1089 inserted a one-line JSX comment ("Renders nothing; applies the route table's
+ * document.title") at App.tsx:91, between the hazard at line 87 and the first `<Route path="/">`.
+ * Its closer now ends the over-strip window at line 91, and that window contains no `<Route>`.
+ * Measured on `1463eccc` with quote suspension removed outright: the route table is **identical**
+ * — 31 entries, `/` and `/settings` both present — so both floor assertions stay green against a
+ * scanner with no string handling whatsoever. Their discriminating power was an accident of file
+ * layout, and an ordinary comment two lines long silently spent it.
+ *
+ * What guards the over-strip instead is the pair below that does not depend on layout: the
+ * `does not treat a block-comment opener inside a string as a comment` fixture, and
+ * `keeps the path="/*" string literal intact in the real App.tsx`, which asserts the hazard
+ * itself survives stripping rather than asserting a downstream consequence of it surviving.
+ * Prefer that shape here — a control keyed on the hazard cannot be disarmed by an edit that
+ * merely moves what follows the hazard.
  *
  * Under-stripping is the safe direction for route *loss*, but it is not harmless here,
  * because "leaving today's behaviour" is the bug this function exists to fix. The scanner
@@ -130,7 +146,30 @@ function stripComments(source: string): StrippedSource {
 
     // A quote suspends comment detection until it closes. This is what keeps
     // `path="/*"` from opening a comment that eats the routes after it.
-    if (char === '"' || char === "'" || char === '`') {
+    //
+    // WIC-1724: `'` is exempt when it is welded to the end of a word, because there it is
+    // an apostrophe in JSX prose (`Don't`, `Sarah's`) and not a string opener. Without the
+    // exemption the scanner opens a string that never closes in that role, and everything
+    // after it passes through verbatim — the stripper silently becomes a no-op, which is
+    // WIC-1551's defect reopened by a character of ordinary English. Measured on the tree
+    // at `1463eccc`: adding `<p>Don't forget to review</p>` to App.tsx and changing nothing
+    // else reds `strips every JSX comment opener out of the real App.tsx`.
+    //
+    // The test is the IMMEDIATELY preceding character, NOT the preceding non-whitespace
+    // one, and the difference is load-bearing in the dangerous direction. `return 'x'` and
+    // `case 'x':` are real string literals whose nearest non-whitespace neighbour is a
+    // letter, so the whitespace-skipping form would stop suspending on them — and a `/*`
+    // inside such a string would then open a comment and eat the routes after it, which is
+    // the over-strip class WIC-1551 established is the worse of the two. A quote welded
+    // directly to an identifier or digit with no separator is not valid JS/JSX, so the
+    // narrow test has no corresponding false positive. `keeps a single-quoted string that
+    // follows a keyword intact` below pins exactly this.
+    //
+    // Residual, unchanged and in the safe direction: a word-INITIAL apostrophe in prose
+    // (`'tis`) is preceded by whitespace and still suspends, exactly as today.
+    const isProseApostrophe = char === "'" && i > 0 && /[A-Za-z0-9]/.test(source[i - 1]);
+
+    if ((char === '"' || char === "'" || char === '`') && !isProseApostrophe) {
       out += char;
       i += 1;
       while (i < source.length) {
@@ -411,15 +450,88 @@ describe('in-app navigation targets', () => {
     });
   });
 
-  // The real App.tsx, not a fixture: if the stripper over-strips against live source, the
-  // route table loses entries and every downstream assertion goes quietly vacuous.
-  // `/` is the route immediately after the `path="/*"` hazard and `/settings` is the last
-  // one before the catch-all, so an over-strip starting at that hazard drops one of them.
+  // WIC-1724. An apostrophe in JSX copy used to be read as a string opener, which
+  // suspended comment detection for the rest of the file — so every route commented out
+  // below it re-entered the route table. Both directions again, because either alone is
+  // satisfied by a broken scanner: dropping the `'` branch entirely passes the first pair
+  // and reds the second, and the unfixed scanner does the reverse.
+  describe('apostrophes in JSX prose (WIC-1724)', () => {
+    // AC-1: the headline scenario. Prose apostrophe above a commented-out route.
+    it('does not let an apostrophe in JSX copy revive a commented-out route', () => {
+      const source = [
+        "<p>Don't forget to review</p>",
+        '{/* <Route path="/legacy" element={<Legacy />} /> */}',
+        '<Route path="/live" element={<Live />} />',
+      ].join('\n');
+
+      expect(declaredRoutePaths(stripComments(source))).toEqual(['/live']);
+    });
+
+    // The possessive/contraction pair from the WIC-1551 doc comment, which is the two-line
+    // sequence that shifts quote parity for the whole rest of the file.
+    it('survives a possessive and a contraction straddling an attribute', () => {
+      const source = [
+        "<p>Sarah's applications</p>",
+        '<div title="Don\'t panic" />',
+        '{/* <Route path="/legacy" element={<Legacy />} /> */}',
+        '<Route path="/" element={<Dashboard />} />',
+      ].join('\n');
+
+      expect(declaredRoutePaths(stripComments(source))).toEqual(['/']);
+    });
+
+    // AC-2 / the over-strip guard. These are real single-quoted strings, and each must
+    // still suspend comment detection or a `/*` inside one opens a comment.
+    it('still treats a real single-quoted string as a delimiter', () => {
+      expect(stripComments("const a = 'http://x/*y*/z';")).toBe("const a = 'http://x/*y*/z';");
+      expect(stripComments("navigate('/x/*y*/z');")).toBe("navigate('/x/*y*/z');");
+      expect(stripComments("{ path: '/x/*y*/z' }")).toBe("{ path: '/x/*y*/z' }");
+    });
+
+    // The specific reason this keys on the IMMEDIATELY preceding character rather than the
+    // preceding non-whitespace one. Both of these are ordinary string literals whose
+    // nearest non-whitespace neighbour is a letter, so the whitespace-skipping heuristic
+    // would misread them as prose, stop suspending, and open a comment at the `/*` inside.
+    // That is the over-strip direction — routes vanish and the audit goes quietly vacuous.
+    it('keeps a single-quoted string that follows a keyword intact', () => {
+      expect(stripComments("return 'http://x/*y*/z';")).toBe("return 'http://x/*y*/z';");
+      expect(stripComments("case '/x/*y*/z':")).toBe("case '/x/*y*/z':");
+      expect(stripComments("typeof 'a/*b*/c'")).toBe("typeof 'a/*b*/c'");
+    });
+  });
+
+  // The real App.tsx, not a fixture. This is a floor on the route table — it catches the
+  // table collapsing for any reason, which is worth keeping.
+  //
+  // ⚠️ It is NOT an over-strip control, despite what this comment used to claim. See the
+  // retraction on `stripComments`: WIC-1089's comment at App.tsx:91 closes the over-strip
+  // window before the first `<Route>`, so removing quote suspension outright leaves this
+  // assertion — and every route path it names — completely unchanged. Do not cite it as the
+  // thing standing between this file and a vacuous audit; the test directly below is.
   it('keeps every live route in App.tsx after stripping', () => {
     expect(routePaths.length).toBeGreaterThan(25);
     expect(routePaths).toContain('/');
     expect(routePaths).toContain('/settings');
     expect(routePaths).toContain('/applications/:id/prep');
+  });
+
+  // The over-strip control against real source, keyed on the hazard itself rather than on a
+  // downstream consequence of it (WIC-1724).
+  //
+  // `path="/*"` is a string literal containing a block-comment opener. A scanner that fails
+  // to suspend on `"` reads it as a bare opener and deletes from there to the next closer,
+  // consuming the literal along the way — so the literal surviving stripping verbatim is a
+  // direct assertion that quote suspension is working. Unlike the route-table floor above,
+  // nothing about where the next `*/` happens to sit, or which routes happen to fall between
+  // the two, can weaken it: the evidence and the hazard are the same characters.
+  //
+  // Measured on `1463eccc`: present with the scanner intact, absent with quote suspension
+  // removed. If App.tsx ever stops declaring a catch-all this way, replace the anchor rather
+  // than deleting the test — an over-strip control that no longer has a hazard to key on is
+  // the vacuous state this exists to prevent.
+  it('keeps the path="/*" string literal intact in the real App.tsx', () => {
+    expect(rawAppSource).toContain('path="/*"');
+    expect(appSource).toContain('path="/*"');
   });
 
   // The under-strip direction, against real source. Every assertion above this one only

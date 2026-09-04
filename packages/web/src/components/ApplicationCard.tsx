@@ -117,7 +117,6 @@ export function ApplicationCard({
       onMouseLeave={() => setIsHovered(false)}
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      role="article"
       aria-label={ariaLabel}
     >
       {/* Company Icon Placeholder */}

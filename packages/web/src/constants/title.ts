@@ -6,8 +6,12 @@ import { NOT_FOUND_COPY } from '../pages/NotFound.copy';
  * Specified by `docs/design/ROUTE_TITLE_CONVENTION.md` (WIC-1089). Before this module
  * every route in the SPA shared the one static `<title>` in `index.html`, so the browser
  * tab, the history entry, the bookmark name and the window-switcher entry were identical
- * for all 31 routes — the textbook WCAG 2.4.2 (Page Titled, Level A) failure mode for a
- * single-page app, and the reason `Ctrl/Cmd+H` could not be used to return to a screen.
+ * for all 30 routes that render a page — the textbook WCAG 2.4.2 (Page Titled, Level A)
+ * failure mode for a single-page app, and the reason `Ctrl/Cmd+H` could not be used to
+ * return to a screen. 30, and not the 32 the tables below account for, because the two
+ * `REDIRECT_ROUTES` only ever `<Navigate>` and so never painted a title to share. 30 is
+ * the denominator `route-title-table-audit.py` prints and `routeOutline.render.test.tsx`
+ * pins.
  *
  * The governing rule (§0.3) is that **a route's title is its `<h1>` verbatim**. That is
  * what keeps this table from becoming a second, drifting copy of the app's copy deck:
@@ -25,13 +29,16 @@ import { NOT_FOUND_COPY } from '../pages/NotFound.copy';
  * evidence rather than parking a WCAG A item behind a branding thread. If the board or
  * the Copywriter lands elsewhere, this constant is the only line that moves.
  *
- * It has *not* displaced the old name everywhere. `index.html` and Login's `<h2>` — the
- * two places §2 named — now read from here, but `Job Application Manager` survives as
- * prose in `components/onboarding/OnboardingModal.tsx` (the step-1 headline) and in
- * `components/QuickReferenceExport.tsx` (the exported interview sheet's footer, so it
- * reaches printed output). Neither renames mechanically — "Welcome to Your Careerpin"
- * does not read — so both are the Copywriter's call and are recorded in the spec's §9.
- * `jobtrail`, in the root `package.json` and the deploy target, is not user-facing.
+ * It has now displaced the old name at all four user-facing sites. Beyond `index.html`
+ * and Login's `<h2>` — the two places §2 named — the Copywriter / Editor ruled the
+ * remaining two on 2026-09-01 under WIC-1950, and both read from here:
+ * `components/onboarding/OnboardingModal.tsx` renders `Welcome to Careerpin` (not
+ * "Welcome to Your Careerpin"; a brand name does not take the possessive), and
+ * `components/QuickReferenceExport.tsx` renders `Generated with Careerpin • {date}` with
+ * no URL — that footer is the export modal's on-screen preview, not printed output, which
+ * is assembled server-side in `exportInterviewPrep`. The reasoning is in
+ * `docs/design/CONTENT_STYLE.md` under Exception 1. `jobtrail`, in the root
+ * `package.json` and the deploy target, is not user-facing.
  */
 export const PRODUCT_NAME = 'Careerpin';
 
@@ -95,12 +102,9 @@ export const HOOK_TITLED_ROUTES: readonly string[] = [
   '/resume-variants/:id', //                     ResumeVariantDetail.tsx:170 {variant.title}
   '/projects/:projectId', //                     ProjectDetail.tsx:46       {projectName}
   '/projects/:projectId/files/:fileName', //     ProjectFileEditor.tsx:73   {fileName}
-  '/job-fit-analysis', //                        JobFitAnalysis.tsx:481 / :169, by stage
+  '/job-fit-analysis', //                        JobFitAnalysis.tsx:47, constant across all five stages (WIC-1099)
   '/projects/new/dialogue', //                   WizardContainer.tsx:398-401, by wizard variant
-  // Not dynamic — `/login` sits in the *outer* <Routes> in App.tsx, above ProtectedRoute,
-  // so the shell that applies STATIC_ROUTE_TITLES is never mounted for it. Same mechanism
-  // as the six above, different reason; its string is LOGIN_TITLE below.
-  '/login',
+  '/login', //                                   Login.tsx:81, by mode (WIC-1099) — LOGIN_TITLES below
 ];
 
 /**
@@ -124,9 +128,11 @@ export const REDIRECT_ROUTES: readonly string[] = ['/dashboard', '/reports/pipel
 /**
  * `/login` sits in the *outer* `<Routes>` in `App.tsx`, above `ProtectedRoute`, so the
  * app shell that applies `STATIC_ROUTE_TITLES` is not mounted for it. `Login.tsx` calls
- * the hook with this directly.
+ * the hook directly with `LOGIN_TITLES[mode]`.
  *
- * New copy: the page's highest heading is an `<h2>` and its text is the product name
- * rather than a description of the screen (§6.1) — so there is no `<h1>` to mirror.
+ * Keyed by mode rather than a single string (WIC-1099): the page's `<h1>` now names the
+ * screen — `Sign in` / `Create an account` — where it used to be the product wordmark with
+ * no `<h1>` above it at all (§6.1). The title mirrors that `<h1>` verbatim, per the usual
+ * rule (§0.3), now that there is a screen-naming heading to mirror.
  */
-export const LOGIN_TITLE = 'Sign In';
+export const LOGIN_TITLES = { login: 'Sign in', register: 'Create an account' } as const;

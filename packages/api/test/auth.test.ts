@@ -6,6 +6,7 @@ import { _resetJwksCache } from '../src/middleware/auth.js';
 // Mocked below; imported so the WIC-1554 cases can grade *whether a handler
 // ran*, not just the status code the middleware returned.
 import { listApplications } from '../src/services/application.service.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 vi.mock('jose', async (importOriginal) => {
   const actual = await importOriginal<typeof import('jose')>();
@@ -13,7 +14,8 @@ vi.mock('jose', async (importOriginal) => {
 });
 
 // Mock all services so no DB is needed
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn().mockResolvedValue({ applications: [], totalCount: 0 }),
@@ -21,14 +23,25 @@ vi.mock('../src/services/application.service.js', () => ({
   deleteApplication: vi.fn(),
   updateApplicationStatus: vi.fn(),
 }));
-vi.mock('../src/services/dashboard.service.js', () => ({ getDashboardStats: vi.fn() }));
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
+  getDashboardStats: vi.fn(),
+}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/cover-letter.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/resume.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/project.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/dialogue.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/catalog.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/reports.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/resume-variant.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/interviewPrep.service.js', () => ({}));
 vi.mock('../src/db/client.js', () => ({ db: {} }));
 
@@ -335,6 +348,13 @@ describe('Auth Middleware', () => {
       // returns before any token is looked at. WIC-1554 deliberately did not
       // touch it, and this pins that the two paths stayed separate — the fix
       // removes anonymous *authenticated* callers, not the configured bypass.
+      //
+      // ADR-010 D3 (WIC-1964) later changed what the bypass *supplies* — a real
+      // `LOCAL_DEV_USER_ID` rather than an absence — without changing when it
+      // fires, which is why the owner below is `DEV_OWNER` and not `undefined`.
+      // The separation this test exists to pin is unaffected: a sub-less token
+      // still never reaches a route in a configured deployment, and here it is
+      // still never looked at.
       delete process.env.SUPABASE_JWT_SECRET;
       delete process.env.SUPABASE_URL;
       const app = buildApp();
@@ -346,7 +366,7 @@ describe('Auth Middleware', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(vi.mocked(listApplications)).toHaveBeenCalledWith(expect.anything(), undefined);
+      expect(vi.mocked(listApplications)).toHaveBeenCalledWith(expect.anything(), DEV_OWNER);
     });
   });
 });

@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The Job Application Manager backend needs to migrate from Fastify/Node.js to Cloudflare Workers for global edge deployment. We need a web framework that:
+The Careerpin backend needs to migrate from Fastify/Node.js to Cloudflare Workers for global edge deployment. We need a web framework that:
 
 1. Runs natively on Cloudflare Workers runtime
 2. Provides similar DX to Fastify (routing, middleware, validation)
