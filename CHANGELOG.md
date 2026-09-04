@@ -125,6 +125,15 @@ WIC-1652 found three `WorkflowChecklist` props no caller can supply truthfully �
 - **The two design docs that draw this tile were corrected in the same change.** `WIREFRAMES.md` (two blocks) and `COMPONENT_SPECS.md` both rendered the cell as `This Week`; the ASCII cells were widened to fit `Last 7 Days` with the surrounding box widths preserved exactly. `COMPONENT_SPECS.md` §5 gains a `Window semantics` note recording that the `appliedThisWeek` **prop name** is a legacy of the original calendar-week reading and is not a statement about the window — nothing in CI checks prose, so leaving the drawings saying `This Week` would have shipped a document the code falsifies.
 - **Not fixed here, and filed separately:** `CommandPalette.tsx` and `SavedFilterShortcuts.tsx` both offer an `Interviews This Week` shortcut whose filter is status-only and carries no time window at all. Same phrase, worse mismatch, but a different defect — those surfaces render no window metric, so AC-N12 does not reach them.
 
+
+### Docs — the applied-window rationale no longer cites a sibling defect that was fixed underneath it (2026-09-04)
+
+`packages/web/src/constants/appliedWindow.ts` argued that the `appliedThisWeek` relabel does not rest on its `appliedThisMonth` sibling, on the grounds that the sibling "is `oneMonthAgo.setMonth(getMonth() - 1)`, so it measures 28 to 31 days rather than a flat 30". That premise is dead: WIC-1777 replaced the computation with `new Date(now - 30 * DAY_MS)`, and `dashboard.service.ts` now carries a comment documenting exactly the `setMonth` overflow it removed. The file was describing a defect that no longer exists, in the present tense, as the reason for a decision (WIC-1777).
+
+- **The conclusion is unchanged and the argument still holds** — it just rests on the half that is still true. `appliedThisMonth` remains unusable as support because it has no label to be consistent with: its only non-type occurrence in `packages/web/src` is the zeroed pre-fetch fallback in `Dashboard.tsx`, so it reaches no surface and AC-N12 does not reach it.
+- **Records what is still owed.** The computation is an honest rolling 30 days; the *name* is not. Any surface that ever renders the field has to label it "last 30 days", which is the AC-N12 obligation the original card raised and the reason this is worth stating rather than deleting.
+- **Docs only.** No behaviour, no exported value, no test expectation changes.
+
 ### Added — the dialogue wizard confirms before discarding unsaved answers (2026-08-30)
 
 WIC-1621 ruled draft persistence out of the dialogue wizard, and WIC-1495 removed the write, the "Save Draft" button, the 30-second autosave and the Ctrl+S handler that fed it. That is the right call — all four promised a restore no code could perform — but it leaves closing the wizard as total, silent loss. `Escape`, the header close button and in-app navigation away from `/projects/new/dialogue` now each raise a confirmation first, reusing `ConfirmationModal` with `variant="danger"` (WIC-1765).
