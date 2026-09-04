@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from 'react-router-dom';
-import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
 import { ConfirmationModal } from '../ConfirmationModal';
 import { useInAppNavigationGuard } from '../../hooks/useInAppNavigationGuard';
 import { ProgressIndicator } from './ProgressIndicator';
@@ -45,9 +44,6 @@ const STEP_LABELS = ['Context', 'Details', 'Industry', 'Accomplishments', 'Tags'
  * Main wizard controller for dialogue-based STAR file capture
  */
 export function WizardContainer({ variant, onComplete, onCancel }: WizardContainerProps) {
-  // Step 1's company input carries `autoFocus`, so Radix never dispatches
-  // `onOpenAutoFocus` here — the hook's `focusin` fallback captures the trigger.
-  const focusRestore = useDialogFocusRestore();
   const [currentStep, setCurrentStep] = useState(1);
   const [data, setData] = useState<Partial<ProjectData>>({
     accomplishments: [],
@@ -440,10 +436,17 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black bg-opacity-50 z-modal" />
+        {/*
+          focus-restore-exempt: this dialog is a route, so every exit is a `navigate()`
+          and no ref on either side is mounted when Radix restores focus.
+          `useDialogFocusRestore` was spread here until WIC-1931 and was inert — deleting
+          it cost zero tests, because the trigger it captured is detached the moment the
+          wizard mounts. Focus is handed to the destination route by name instead, from
+          `DialogueCapture`'s `onCancel` — see `useRouteFocusHandoff`.
+        */}
         <Dialog.Content
           className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-[calc(100%-2rem)] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-modal"
           aria-describedby={undefined}
-          {...focusRestore}
         >
           {/* Header */}
           <div className="px-8 py-6 border-b border-neutral-200">
