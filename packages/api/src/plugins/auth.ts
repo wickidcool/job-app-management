@@ -1,3 +1,25 @@
+/**
+ * ⚠️ DEAD CODE — not the auth this service runs. Do not edit it as if it were.
+ *
+ * This is the pre-Hono Fastify plugin, left behind by the migration recorded in
+ * `docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md`. Three independent
+ * facts say it cannot execute:
+ *
+ *   - nothing imports it (`authPlugin` has zero references outside this file);
+ *   - `src/plugins` is in `tsconfig.json`'s `exclude`, so it is never
+ *     typechecked or emitted; and
+ *   - `fastify` and `fastify-plugin` are not dependencies of this package and
+ *     are not installed, so the two imports below do not even resolve.
+ *
+ * **The live auth is `src/middleware/auth.ts`** (Hono), mounted at
+ * `app.ts`'s `api.use('*', authMiddleware)`. That is where the ADR-010 D3
+ * local-dev owner is supplied, and where any future auth change belongs.
+ * ADR-010 flags this file explicitly as the stale mechanism ADR-003 documents.
+ *
+ * Kept only because ADR-003 still cites it by path; retiring both together is
+ * tracked separately (WIC-1964 notes) rather than smuggled into a behaviour
+ * change.
+ */
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync } from 'fastify';
 import { createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';

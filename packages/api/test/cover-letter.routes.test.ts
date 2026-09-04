@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-vi.mock('../src/services/cover-letter.service.js', () => ({
+vi.mock('../src/services/cover-letter.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/cover-letter.service.js')>()),
   generateCoverLetter: vi.fn(),
   getCoverLetter: vi.fn(),
   listCoverLetters: vi.fn(),
@@ -12,7 +13,8 @@ vi.mock('../src/services/cover-letter.service.js', () => ({
   exportCoverLetter: vi.fn(),
 }));
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -21,7 +23,8 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -29,11 +32,13 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -52,15 +57,18 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/job-fit.service.js', () => ({
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
   analyzeJobFit: vi.fn(),
 }));
 
-vi.mock('../src/services/dialogue.service.js', () => ({
+vi.mock('../src/services/dialogue.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dialogue.service.js')>()),
   processDialogue: vi.fn(),
 }));
 
-vi.mock('../src/services/project.service.js', () => ({
+vi.mock('../src/services/project.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/project.service.js')>()),
   createProject: vi.fn(),
   getProject: vi.fn(),
   listProjects: vi.fn(),
@@ -70,6 +78,7 @@ vi.mock('../src/services/project.service.js', () => ({
 
 import * as coverLetterService from '../src/services/cover-letter.service.js';
 import { NotFoundError, CoverLetterError, VersionConflictError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockCoverLetter = {
   id: '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
@@ -285,7 +294,7 @@ describe('Cover Letter Routes', () => {
       expect(response.status).toBe(200);
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'draft' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -294,7 +303,7 @@ describe('Cover Letter Routes', () => {
       await app.request('/api/cover-letters?company=Acme', { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ company: 'Acme' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -303,7 +312,7 @@ describe('Cover Letter Routes', () => {
       await app.request('/api/cover-letters?search=typescript', { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ search: 'typescript' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -324,7 +333,7 @@ describe('Cover Letter Routes', () => {
       await app.request(`/api/cover-letters?cursor=${cursor}`, { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ cursor }),
-        undefined
+        DEV_OWNER
       );
     });
   });
@@ -705,7 +714,7 @@ describe('Cover Letter Routes', () => {
       expect(coverLetterService.exportCoverLetter).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
         expect.objectContaining({ includeHeader: true, fontSize: 12 }),
-        undefined
+        DEV_OWNER
       );
     });
 

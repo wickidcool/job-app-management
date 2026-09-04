@@ -19,7 +19,10 @@ import {
   type TalkingPoint,
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
+import { EXPORT_BYLINE } from '../constants/product.js';
 import { AppError, NotFoundError } from '../types/index.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
+import { clampPercent, type Percent } from '../types/units.js';
 
 // ── Tenancy ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +55,20 @@ import { AppError, NotFoundError } from '../types/index.js';
  * `0017_enforce_userid_not_null.sql`, so `IS NULL` matches **no rows** and an
  * anonymous caller reaches an empty catalog and this service raises
  * `CATALOG_EMPTY`. Failing closed is the intent.
+ *
+ * `userId` stays optional here and the fallback stays with it (WIC-1764). WIC-1638
+ * made the owner *required* on the bullet-catalog path and deleted the equivalent
+ * branch from the `bulletOwnerScope` this replaced — but that helper served one
+ * `.notNull()` table, and this one also serves `applications` and `interview_preps`,
+ * which are nullable and whose insert paths write `userId ?? null`. Requiring the
+ * owner here would break the ADR-003 local-dev anonymous path and the entry points
+ * in this file that still take `userId?: string`.
+ *
+ * WIC-1638's guarantee is therefore carried where it holds without that cost:
+ * `requireOwner(c)` rejects an absent owner at the route edge with `401
+ * OWNER_REQUIRED`, and `generateInterviewPrep` takes `userId: string`. The
+ * `IS NULL` branch is unreachable from that path, and fail-closed on this table
+ * regardless. Do not "finish the job" by making `userId` required here.
  */
 function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
   return userId ? eq(table.userId, userId) : isNull(table.userId);
@@ -72,7 +89,13 @@ export interface PrepStoryDTO {
   id: string;
   starEntryId: string;
   themes: string[];
-  relevanceScore: number;
+  /**
+   * Percent in `[0, 100]`, integer — the one ADR-008 §4 deviation from the
+   * ratio convention. The `Pct` suffix is the contract; the brand is checked
+   * on assignment only, so the `[0, 100]` bound and the `/100` export string
+   * are pinned by tests, not by this type (WIC-1520, ADR-008 §3).
+   */
+  relevanceScorePct: Percent;
   oneMinVersion: string;
   twoMinVersion: string;
   fiveMinVersion: string;
@@ -224,7 +247,9 @@ function storyRowToDTO(row: InterviewPrepStory): PrepStoryDTO {
     id: row.id,
     starEntryId: row.starEntryId,
     themes: (row.themes ?? []) as string[],
-    relevanceScore: row.relevanceScore,
+    // Persisted already-clamped on the write path; re-clamp so a row written
+    // before the bound existed cannot escape onto the wire.
+    relevanceScorePct: clampPercent(row.relevanceScorePct),
     oneMinVersion: row.oneMinVersion,
     twoMinVersion: row.twoMinVersion,
     fiveMinVersion: row.fiveMinVersion,
@@ -280,7 +305,7 @@ async function generatePrepWithAI(
   stories: Array<{
     starEntryId: string;
     themes: string[];
-    relevanceScore: number;
+    relevanceScorePct: number;
     oneMinVersion: string;
     twoMinVersion: string;
     fiveMinVersion: string;
@@ -312,7 +337,7 @@ Generate comprehensive interview prep materials in JSON format with exactly this
     {
       "starEntryId": "<ID from the [ID:...] prefix above>",
       "themes": ["<theme1>", "<theme2>"],
-      "relevanceScore": <0-100 integer>,
+      "relevanceScorePct": <0-100 integer>,
       "oneMinVersion": "<~100 word concise summary of this achievement>",
       "twoMinVersion": "<~200 word moderate-length version>",
       "fiveMinVersion": "<~400 word full STAR story version>"
@@ -394,7 +419,7 @@ Rules:
     stories: Array<{
       starEntryId: string;
       themes: string[];
-      relevanceScore: number;
+      relevanceScorePct: number;
       oneMinVersion: string;
       twoMinVersion: string;
       fiveMinVersion: string;
@@ -419,7 +444,7 @@ Rules:
 
 export async function generateInterviewPrep(
   input: GenerateInterviewPrepInput,
-  userId?: string
+  userId: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
   storiesGenerated: number;
@@ -428,6 +453,12 @@ export async function generateInterviewPrep(
   catalogEntriesUsed: number;
   warnings: Array<{ code: string; message: string }>;
 }> {
+  // Resolved at the top, ahead of the application read: a malformed field in
+  // the request is a boundary rejection, and doing it here also keeps the
+  // NO_FIT_ANALYSIS decision below tied to a resolved row rather than to a
+  // non-empty string (WIC-1818 AC-5a/AC-5c).
+  const analysis = await resolveJobFitAnalysis(input.jobFitAnalysisId, userId);
+
   const db = getDb();
 
   const [app] = await db
@@ -491,7 +522,10 @@ export async function generateInterviewPrep(
       message: 'Fewer than 5 STAR entries in catalog',
     });
   }
-  if (!input.jobFitAnalysisId) {
+  // Was `if (!input.jobFitAnalysisId)`, so any non-empty string silenced a
+  // warning about the quality of the output while nothing ever read an
+  // analysis. Keyed on the resolved row now (WIC-1818 AC-5c).
+  if (!analysis) {
     warnings.push({
       code: 'NO_FIT_ANALYSIS',
       message: 'Generated without job fit analysis (gaps may be incomplete)',
@@ -524,7 +558,9 @@ export async function generateInterviewPrep(
     id: prepId,
     userId: userId ?? null,
     applicationId: input.applicationId,
-    jobFitAnalysisId: input.jobFitAnalysisId ?? null,
+    // The resolved analysis, never the raw request field — an id that does not
+    // resolve must not reach the column (WIC-1818 AC-5a).
+    jobFitAnalysisId: analysis?.id ?? null,
     interviewType,
     timeAvailable,
     focusAreas,
@@ -545,7 +581,9 @@ export async function generateInterviewPrep(
     interviewPrepId: prepId,
     starEntryId: s.starEntryId,
     themes: s.themes,
-    relevanceScore: Math.min(100, Math.max(0, s.relevanceScore)),
+    // Bounds the LLM's `<0-100 integer>` to ADR-008's percent range. Pinned by
+    // test — the `Percent` brand is erased by arithmetic and cannot enforce it.
+    relevanceScorePct: clampPercent(s.relevanceScorePct),
     oneMinVersion: s.oneMinVersion,
     twoMinVersion: s.twoMinVersion,
     fiveMinVersion: s.fiveMinVersion,
@@ -607,7 +645,13 @@ export async function getInterviewPrep(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: {
     id: string;
     recommendation?: string;
@@ -636,6 +680,9 @@ export async function getInterviewPrep(
       jobTitle: applications.jobTitle,
       company: applications.company,
       status: applications.status,
+      // WIC-2023. Backs `ApplicationSummary.interviewDate` on the web side, which
+      // `InterviewPrepCard:138` and `QuickReferenceExport:111` both gate on.
+      interviewDate: applications.interviewDate,
     })
     .from(applications)
     .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
@@ -643,9 +690,19 @@ export async function getInterviewPrep(
 
   return {
     interviewPrep: prepRowToDTO(prep, stories),
+    // The not-found fallback sends `interviewDate: null`, not `''`. The other
+    // fields use `''` because they are declared non-nullable strings; this one is
+    // nullable precisely so "no interview scheduled" is representable, and an
+    // empty string would make `new Date('')` produce an Invalid Date downstream.
     application: app
-      ? { id: app.id, jobTitle: app.jobTitle, company: app.company, status: app.status }
-      : { id: prep.applicationId, jobTitle: '', company: '', status: '' },
+      ? {
+          id: app.id,
+          jobTitle: app.jobTitle,
+          company: app.company,
+          status: app.status,
+          interviewDate: app.interviewDate?.toISOString() ?? null,
+        }
+      : { id: prep.applicationId, jobTitle: '', company: '', status: '', interviewDate: null },
     fitAnalysis: null,
   };
 }
@@ -657,7 +714,13 @@ export async function getInterviewPrepByApplication(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: { id: string } | null;
 }> {
   const db = getDb();
@@ -1034,7 +1097,9 @@ export async function exportInterviewPrep(
     lines.push('');
     for (const story of storyDTOs) {
       lines.push(`### Story (Themes: ${story.themes.join(', ')})`);
-      lines.push(`**Relevance Score:** ${story.relevanceScore}/100`);
+      // `/100` because this population is a percent, not a ratio (ADR-008 §4).
+      // Pinned by test; the brand does not survive template interpolation.
+      lines.push(`**Relevance Score:** ${story.relevanceScorePct}/100`);
       lines.push('');
       lines.push('**1-min version:**');
       lines.push(story.oneMinVersion);
@@ -1097,6 +1162,14 @@ export async function exportInterviewPrep(
     }
     lines.push('');
   }
+
+  // Byline, at the foot and in every format — this artifact is downloaded, printed and
+  // read outside the app, often by someone who is not the user (WIC-1953). It sits below
+  // the content rather than under the title because the title belongs to the user's own
+  // document; see `docs/design/CONTENT_STYLE.md`, Exception 1.
+  lines.push('---');
+  lines.push('');
+  lines.push(`*${EXPORT_BYLINE}*`);
 
   const markdownContent = lines.join('\n');
 

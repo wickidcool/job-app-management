@@ -33,7 +33,8 @@ vi.mock('../src/db/client.js', () => ({
 // the assertion "no text was extracted" would hold for the wrong reason — the
 // document would be unreadable rather than out of scope — and the test would
 // stay green with the predicate removed.
-vi.mock('../src/services/storage.service.js', () => ({
+vi.mock('../src/services/storage.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/storage.service.js')>()),
   isStorageAvailable: () => true,
   // The object body is the file path, so extractText below can return text that
   // differs per document. Needed to tell "B read A's file" from "B read some
@@ -97,6 +98,7 @@ CREATE TABLE applications (
   comp_target TEXT,
   next_action TEXT,
   next_action_due DATE,
+  interview_date TIMESTAMPTZ,
   job_description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -230,6 +232,7 @@ CREATE TABLE catalog_diffs (
   pending_review JSONB NOT NULL DEFAULT '[]'::jsonb,
   status diff_status NOT NULL DEFAULT 'pending',
   user_decisions JSONB,
+  open_review_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ,
   resolved_at TIMESTAMPTZ
@@ -755,10 +758,13 @@ describe('WIC-1406 — generateDiff scopes to the caller, not to the named docum
     await seedResumeWithText('01RESUME_A', USER_A, A_PRIVATE_TEXT);
 
     // User B posts /api/catalog/generate-diff naming user A's resume ULID.
+    // WIC-1414 catches this at the boundary, before any of the fallback-owner
+    // hazard above can run: the same 404 an absent resume would yield, not a
+    // downstream failure once the diff was already being built as A's.
     await expect(
       generateDiff('resume', '01RESUME_A', USER_B),
       "B must not receive a diff derived from A's document"
-    ).rejects.toThrow(/CatalogDiff/);
+    ).rejects.toThrow(/Resume not found/);
 
     // Nothing was written anywhere: not into A's catalog, not as a diff row.
     expect(await db.select().from(techStackTags)).toHaveLength(0);
@@ -793,18 +799,30 @@ describe('WIC-1406 — generateDiff scopes to the caller, not to the named docum
     ).toBeDefined();
   });
 
-  it('falls back to the document owner when there is no authenticated caller', async () => {
-    // Local-dev auth bypass: `c.get('userId')` is undefined, so the route passes
-    // `undefined`. `metadata.userId` is then null, `typeof null === 'string'` is
-    // false, and the row fallback still applies — single-user local behaviour is
-    // untouched by the caller-scoping fix.
+  it('does not fall back to the document owner when there is no authenticated caller', async () => {
+    // SUPERSEDED, deliberately. WIC-1406 originally pinned the opposite here: an
+    // absent caller fell back to the source row's own owner, so local-dev auth
+    // bypass kept working. ADR-010 D3/D4 (WIC-1600, implemented by WIC-1638)
+    // rules that an absent owner must match zero rows instead — a fallback that
+    // resolves the "owner" from the document being named is the cross-tenant
+    // read the ADR exists to close.
+    //
+    // Local dev is not collateral damage: D3 landed in middleware/auth.ts
+    // (WIC-1964), so the bypass supplies a real LOCAL_DEV_USER_ID rather than an
+    // absence. Local dev without Supabase config is therefore a tenant that runs
+    // this same owner branch, not an owner-less caller taking a 401.
+    //
+    // In production this service call is unreachable with an absent owner --
+    // requireOwner(c) at POST /catalog/generate-diff rejects first -- so this
+    // case pins the service-level posture directly rather than through a route.
     await seedResumeWithText('01RESUME_A', USER_A, A_PRIVATE_TEXT);
 
-    const diff = await generateDiff('resume', '01RESUME_A', undefined);
-    expect(diff.id).toBeDefined();
+    const result = await generateDiff('resume', '01RESUME_A', undefined as unknown as string).catch(
+      (e: unknown) => e
+    );
 
-    const rows = await db.select().from(techStackTags).where(eq(techStackTags.userId, USER_A));
-    expect(rows.find((t) => t.tagSlug === 'react')).toBeDefined();
+    expect(result, 'an ownerless call must reject rather than resolve').toBeInstanceOf(Error);
+    expect(JSON.stringify(result)).not.toContain('Stealth Startup');
   });
 });
 

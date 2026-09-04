@@ -1,4 +1,4 @@
-# Job Application Manager
+# Careerpin
 
 A multi-user web application for tracking job applications, resumes, and interview prep. Built with React and TypeScript, and deployed to production at **[careerpin.app](https://careerpin.app)** on Cloudflare Workers.
 

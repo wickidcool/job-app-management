@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumeExports: vi.fn(),
   getResumeExport: vi.fn(),
 }));
 
 // Prevent other service mocks from leaking into app startup
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -17,7 +19,8 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 

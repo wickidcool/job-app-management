@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { ChangeActionBadge } from './ChangeActionBadge';
-import { elementsWithProhibitedName } from '../../test/prohibitedName';
+import { expectNoAxeFindings } from '../../test/axe';
 import type { CatalogChangeAction } from '../../types/catalog';
 
 /**
@@ -29,10 +29,17 @@ const EXPECTED_LABEL: Record<CatalogChangeAction, string> = {
 };
 
 describe('ChangeActionBadge — ARIA prohibited name (WIC-1185)', () => {
-  it.each(ACTIONS)('carries no author name on any role-less element (%s)', (action) => {
+  it.each(ACTIONS)('carries no author name on any role-less element (%s)', async (action) => {
+    // WIC-1926: this was a hand-rolled `elementsWithProhibitedName` query, written when no
+    // axe was available. It is now the shared axe assertion, which covers the same class
+    // via `aria-prohibited-attr` and everything else axe can decide about this tree.
+    //
+    // The original defect — `aria-label` on a role-less <span> that *has* text — is an axe
+    // `incomplete`, not a violation, so this only holds because the helper reads both
+    // lists. A `violations`-only assertion would report the WIC-1185 markup as clean.
     const { container } = render(<ChangeActionBadge action={action} />);
 
-    expect(elementsWithProhibitedName(container)).toEqual([]);
+    await expectNoAxeFindings(container);
   });
 
   it.each(ACTIONS)('announces the action as a real text node (%s)', (action) => {

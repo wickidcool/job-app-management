@@ -1,8 +1,22 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WizardContainer, type ProjectFile } from '../components/wizard';
 import { useCreateProjectFile } from '../hooks/useProjects';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { FOCUS_HANDOFF_TARGETS, focusHandoffState } from '../hooks/useRouteFocusHandoff';
-import type { ProjectData } from '../components/wizard';
+
+/**
+ * The wizard names itself by variant in `WizardContainer.tsx:398-401`. Mirrored here
+ * rather than read from the container because the variant is a *route* concern — it comes
+ * off the query string — and because the container renders that string as a
+ * `Dialog.Title`, which `ROUTE_TITLE_CONVENTION.md` §3.1 otherwise forbids from touching
+ * `document.title`. That rule is about an overlay opening *on top of* a route; here the
+ * dialog is the whole route, so the route still owes the user a title.
+ */
+const WIZARD_VARIANT_TITLES: Record<'create' | 'enrich' | 'correct', string> = {
+  create: 'New Project',
+  enrich: 'Enrich Project',
+  correct: 'Correct Project',
+};
 
 /**
  * DialogueCapture Page
@@ -12,8 +26,9 @@ export function DialogueCapture() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const variant = (searchParams.get('variant') as 'create' | 'enrich' | 'correct') || 'create';
-  const existingFileId = searchParams.get('fileId') || undefined;
   const createProjectFile = useCreateProjectFile();
+
+  useDocumentTitle(WIZARD_VARIANT_TITLES[variant] ?? WIZARD_VARIANT_TITLES.create);
 
   const handleComplete = async (generatedFile: ProjectFile) => {
     try {
@@ -48,28 +63,9 @@ export function DialogueCapture() {
     });
   };
 
-  const handleSaveDraft = (draftData: Partial<ProjectData>) => {
-    // Save draft to localStorage for now
-    // In the future, this could be saved to .draft files via API
-    const draftKey = `dialogue-wizard-draft-${variant}${existingFileId ? `-${existingFileId}` : ''}`;
-    localStorage.setItem(
-      draftKey,
-      JSON.stringify({
-        data: draftData,
-        timestamp: new Date().toISOString(),
-      })
-    );
-    console.log('Draft saved:', draftKey);
-  };
-
   return (
     <div className="min-h-screen bg-neutral-900 bg-opacity-50">
-      <WizardContainer
-        variant={variant}
-        onComplete={handleComplete}
-        onCancel={handleCancel}
-        onSaveDraft={handleSaveDraft}
-      />
+      <WizardContainer variant={variant} onComplete={handleComplete} onCancel={handleCancel} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 # Core UI Components
 
-This directory contains the foundational presentational components for the Job Application Manager.
+This directory contains the foundational presentational components for Careerpin.
 
 ## Components
 
