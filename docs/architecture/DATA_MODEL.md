@@ -1,8 +1,8 @@
-# Job Application Manager — Data Model
+# Careerpin — Data Model
 
 ## Overview
 
-This document defines the PostgreSQL database schema for the Job Application Manager. The relational model naturally supports the application's needs: tracking applications, maintaining status history, and computing dashboard aggregations.
+This document defines the PostgreSQL database schema for Careerpin. The relational model naturally supports the application's needs: tracking applications, maintaining status history, and computing dashboard aggregations.
 
 ## Database Configuration
 

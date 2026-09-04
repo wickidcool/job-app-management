@@ -36,8 +36,13 @@ export function _resetJwksCache() {
  * not `?? null`: that admits an empty-string `sub`, which is falsy and degrades
  * identically at every call site downstream.
  *
- * The genuine dev bypass is a different branch and is untouched — it is the
- * `!supabaseUrl && !jwtSecret` early return above, per ADR-003.
+ * The genuine dev bypass is a different branch — the `!supabaseUrl &&
+ * !jwtSecret` early return above. Its *condition* is untouched by this guard
+ * and by ADR-010 D3 alike; what D3 changed is that it now supplies the
+ * `LOCAL_DEV_USER_ID` sentinel rather than `null`, retiring ADR-003's
+ * "left as null for local-only" affordance. So after D3 there is no path
+ * through this middleware that admits a request with no owner: this one 401s,
+ * and the bypass resolves a real tenant.
  */
 function requireSubject(payload: { sub?: unknown }): string {
   if (typeof payload.sub !== 'string' || payload.sub === '') {
@@ -54,9 +59,21 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const jwtSecret =
     (c.env?.SUPABASE_JWT_SECRET as string | undefined) ?? getConfig().supabaseJwtSecret;
 
-  // Bypass when no Supabase config is present (local dev without auth)
+  // Bypass when no Supabase config is present (local dev without auth).
+  //
+  // ADR-010 D3 — the bypass supplies a *real owner*, not an absence. Local dev
+  // is therefore "one specific tenant" rather than "no tenant", so every
+  // tenancy predicate downstream runs its owner branch here exactly as it does
+  // in production, instead of being skipped. That is the point: it is what
+  // makes local dev and E2E exercise the isolation logic rather than bypass it.
+  //
+  // The *condition* is deliberately untouched — D3 changes what the bypass
+  // supplies, never when it fires. A deployment with either variable set still
+  // takes the JWT path below and still 401s on a missing or invalid token.
   if (!supabaseUrl && !jwtSecret) {
-    c.set('userId', null);
+    // `||`, not `??`: a blank binding must fall through to the configured
+    // default rather than resolve to `''`, which `requireOwner` rejects.
+    c.set('userId', c.env?.LOCAL_DEV_USER_ID?.trim() || getConfig().localDevUserId);
     return next();
   }
 

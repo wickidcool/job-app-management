@@ -1,6 +1,6 @@
 # UI/UX Design Specifications
 
-**Project:** Job Application Manager  
+**Project:** Careerpin  
 **Phase:** MVP (Phase 1)  
 **Created:** April 15, 2026  
 **Designer:** UI/UX Developer  
@@ -10,7 +10,7 @@
 
 ## Overview
 
-This directory contains comprehensive UI/UX design specifications for the Job Application Manager's application tracking features. These documents provide everything the Frontend Developer needs to implement the user interface.
+This directory contains comprehensive UI/UX design specifications for Careerpin's application tracking features. These documents provide everything the Frontend Developer needs to implement the user interface.
 
 ---
 

@@ -143,7 +143,7 @@ describe('migration 0022 (AC-4)', () => {
     }
   });
 
-  it('is registered in the drizzle journal, last, with the newest timestamp', () => {
+  it('is registered in the drizzle journal, after every entry that precedes it', () => {
     // A migration file the runner never reads is not a migration (WIC-1408) —
     // but registration alone is not enough here, and this assertion is the one
     // that caught a real silent skip.
@@ -174,8 +174,38 @@ describe('migration 0022 (AC-4)', () => {
       entry,
       `${JOB_FIT_ANALYSES_TAG} must be in _journal.json or db:migrate skips it`
     ).toBeDefined();
-    expect(entry!.idx).toBe(Math.max(...journal.entries.map((e) => e.idx)));
-    expect(entry!.when).toBe(Math.max(...journal.entries.map((e) => e.when)));
+    // WIC-2023 relaxed "is the newest entry in the journal" to "is newer than
+    // everything before it". The original form asserted `idx`/`when` were the
+    // file-wide maxima, which pinned this migration as permanently last: it
+    // fails the moment ANY later migration is added, for a reason that has
+    // nothing to do with this migration. 0026 is what tripped it.
+    //
+    // The relaxation costs no protection. What the comment above describes --
+    // a `when` that collides with, or sits below, an already-applied sibling,
+    // so `dialect.js`'s strict `<` skips this file in silence -- is a statement
+    // about the entries BEFORE it, and that is exactly what is asserted here.
+    // Entries added after it cannot cause this migration to be skipped. The
+    // file-wide invariant (unique idx, strictly increasing when) is separately
+    // covered by the next test, so nothing is left unguarded.
+    const position = journal.entries.indexOf(entry!);
+    const preceding = journal.entries.slice(0, position);
+
+    for (const prior of preceding) {
+      expect(
+        entry!.idx,
+        `${JOB_FIT_ANALYSES_TAG} (idx ${entry!.idx}) must sort after ${prior.tag} (idx ${prior.idx})`
+      ).toBeGreaterThan(prior.idx);
+      expect(
+        entry!.when,
+        `${JOB_FIT_ANALYSES_TAG} (when ${entry!.when}) must be strictly newer than ${prior.tag} ` +
+          `(when ${prior.when}), or drizzle skips it in silence once ${prior.tag} has been applied`
+      ).toBeGreaterThan(prior.when);
+    }
+
+    // Guard the guard: an empty `preceding` would satisfy the loop vacuously.
+    expect(preceding.length, 'expected at least one entry before this migration').toBeGreaterThan(
+      0
+    );
   });
 
   it('the journal has unique indices and strictly increasing timestamps', () => {

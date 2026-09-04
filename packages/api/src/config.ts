@@ -16,7 +16,24 @@ export interface Config {
   analyticsSink: 'noop' | 'console' | 'posthog';
   posthogApiKey: string | null;
   posthogHost: string;
+  localDevUserId: string;
 }
+
+/**
+ * ADR-010 D3 — the owner the auth bypass supplies in local dev.
+ *
+ * This is the placeholder `migrations/0017_enforce_userid_not_null.sql` backfills
+ * every pre-tenancy `user_id` to before setting the column `NOT NULL`, so local
+ * dev queries as a tenant that genuinely owns the legacy rows rather than as an
+ * absence. The two must not drift, and the literal here is not the guarantee —
+ * `test/local-dev-owner.test.ts` parses the sentinel back out of that migration
+ * and asserts equality, so a change to either side fails the suite.
+ *
+ * Note this is a `string`, not `string | null`: D3 retires the owner-absent
+ * affordance ADR-003 left open, and the whole point is that there is no
+ * configuration in which the bypass yields "no tenant".
+ */
+export const LOCAL_DEV_USER_ID_DEFAULT = '00000000-0000-0000-0000-000000000000';
 
 function normalizeAnalyticsSink(raw: string | undefined): Config['analyticsSink'] {
   const value = raw?.trim().toLowerCase();
@@ -54,6 +71,12 @@ export function getConfig(): Config {
       analyticsSink: normalizeAnalyticsSink(process.env.ANALYTICS_SINK),
       posthogApiKey: process.env.POSTHOG_API_KEY?.trim() || null,
       posthogHost: process.env.POSTHOG_HOST?.trim() || 'https://us.i.posthog.com',
+      // `||` rather than `??` on purpose: an empty or whitespace-only
+      // `LOCAL_DEV_USER_ID` must fall back to the sentinel, not resolve to `''`.
+      // The empty string is falsy and `requireOwner` rejects it explicitly, so
+      // `??` here would turn a blank env var into a 401 on every dev request —
+      // reintroducing the owner-absent outcome D3 exists to remove.
+      localDevUserId: process.env.LOCAL_DEV_USER_ID?.trim() || LOCAL_DEV_USER_ID_DEFAULT,
     };
   }
   return _config;

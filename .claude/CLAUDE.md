@@ -1,4 +1,4 @@
-# Job Application Manager
+# Careerpin
 
 Multi-user job application tracking app running on **Cloudflare Workers + Supabase + R2**, deployed to production at [careerpin.app](https://careerpin.app). A single Hono Worker serves the `/api/*` routes and the built React SPA; the same code also runs on Node.js for local dev.
 
