@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { buildApp } from './app.js';
 import { runWithEnv } from './db/context.js';
+import { isDatabaseUnreachable } from './db/connect-bound.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
 import type { Env } from './types/env.js';
 
@@ -28,6 +29,20 @@ export default {
                 code: 'SERVICE_UNAVAILABLE',
                 message:
                   'Database unreachable: the request exhausted its outbound connection budget.',
+              },
+            }),
+            { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5' } }
+          );
+        }
+        // The connect deadline expired and the pool was torn down. Retrying
+        // would re-enter the dial loop the teardown just stopped, on a budget
+        // the first burst already spent part of. Answer once.
+        if (isDatabaseUnreachable(err)) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: 'SERVICE_UNAVAILABLE',
+                message: 'Database unreachable: no connection could be established.',
               },
             }),
             { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5' } }
