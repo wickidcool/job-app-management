@@ -525,17 +525,45 @@ backend/src/db/migrations/
 └── 0004_create_indexes.sql
 ```
 
+### The migration journal is generated, not committed (WIC-1963)
+
+`src/db/migrations/meta/_journal.json` is **git-ignored and regenerated from the
+`.sql` files on disk** — it is not hand-edited or committed. It used to be the one
+shared mutable file every migration PR appended to, so any two concurrent migration
+PRs conflicted by construction (and the "keep both" resolution silently dropped an
+entry: WIC-236, WIC-930, WIC-1939). Generating it retires that conflict class.
+
+This is safe because drizzle's runner reads only three fields per entry, and only
+one of them matters to execution:
+
+- `idx` — **never read by execution** (`grep -n idx node_modules/drizzle-orm/migrator.js`
+  is empty); purely decorative. We still emit it equal to the file's `NNNN_` prefix.
+- `tag` — names the `${tag}.sql` file to apply.
+- `when` (`folderMillis`) — **is** read: it is stored as
+  `drizzle.__drizzle_migrations.created_at` and is the sole key the runner uses to
+  decide "already applied?" (`pg-core/dialect.js`: apply iff
+  `lastAppliedCreatedAt < entry.when`).
+
+Because `when` is real production state, the generator (`src/db/journal.ts`)
+**reproduces every historical `when` exactly** from a frozen map and derives only a
+*new* migration's `when` as `previousWhen + WHEN_STEP` — strictly greater than the
+current watermark. Editing a historical value would re-run or silently skip a
+migration, so the map is append-only and guarded by tests
+(`test/migration-journal.test.ts`, including a byte-for-byte reproduction of the
+historical journal).
+
+`db:migrate` regenerates the journal in-process before applying, so the deploy is
+self-contained. `db:journal` writes it explicitly; `db:journal:check` fails if the
+on-disk file is stale.
+
 ### Running Migrations
 
 ```bash
-# Generate migration from schema changes
-pnpm drizzle-kit generate:pg
+# Generate a migration from schema changes (also refreshes the journal)
+npm run db:generate --workspace=@wic/api
 
-# Apply migrations
-pnpm drizzle-kit push:pg
-
-# Or with custom script
-pnpm db:migrate
+# Apply migrations (regenerates the journal, then runs drizzle migrate())
+npm run db:migrate --workspace=@wic/api
 ```
 
 ### Drizzle Config
