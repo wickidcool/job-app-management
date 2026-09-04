@@ -92,7 +92,11 @@ export function ResumeVariantsList() {
         </div>
 
         <div className="flex gap-2">
+          <label htmlFor="status-filter" className="sr-only">
+            Filter by status
+          </label>
           <select
+            id="status-filter"
             className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as 'draft' | 'finalized' | '')}
@@ -102,7 +106,11 @@ export function ResumeVariantsList() {
             <option value="finalized">Finalized</option>
           </select>
 
+          <label htmlFor="format-filter" className="sr-only">
+            Filter by format
+          </label>
           <select
+            id="format-filter"
             className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             value={formatFilter}
             onChange={(e) => setFormatFilter(e.target.value as ResumeFormat | '')}

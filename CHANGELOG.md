@@ -22,6 +22,37 @@ All notable changes to the Job Application Manager are documented here.
 - **This does not create the production Hyperdrive binding**, which needs a Cloudflare token and stays with WIC-1916 / WIC-1386. No schema, migration or wire change.
 
 
+### Fixed — Four a11y defects behind 18 of the 26 baselined axe findings, dropping `AXE_BASELINE` 26 -> 8 (2026-09-04)
+
+`packages/web` route sweep. The WIC-1926 ratchet is a two-way pin — a new finding fails, and a
+*fixed* one fails too until its entry is deleted — so every number below is a test failure that
+had to be answered, not a tally taken by hand.
+
+- **Four defects, 18 findings, 14 keys.** Two `<select>` filters on `/resume-variants` with no
+  accessible name (8 findings, all four branches); the hidden `<input type="file">` on
+  `/resumes/upload` (4); the wizard `role="progressbar"` on `/projects/new/dialogue` (4); and an
+  `<article role="button">` in `ResumeVariantCard` that tripped `aria-allowed-role` and
+  `nested-interactive` at once (2). Findings, not bugs — the four fixes are four edits.
+- **The card is now a plain `<article>`, and its navigation moved into the heading.** The
+  interactive role made a widget that still contained the card's own two buttons, so the role and
+  the nesting were one defect. A `<button>` inside the `<h2>` carries the click instead: reachable
+  by mouse and keyboard, no role on a non-interactive element, `h2` count unchanged at 1.
+- **That retired a `jsx-a11y` rule as well, so it is back at `error`.**
+  `no-noninteractive-element-to-interactive-role` had exactly one finding tree-wide and it was this
+  `<article>`. `BASELINED_RULES` drops it, the file leaves `A11Y_BASELINE` entirely, both
+  `--max-warnings` ceilings go 27 -> 26, and the enforcement surface goes 26 -> 27 rules at `error`.
+- **The remaining 8 are third-party and stay baselined on purpose.** All 8 are `aria-hidden-focus`,
+  `incomplete` rather than a violation, on Radix's own
+  `<span data-radix-focus-guard tabindex="0">` sentinels — verified by dumping the offending node,
+  not inherited from the previous comment. They are how `FocusScope` traps and returns focus, so the
+  fix would be a patch to `@radix-ui/react-focus-scope`. Left as 8 pinned keys rather than an
+  `EXCLUDED_RULES` entry so a *real* `aria-hidden-focus` defect written anywhere else still fails.
+- **Two unmeasured progressbars named while in the file.** `ResumeUpload`'s upload-progress bar only
+  renders in the `uploading` state, which the four sweep branches never reach, so it carried the same
+  defect invisibly. Named it too; it moves no baseline number.
+- Web only. No API, schema, migration or wire change.
+
+
 ### Fixed — Eleven pages rendered no `<h1>` at all while loading or on error, closing the last 21 route/branch pairs (2026-09-04)
 
 Every route now opens at a single top-level heading on **all four** of its render branches. `MISSING_H1` in `routeOutline.render.test.tsx` is empty and its size pin is **0**, so the `<h1>` rule joins the heading-skip rule as unconditional over all 120 (route, branch) pairs — no allowlist, no exemptions (WIC-2050, under WIC-1864).

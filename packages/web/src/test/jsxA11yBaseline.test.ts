@@ -9,14 +9,14 @@ import packageJsonRaw from '../../package.json?raw';
  * nothing in the repo enforcing it. Layer 1 is the plugin; this file is the part that
  * makes adopting it *enforcement* rather than a gesture.
  *
- * 26 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
- * CI on a new violation of any of them. 6 are `warn` (see `BASELINED_RULES` in
+ * 27 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
+ * CI on a new violation of any of them. 5 are `warn` (see `BASELINED_RULES` in
  * `eslint.config.js`) purely so that adopting the plugin did not require fixing 47
- * pre-existing defects in the same change (WIC-1483) — 20 of those 47 have since been
- * retired (WIC-1589) — and 2 are deliberately `off` (see `PROMOTED_RULES` for the
+ * pre-existing defects in the same change (WIC-1483) — 21 of those 47 have since been
+ * retired (WIC-1589, WIC-1942) — and 2 are deliberately `off` (see `PROMOTED_RULES` for the
  * measured cost of each).
  *
- * That 26 is asserted below against the RESOLVED config rather than restated in prose.
+ * That 27 is asserted below against the RESOLVED config rather than restated in prose.
  * The first revision of this suite hand-computed it as `34 - 8 = 26`, which was wrong for
  * a different reason at the time: `recommended` ships 3 of its 34 entries `off`, so the
  * surface was 23, and the wrong figure sat in four files at once with nothing able to
@@ -24,9 +24,9 @@ import packageJsonRaw from '../../package.json?raw';
  * this card was filed about.
  *
  * The config extends `flatConfigs.strict`, and NONE of those counts can tell you so —
- * `strict` and `recommended` resolve to the same 34 entries and the same 26/6/2 histogram
+ * `strict` and `recommended` resolve to the same 34 entries and the same 27/5/2 histogram
  * once `PROMOTED_RULES` restores `anchor-ambiguous-text`, which `strict` drops entirely.
- * They also produce identical findings on this tree (27, over the same files, rules, lines
+ * They also produce identical findings on this tree (26, over the same files, rules, lines
  * and columns). The whole difference is in rule OPTIONS, so that is what the last test
  * asserts; without it, a silent revert to `recommended` passes every assertion here.
  *
@@ -37,7 +37,7 @@ import packageJsonRaw from '../../package.json?raw';
  *   - a FIXED violation also fails, forcing the baseline down instead of letting it
  *     rot upward. `toEqual` on the whole map, not `toBeLessThanOrEqual` on a total;
  *   - it is keyed by file+rule, so fixing one file and breaking another — which leaves
- *     the total at 27 — is still a failure.
+ *     the total at 26 — is still a failure.
  *
  * The `--max-warnings` ceiling in `package.json` is cross-checked against the same
  * measurement, so the two numbers cannot silently disagree.
@@ -75,10 +75,11 @@ const webRoot = decodeURIComponent(import.meta.url.replace(/^file:\/\//, '')).re
 type RuleCounts = Record<string, number>;
 
 /**
- * Measured on this tree after merging WIC-1589 (#292) into `main`. 27 findings, 17 files,
- * 6 distinct rules — down from the 47/22/8 at WIC-1483 adoption, now that
- * `label-has-associated-control` (19 -> 0) and `no-redundant-roles` (1 -> 0) are fully
- * retired. Owned by WIC-1589 — every entry here is a real defect, not an accepted exception.
+ * Measured on this tree after WIC-1942. 26 findings, 16 files, 5 distinct rules — down
+ * from the 47/22/8 at WIC-1483 adoption, now that `label-has-associated-control`
+ * (19 -> 0), `no-redundant-roles` (1 -> 0) and
+ * `no-noninteractive-element-to-interactive-role` (1 -> 0) are fully retired. Owned by
+ * WIC-1589 — every entry here is a real defect, not an accepted exception.
  */
 const A11Y_BASELINE: Record<string, RuleCounts> = {
   'src/components/ApplicationCard.tsx': {
@@ -98,7 +99,13 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
     'click-events-have-key-events': 1,
     'no-noninteractive-element-interactions': 1,
   },
-  'src/components/ResumeVariantCard.tsx': { 'no-noninteractive-element-to-interactive-role': 1 },
+  // `src/components/ResumeVariantCard.tsx` used to sit here with
+  // `no-noninteractive-element-to-interactive-role: 1` — the `<article role="button">`.
+  // WIC-1942 removed that role (it also tripped axe's `aria-allowed-role` and
+  // `nested-interactive`), moving the card's navigation onto a real button inside the
+  // heading, so the file now has no jsx-a11y finding at all and the entry is deleted
+  // rather than zeroed. That drops BASELINE_TOTAL 27 -> 26; both `--max-warnings`
+  // ceilings in package.json move with it.
   'src/components/STARStoryBank.tsx': {
     'click-events-have-key-events': 1,
     'no-noninteractive-element-interactions': 1,
@@ -262,13 +269,13 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     ).not.toBeNull();
     expect(Number(fixCeiling![1])).toBe(BASELINE_TOTAL);
 
-    // The baselined 6 are `warn`, so `--max-warnings` is what pins them. Any jsx-a11y
+    // The baselined 5 are `warn`, so `--max-warnings` is what pins them. Any jsx-a11y
     // finding at `error` severity would fail `npm run lint` outright — which is correct
-    // for the other 26 rules, but means the tree is currently red, so say so here.
+    // for the other 27 rules, but means the tree is currently red, so say so here.
     expect(errors).toBe(0);
   }, 60_000);
 
-  it('states its enforcement surface exactly — 26 error, 6 warn, 2 deliberately off', async () => {
+  it('states its enforcement surface exactly — 27 error, 5 warn, 2 deliberately off', async () => {
     // The reason this test exists.
     //
     // Every other number in this PR is measured; the enforcement surface was not. It was
@@ -297,8 +304,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // Fails closed: if the config failed to resolve, `rules` is empty and every count is 0.
     expect(a11yRules).toHaveLength(34);
 
-    expect(named(2)).toHaveLength(26);
-    expect(named(1)).toHaveLength(6);
+    expect(named(2)).toHaveLength(27);
+    expect(named(1)).toHaveLength(5);
 
     // Pinned BY NAME, not just counted. `label-has-for` is deprecated upstream and
     // superseded by `label-has-associated-control`, now at `error` with 0 findings
@@ -309,7 +316,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // THIRD rule off, that is a silent loss of enforcement and this must fail.
     expect(named(0)).toEqual(['jsx-a11y/control-has-associated-label', 'jsx-a11y/label-has-for']);
 
-    // The 6 at `warn` must be exactly the rules the baseline records findings for. This
+    // The 5 at `warn` must be exactly the rules the baseline records findings for. This
     // ties the config to the evidence: baselining a rule that has no recorded violations,
     // or recording violations for a rule that is not baselined, both fail here.
     const baselinedRules = [
@@ -327,8 +334,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // and they differ on 7 rules — but 6 of those differences are in rule OPTIONS, and the
     // 7th is that `anchor-ambiguous-text` is absent from `strict` altogether while
     // `recommended` ships it `off`. PROMOTED_RULES restores it, so BOTH configs resolve to
-    // 34 entries at 26/6/2, over the same 2 `off` names. They also produce byte-identical
-    // findings on this tree: 27, matching on file + rule + line + column + severity.
+    // 34 entries at 27/5/2, over the same 2 `off` names. They also produce byte-identical
+    // findings on this tree: 26, matching on file + rule + line + column + severity.
     //
     // So every count in the test above is satisfied by either ruleset, and a revert of the
     // `extends` entry would pass the whole suite while quietly restoring the hole below.

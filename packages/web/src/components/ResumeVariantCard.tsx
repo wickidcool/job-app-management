@@ -12,8 +12,7 @@ export function ResumeVariantCard({ variant, onCardClick, onDelete }: ResumeVari
     onCardClick?.(variant.id);
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = () => {
     if (confirm('Are you sure you want to delete this resume variant?')) {
       onDelete?.(variant.id);
     }
@@ -33,25 +32,32 @@ export function ResumeVariantCard({ variant, onCardClick, onDelete }: ResumeVari
   };
 
   return (
+    // The card is a plain <article>. It used to carry `role="button"` with its own
+    // tabIndex/onKeyDown, which broke two ARIA rules at once: <article> is a
+    // non-interactive element that may not take an interactive role
+    // (`aria-allowed-role`), and the role made a widget that still contained the two
+    // real buttons below (`nested-interactive`). Navigation now hangs off the title
+    // button, which is reachable by mouse and keyboard alike without either problem.
     <article
-      className="relative rounded-lg border border-gray-200 p-4 shadow-sm transition-all cursor-pointer hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-      onClick={handleClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleClick();
-        }
-      }}
+      className="relative rounded-lg border border-gray-200 p-4 shadow-sm transition-all hover:border-blue-300 hover:shadow-md"
       aria-label={`Resume variant: ${variant.title}`}
     >
       <div className="flex flex-col gap-2">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             {/* h2: the card list is a direct child of the /resume-variants page h1, and this
-                component has exactly one call site (WIC-1675 AC-2). */}
-            <h2 className="text-lg font-semibold text-gray-900 truncate">{variant.title}</h2>
+                component has exactly one call site (WIC-1675 AC-2). The button inside it is
+                the card's primary action — a heading may contain one, where the heading
+                itself may not become one. */}
+            <h2 className="text-lg font-semibold text-gray-900 truncate">
+              <button
+                type="button"
+                onClick={handleClick}
+                className="w-full truncate text-left rounded hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                {variant.title}
+              </button>
+            </h2>
             <p className="text-sm text-gray-600">
               {variant.targetRole} at {variant.targetCompany}
             </p>
@@ -101,15 +107,14 @@ export function ResumeVariantCard({ variant, onCardClick, onDelete }: ResumeVari
 
         <div className="flex gap-2 mt-2">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onCardClick?.(variant.id);
-            }}
+            type="button"
+            onClick={handleClick}
             className="flex-1 px-3 py-1 text-xs font-medium text-blue-700 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
           >
             View & Edit
           </button>
           <button
+            type="button"
             onClick={handleDelete}
             className="px-3 py-1 text-xs font-medium text-red-700 bg-red-50 rounded hover:bg-red-100 transition-colors"
           >
