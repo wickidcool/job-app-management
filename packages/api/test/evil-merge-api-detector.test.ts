@@ -177,9 +177,9 @@ describe('classifyBlobs — the four outcomes', () => {
   });
 
   it('unchanged: everyone agrees', () => {
-    expect(
-      classifyBlobs({ path: 'a.ts', parents: ['aaa', 'aaa'], result: 'aaa' })
-    ).toMatchObject({ kind: 'unchanged' });
+    expect(classifyBlobs({ path: 'a.ts', parents: ['aaa', 'aaa'], result: 'aaa' })).toMatchObject({
+      kind: 'unchanged',
+    });
   });
 
   it('handles an octopus merge, where "parents agree" spans more than two', () => {
