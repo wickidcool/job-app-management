@@ -661,6 +661,7 @@ interface DashboardResponse {
     responseRate: number;     // Ratio in [0,1] — applications with a response / applied. NOT a percentage; multiply at render
   };
   recentActivity: ActivityItem[];
+  attention: DashboardAttention;   // always present; see "Attention block" below
 }
 
 interface ActivityItem {
@@ -703,9 +704,170 @@ interface ActivityItem {
       "toStatus": "applied",
       "timestamp": "2026-04-15T10:30:00.000Z"
     }
-  ]
+  ],
+  "attention": {
+    "staleThresholdDays": 14,
+    "unsubmittedThresholdDays": 3,
+    "counts": {
+      "interviewing": 5,
+      "stale": 4,
+      "missingJobDescription": 0,
+      "unsubmittedSaved": 0
+    },
+    "samples": {
+      "interviewing": [
+        {
+          "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3A5",
+          "jobTitle": "Senior Software Engineer",
+          "company": "Acme Corp",
+          "status": "interview",
+          "createdAt": "2026-03-28T09:00:00.000Z",
+          "updatedAt": "2026-04-15T10:30:00.000Z"
+        },
+        {
+          "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3B1",
+          "jobTitle": "Staff Engineer",
+          "company": "Hooli",
+          "status": "interview",
+          "createdAt": "2026-03-20T09:00:00.000Z",
+          "updatedAt": "2026-04-14T16:05:00.000Z"
+        },
+        {
+          "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3B2",
+          "jobTitle": "Site Reliability Engineer",
+          "company": "Umbrella",
+          "status": "phone_screen",
+          "createdAt": "2026-03-22T09:00:00.000Z",
+          "updatedAt": "2026-04-12T11:40:00.000Z"
+        },
+        {
+          "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3B3",
+          "jobTitle": "Data Engineer",
+          "company": "Stark Industries",
+          "status": "phone_screen",
+          "createdAt": "2026-03-25T09:00:00.000Z",
+          "updatedAt": "2026-04-09T08:15:00.000Z"
+        },
+        {
+          "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3B4",
+          "jobTitle": "Infrastructure Engineer",
+          "company": "Wayne Enterprises",
+          "status": "phone_screen",
+          "createdAt": "2026-03-11T09:00:00.000Z",
+          "updatedAt": "2026-04-02T13:20:00.000Z"
+        }
+      ],
+      "stale": [
+        {
+          "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3A6",
+          "jobTitle": "Backend Engineer",
+          "company": "Globex",
+          "status": "applied",
+          "createdAt": "2026-02-10T09:00:00.000Z",
+          "updatedAt": "2026-03-01T09:00:00.000Z"
+        },
+        {
+          "id": "01HXK5R3J7Q8N2M4P6W9Y1Z3A7",
+          "jobTitle": "Platform Engineer",
+          "company": "Initech",
+          "status": "phone_screen",
+          "createdAt": "2026-02-18T09:00:00.000Z",
+          "updatedAt": "2026-03-04T09:00:00.000Z"
+        }
+      ],
+      "missingJobDescription": [],
+      "unsubmittedSaved": []
+    }
+  }
 }
 ```
+
+#### Attention block
+
+`attention` backs the Dashboard's "Attention Required" and "Quick Wins" cards. It is
+always present. The authority for its shape is `DashboardAttention` in
+`packages/api/src/types/index.ts`; `packages/web/src/services/api/types.ts` hand-mirrors
+it, the same way it mirrors every other response type.
+
+**`counts` are full-table aggregates; `samples` are short top-N lists.** Every `counts`
+field is computed over *all* of the user's applications, never over a page of them, so a
+`samples` list shorter than its matching count is expected and does **not** mean the count
+was truncated. The sample caps are 5 for `interviewing` and 2 for the other three
+(`INTERVIEWING_SAMPLE_LIMIT` / `ATTENTION_SAMPLE_LIMIT` in
+`packages/api/src/services/dashboard.service.ts`). Each sample list is drawn with the same
+predicate as its count, so a sampled row is always a member of the counted population.
+
+| field | population | sample order |
+| --- | --- | --- |
+| `interviewing` | `phone_screen` + `interview`. Derived from `stats.byStatus`, not re-queried, so the two cannot disagree | most recently updated first |
+| `stale` | `applied` or `phone_screen`, not updated within `staleThresholdDays` | oldest update first |
+| `missingJobDescription` | non-terminal (`saved`/`applied`/`phone_screen`/`interview`) with `jobDescription` null or `""` | most recently updated first |
+| `unsubmittedSaved` | `saved`, **created** more than `unsubmittedThresholdDays` ago | longest-saved first |
+
+**`staleThresholdDays` is sent down the wire rather than assumed by the client.** The
+attention card links straight to `/reports/stale`, so the label has to state the window the
+report will actually apply; rendering `attention.staleThresholdDays` is what makes the count
+and the report it links to agree by construction. Its value is
+`DEFAULT_STALE_THRESHOLD_DAYS` (currently **14**), and the report's selector offers 7/14/21/30.
+
+**"Stale" has exactly one definition, and it lives in
+`packages/api/src/services/stale.ts`** (`STALE_STATUSES`, `DEFAULT_STALE_THRESHOLD_DAYS`,
+`staleWhere`). It is UC-5 US-5.7's: `applied` or `phone_screen` with no update in 14+ days.
+Do not re-inline a status list or a day count at a call site — the product shipped seven
+divergent copies of this rule and WIC-1479 collapsed them onto this one; `stale.definition.test.ts`
+and `stale.drift.test.ts` fail if a new copy appears.
+
+**`unsubmittedSaved` is deliberately not called stale.** It is keyed off `createdAt`, not
+`updatedAt`, and a `saved` application was never sent to anyone, so there is nobody to follow
+up with. Naming it after staleness is what put two meanings on the word in the first place.
+
+```typescript
+interface DashboardAttention {
+  staleThresholdDays: number;         // 14 — the window /reports/stale applies by default
+  unsubmittedThresholdDays: number;   // 3
+  counts: {
+    interviewing: number;
+    stale: number;
+    missingJobDescription: number;
+    unsubmittedSaved: number;
+  };
+  samples: {
+    interviewing: AttentionApplication[];        // <= 5
+    stale: AttentionApplication[];               // <= 2
+    missingJobDescription: AttentionApplication[]; // <= 2
+    unsubmittedSaved: AttentionApplication[];    // <= 2
+  };
+}
+
+// Deliberately minimal — enough to label and link a row, never the full
+// Application DTO (`jobDescription` in particular can be very large).
+interface AttentionApplication {
+  id: string;
+  jobTitle: string;
+  company: string;
+  status: ApplicationStatus;
+  createdAt: string;          // ISO 8601
+  updatedAt: string;          // ISO 8601
+}
+```
+
+> **Wire rename, WIC-1479.** A client written against the pre-WIC-1479 payload reads
+> `undefined` from this block rather than failing loudly, so the change is worth stating
+> field by field:
+>
+> - `savedThresholdDays` → `unsubmittedThresholdDays`.
+> - `counts.staleSaved` / `samples.staleSaved` → `unsubmittedSaved`.
+> - `counts.staleActive` is **deleted**. With one definition there is no second population
+>   to name.
+> - `samples.staleActive` → `samples.stale`. There was no `samples.stale` before this;
+>   `staleActive` was the only sampled stale-ish list.
+> - `counts.stale` **keeps its name and changes its meaning** — the one rename that a
+>   consumer cannot detect by reading `undefined`. It was every non-terminal status over a
+>   hardcoded 7 days; it is now `applied`/`phone_screen` over `staleThresholdDays`.
+>
+> This block was undocumented here between its arrival in `a3d81a7b` (2026-08-26, WIC-1478)
+> and this entry, so there is no earlier revision of this section to compare against; the
+> pre-rename shape above is reconstructed from the type declaration's own history.
 
 ---
 
@@ -863,6 +1025,9 @@ export interface DashboardApi {
   getStats(): Promise<{
     stats: DashboardStats;
     recentActivity: ActivityItem[];
+    // `DashboardAttention` / `AttentionApplication` are declared once, under
+    // `GET /dashboard` → "Attention block". Not repeated here on purpose.
+    attention: DashboardAttention;
   }>;
 }
 ```
