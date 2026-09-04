@@ -74,20 +74,53 @@ predated the marketing-package audit.
 2026-09-01.** In between, a WIC-1102 comment recorded it as landed here and reported the
 two then-outstanding sites as fixed; neither was true of the repository, so the ruling was
 unenforceable and invisible to every implementer who read this document. Re-measured at
-`origin/main` on 2026-09-01 — **all four user-facing sites still read the old name:**
+`origin/main` on 2026-09-01, all four user-facing sites still read the old name. **All
+four now carry the ruling:**
 
 | Site | What it is | Status |
 |---|---|---|
-| `packages/web/index.html:13` | the SPA `<title>` | fixed by WIC-1089 / PR #336 |
-| `packages/web/src/pages/Login.tsx:64` | the sign-in `<h2>` | fixed by WIC-1089 / PR #336 |
-| `packages/web/src/components/onboarding/OnboardingModal.tsx:330` | step-1 headline, `"Welcome to Your Job Application Manager"` | **outstanding** |
-| `packages/web/src/components/QuickReferenceExport.tsx:201` | export footer, `"Generated with Job Application Manager"` | **outstanding** |
+| `packages/web/index.html:13` | the SPA `<title>` | shipped — WIC-1089 / PR #336 |
+| `packages/web/src/pages/Login.tsx:64` | the sign-in `<h2>` | shipped — WIC-1089 / PR #336 |
+| `packages/web/src/components/onboarding/OnboardingModal.tsx` | step-1 headline | shipped — WIC-1950, [ruling below](#the-two-copy-rulings) |
+| `packages/web/src/components/QuickReferenceExport.tsx` | export-modal preview footer | shipped — WIC-1950, [ruling below](#the-two-copy-rulings) |
 
-The first two now read from one constant, `PRODUCT_NAME` in
-`packages/web/src/constants/title.ts`; change that line and both move together. The last
-two are **not** mechanical substitutions — "Welcome to Your Careerpin" does not read, and
-the export footer is printed output — so each needs a copy decision, not a find-and-replace.
-Those two are the Copywriter / Editor's call and are tracked separately.
+All four read from one constant, `PRODUCT_NAME` in
+`packages/web/src/constants/title.ts`; change that line and all four move together. **This
+inventory is closed.** No user-facing string in `packages/web` says `Job Application
+Manager`. What survives is internal-only and out of scope for this document: the
+`jobtrail` package and deploy-target name, and four source comments and READMEs
+(`components/README.md`, `components/index.ts`, `services/api/index.ts`,
+`services/api/README.md`).
+
+#### The two copy rulings
+
+The last two were held back from the mechanical rename because neither substitutes
+cleanly. Ruled by the Copywriter / Editor on 2026-09-01 under WIC-1950:
+
+**1. Onboarding step 1 — `Welcome to Careerpin`.** Not `Welcome to Your Careerpin`. The
+possessive in the old string was not decoration: it was doing the work of introducing a
+product that had no name, and `Your Job Application Manager` told a first-time user what
+they were looking at. A brand name does that job by itself and will not take the
+possessive — `Your Careerpin` reads as though Careerpin were a thing the user owns one of.
+The headline does not need to explain the product either, because the description
+directly beneath it already does ("Let's get you set up in just a few minutes. We'll help
+you:"). Sentence case holds; `Careerpin` capitalizes under this exception.
+
+**2. Export-modal footer — `Generated with Careerpin • {date}`.** No URL, and the
+` • ` (U+2022) separator is unchanged. WIC-1950 proposed this string might warrant a
+document byline carrying a URL, on the premise that it reaches printed output. **Measured,
+it does not.** Every downloaded format is built server-side in `exportInterviewPrep`
+(`packages/api/src/services/interviewPrep.service.ts`) — markdown, the `print` HTML
+document, and PDF alike — and that output carries its own
+`*Generated {date} | Type: … | Time: …*` line and no product byline at all. There is no
+`window.print()` and no `@media print` rule anywhere in `packages/web/src`. So this string
+is the footer of the **on-screen preview inside the export modal**, seen only by a
+signed-in user who is already in the product: UI chrome, not a byline, and a domain in it
+would be noise.
+
+That leaves a real gap — **the exported artifact is unattributed**, which is the case a
+URL would actually serve. Adding one is new copy in `packages/api`, in output users carry
+into interviews, so it is tracked separately rather than folded in here.
 
 **2. Acronyms and initialisms** — keep their established casing.
 

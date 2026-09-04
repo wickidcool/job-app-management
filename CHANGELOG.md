@@ -453,11 +453,49 @@ The same comment reported two of the four affected sites as already fixed. Re-me
 `pages/Login.tsx:64`, `components/onboarding/OnboardingModal.tsx:330` and
 `components/QuickReferenceExport.tsx:201`. The first two are fixed by WIC-1089 (PR #336), which
 routes both through a single `PRODUCT_NAME` constant. The last two are **not** mechanical
-substitutions — "Welcome to Your Careerpin" does not read, and the export footer reaches printed
-output — so they stay with the Copywriter / Editor and are tracked separately.
+substitutions — "Welcome to Your Careerpin" does not read, and the export footer is a byline
+rather than UI chrome — so they stay with the Copywriter / Editor and are tracked separately.
+(Both are settled in the WIC-1950 entry below, which also corrects the premise: that footer
+renders on screen only and never reaches printed output.)
 
 Docs only; no source, no rendered output, and no test changed. `docs/design/README.md` picks up
 the same one-line front-matter correction (WIC-1102).
+
+### Copy — the last two `Job Application Manager` strings are decided, and the export footer's premise was wrong (2026-09-01)
+
+The two sites WIC-1102 held back now carry rulings, so no user-facing string in `packages/web`
+says the old name and the `CONTENT_STYLE.md` inventory is closed.
+
+- **Onboarding step 1 reads `Welcome to Careerpin`** — not `Welcome to Your Careerpin`. The
+  possessive was load-bearing while the product had no name: `Your Job Application Manager` was
+  how a first-time user learned what they were looking at. A brand name does that alone and will
+  not take the possessive, and the description directly beneath the headline already carries the
+  orientation ("Let's get you set up in just a few minutes"). Sentence case is unaffected.
+- **The export-modal footer reads `Generated with Careerpin • {date}`, with no URL — because it
+  is not printed output.** WIC-1950 asked whether this string, as a document byline read outside
+  the app, should carry a domain. Measured, it is never read outside the app. Every downloaded
+  format is assembled server-side in `exportInterviewPrep`
+  (`packages/api/src/services/interviewPrep.service.ts`) — markdown, the `print` HTML document
+  and PDF alike — from a `lines[]` array whose only provenance line is
+  `*Generated {date} | Type: … | Time: …*`. There is no `window.print()` and no `@media print`
+  rule anywhere in `packages/web/src`. This `<p>` is the footer of the **preview** inside the
+  export modal, seen only by a signed-in user already in the product, so a domain in it is noise.
+- **The real gap is the opposite one: the exported artifact carries no attribution at all.** That
+  is the output a user prints and takes into an interview, and it is where a byline would earn
+  its place. Adding one is new copy in `packages/api`, so it is tracked separately rather than
+  folded into a two-string copy pass.
+- **Both strings now read `PRODUCT_NAME`** rather than repeating the literal, so all four
+  user-facing sites move on one line. No test asserted on either string, in unit tests or e2e.
+- **The three documents that carried the old string as a specification are corrected, not just
+  the code** — `docs/design/ONBOARDING_FLOW.md` specified `Welcome to Your Job Application
+  Manager` in three places (the step-1 content spec, the desktop wireframe and the markup
+  sample) plus a two-line mobile wireframe wrap that is now one line; `ROUTE_TITLE_CONVENTION.md`
+  §9's "Correction to §2" listed both sites as deliberately-not-touched and now records the
+  rulings; the `PRODUCT_NAME` doc comment in `constants/title.ts` said the old name still
+  "survives as prose" at both. Leaving those is how WIC-1102 came to report a rename that had not
+  happened. What still says `Job Application Manager` is internal only — four comments and
+  READMEs under `packages/web/src`, and the headings and intros of the wider `docs/design` set,
+  both tracked separately.
 
 ### Added — a merge that drops a migration from the journal is now a red build, not a silent data-loss (2026-09-01)
 
