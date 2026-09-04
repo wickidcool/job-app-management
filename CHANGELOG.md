@@ -72,6 +72,48 @@ ruleset can actually name (WIC-2055).
   cannot wedge the queue.
 
 
+### Fixed — Browser Back silently discarded a half-filled dialogue wizard; the app now mounts a data router (2026-09-04)
+
+`/projects/new/dialogue` confirmed before discarding on five paths — Escape, the header ×, an
+overlay click, the ⌘K palette and in-wizard anchor clicks — and on none of them was the browser's
+own Back button. WIC-1765 could not reach it: a `popstate` has already been committed by the time a
+listener runs, so the location has changed and the route has re-rendered, leaving nothing to confirm
+*before*. Intercepting it after the fact needs a fake history entry, which breaks Back for the whole
+page. React Router ships the correct mechanism as `useBlocker`, and it throws `useBlocker must be
+used within a data router` under the plain `<BrowserRouter>` the app mounted (WIC-1924).
+
+- **`App.tsx` now mounts `createBrowserRouter`/`RouterProvider`.** One catch-all data route mounts
+  the existing route tree unchanged; the router is built at module scope, since building it in the
+  component body would discard history state on every render.
+- **The route table stays JSX, deliberately.** `useBlocker` reads `DataRouterContext` from
+  `RouterProvider` at the top and does not care how the tree below matched, so descendant `<Routes>`
+  keep working and blocking still covers every `navigate()` and `popstate` — there is only one
+  router. Converting the 30 routes to route objects would instead take five source scrapers to zero
+  matches at once (`route-integrity`, `route-title-coverage`, `routeOutline.render`,
+  `routeOutline.source`, `routeHeadingOutline`), and this app has no `loader` or `action` to migrate
+  because every page fetches through React Query. The route inventory is worth more than the shape.
+  Per-route `loader`/`action`/`lazy` remain unavailable until that conversion happens; nothing wants
+  them today and it is purely additive.
+- **Two bespoke interception mechanisms are deleted, not joined by a third.**
+  `hooks/useInAppNavigationGuard.ts` (a capture-phase document click listener) is gone, and so are
+  `registerNavigationGuard`/`requestNavigation` on `CommandPaletteContext` — the palette is back to a
+  plain `navigate()` and no longer has to know guarded routes exist. `App.dataRouter.test.tsx` greps
+  every `src` file for all three identifiers, over comment-stripped source so the prose recording why
+  they went is not what keeps it green.
+- **The exit path needed care.** `onCancel` itself navigates, so the guard would have blocked the
+  app's own confirmed discard and re-opened the confirmation over it. The blocker is disarmed a
+  *render* before that navigation, not a line before it.
+- **The WIC-1765 suite passes unchanged against `useBlocker`** — 19 tests, no assertion rewritten.
+  The fixtures move to `createMemoryRouter`, which is forced by the same fact that forced the
+  production change, not a rewrite to match the new implementation.
+- **Five new tests, each confirmed load-bearing by mutation.** Four red when the blocker is unwired
+  (`useBlocker(false)`), which is the pre-fix state. The fifth is the AC-3 control — untouched
+  wizard, Back goes straight through — which by design passes both before and after; it is red
+  instead under `isDirty = Object.keys(data).length > 0`, the seeded-state bug from WIC-1621 that
+  the untouched-wizard controls exist to catch. `AXE_BASELINE` (8) and the lint ceiling (0 errors /
+  26 warnings) are both unmoved.
+
+
 ### Fixed — Four a11y defects behind 18 of the 26 baselined axe findings, dropping `AXE_BASELINE` 26 -> 8 (2026-09-04)
 
 `packages/web` route sweep. The WIC-1926 ratchet is a two-way pin — a new finding fails, and a
