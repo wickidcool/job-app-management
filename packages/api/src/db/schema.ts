@@ -50,6 +50,10 @@ export const applications = pgTable('applications', {
   compTarget: text('comp_target'),
   nextAction: text('next_action'),
   nextActionDue: date('next_action_due', { mode: 'string' }),
+  // WIC-2023. `timestamp` with a timezone, not `date` like `nextActionDue` above:
+  // an interview is an instant the UI formats a time from, and WIC-1798 windows
+  // on it. See migration 0026 for the full reasoning.
+  interviewDate: timestamp('interview_date', { withTimezone: true }),
   jobDescription: text('job_description'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
