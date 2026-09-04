@@ -8,6 +8,11 @@ export interface RequestContext {
   // times getDb() is called.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sql?: any;
+  // Set once this request's connect deadline expires. While it is set every
+  // getDb() throws immediately instead of building another pool, so a database
+  // that cannot be reached costs one bounded burst of dials per invocation
+  // rather than one per service call. See db/connect-bound.ts.
+  dbUnreachable?: Error;
 }
 
 const requestStorage = new AsyncLocalStorage<RequestContext>();

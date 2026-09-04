@@ -20,6 +20,7 @@ import { authMiddleware } from './middleware/auth.js';
 import { httpsRedirect, securityHeaders } from './middleware/security.js';
 import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
+import { isDatabaseUnreachable } from './db/connect-bound.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
 
 /**
@@ -193,6 +194,11 @@ export function buildApp() {
     // answers 503 once instead of this handler reporting an opaque 500 on every
     // DB-backed endpoint. It is an availability failure, not a bug in the route.
     if (isSubrequestExhaustion(err)) throw err;
+
+    // Same reasoning for a connect deadline that expired: the pool has already
+    // been torn down, so this is availability, and retrying would only re-enter
+    // the dial loop the teardown just stopped.
+    if (isDatabaseUnreachable(err)) throw err;
 
     if (err instanceof AppError) {
       return c.json(

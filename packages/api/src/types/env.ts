@@ -63,6 +63,12 @@ export interface Env {
    * `LOCAL_DEV_USER_ID_DEFAULT` in `config.ts`.
    */
   LOCAL_DEV_USER_ID?: string;
+  /**
+   * Milliseconds a Workers request will wait for a database connection before
+   * tearing the pool down and failing fast (WIC-2043). Defaults to
+   * `DEFAULT_CONNECT_DEADLINE_MS`; an unparseable value falls back to it.
+   */
+  DB_CONNECT_DEADLINE_MS?: string;
 }
 
 export interface HonoVariables {
