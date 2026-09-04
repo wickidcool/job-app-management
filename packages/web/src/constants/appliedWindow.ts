@@ -28,12 +28,24 @@
  * so the relabel needs no appeal to consistency with a neighbouring window.
  *
  * It deliberately does not rest on the `appliedThisMonth` sibling, which cannot
- * carry that argument. That field is `oneMonthAgo.setMonth(getMonth() - 1)`, so
- * it measures 28 to 31 days rather than a flat 30 — 2026-03-31 looks back 28
- * days, 2026-02-28 looks back 31 — and it has no label to be consistent with,
- * because its only non-type occurrence in `packages/web/src` is the zeroed
- * pre-fetch fallback in `Dashboard.tsx`. It reaches no surface, so AC-N12 does
- * not currently reach it either.
+ * carry that argument — and the reason has changed, so do not restore the old
+ * wording here. That field used to be `oneMonthAgo.setMonth(getMonth() - 1)`,
+ * which measured 28 to 31 days rather than a flat 30 (2026-03-31 looked back 28
+ * days, 2026-02-28 looked back 31). **That defect is fixed**: WIC-1777 replaced
+ * it with `new Date(now - 30 * DAY_MS)`, so it is now an honest rolling 30 days,
+ * the same shape as this window.
+ *
+ * What still disqualifies it as support is the *other* half, which is unchanged:
+ * it has no label to be consistent with, because **nothing in `packages/web/src`
+ * reads it**. Every occurrence is inert — the DTO declaration in
+ * `services/api/types.ts`, this sentence, two test fixtures supplying it as part
+ * of a whole `DashboardResponse`, and the pre-fetch fallback in `Dashboard.tsx`,
+ * which sets it to `0` to satisfy the DTO shape and then drops it: the
+ * `displayStats` object built directly below that fallback does not carry the
+ * field, and `DashboardStats.tsx` never names it at all. So AC-N12 does not
+ * currently reach it either. If a surface ever renders it, that label must say
+ * "last 30 days" and not "this month" — the field name is the thing still out
+ * of step with the computation.
  *
  * If week-to-date is ever judged the better product answer, AC-N10 has to be
  * amended first — `appliedWindow.test.ts` fails loudly if the API's window
