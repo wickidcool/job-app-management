@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsByFitTier } from '../hooks/useReports';
 import { FIT_TIER_LABELS } from '../constants/fitLevel';
@@ -194,6 +195,26 @@ void _VERDICT_TIERS_KEEPS_ENTRY_LITERALS;
 const TIER_ORDER_CAPTION =
   'Ranked best first. Each application is counted once, in the first tier it qualifies for.';
 
+/**
+ * The page shell, carrying this route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it.** The loading and error states below used to return before
+ * the header block, so they came back with no heading at all — the route opened at
+ * nothing, which is the WCAG 2.1 AA (SC 1.3.1) defect `routeOutline.render.test.tsx`
+ * inventories. `CoverLetterNew` is the pattern.
+ */
+function ReportsByFitTierLayout({ children }: { children: ReactNode }) {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-neutral-900">By Fit Tier</h1>
+        <p className="mt-2 text-neutral-600">Priority grouping by job fit analysis score</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function ReportsByFitTier() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useReportsByFitTier();
@@ -202,32 +223,27 @@ export function ReportsByFitTier() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsByFitTierLayout>
         <div className="text-center">Loading by fit tier report...</div>
-      </div>
+      </ReportsByFitTierLayout>
     );
   }
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsByFitTierLayout>
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
           <p className="text-red-800 font-medium">Failed to load fit tier report</p>
           <p className="mt-2 text-sm text-red-600">
             {error instanceof Error ? error.message : 'Please try refreshing the page.'}
           </p>
         </div>
-      </div>
+      </ReportsByFitTierLayout>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-neutral-900">By Fit Tier</h1>
-        <p className="mt-2 text-neutral-600">Priority grouping by job fit analysis score</p>
-      </div>
-
+    <ReportsByFitTierLayout>
       {/* UC-3 Dependency Notice */}
       <div className="rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50 p-8">
         <div className="text-center">
@@ -305,6 +321,6 @@ export function ReportsByFitTier() {
           Report generated at {new Date(data.generatedAt).toLocaleString()}
         </p>
       )}
-    </div>
+    </ReportsByFitTierLayout>
   );
 }

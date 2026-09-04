@@ -1,6 +1,6 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { formatDistanceToNow, format } from 'date-fns';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   useApplication,
   useUpdateApplicationStatus,
@@ -21,6 +21,23 @@ import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
 
+/**
+ * The page shell, carrying this route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it.** The loading and not-found states used to return before the
+ * heading, so they came back with no heading at all — the WCAG 2.1 AA (SC 1.3.1) defect
+ * `routeOutline.render.test.tsx` inventories. `CoverLetterNew` is the pattern.
+ *
+ * `heading` is passed in rather than read here because on those two branches the job
+ * title is exactly what is missing. They fall back to the same string the tab does,
+ * which is the convention rather than a new invention: `ROUTE_TITLE_CONVENTION.md` §0.3
+ * makes a route's title its `<h1>` verbatim, so the two must not diverge on the branch
+ * where neither has real data yet.
+ */
+function ApplicationDetailHeading({ children }: { children: ReactNode }) {
+  return <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{children}</h1>;
+}
+
 export function ApplicationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -32,7 +49,8 @@ export function ApplicationDetail() {
   // Mirrors the page <h1> (`application.jobTitle`). The fallback covers the loading and
   // not-found renders, so the tab never reads `undefined — Careerpin` and never keeps the
   // previous route's title (docs/design/ROUTE_TITLE_CONVENTION.md §3).
-  useDocumentTitle(application?.jobTitle || DYNAMIC_TITLE_FALLBACKS.application);
+  const heading = application?.jobTitle || DYNAMIC_TITLE_FALLBACKS.application;
+  useDocumentTitle(heading);
 
   // Cover letters written for this application. The endpoint has no
   // `applicationId` filter — no such column exists — so `company` narrows
@@ -173,8 +191,13 @@ export function ApplicationDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Loading...</div>
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-4xl mx-auto px-6 py-12">
+          <ApplicationDetailHeading>{heading}</ApplicationDetailHeading>
+          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+            <p className="text-gray-500">Loading...</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -183,6 +206,7 @@ export function ApplicationDetail() {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-4xl mx-auto px-6 py-12">
+          <ApplicationDetailHeading>{heading}</ApplicationDetailHeading>
           <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
             <p className="text-gray-500 mb-4">Application not found</p>
             <Link to="/" className="text-blue-600 hover:text-blue-700">
@@ -214,9 +238,7 @@ export function ApplicationDetail() {
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-                {application.jobTitle}
-              </h1>
+              <ApplicationDetailHeading>{application.jobTitle}</ApplicationDetailHeading>
               <p className="text-lg sm:text-xl text-gray-600 mb-4">{application.company}</p>
 
               {/* Status Badge */}

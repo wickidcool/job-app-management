@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { CoverLetterPreview } from '../components/CoverLetterPreview';
 import {
@@ -7,6 +7,49 @@ import {
   useExportCoverLetter,
 } from '../hooks/useCoverLetters';
 import type { CoverLetterVariant } from '../services/api/types';
+
+/**
+ * The page shell, carrying this route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it.** The loading and error states below used to return before
+ * the header bar, so they came back with no heading at all — the WCAG 2.1 AA (SC 1.3.1)
+ * defect `routeOutline.render.test.tsx` inventories. `CoverLetterNew` is the pattern.
+ *
+ * `actions` is a slot because both controls act on a cover letter that has been fetched:
+ * there is nothing to compose outreach from, or to delete, until the request resolves.
+ */
+function CoverLetterDetailLayout({
+  onBack,
+  actions,
+  children,
+}: {
+  onBack: () => void;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div>
+            <button onClick={onBack} className="text-sm text-gray-600 hover:text-gray-900 mb-2">
+              ← Back
+            </button>
+            <h1 className="text-2xl font-bold text-gray-900">Cover Letter</h1>
+          </div>
+          {actions}
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Centred single-message body shared by the loading and error states. */
+function StatusBody({ children }: { children: ReactNode }) {
+  return <div className="flex items-center justify-center py-24">{children}</div>;
+}
 
 export function CoverLetterDetail() {
   const { id } = useParams<{ id: string }>();
@@ -67,17 +110,21 @@ export function CoverLetterDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading...</div>
-      </div>
+      <CoverLetterDetailLayout onBack={() => navigate(-1)}>
+        <StatusBody>
+          <div className="text-gray-600">Loading...</div>
+        </StatusBody>
+      </CoverLetterDetailLayout>
     );
   }
 
   if (error || !coverLetter) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-red-600">Failed to load cover letter</div>
-      </div>
+      <CoverLetterDetailLayout onBack={() => navigate(-1)}>
+        <StatusBody>
+          <div className="text-red-600">Failed to load cover letter</div>
+        </StatusBody>
+      </CoverLetterDetailLayout>
     );
   }
 
@@ -100,37 +147,26 @@ export function CoverLetterDetail() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <button
-              onClick={() => navigate(-1)}
-              className="text-sm text-gray-600 hover:text-gray-900 mb-2"
-            >
-              ← Back
-            </button>
-            <h1 className="text-2xl font-bold text-gray-900">Cover Letter</h1>
-          </div>
-          <div className="flex gap-3">
-            <Link
-              to={`/outreach/new?${outreachParams.toString()}`}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Write Outreach Message
-            </Link>
-            <button
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending}
-              className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
-            >
-              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
-            </button>
-          </div>
+    <CoverLetterDetailLayout
+      onBack={() => navigate(-1)}
+      actions={
+        <div className="flex gap-3">
+          <Link
+            to={`/outreach/new?${outreachParams.toString()}`}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Write Outreach Message
+          </Link>
+          <button
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+            className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+          >
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </button>
         </div>
-      </div>
-
+      }
+    >
       {/* Content */}
       <div className="max-w-5xl mx-auto py-8">
         {/* Error Messages */}
@@ -185,6 +221,6 @@ export function CoverLetterDetail() {
           />
         </div>
       </div>
-    </div>
+    </CoverLetterDetailLayout>
   );
 }

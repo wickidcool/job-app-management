@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -8,6 +8,36 @@ import { useProjectFile, useUpdateProjectFile } from '../hooks/useProjects';
 import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
+/**
+ * This route's top-level heading, rendered on the loading branch as well as the loaded one
+ * (WIC-2050).
+ *
+ * The skeleton below used to stand a grey block where the heading goes, so the route
+ * opened at no heading at all while the file was in flight — the WCAG 2.1 AA (SC 1.3.1)
+ * defect `routeOutline.render.test.tsx` inventories. Nothing was waiting on the response:
+ * both the file name and the project name come off the URL, which is the same reason
+ * `useDocumentTitle` below can resolve the title before the first fetch settles.
+ */
+function ProjectFileEditorHeading({
+  name,
+  projectName,
+  actions,
+}: {
+  name: string;
+  projectName: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="mb-6 flex items-center justify-between">
+      <div>
+        <h1 className="text-3xl font-bold text-neutral-900">{name}</h1>
+        <p className="mt-2 text-sm text-neutral-600">Project: {projectName}</p>
+      </div>
+      {actions}
+    </div>
+  );
+}
+
 export function ProjectFileEditor() {
   const { projectId, fileName } = useParams<{ projectId: string; fileName: string }>();
   const { data: content, isLoading } = useProjectFile(projectId!, fileName!);
@@ -16,7 +46,8 @@ export function ProjectFileEditor() {
   // Mirrors the page <h1> (`fileName`). Taken from the URL param, so unlike the other
   // dynamic routes it is known before any fetch resolves; the fallback only covers a
   // paramless render.
-  useDocumentTitle(fileName || DYNAMIC_TITLE_FALLBACKS.projectFile);
+  const heading = fileName || DYNAMIC_TITLE_FALLBACKS.projectFile;
+  useDocumentTitle(heading);
 
   const [editMode, setEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState('');
@@ -48,10 +79,7 @@ export function ProjectFileEditor() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mb-6 animate-pulse">
-          <div className="mb-2 h-8 w-48 rounded bg-neutral-200"></div>
-          <div className="h-4 w-96 rounded bg-neutral-200"></div>
-        </div>
+        <ProjectFileEditorHeading name={heading} projectName={projectName} />
         <div className="h-96 animate-pulse rounded-lg bg-neutral-200"></div>
       </div>
     );
@@ -68,42 +96,42 @@ export function ProjectFileEditor() {
         ]}
       />
 
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-neutral-900">{fileName}</h1>
-          <p className="mt-2 text-sm text-neutral-600">Project: {projectName}</p>
-        </div>
-        <div className="flex gap-2">
-          {editMode ? (
-            <>
+      <ProjectFileEditorHeading
+        name={heading}
+        projectName={projectName}
+        actions={
+          <div className="flex gap-2">
+            {editMode ? (
+              <>
+                <button
+                  onClick={handleCancel}
+                  className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                  disabled={updateFile.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+                  disabled={updateFile.isPending}
+                >
+                  {updateFile.isPending ? 'Saving...' : 'Save'}
+                </button>
+              </>
+            ) : (
               <button
-                onClick={handleCancel}
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-                disabled={updateFile.isPending}
+                onClick={() => {
+                  setEditedContent(content || '');
+                  setEditMode(true);
+                }}
+                className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
               >
-                Cancel
+                Edit
               </button>
-              <button
-                onClick={handleSave}
-                className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-                disabled={updateFile.isPending}
-              >
-                {updateFile.isPending ? 'Saving...' : 'Save'}
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => {
-                setEditedContent(content || '');
-                setEditMode(true);
-              }}
-              className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              Edit
-            </button>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        }
+      />
 
       {editMode && (
         <div className="mb-4 flex items-center gap-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
