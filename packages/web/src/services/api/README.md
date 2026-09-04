@@ -1,6 +1,6 @@
 # API Integration Module
 
-This module provides the real backend API integration for the Job Application Manager, designed to replace `mockApplicationService` when the backend is deployed.
+This module provides the real backend API integration for Careerpin, designed to replace `mockApplicationService` when the backend is deployed.
 
 ## Status: ⏸️ Ready for Backend
 

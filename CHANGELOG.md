@@ -461,6 +461,43 @@ renders on screen only and never reaches printed output.)
 Docs only; no source, no rendered output, and no test changed. `docs/design/README.md` picks up
 the same one-line front-matter correction (WIC-1102).
 
+### Docs — the old product name is out of the design docs and the `packages/web/src` comments (2026-09-01)
+
+WIC-1950 closed every user-facing string; this is the non-user-facing remainder inside
+`packages/web/src` and `docs/design/` — the places implementers read. Twelve files, prose and
+comments only, so nothing compiles differently.
+
+- **Four source comments and READMEs** — `components/README.md`, `components/index.ts`,
+  `services/api/index.ts`, `services/api/README.md`. Never rendered; these are the four the
+  `CONTENT_STYLE.md` inventory explicitly parked as internal-only.
+- **Seven design-doc titles and intros** — `DESIGN_SYSTEM.md`, `WIREFRAMES.md`,
+  `ACCESSIBILITY.md`, `USER_FLOWS.md`, `COMPONENT_SPECS.md`, `NAVIGATION_STRUCTURE.md` (the root
+  of its Application Structure tree) and the `README.md` overview line, plus
+  `docs/AUTHENTICATION.md`. `COMPONENT_SPECS.md` and `NAVIGATION_STRUCTURE.md` were not on
+  WIC-1954's list; they are the same class — a design-doc title and a structure diagram — and
+  leaving two of the seven `docs/design/` titles behind would have re-created the gap the
+  card exists to close.
+- **`Careerpin` drops the definite article.** "for Careerpin", not "for the Careerpin" — it is a
+  proper noun, where `Job Application Manager` was a descriptive phrase that required one. That
+  is a rewrite of each sentence, not a substitution, which is why this was not a `sed`.
+- **The three `WIREFRAMES.md` occurrences sit inside ASCII box frames** and were re-padded, not
+  substituted. `Job Application Manager` is 23 columns and `Careerpin` is 9, so a plain swap
+  pulls the right-hand `│` 14 columns out of true; the 14 columns were re-inserted after the
+  name so the right-aligned `[@] Profile ▼` block holds its column. Verified mechanically —
+  every one of the file's 1238 box-drawing rows has the same width before and after, so the
+  re-pad is proven rather than eyeballed. Nothing in CI checks this: `wireframe-casing-audit.py` reads
+  only `COMPONENT_SPECS.md` and `doc-reference-audit.py` resolves filenames, not layout.
+- **`CONTENT_STYLE.md` now names what must *not* be swept.** Its closed-inventory note listed the
+  four source comments as outstanding and is corrected, but the useful half is the new
+  do-not-touch list: the historical quotations in `ROUTE_TITLE_CONVENTION.md` and
+  `NOTFOUND_PAGE_DESIGN_SPEC.md` (evidence of the pre-rename state — updating them falsifies
+  their own audits), the ruling prose that argues about the old name by name, the `CHANGELOG.md`
+  entries, and the deliberate "this used to say" markers in `pages/Login.tsx`,
+  `e2e/auth.spec.ts` and the `not.toContain('Job Application Manager')` assertion in
+  `constants/title.test.ts`, which a blanket rename would silently invert.
+- Verified with all four `docs/design/*.py` audits: route-title table 30/32 routes, 301 doc
+  references resolving, focus-restore call sites, and the wireframe casing audit — all pass.
+
 ### Copy — the last two `Job Application Manager` strings are decided, and the export footer's premise was wrong (2026-09-01)
 
 The two sites WIC-1102 held back now carry rulings, so no user-facing string in `packages/web`
