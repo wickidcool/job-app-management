@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { coverLetterService } from '../services/api';
@@ -19,6 +19,21 @@ import { OutreachNew } from './OutreachNew';
  * `/outreach/new` had no test cover of any kind before this file, which is the other
  * half of why the duplication survived.
  */
+/**
+ * Navigates the enclosing router on click, so a test can change the query string the page
+ * reads its props from WITHOUT re-rendering the tree from the root. Re-rendering would
+ * remount the composer unconditionally and make the remount assertions below vacuous;
+ * this drives the real router the way a link would.
+ */
+function NavButton({ label, to }: { label: string; to: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      {label}
+    </button>
+  );
+}
+
 function renderOutreachNew(initialEntry = '/outreach/new') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -27,6 +42,11 @@ function renderOutreachNew(initialEntry = '/outreach/new') {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <OutreachNew />
+        <NavButton label="go to fit-2" to={`${PREFILLED}&jobFitAnalysisId=fit-2`} />
+        <NavButton
+          label="go to app-9"
+          to={`${PREFILLED}&jobFitAnalysisId=fit-1&applicationId=app-9`}
+        />
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -213,5 +233,63 @@ describe('OutreachNew platform picker', () => {
 
     expect(screen.getByLabelText('Company')).toHaveValue('TechCorp');
     expect(screen.getByLabelText('Role')).toHaveValue('Staff Engineer');
+  });
+
+  /**
+   * The remount key (WIC-1618).
+   *
+   * `OutreachComposer` seeds its Context fields from `initialContext` on mount only, and
+   * `OutreachNew` covers that with `key={`${company}|${jobTitle}|${fitAnalysisId ?? ''}`}`
+   * so a change to any seeded prop remounts the composer rather than being silently
+   * dropped. The comment above that key (OutreachNew.tsx:38-49) called the arrangement
+   * deliberate defence-in-depth and then said plainly: **"nothing in the suite enforces
+   * it."** These two cases are that enforcement.
+   *
+   * This is the half of the WIC-1618 hazard a lint rule structurally cannot reach. The
+   * safety of `useState(initialContext?.company)` lives at the CALL SITE, and
+   * `local/no-usestate-from-prop` runs at the component definition, where the key is
+   * invisible. So the rule and these tests cover complementary halves of one defect:
+   * delete the key and the rule stays green while the seeds go stale.
+   */
+  it('remounts the composer when a seeded prop changes, discarding the stale seed', async () => {
+    const user = userEvent.setup();
+    renderOutreachNew(`${PREFILLED}&jobFitAnalysisId=fit-1`);
+
+    // The user takes ownership of the field the prop seeded.
+    const companyField = screen.getByLabelText('Company');
+    await user.clear(companyField);
+    await user.type(companyField, 'EditedByUser');
+    expect(screen.getByLabelText('Company')).toHaveValue('EditedByUser');
+
+    // A seeded prop changes. `fitAnalysisId` is in the key, so the composer must remount
+    // and re-seed from the new props — discarding the edit above.
+    await user.click(screen.getByRole('button', { name: 'go to fit-2' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Company')).toHaveValue('TechCorp');
+    });
+  });
+
+  it('does NOT remount when a prop outside the key changes', async () => {
+    // The differential control, and the reason the case above is not vacuous: it proves
+    // the assertion is detecting a REMOUNT rather than merely a re-render or a router
+    // update. `applicationId` is deliberately absent from the key — it seeds nothing — so
+    // the user's edit must survive. Add `applicationId` to the key and this goes red;
+    // drop `fitAnalysisId` from it and the case above goes red. The pair pins the key's
+    // exact composition from both sides.
+    const user = userEvent.setup();
+    renderOutreachNew(`${PREFILLED}&jobFitAnalysisId=fit-1`);
+
+    const companyField = screen.getByLabelText('Company');
+    await user.clear(companyField);
+    await user.type(companyField, 'EditedByUser');
+
+    await user.click(screen.getByRole('button', { name: 'go to app-9' }));
+
+    // Give the router the same opportunity to settle that the case above gets.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'go to app-9' })).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Company')).toHaveValue('EditedByUser');
   });
 });

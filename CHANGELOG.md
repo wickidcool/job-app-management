@@ -53,6 +53,56 @@ had to be answered, not a tally taken by hand.
 - Web only. No API, schema, migration or wire change.
 
 
+### Added — `useState` seeded from a prop is now a lint error, unless the prop name says it is mount-only (2026-09-04)
+
+`packages/web`. Copying a prop into `useState` snapshots it: the initialiser runs on mount only, so
+the parent goes on updating the prop while the component keeps its mount-time copy and nothing
+reports the divergence. WIC-1612 / PR #211 deleted four such sites from `FilterPanel.tsx`; WIC-1583
+rewrote `OutreachComposer.tsx` after a second platform picker wrote to a value the composer read
+once and then ignored.
+
+- **`local/no-usestate-from-prop`, at `error`, with zero findings and no allowlist.** The exemption
+  is the repo's own convention rather than a list: a prop named `initial*` declares the mount-only
+  contract in the name, which is the decision `main` already made when WIC-1583 renamed
+  `OutreachComposer`'s seed prop to `initialContext`. A name-based exemption cannot go stale the way
+  WIC-1440's did, where 6 of 8 allowlist entries were dead within two merges.
+- **Landed at `error`, not `warn`, so neither `--max-warnings 26` ceiling moves.** WIC-2053 showed
+  how coupled those ceilings are to the a11y baselines; `error` plus zero findings touches neither.
+  Lint is 0 errors / 26 warnings before and after.
+- **The rule reproduces the hand inventory exactly.** Run with its exemptions disabled it reports 5
+  sites — `OutreachComposer.tsx:56,57,58,59` and `hooks/useRouteFocusHandoff.test.tsx:55` — matching
+  an independent grep-based scan. With the `initial*` exemption on, 2 remain; both are out of scope
+  below. `FilterPanel.tsx` is confirmed clean.
+- **Boolean-predicate seeds are out of scope, deliberately, and that is the substance of the card.**
+  `useState(!!fitAnalysisId)` and `useState(readyAfterMs === 0)` do not copy a prop — they hold a
+  boolean whose *default* was conditioned on one — so "the prop and the state have diverged" has no
+  reading: the boolean can be false while the prop is set, and that is a legitimate state. Renaming
+  either prop to `initial*` was not available: **both props are read live elsewhere in their
+  component** (`fitAnalysisId` at `OutreachComposer.tsx:100` and `:223`), so the name would have been
+  false. The narrowing has a real cost and is stated in the rule's KNOWN GAPS rather than hidden.
+- **The behaviour test is tree-state-independent, because the rule lands at zero findings.** That is
+  exactly the WIC-1903 failure mode: no-op `no-literal-caps-jsx-text`'s single `context.report(...)`
+  and its baseline test stayed green, so a dead rule and a working one were indistinguishable.
+  `src/test/useStateFromProp-rule.test.ts` lints 31 synthetic snippets through the real resolved
+  config. Verified by mutation: no-op this rule's `context.report(...)` and **`npm run lint` stays
+  green while 25 of the 31 go red** — the 6 survivors are precisely the assertions that do not depend
+  on reporting. Every "must not flag" case carries a differential control, so no exemption can be
+  satisfied by a rule that reports nothing.
+- **Every KNOWN GAP is pinned, not prose**: laundering through an intermediate local, `memo()`,
+  positional-param hooks (`useDebounce.ts:12` seeds `useState(value)` *correctly* — it resyncs in an
+  effect), nested components reading a parent's props, and the boolean narrowing above.
+- **Test files are in scope on purpose**, stated in `eslint.config.js`: a test-helper component is
+  exactly the shape the rule reads, so a carve-out would put the blind spot where nobody looks.
+- **`OutreachNew`'s remount key is now enforced.** The comment at `OutreachNew.tsx:38-49` called the
+  key deliberate defence-in-depth and then said "nothing in the suite enforces it." Two cases now do,
+  pinning its composition from both sides — a change to `fitAnalysisId` must discard a user's edit
+  (remount), and a change to `applicationId`, which is absent from the key, must not. Verified by
+  mutation in both directions: narrowing the key fails the first and only the first, widening it
+  fails the second and only the second. This is the half of the hazard a lint rule structurally
+  cannot reach, since the safety lives at the call site and the rule runs at the definition.
+- Web only. No API, schema, migration or wire change.
+
+
 ### Fixed — Eleven pages rendered no `<h1>` at all while loading or on error, closing the last 21 route/branch pairs (2026-09-04)
 
 Every route now opens at a single top-level heading on **all four** of its render branches. `MISSING_H1` in `routeOutline.render.test.tsx` is empty and its size pin is **0**, so the `<h1>` rule joins the heading-skip rule as unconditional over all 120 (route, branch) pairs — no allowlist, no exemptions (WIC-2050, under WIC-1864).
