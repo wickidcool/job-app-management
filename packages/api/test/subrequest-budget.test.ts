@@ -15,7 +15,8 @@ const PROD_ERROR =
   'Too many subrequests by single Worker invocation. To configure this limit, ' +
   'refer to https://developers.cloudflare.com/workers/wrangler/configuration/#limits';
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -23,7 +24,10 @@ vi.mock('../src/services/application.service.js', () => ({
   deleteApplication: vi.fn(),
   updateApplicationStatus: vi.fn(),
 }));
-vi.mock('../src/services/dashboard.service.js', () => ({ getDashboardStats: vi.fn() }));
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
+  getDashboardStats: vi.fn(),
+}));
 
 import * as appService from '../src/services/application.service.js';
 

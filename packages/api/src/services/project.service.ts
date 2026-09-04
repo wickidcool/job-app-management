@@ -54,6 +54,13 @@ export interface CreateProjectInput {
  * so resume and project artefacts share one namespacing convention: in
  * production the JWT always supplies a `userId`, and `anon` is only reached in
  * the local auth-bypass dev mode where there is a single implicit user.
+ *
+ * The parity is on that fallback only — **the traversal guard below is
+ * deliberately not in `buildObjectKey`** (WIC-1469). `storage.service` never
+ * touches the filesystem, so its keys are only ever R2/S3 object keys, where
+ * `..` is an ordinary key character. This owner segment is also joined into a
+ * real path by `localProjectsDir` on the local-filesystem backend, which is
+ * what makes the guard load-bearing here and inert there.
  */
 function storageOwner(userId?: string): string {
   const owner = userId ?? 'anon';
