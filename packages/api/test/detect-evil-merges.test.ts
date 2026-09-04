@@ -141,9 +141,9 @@ describe('parseCombinedDiff — read git’s combined index grammar', () => {
   });
 
   it('yields nothing for a file with no index line — a pure mode change carries no content', () => {
-    expect(
-      parseCombinedDiff('diff --cc src/run.sh\nold mode 100644\nnew mode 100755\n')
-    ).toEqual([]);
+    expect(parseCombinedDiff('diff --cc src/run.sh\nold mode 100644\nnew mode 100755\n')).toEqual(
+      []
+    );
   });
 
   it('does not attribute an index line to a file it did not follow', () => {
@@ -189,12 +189,12 @@ describe('classifyFile — invented content vs a genuine resolution', () => {
   });
 
   it('needs ALL parents to agree, not just the first two', () => {
-    expect(
-      classifyFile({ file: 'a.ts', parents: ['aa', 'aa', 'bb'], result: 'cc' })
-    ).toMatchObject({ kind: 'resolved' });
-    expect(
-      classifyFile({ file: 'a.ts', parents: ['aa', 'aa', 'aa'], result: 'cc' })
-    ).toMatchObject({ kind: 'invented' });
+    expect(classifyFile({ file: 'a.ts', parents: ['aa', 'aa', 'bb'], result: 'cc' })).toMatchObject(
+      { kind: 'resolved' }
+    );
+    expect(classifyFile({ file: 'a.ts', parents: ['aa', 'aa', 'aa'], result: 'cc' })).toMatchObject(
+      { kind: 'invented' }
+    );
   });
 });
 
@@ -267,14 +267,10 @@ describe('inspectMerge — the whole pass, over real git output', () => {
 
   it('passes the test-excluding pathspec to git by default', () => {
     let seen: string[] = [];
-    inspectMerge(
-      'abc',
-      {},
-      (args: string[]) => {
-        seen = args;
-        return '';
-      }
-    );
+    inspectMerge('abc', {}, (args: string[]) => {
+      seen = args;
+      return '';
+    });
     expect(seen.slice(0, 4)).toEqual(['show', '--cc', '--format=', 'abc']);
     expect(seen).toContain('--');
     expect(seen).toContain(':!*.test.*');
