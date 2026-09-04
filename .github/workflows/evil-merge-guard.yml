@@ -1,0 +1,73 @@
+name: Evil-Merge Guard
+
+# WIC-1979. Fails a PR whose branch contains a merge commit that *authored*
+# source content — content present in none of the merge's parents, on no
+# reviewable commit, and therefore on no review surface.
+#
+# THE BLIND SPOT THIS CLOSES
+# Merge `d59c74bf` added three lines to `packages/web/vite.config.ts` that exist
+# in neither parent. It was invisible to every routine lens: `git log --oneline`
+# between two heads shows only the merge; `git log -S` skips merges unless you
+# pass `-m`; and GitHub's "Files changed" attributes merge-only content to no
+# commit. The line itself was benign — the blind spot is the finding.
+#
+# WHY THIS IS A SEPARATE FILE FROM deploy.yml
+# Same reason as skip-ci-guard.yml: a guard that shares a workflow with the
+# build competes with it for a runner slot and gets cancelled by the same
+# concurrency group. This job needs no dependency install (the detector imports
+# only `node:child_process` and `node:url`), so it finishes in seconds and is
+# cheap to keep as its own required check.
+#
+# WHY IT IS `pull_request` AND NOT `pull_request_target`
+# Unlike skip-ci-guard, this guard has nothing to prove when CI is skipped — a
+# `[skip ci]` PR is already caught by that guard. `pull_request` is the weaker,
+# safer trigger: it never gets a write token and never runs with secrets, which
+# matters because this job DOES check out PR head code.
+#
+# FALSE-POSITIVE BUDGET
+# The gate is deliberately the narrow signal: it fires only when every parent
+# held the *same* blob and the merge result differs, i.e. nothing was in
+# conflict so there was nothing to resolve. Measured over all 594 merges on
+# `main` at e1bda4e8, that is 1 non-test source file (d59c74bf). The looser
+# "differs from every parent" rule would have flagged 47 merges (7.9%), nearly
+# all ordinary conflict resolutions — a rate that trains people to ignore the
+# check. Resolutions are reported, never gated.
+
+on:
+  pull_request:
+    # `branches:` filters the BASE branch. `['**']` so stacked PRs are covered,
+    # same lesson as WIC-1138 / #94 in deploy.yml.
+    branches: ['**']
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evil-merge-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Merge commits authored no source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR head with full history
+        uses: actions/checkout@v4
+        with:
+          # The PR HEAD, not the merge ref: the merges we care about are the
+          # ones on the branch. GitHub's own merge commit is not the subject.
+          ref: ${{ github.event.pull_request.head.sha }}
+          # `git rev-list --merges base..head` needs real history. The default
+          # depth of 1 would silently find zero merges and pass every time.
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref }}"
+
+      - name: Check merge commits on this branch
+        run: |
+          node packages/api/scripts/detect-evil-merges.mjs \
+            "origin/${{ github.event.pull_request.base.ref }}..${{ github.event.pull_request.head.sha }}" \
+            --report
