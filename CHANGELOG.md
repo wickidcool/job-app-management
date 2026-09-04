@@ -22,6 +22,56 @@ All notable changes to the Job Application Manager are documented here.
 - **This does not create the production Hyperdrive binding**, which needs a Cloudflare token and stays with WIC-1916 / WIC-1386. No schema, migration or wire change.
 
 
+### Added — A sweeper-shaped companion makes the evil-merge gate requirable, which `pull_request` structurally cannot be (2026-09-04)
+
+The WIC-1979 detector is sound and unchanged. What this adds is a gate around it that a repository
+ruleset can actually name (WIC-2055).
+
+- **The guard could not be made required, and could not be reshaped either.** `evil-merge-guard.yml`
+  is `pull_request`-triggered because it is the one check that runs `actions/checkout` on PR head
+  code, so `pull_request_target` would hand untrusted code a base-repo token. That trigger is
+  unreachable when the PR's base predates the workflow file, does not retro-fire onto already-open
+  PRs, and does not run at all on a CONFLICTING PR — so naming it required would leave PRs pending
+  forever. The two constraints collide, which is why the remedy is a second workflow rather than an
+  edit to the first.
+- **`evil-merge-sweeper.yml` runs from the default branch with no `actions/checkout` and no `run:`
+  step**, publishing the commit status `evil-merge-sweep`. It reads commit parents and git trees over
+  the API only, and the rule is a pure blob-sha comparison that never needs file contents — which is
+  what makes `pull_request_target` safe here, the same property `skip-ci-sweeper.yml` relies on.
+- **Parity is exact on the gated class and deliberately not claimed elsewhere.** Over all 594 merge
+  commits on `main`, the API-shaped detector returns the identical `invented` set as the git-driven
+  script — 1 by default (`d59c74bf packages/web/vite.config.ts`), 2 with `--include-tests` (adding
+  `6f2b8f21`) — with nothing the script reports and it misses. The non-gated class is not in parity
+  and is not published: `git show --cc` is a *dense* combined diff that suppresses hunks sourced from
+  a single parent, so an ordinary clean auto-merge differs from both parents by blob yet prints
+  nothing. Same corpus, the script reports 75 such files and a blob-only rule sees 161. Telling those
+  apart needs line content, so the class is named `contested`, documented as a strict superset, and
+  left out of the status.
+- **The corpus is recorded, because a live-git parity test would pass for the wrong reason.**
+  `deploy.yml` checks out with no `fetch-depth`, so CI runs at depth 1, `git rev-list --merges`
+  returns nothing, and the test would compare two empty sets and go green — the same trap that makes
+  `fetch-depth: 0` load-bearing in the guard. `scripts/record-evil-merge-parity-corpus.mjs` records
+  all 594 merges and 28,537 per-path decisions against the real script's verdict, and the test pins
+  the corpus size and both known instances so an emptied fixture fails loudly.
+- **The workflow's inlined copy is pinned, not trusted.** No checkout means it cannot import the
+  module, so the detector is duplicated inside the `github-script` block; the block between the
+  `SHARED-CORE` markers is compared byte-for-byte against the module by the test suite, rather than
+  left to a "keep in sync" comment.
+- **Budgeted from measurement.** Merge counts per PR range are bimodal (p50 5, p90 246, max 390)
+  because stacked PRs carry their parent stack in `base...head`. A sha-keyed tree cache turns a
+  100-PR sweep from 10,849 reads into 811, so the cap is 900 and the cron is hourly rather than
+  `*/15`. Running out defers the remaining PRs — leaving their status `pending`, which is fail-closed
+  — and says so in the job summary; it never publishes a verdict from a partial read.
+- **Admin bypass still overrides it**, and the workflow header says so. Both bypass actors on the
+  ruleset are `bypass_mode: always`, so `gh pr merge --admin` goes straight through. This is a
+  durable signal on the PR, not an enforcement boundary.
+- **Validated end to end by executing the workflow's real script against stubbed API data**: it posts
+  `failure` on PR #143's actual CI range, and across 120 historical PR ranges it fires on exactly the
+  8 that transitively contain `d59c74bf` — 0 false positives. The status context is added to ruleset
+  `21489705` only after the sweeper has reported at least once on `main`, so a never-reported context
+  cannot wedge the queue.
+
+
 ### Fixed — Four a11y defects behind 18 of the 26 baselined axe findings, dropping `AXE_BASELINE` 26 -> 8 (2026-09-04)
 
 `packages/web` route sweep. The WIC-1926 ratchet is a two-way pin — a new finding fails, and a
