@@ -2,6 +2,7 @@ import type { APIClient } from './apiClient';
 import type {
   AnalyzeJobFitRequest,
   AnalyzeJobFitResponse,
+  GetJobFitAnalysisResponse,
   ListJobFitAnalysesParams,
   ListJobFitAnalysesResponse,
 } from '../../types/jobFit';
@@ -17,6 +18,11 @@ export interface JobFitService {
    * GET /catalog/job-fit/analyses
    */
   listAnalyses(params?: ListJobFitAnalysesParams): Promise<ListJobFitAnalysesResponse>;
+  /**
+   * One stored analysis, by id.
+   * GET /catalog/job-fit/analyses/:id
+   */
+  getAnalysis(id: string): Promise<GetJobFitAnalysisResponse>;
 }
 
 /**
@@ -46,6 +52,15 @@ export function createJobFitService(client: APIClient): JobFitService {
         applicationId: params.applicationId,
         limit: params.limit,
       });
+    },
+
+    async getAnalysis(id: string): Promise<GetJobFitAnalysisResponse> {
+      // A real read-one, not `listAnalyses` narrowed on the client. The list has no `id`
+      // filter — its only exact narrowing is `applicationId`, which the viewer route does
+      // not carry — so an id resolved through it would be a scan of whatever page the
+      // server chose, and an analysis outside that page would read as "not found" while
+      // sitting in the table (WIC-2058, and the page-cap lesson from WIC-1533).
+      return client.get<GetJobFitAnalysisResponse>(`/catalog/job-fit/analyses/${id}`);
     },
   };
 }

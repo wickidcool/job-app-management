@@ -22,6 +22,45 @@ All notable changes to the Job Application Manager are documented here.
 - **This does not create the production Hyperdrive binding**, which needs a Cloudflare token and stays with WIC-1916 / WIC-1386. No schema, migration or wire change.
 
 
+
+### Fixed — Completing a Job Fit Analysis removed the only way to look at it (2026-09-04)
+
+`WorkflowChecklist`'s "Job Fit Analysis" row read `link: hasFitAnalysis ? undefined : …`, so
+ticking the step turned the row into a plain `<span>`. The other three rows do not behave this
+way — Cover Letter and Tailored Resume *repoint* at `/cover-letters/:id` and
+`/resume-variants/:id` on completion, and Interview Prep links unconditionally. This one had
+nowhere to repoint to (WIC-2058, dispatching WIC-1860).
+
+- **The state it actually cost the user is the unscored analysis.** `fitScore === null` — an
+  empty catalog, or a job description naming no required skills — ticks the step with no badge
+  *and*, before this, no link. The user was told they had done it, shown nothing, and given
+  nowhere to go. The new link is therefore keyed on the analysis id and not on the score:
+  gating it on a score would link exactly the rows that already show something.
+- **`GET /catalog/job-fit/analyses/:id` is new, and the list route could not have stood in.**
+  The list's only exact narrowing is `applicationId`, which `/job-fit-analysis/:id` does not
+  carry, so resolving an id through it means fetching the newest `MAX_ANALYSIS_LIMIT` (100)
+  rows and scanning them in the browser — a client filter over a server-chosen page, which can
+  only remove rows and never recover one the server did not send (WIC-1533, WIC-1652). An
+  analysis outside that page would have read as "not found" while sitting in the table.
+- **A miss and a cross-tenant hit are the same 404.** `getJobFitAnalysis` ANDs the owner term
+  into the read rather than checking the row afterwards, so a stranger's id is
+  indistinguishable from a nonexistent one and the endpoint is not an existence oracle over
+  other users' ids. Asserted structurally with `expectScopedTo` — including the id half, bound
+  by column — so `and`→`or` reds rather than passing a presence check (4 of 20 cells red on
+  that mutant).
+- **`/job-fit-analysis/:id` renders the summary contract, not the whole analysis.** The four
+  JSONB payloads are deliberately off that DTO. Every one of the page's four branches renders
+  the `<h1>` through one frame, so a fifth return inherits it rather than shipping a headingless
+  outline (the class `routeOutline.render.test.tsx` inventories).
+- **`ApplicationDetail` gains a "View Fit Analysis" header link as well as the checklist row.**
+  Not decorative: the checklist renders `<Link to={item.link}>` from a computed field, which
+  `route-integrity.test.ts`'s static route→link audit cannot see, so the route would be
+  reported as an orphan page nothing links to. `/applications/:id/prep` has carried the same
+  button-and-row pair since WIC-1536. Verified by deleting the link and watching the audit red.
+- The route sweeps move 30 routes / 120 pairs → **31 / 124**; `AXE_BASELINE` is unchanged at
+  8/8 and `MISSING_H1` stays empty.
+
+
 ### Added — A sweeper-shaped companion makes the evil-merge gate requirable, which `pull_request` structurally cannot be (2026-09-04)
 
 The WIC-1979 detector is sound and unchanged. What this adds is a gate around it that a repository

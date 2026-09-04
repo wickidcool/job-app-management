@@ -17,6 +17,7 @@ import { getTableName } from 'drizzle-orm';
 import {
   analyzeJobFit,
   computeFitScore,
+  getJobFitAnalysis,
   jobFitAnalysesScope,
   listJobFitAnalyses,
 } from '../src/services/job-fit.service.js';
@@ -430,5 +431,108 @@ describe('listJobFitAnalyses', () => {
       (await listJobFitAnalyses({ limit: 500 }, jobFitAnalysesScope(OWNER))).analyses
     ).toHaveLength(100);
     expect((await listJobFitAnalyses({}, jobFitAnalysesScope(OWNER))).analyses).toHaveLength(20);
+  });
+});
+
+// ── WIC-2058: an analysis can be found again *by id* ─────────────────────────
+//
+// `listJobFitAnalyses` above answers "which analyses belong to this application", which is
+// what ticks the checklist. It cannot answer "show me this analysis", because its only exact
+// narrowing is `applicationId` and the viewer route carries no application — so resolving an
+// id through it means scanning the newest 100 rows in the browser, which is the page-cap
+// defect from WIC-1533 and WIC-1652 reintroduced. Hence a real read-one.
+
+describe('getJobFitAnalysis', () => {
+  const stored = (id: string, userId: string | null, applicationId: string | null) => ({
+    id,
+    userId,
+    applicationId,
+    recommendation: 'moderate_fit',
+    fitScore: 62,
+    summary: 'summary',
+    confidence: 'high',
+    catalogEmpty: false,
+    analyzedAt: new Date('2026-08-30T00:00:00.000Z'),
+  });
+
+  it('returns the caller own analysis as the same summary shape the list returns', async () => {
+    const stub = dbDouble({ job_fit_analyses: [stored('mine', OWNER, 'app-1')] });
+    vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
+
+    expect(await getJobFitAnalysis('mine', jobFitAnalysesScope(OWNER))).toMatchObject({
+      id: 'mine',
+      applicationId: 'app-1',
+      recommendation: 'moderate_fit',
+      fitScore: 62,
+      analyzedAt: '2026-08-30T00:00:00.000Z',
+    });
+  });
+
+  it('returns null for another user analysis, and the predicate is a conjunction', async () => {
+    // The leak this guards is not "the row comes back" — it is `or(idTerm, ownerTerm)`,
+    // which renders the owner term, binds the caller id, and returns the whole table. Both
+    // halves are asserted: the row, because that is what a user would see, and the clause
+    // structure via `expectScopedTo`, because a presence check cannot tell `and` from `or`
+    // (WIC-1491, and the three leaks that motivated it).
+    const stub = dbDouble({
+      job_fit_analyses: [stored('mine', OWNER, 'app-1'), stored('theirs', OTHER, 'app-1')],
+    });
+    vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
+
+    expect(await getJobFitAnalysis('theirs', jobFitAnalysesScope(OWNER))).toBeNull();
+    // `ids` is supplied so probe 4 runs as well: it asserts the id half is bound to the
+    // `id` column rather than merely appearing in `params`, which is the other way a
+    // read-one can be wrong without any test noticing.
+    expectScopedTo(stub.opsOn(ANALYSES)[0].clause, {
+      table: ANALYSES,
+      userId: OWNER,
+      ids: ['theirs'],
+    });
+  });
+
+  it('returns null for an id that does not exist — indistinguishable from the above', async () => {
+    // Same `null` for both, on purpose: the route turns each into the same 404, so an id
+    // that belongs to somebody else cannot be told apart from one that belongs to nobody.
+    const stub = dbDouble({ job_fit_analyses: [stored('mine', OWNER, 'app-1')] });
+    vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
+
+    expect(await getJobFitAnalysis('no-such-id', jobFitAnalysesScope(OWNER))).toBeNull();
+  });
+
+  it('restricts an anonymous caller to orphan rows', async () => {
+    // ADR-003's anonymous path, as the list read has it: absent identity means `IS NULL`,
+    // never "unscoped". Asserted in both directions so a scope that degraded to
+    // "match everything" would fail on the second line rather than pass on the first.
+    const stub = dbDouble({
+      job_fit_analyses: [stored('orphan', null, 'app-1'), stored('owned', OWNER, 'app-1')],
+    });
+    vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
+
+    expect(await getJobFitAnalysis('orphan', jobFitAnalysesScope(undefined))).toMatchObject({
+      id: 'orphan',
+    });
+    expect(await getJobFitAnalysis('owned', jobFitAnalysesScope(undefined))).toBeNull();
+    expect(renderClause(stub.opsOn(ANALYSES)[0].clause).sql).toMatch(
+      /"job_fit_analyses"\."user_id" is null/i
+    );
+  });
+
+  it('carries a null fitScore through as null, not as zero', async () => {
+    // AC-4. An unscored analysis — empty catalog, or a JD naming no required skills — is
+    // the state this card is really about, and it is the one a `fitScore ? …` reader
+    // collapses onto "no analysis". The DTO must keep `null` distinct from `0`.
+    const stub = dbDouble({
+      job_fit_analyses: [
+        { ...stored('unscored', OWNER, 'app-1'), fitScore: null, recommendation: null },
+        { ...stored('zero', OWNER, 'app-2'), fitScore: 0 },
+      ],
+    });
+    vi.mocked(dbClient.getDb).mockReturnValue(stub.db as never);
+
+    const unscored = await getJobFitAnalysis('unscored', jobFitAnalysesScope(OWNER));
+    expect(unscored?.fitScore).toBeNull();
+    expect(unscored?.recommendation).toBeNull();
+
+    expect((await getJobFitAnalysis('zero', jobFitAnalysesScope(OWNER)))?.fitScore).toBe(0);
   });
 });

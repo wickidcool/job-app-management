@@ -420,6 +420,17 @@ export interface ListJobFitAnalysesResponse {
   analyses: JobFitAnalysisSummaryDTO[];
 }
 
+/**
+ * `GET /catalog/job-fit/analyses/:id` (WIC-2058).
+ *
+ * Enveloped rather than bare so the payload can grow a sibling field — the four JSONB
+ * blobs, if a caller ever needs them — without every consumer having to change shape.
+ * Mirrors {@link ListJobFitAnalysesResponse}, which is the same call for a collection.
+ */
+export interface GetJobFitAnalysisResponse {
+  analysis: JobFitAnalysisSummaryDTO;
+}
+
 export class JobFitInputError extends AppError {
   constructor(code: string, message: string, details?: unknown) {
     super(code, message, details, 400);

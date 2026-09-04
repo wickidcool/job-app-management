@@ -6,6 +6,7 @@ import { _resetConfig } from '../src/config.js';
 vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
   analyzeJobFit: vi.fn(),
+  getJobFitAnalysis: vi.fn(),
   jobFitAnalysesScope: vi.fn(),
   listJobFitAnalyses: vi.fn(),
 }));
@@ -451,5 +452,103 @@ describe('GET /api/catalog/job-fit/analyses (WIC-1652)', () => {
 
     expect(res.status).toBe(200);
     expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith({}, SCOPE);
+  });
+});
+
+// ── GET /api/catalog/job-fit/analyses/:id (WIC-2058) ─────────────────────────
+//
+// The read-one half, which `/job-fit-analysis/:id` needs and the list above cannot
+// supply: the list's only exact narrowing is `applicationId`, and that route carries no
+// application. Resolving an id by scanning the list's page would be the WIC-1533 page-cap
+// defect — a client filter over a server-chosen page can only remove rows.
+describe('GET /api/catalog/job-fit/analyses/:id (WIC-2058)', () => {
+  let app: ReturnType<typeof buildApp>;
+
+  const summary = {
+    id: '01JQ0000000000000000000001',
+    applicationId: 'app-1',
+    recommendation: 'moderate_fit' as const,
+    fitScore: 62,
+    summary: 'You match 4 of 6 required skills.',
+    confidence: 'high' as const,
+    catalogEmpty: false,
+    analyzedAt: '2026-08-30T00:00:00.000Z',
+  };
+
+  const SCOPE = Symbol('owner-scope') as unknown as ReturnType<
+    typeof jobFitService.jobFitAnalysesScope
+  >;
+
+  beforeEach(() => {
+    app = buildApp();
+    vi.clearAllMocks();
+    vi.mocked(jobFitService.jobFitAnalysesScope).mockReturnValue(SCOPE);
+  });
+
+  it('returns the analysis, enveloped, and threads the owner scope', async () => {
+    vi.mocked(jobFitService.getJobFitAnalysis).mockResolvedValue(summary);
+
+    const res = await app.request(`/api/catalog/job-fit/analyses/${summary.id}`);
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).analysis).toMatchObject({ id: summary.id, fitScore: 62 });
+    // The route threads the scope the service's own factory builds from the caller, exactly
+    // as the list route does. Since ADR-010 D3 the bypassed-auth caller is `DEV_OWNER`
+    // rather than an absence (WIC-1964).
+    expect(vi.mocked(jobFitService.jobFitAnalysesScope)).toHaveBeenCalledWith(DEV_OWNER);
+    expect(vi.mocked(jobFitService.getJobFitAnalysis)).toHaveBeenCalledWith(summary.id, SCOPE);
+  });
+
+  it('carries a null fitScore through rather than dropping the analysis', async () => {
+    // AC-4's server half. An unscored analysis — empty catalog, or a JD naming no required
+    // skills — is the state WIC-1835 made reachable and the one this whole card is about.
+    // A viewer that 404s on it, or that renders `0%`, is the defect moved rather than fixed.
+    vi.mocked(jobFitService.getJobFitAnalysis).mockResolvedValue({
+      ...summary,
+      fitScore: null,
+      recommendation: null,
+      catalogEmpty: true,
+    });
+
+    const res = await app.request(`/api/catalog/job-fit/analyses/${summary.id}`);
+
+    expect(res.status).toBe(200);
+    const { analysis } = await res.json();
+    expect(analysis.fitScore).toBeNull();
+    expect(analysis.recommendation).toBeNull();
+  });
+
+  it('404s on a miss, with no hint that the id belongs to someone else', async () => {
+    // `getJobFitAnalysis` ANDs the owner term into the read, so a stranger's id and a
+    // nonexistent one both arrive here as `null`. The route must not tell them apart:
+    // ids are caller-supplied, so a distinguishable status would be an existence oracle.
+    vi.mocked(jobFitService.getJobFitAnalysis).mockResolvedValue(null);
+
+    const res = await app.request('/api/catalog/job-fit/analyses/01JQ0000000000000000000009');
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('JOB_FIT_ANALYSIS_NOT_FOUND');
+  });
+
+  it('rejects an over-long id before it reaches the service', async () => {
+    vi.mocked(jobFitService.getJobFitAnalysis).mockResolvedValue(null);
+
+    const res = await app.request(`/api/catalog/job-fit/analyses/${'x'.repeat(101)}`);
+
+    expect(res.status).toBe(400);
+    expect(vi.mocked(jobFitService.getJobFitAnalysis)).not.toHaveBeenCalled();
+  });
+
+  it('does not shadow the collection route', () => {
+    // The two paths are distinct, so this is not ordering-sensitive today — but a future
+    // rename to `/analyses/:id?` would silently swallow the list, and that is exactly the
+    // kind of change nothing else here would red on.
+    vi.mocked(jobFitService.listJobFitAnalyses).mockResolvedValue({ analyses: [] });
+
+    return app.request('/api/catalog/job-fit/analyses').then(async (res) => {
+      expect(res.status).toBe(200);
+      expect(vi.mocked(jobFitService.getJobFitAnalysis)).not.toHaveBeenCalled();
+      expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalled();
+    });
   });
 });

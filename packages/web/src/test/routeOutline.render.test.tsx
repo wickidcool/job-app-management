@@ -158,16 +158,16 @@ describe('every route renders a clean heading outline on every branch', () => {
    * Asserting the expected volume first makes that failure loud in each test instead.
    */
   function pairs() {
-    expect(ROUTES).toHaveLength(30);
-    expect(measured, 'the sweep did not render every (route, branch) pair').toHaveLength(120);
+    expect(ROUTES).toHaveLength(31);
+    expect(measured, 'the sweep did not render every (route, branch) pair').toHaveLength(124);
     return measured;
   }
 
-  it('renders all four branches of all 30 routes', () => {
+  it('renders all four branches of all 31 routes', () => {
     // AC-4: coverage is a number, not an impression. If a route stops rendering, or a
     // branch stops being reachable, this is what says so — the per-pair assertions below
     // would all still pass over the smaller set.
-    expect(pairs()).toHaveLength(120);
+    expect(pairs()).toHaveLength(124);
   });
 
   it('renders a non-empty outline on at least three quarters of the pairs', () => {

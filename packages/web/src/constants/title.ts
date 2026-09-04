@@ -77,6 +77,12 @@ export const STATIC_ROUTE_TITLES: Readonly<Record<string, string>> = {
   '/cover-letters': 'Cover Letters', //                   CoverLettersList.tsx:54
   '/cover-letters/new': 'Generate Cover Letter', //       CoverLetterNew.tsx:47
   '/cover-letters/:id': 'Cover Letter', //                CoverLetterDetail.tsx:114
+  // Same string as `/job-fit-analysis`'s hook title below, and that is not an oversight:
+  // both screens name the same artefact, and §0.3 makes a route's title its <h1> verbatim
+  // rather than a disambiguating variant. `/resumes/exports` and its parameterized sibling
+  // already share a title on the same reasoning. Static here because — unlike the create
+  // page, which used to rename itself per stage (WIC-1099) — this one never varies.
+  '/job-fit-analysis/:id': 'Job Fit Analysis', //         JobFitAnalysisDetail.tsx:49
   '/outreach/new': 'Compose Outreach Message', //         OutreachNew.tsx:30
   '/resume-variants': 'Resume Variants', //               ResumeVariantsList.tsx:44
   '/resume-variants/new': 'Generate Resume Variant', //   ResumeVariantNew.tsx:114

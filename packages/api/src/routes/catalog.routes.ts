@@ -21,6 +21,7 @@ import {
 } from '../services/catalog.service.js';
 import {
   analyzeJobFit,
+  getJobFitAnalysis,
   jobFitAnalysesScope,
   listJobFitAnalyses,
 } from '../services/job-fit.service.js';
@@ -153,6 +154,13 @@ const listJobFitAnalysesSchema = z.object({
   applicationId: z.string().min(1).max(100).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+// Same bounds as the `applicationId` filter above. Unlike the `?jobFitAnalysisId=` case one
+// line down, `min(1)` here is not closing a live hole — the router never matches an empty
+// path segment, and an empty id would in any case narrow to zero rows rather than to all of
+// them. `max(100)` is the one that does work: it rejects an over-long segment before it
+// reaches the database instead of after (WIC-2058).
+const jobFitAnalysisIdSchema = z.object({ id: z.string().min(1).max(100) });
 
 // `min(1)` is load-bearing, not boilerplate: `?jobFitAnalysisId=` arrives as `''`, and a bare
 // `z.string().optional()` would accept it and hand the service a supplied-but-unresolvable id
@@ -380,4 +388,34 @@ export const catalogRoutes = new Hono<AppEnv>()
       jobFitAnalysesScope(c.get('userId') ?? undefined)
     );
     return c.json(result);
+  })
+  /**
+   * One stored analysis, by id (WIC-2058).
+   *
+   * Declared after the collection route above; the two paths are distinct, so ordering is
+   * not load-bearing here, but keeping the pair adjacent is.
+   *
+   * The 404 is deliberately indiscriminate. `getJobFitAnalysis` ANDs the owner term into
+   * the read, so it returns `null` for an id that does not exist *and* for one that
+   * belongs to somebody else — and this handler cannot tell them apart, which is the
+   * point. Distinguishing them would turn the endpoint into an existence oracle over
+   * other users' ids.
+   */
+  .get('/catalog/job-fit/analyses/:id', async (c) => {
+    const parsed = jobFitAnalysisIdSchema.safeParse({ id: c.req.param('id') });
+    if (!parsed.success)
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
+
+    const analysis = await getJobFitAnalysis(
+      parsed.data.id,
+      jobFitAnalysesScope(c.get('userId') ?? undefined)
+    );
+
+    if (!analysis)
+      return c.json(
+        { error: { code: 'JOB_FIT_ANALYSIS_NOT_FOUND', message: 'Job fit analysis not found' } },
+        404
+      );
+
+    return c.json({ analysis });
   });

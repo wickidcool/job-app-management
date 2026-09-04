@@ -101,3 +101,80 @@ describe('WorkflowChecklist — Cover Letter step', () => {
     expect(screen.getByText('25%')).toBeInTheDocument();
   });
 });
+
+/**
+ * WIC-2058 / WIC-1860 — the same defect the Cover Letter suite above closed, on the one
+ * row that still had it.
+ *
+ * `link: hasFitAnalysis ? undefined : …` made ticking the step *remove* the way to see
+ * what had been ticked. The correction WIC-1533 recorded applies verbatim: passing
+ * `hasFitAnalysis` alone is not the fix, because it turns a wrong-but-clickable row into a
+ * correct-but-inert one. The row has to be repointed, so the call site supplies the id.
+ *
+ * The component half is pinned here and the wiring half in
+ * `ApplicationDetail.workflowChecklist.test.tsx`; neither implies the other, which is the
+ * same split the Cover Letter step already has.
+ */
+describe('WorkflowChecklist — Job Fit Analysis step', () => {
+  it('points at the generator when no analysis exists', () => {
+    renderChecklist({ hasFitAnalysis: false });
+
+    expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).toHaveAttribute(
+      'href',
+      '/job-fit-analysis?appId=app_1'
+    );
+  });
+
+  it('points at the analysis once one exists', () => {
+    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: 'jfa_42', fitScore: 72 });
+
+    expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).toHaveAttribute(
+      'href',
+      '/job-fit-analysis/jfa_42'
+    );
+  });
+
+  /**
+   * AC-4. The unscored analysis is the state this card exists for: it ticks the step and
+   * renders no badge, so it was the row that said "done" and showed nothing. A fix keyed
+   * on `fitScore` rather than on the id would pass the cell above and leave this one a
+   * dead end, so it is asserted rather than assumed to follow.
+   */
+  it('links an unscored analysis, which has no badge to offer instead', () => {
+    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: 'jfa_7', fitScore: null });
+
+    expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).toHaveAttribute(
+      'href',
+      '/job-fit-analysis/jfa_7'
+    );
+    expect(screen.queryByText(/% match/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * The discriminating assertion, mirroring the Cover Letter one: both cells above are
+   * satisfied by a component that ignores `jobFitAnalysisId` *if* the test only asks
+   * whether a link exists, because the pre-fix component renders a link in the first case
+   * and a plain span in the second. Pinning the target is what makes the pre-fix behaviour
+   * fail here.
+   */
+  it('does not send a completed step back to the generator', () => {
+    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: 'jfa_42' });
+
+    expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).not.toHaveAttribute(
+      'href',
+      '/job-fit-analysis?appId=app_1'
+    );
+  });
+
+  /**
+   * The id is optional — `hasFitAnalysis` comes from a list read that can settle before
+   * the caller has an id in hand — and absence must degrade to the old inert row rather
+   * than to `/job-fit-analysis/undefined`.
+   */
+  it('falls back to an inert row when an analysis exists but its id is unknown', () => {
+    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: undefined });
+
+    expect(screen.queryByRole('link', { name: 'Job Fit Analysis' })).not.toBeInTheDocument();
+    expect(screen.getByText('Job Fit Analysis')).toBeInTheDocument();
+  });
+});
