@@ -5,12 +5,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApplicationDetail } from './ApplicationDetail';
 import { useApplication } from '../hooks/useApplications';
 import { useCoverLetters } from '../hooks/useCoverLetters';
-import { COVER_LETTER_PAGE_MAX } from '../constants/coverLetterMatch';
+import { useResumeVariants } from '../hooks/useResumeVariants';
+import { useInterviewPrepByApplication } from '../hooks/useInterviewPrep';
+import { useJobFitAnalyses } from '../hooks/useJobFitAnalysis';
+import { TARGETED_LIST_PAGE_MAX } from '../constants/applicationMatch';
 import type { Application } from '../types/application';
 import type { CoverLetterSummary } from '../services/api/types';
 
 vi.mock('../hooks/useApplications');
 vi.mock('../hooks/useCoverLetters');
+// WIC-1536 gave the page two more data sources, for the workflow checklist, and
+// WIC-1835 a third. This file asserts nothing about them, but they are real
+// `useQuery` calls and would throw without a `QueryClientProvider`, so they are
+// stubbed empty here. Their coverage lives in
+// `ApplicationDetail.workflowChecklist.test.tsx`.
+//
+// This list is an allowlist, and the only thing that keeps it honest is that
+// omitting a hook the page adds fails loudly — "No QueryClient set" — rather
+// than quietly. Every new data source on the page has to be added here.
+vi.mock('../hooks/useResumeVariants');
+vi.mock('../hooks/useInterviewPrep');
+vi.mock('../hooks/useJobFitAnalysis');
 
 /**
  * WIC-1533 AC-1 and AC-2, asserted where the user actually is.
@@ -64,6 +79,21 @@ function renderDetail(coverLetters: CoverLetterSummary[]) {
     data: coverLetters,
     isLoading: false,
   } as ReturnType<typeof useCoverLetters>);
+
+  vi.mocked(useResumeVariants).mockReturnValue({
+    data: { variants: [] },
+    isLoading: false,
+  } as unknown as ReturnType<typeof useResumeVariants>);
+
+  vi.mocked(useInterviewPrepByApplication).mockReturnValue({
+    data: null,
+    isLoading: false,
+  } as ReturnType<typeof useInterviewPrepByApplication>);
+
+  vi.mocked(useJobFitAnalyses).mockReturnValue({
+    data: { analyses: [] },
+    isLoading: false,
+  } as unknown as ReturnType<typeof useJobFitAnalyses>);
 
   return render(
     <MemoryRouter initialEntries={['/applications/app_1']}>
@@ -169,10 +199,10 @@ describe('ApplicationDetail — Cover Letters section', () => {
     renderDetail([letter()]);
 
     expect(vi.mocked(useCoverLetters)).toHaveBeenCalledWith(
-      expect.objectContaining({ company: 'Acme', limit: COVER_LETTER_PAGE_MAX }),
+      expect.objectContaining({ company: 'Acme', limit: TARGETED_LIST_PAGE_MAX }),
       expect.anything()
     );
-    expect(COVER_LETTER_PAGE_MAX).toBeGreaterThan(20);
+    expect(TARGETED_LIST_PAGE_MAX).toBeGreaterThan(20);
   });
 
   /**

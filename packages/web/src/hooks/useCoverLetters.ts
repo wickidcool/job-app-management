@@ -34,7 +34,7 @@ export const coverLetterKeys = {
  * client — `ApplicationDetail` does, because there is no `applicationId` filter
  * to send — is filtering a page the server already truncated, so rows it
  * needed can be missing before its own predicate ever runs. Such a caller must
- * ask for a bigger page. See `constants/coverLetterMatch.ts` (WIC-1533).
+ * ask for a bigger page. See `constants/applicationMatch.ts` (WIC-1533).
  */
 export function useCoverLetters(
   params?: {

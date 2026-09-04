@@ -334,27 +334,31 @@ test.describe('OnboardingModal — the nested resume-skip confirm', () => {
 });
 
 /**
- * WIC-1868 — the nested dialogs leave the panel behind them exposed.
+ * WIC-1868 — a nested confirm must leave exactly one dialog exposed.
  *
  * `modal-focus.spec.ts`'s background-hiding test asserts that nothing behind the open
  * dialog is reachable by the screen-reader virtual cursor. Applied honestly to a nested
- * confirm, that assertion fails: the confirm is portalled to a body-level sibling of the
- * onboarding panel, and Radix does not `aria-hidden` the panel, so two dialogs are exposed
- * at once and the virtual cursor reads straight past the confirmation into the form behind.
+ * confirm, that assertion used to fail: the confirm is portalled to a body-level sibling of
+ * the onboarding panel, and Radix does not `aria-hidden` the panel, so two dialogs were
+ * exposed at once and the virtual cursor read straight past the confirmation into the form
+ * behind.
  *
- * `OnboardingModal.tsx:773-777` already admits this in a code comment, measured in jsdom.
- * It reproduces in Chromium: `DIALOG COUNT: 2`, outer panel `aria-hidden: null`.
+ * These two were written as honest assertions and pinned `test.fail()` rather than weakened
+ * to pass, per WIC-1925's instruction to coordinate with WIC-1868 instead of asserting the
+ * bug. That pin was a tripwire in both directions, and **it fired**: WIC-1868 shipped on
+ * `main` 2026-09-01 — `aria-hidden={confirmationOpen}` on the panel's own `Dialog.Content`
+ * (`OnboardingModal.tsx:309`, and the rule in §11 of `MODAL_FOCUS_MANAGEMENT_SPEC.md`) — so
+ * both tests began passing and the pins turned RED, a `test.fail()` that passes being a
+ * Playwright failure. The pins were therefore deleted when this branch merged `main` in, and
+ * the assertion bodies below are unchanged: they are the same two assertions, now green on
+ * their merits rather than pinned against a known defect.
  *
- * These are marked `test.fail()` rather than weakened, per WIC-1925's instruction to
- * coordinate with WIC-1868 instead of writing an assertion that passes. `test.fail()` is a
- * tripwire in both directions — it keeps CI honest while WIC-1868 is open, and it turns RED
- * the moment WIC-1868 is fixed, forcing this file to be updated rather than silently
- * over-asserting forever. **When WIC-1868 lands, delete the `test.fail()` lines; the bodies
- * are already the correct assertions.**
+ * Do not re-pin these. If either regresses, the panel has stopped being `aria-hidden` while
+ * a confirm is open, which is the WIC-1868 defect returning and is a fix owed in the
+ * component, not here.
  */
-test.describe('OnboardingModal — nested dialogs expose the panel behind them (WIC-1868)', () => {
+test.describe('OnboardingModal — a nested confirm leaves exactly one dialog exposed (WIC-1868)', () => {
   test('the dismiss confirm leaves exactly one dialog exposed', async ({ page }) => {
-    test.fail(true, 'WIC-1868: the onboarding panel behind the confirm is not aria-hidden');
     await setupOnboarding(page);
 
     await page.getByRole('button', { name: 'Close onboarding' }).click();
@@ -365,7 +369,6 @@ test.describe('OnboardingModal — nested dialogs expose the panel behind them (
   });
 
   test('the resume-skip confirm leaves exactly one dialog exposed', async ({ page }) => {
-    test.fail(true, 'WIC-1868: the onboarding panel behind the confirm is not aria-hidden');
     await setupOnboarding(page, ONBOARDING_AT_RESUME);
 
     await page.getByRole('button', { name: 'Skip for now' }).click();

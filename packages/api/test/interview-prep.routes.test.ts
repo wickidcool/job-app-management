@@ -1,5 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildApp } from '../src/app.js';
+import {
+  buildAuthedApp,
+  resetAuthEnv,
+  TEST_USER_ID,
+  type AuthedApp,
+} from './helpers/authed-app.js';
 
 vi.mock('../src/services/interviewPrep.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/services/interviewPrep.service.js')>();
@@ -15,7 +21,8 @@ vi.mock('../src/services/interviewPrep.service.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -24,9 +31,13 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({ getDashboardStats: vi.fn() }));
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
+  getDashboardStats: vi.fn(),
+}));
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -34,7 +45,8 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -53,7 +65,10 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/job-fit.service.js', () => ({ analyzeJobFit: vi.fn() }));
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
+  analyzeJobFit: vi.fn(),
+}));
 
 import * as prepService from '../src/services/interviewPrep.service.js';
 import { NotFoundError, VersionConflictError } from '../src/types/index.js';
@@ -65,7 +80,7 @@ const mockStory = {
   id: '01HXK5R3J7Q8N2M4P6W9Y1Z3S1',
   starEntryId: '01HXK5R3J7Q8N2M4P6W9Y1Z3C7',
   themes: ['technical', 'problem_solving'],
-  relevanceScore: 92,
+  relevanceScorePct: 92,
   oneMinVersion: 'Led API optimization that reduced response times by 40%.',
   twoMinVersion:
     'At Acme Corp, I identified performance bottlenecks in our API layer. I implemented query optimization and Redis caching, reducing response times by 40% and improving user satisfaction by 15%.',
@@ -160,11 +175,17 @@ const mockFitAnalysis = {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('Interview Prep Routes', () => {
-  let app: ReturnType<typeof buildApp>;
+  // Authenticated: these routes call `requireOwner`, so an owner-less request
+  // is a 401 and never reaches the service (WIC-1638). See helpers/authed-app.
+  let app: AuthedApp;
 
-  beforeEach(() => {
-    app = buildApp();
+  beforeEach(async () => {
+    app = await buildAuthedApp();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetAuthEnv();
   });
 
   // ── POST /api/interview-preps ────────────────────────────────────────────
@@ -437,7 +458,10 @@ describe('Interview Prep Routes', () => {
       stories.forEach((s: any) => {
         expect(Array.isArray(s.themes)).toBe(true);
         expect(s.themes.length).toBeGreaterThan(0);
-        expect(typeof s.relevanceScore).toBe('number');
+        // WIC-1520: this file mocks the whole service, so this assertion reads
+        // back `mockStory` above and cannot observe a rename in the service.
+        // The gate for that is `interview-prep-relevance-pct.test.ts`.
+        expect(typeof s.relevanceScorePct).toBe('number');
       });
     });
 
@@ -855,7 +879,7 @@ describe('Interview Prep Routes', () => {
         '01HXK5R3J7Q8N2M4P6W9Y1Z3P1',
         'pdf',
         ['stories', 'questions'],
-        undefined
+        TEST_USER_ID
       );
     });
   });
