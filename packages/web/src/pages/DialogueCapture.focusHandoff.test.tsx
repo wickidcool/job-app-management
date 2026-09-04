@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { RouterProvider, Route, Routes, createMemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const listProjects = vi.fn();
@@ -33,14 +33,31 @@ function renderWizardRoute() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  /*
+   * A data router, mirroring `App.tsx` (WIC-1924). Forced, not cosmetic:
+   * `WizardContainer` calls `useBlocker`, which throws `useBlocker must be used within
+   * a data router` under `MemoryRouter`. The wizard here is deliberately left
+   * untouched, so this dismissal takes the AC-3 no-prompt path and reaches `onCancel`
+   * exactly as before.
+   */
+  const router = createMemoryRouter(
+    [
+      {
+        path: '*',
+        element: (
+          <Routes>
+            <Route path="/projects" element={<ProjectsList />} />
+            <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
+          </Routes>
+        ),
+      },
+    ],
+    { initialEntries: ['/projects/new/dialogue?variant=create'] }
+  );
+
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/projects/new/dialogue?variant=create']}>
-        <Routes>
-          <Route path="/projects" element={<ProjectsList />} />
-          <Route path="/projects/new/dialogue" element={<DialogueCapture />} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   );
 }
@@ -101,11 +118,21 @@ describe('dialogue wizard → projects focus handoff', () => {
           })
         }
       >
-        <MemoryRouter initialEntries={['/projects']}>
-          <Routes>
-            <Route path="/projects" element={<ProjectsList />} />
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider
+          router={createMemoryRouter(
+            [
+              {
+                path: '*',
+                element: (
+                  <Routes>
+                    <Route path="/projects" element={<ProjectsList />} />
+                  </Routes>
+                ),
+              },
+            ],
+            { initialEntries: ['/projects'] }
+          )}
+        />
       </QueryClientProvider>
     );
 

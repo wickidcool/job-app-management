@@ -4,7 +4,6 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useApplications } from '../hooks/useApplications';
 import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import { RECENT_SEARCHES_KEY } from '../services/appStorage';
-import { useNavigationGuardControls } from '../contexts/CommandPaletteContext';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -162,7 +161,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [prevQuery, setPrevQuery] = useState('');
   const [prevOpen, setPrevOpen] = useState(false);
   const navigate = useNavigate();
-  const { requestNavigation } = useNavigationGuardControls();
   const { data: applications = [] } = useApplications();
 
   // Load recent searches - recalculate when palette opens
@@ -264,18 +262,21 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }
 
   /**
-   * The palette's single exit. The ⌘/Ctrl+K listener is on `window`, so the
-   * palette opens over an open modal — and until WIC-1765 that made it the one
-   * way to navigate out of the dialogue wizard without the wizard hearing about
-   * it, discarding every unsaved answer silently. A registered guard gets first
-   * refusal; with none registered this is exactly the previous behaviour.
+   * The palette's single exit.
    *
-   * The palette closes *first* either way, so a guard that opens a confirmation
-   * does not render it underneath this dialog.
+   * A plain `navigate()` again as of WIC-1924. The ⌘/Ctrl+K listener is on `window`,
+   * so the palette opens over an open modal, and until WIC-1765 that made it the one
+   * way to navigate out of the dialogue wizard without the wizard hearing about it,
+   * discarding every unsaved answer silently. WIC-1765 gave it a `requestNavigation`
+   * slot on `CommandPaletteContext` to consult; the data-router migration replaced
+   * that with `useBlocker`, which sees this `navigate()` like any other. The palette
+   * no longer has to know that guarded routes exist.
+   *
+   * The palette still closes *first*, so a blocker's confirmation does not render
+   * underneath this dialog.
    */
   const goTo = (path: string) => {
     onOpenChange(false);
-    if (requestNavigation(path)) return;
     navigate(path);
   };
 

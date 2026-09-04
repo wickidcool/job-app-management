@@ -1,8 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useNavigate } from 'react-router-dom';
+import { useBlocker } from 'react-router-dom';
 import { ConfirmationModal } from '../ConfirmationModal';
-import { useInAppNavigationGuard } from '../../hooks/useInAppNavigationGuard';
 import { ProgressIndicator } from './ProgressIndicator';
 import { WizardStep } from './WizardStep';
 import { WizardButton } from './WizardButton';
@@ -60,8 +59,6 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
   const [currentTech, setCurrentTech] = useState<string[]>([]);
   const totalSteps = 5;
 
-  const navigate = useNavigate();
-
   // Dirty means "the user typed something we would throw away", measured
   // against the *seeded* initial state above.
   //
@@ -94,13 +91,35 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
   // a user whose work was never saved — the precise case it exists for.
   const guardActive = isDirty;
 
-  const { pendingHref, clearPendingNavigation } = useInAppNavigationGuard(guardActive);
+  /**
+   * Set once the user has confirmed a discard that the router did *not* raise —
+   * i.e. a Radix dismissal, whose exit runs through `onCancel`.
+   *
+   * `onCancel` navigates (`DialogueCapture.handleCancel` goes to `/projects`), so
+   * without this the guard would block the app's own confirmed exit and re-open the
+   * confirmation on top of it. It is state rather than a ref because the blocker has
+   * to be *deregistered* — a render — before that navigation is attempted; setting a
+   * ref on the line above `onCancel()` would be a line too late, not a render.
+   */
+  const [discarding, setDiscarding] = useState(false);
 
-  // `pendingHref` is set by an intercepted link click; Radix dismissal (Escape,
-  // the header ×, an overlay click) sets `discardRequested`. Both funnel into
-  // the same confirmation.
+  /**
+   * WIC-1924. Replaces the bespoke `useInAppNavigationGuard` (a capture-phase click
+   * listener) and the `registerNavigationGuard` slot on `CommandPaletteContext`, both
+   * now deleted. One mechanism covers every router navigation — nav links, the ⌘K
+   * palette, any future programmatic `navigate()` — and, unlike either of them,
+   * **browser back/forward**, which is the whole point: a `popstate` has already been
+   * committed by the time a listener could see it.
+   *
+   * Requires a data router; `App.tsx` mounts one.
+   */
+  const blocker = useBlocker(guardActive && !discarding);
+
+  // Radix dismissal (Escape, the header ×, an overlay click) is not a router
+  // navigation, so the blocker cannot see it and it still raises its own request.
+  // Both funnel into the same confirmation.
   const [discardRequested, setDiscardRequested] = useState(false);
-  const confirmOpen = discardRequested || pendingHref !== null;
+  const confirmOpen = discardRequested || blocker.state === 'blocked';
 
   const requestDiscard = useCallback(() => {
     if (guardActive) {
@@ -111,21 +130,36 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
     onCancel();
   }, [guardActive, onCancel]);
 
+  // Fires only after the render in which `discarding` disarmed the blocker, so
+  // `onCancel`'s navigation is no longer intercepted. `useBlocker` is called above,
+  // so its own effect re-registers before this one runs.
+  const cancelledRef = useRef(false);
+  useEffect(() => {
+    if (!discarding || cancelledRef.current) return;
+    cancelledRef.current = true;
+    onCancel();
+  }, [discarding, onCancel]);
+
   const handleKeepEditing = useCallback(() => {
     setDiscardRequested(false);
-    clearPendingNavigation();
-  }, [clearPendingNavigation]);
+    // `reset()` puts the user back where they were with the URL untouched. For a
+    // back/forward POP the router has already reverted the history entry.
+    if (blocker.state === 'blocked') blocker.reset();
+  }, [blocker]);
 
   const handleConfirmDiscard = useCallback(() => {
-    const href = pendingHref;
     setDiscardRequested(false);
-    clearPendingNavigation();
-    if (href) {
-      navigate(href);
-    } else {
-      onCancel();
+
+    if (blocker.state === 'blocked') {
+      // Completes the navigation the user actually asked for — the palette's target,
+      // the link's href, or the history entry Back was headed to. `proceed()` does not
+      // re-consult the blocker, so no bypass is needed on this arm.
+      blocker.proceed();
+      return;
     }
-  }, [pendingHref, clearPendingNavigation, navigate, onCancel]);
+
+    setDiscarding(true);
+  }, [blocker]);
 
   const handleComplete = useCallback(() => {
     // Generate filename

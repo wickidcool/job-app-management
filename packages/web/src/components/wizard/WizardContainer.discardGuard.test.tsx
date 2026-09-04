@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, RouterProvider, Route, Routes, createMemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { WizardContainer } from './WizardContainer';
@@ -65,29 +65,50 @@ function PaletteHost() {
  * follow bare anchors, so against one the "did not navigate" assertions would
  * pass no matter what the guard did (they would be measuring jsdom).
  */
-function renderWizard(onComplete = vi.fn(), onCancel = vi.fn()) {
+function renderWizard(onComplete = vi.fn(), onCancel = vi.fn(), initialEntries?: string[]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  /*
+   * WIC-1924 changed this from `MemoryRouter` to `createMemoryRouter` +
+   * `RouterProvider`, and the change is forced rather than stylistic: `useBlocker`
+   * throws `useBlocker must be used within a data router` outside one, which is the
+   * same fact that made the whole migration necessary in production. Every assertion
+   * below is unchanged — this is the fixture moving to where the app now is, not the
+   * tests being rewritten to match a new implementation.
+   *
+   * Single catch-all route mounting descendant `<Routes>`, mirroring `App.tsx`.
+   */
+  const router = createMemoryRouter(
+    [
+      {
+        path: '*',
+        element: (
+          <CommandPaletteProvider>
+            <Link to="/projects">Projects</Link>
+            <Routes>
+              <Route
+                path="/projects/new/dialogue"
+                element={
+                  <WizardContainer variant="create" onComplete={onComplete} onCancel={onCancel} />
+                }
+              />
+              <Route path="/projects" element={<h1>Projects landing</h1>} />
+              <Route path="/reports/stale" element={<h1>Needs follow-up landing</h1>} />
+            </Routes>
+            <PaletteHost />
+          </CommandPaletteProvider>
+        ),
+      },
+    ],
+    { initialEntries: initialEntries ?? ['/projects/new/dialogue'] }
+  );
+
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/projects/new/dialogue']}>
-        <CommandPaletteProvider>
-          <Link to="/projects">Projects</Link>
-          <Routes>
-            <Route
-              path="/projects/new/dialogue"
-              element={
-                <WizardContainer variant="create" onComplete={onComplete} onCancel={onCancel} />
-              }
-            />
-            <Route path="/projects" element={<h1>Projects landing</h1>} />
-            <Route path="/reports/stale" element={<h1>Needs follow-up landing</h1>} />
-          </Routes>
-          <PaletteHost />
-        </CommandPaletteProvider>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   );
-  return { ...view, onComplete, onCancel };
+  return { ...view, onComplete, onCancel, router };
 }
 
 /**
@@ -376,6 +397,114 @@ describe('WizardContainer — confirm on discard (WIC-1765)', () => {
       expect(
         screen.queryByRole('heading', { name: 'Needs follow-up landing' })
       ).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * WIC-1924 — the path WIC-1765 could not reach.
+   *
+   * Back/forward is a `popstate` the browser has *already committed*: by the time a
+   * listener runs the location has changed and the route has re-rendered, so there is
+   * nothing left to confirm before. That is why the other five paths could be covered
+   * without touching the router and this one could not. `useBlocker` handles it
+   * properly, and it needs a data router — which is the whole reason `App.tsx` now
+   * mounts `createBrowserRouter`/`RouterProvider`.
+   *
+   * Driven with `router.navigate(-1)`, which is the same POP the browser's Back button
+   * produces; Playwright does not launch on the fleet host, so jsdom is the level this
+   * can be tested at.
+   */
+  describe('browser back/forward (WIC-1924)', () => {
+    /** Puts a real prior entry in the history so Back has somewhere to go. */
+    function renderWithHistory(onCancel = vi.fn()) {
+      return renderWizard(vi.fn(), onCancel, ['/projects', '/projects/new/dialogue']);
+    }
+
+    it('confirms on browser Back, and leaves the URL where it was (AC-2)', async () => {
+      const user = userEvent.setup();
+      const { router } = renderWithHistory();
+      await typeCompany(user);
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+
+      expect(confirmTitle()).toBeInTheDocument();
+      // Both halves matter. A guard that let the location change and then tried to
+      // push the user back would flash the destination and corrupt history — the
+      // exact trick WIC-1924 rules out. `useBlocker` reverts the entry itself.
+      expect(router.state.location.pathname).toBe('/projects/new/dialogue');
+      expect(screen.queryByRole('heading', { name: 'Projects landing' })).not.toBeInTheDocument();
+    });
+
+    it('"Keep editing" leaves the user on their step with the answer intact (AC-2)', async () => {
+      const user = userEvent.setup();
+      const { router, onCancel } = renderWithHistory();
+      await typeCompany(user);
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+      await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+      expect(confirmTitle()).not.toBeInTheDocument();
+      expect(screen.getByPlaceholderText('e.g., Acme Corporation')).toHaveValue('Acme Corporation');
+      expect(router.state.location.pathname).toBe('/projects/new/dialogue');
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('"Discard" completes the back navigation the user asked for (AC-2)', async () => {
+      const user = userEvent.setup();
+      const { router } = renderWithHistory();
+      await typeCompany(user);
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+      await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+      // Back means back. Landing anywhere else — including `onCancel`'s `/projects` by
+      // coincidence of it being the previous entry — would be the guard substituting a
+      // destination for the one the user chose, so the history index is asserted too.
+      expect(await screen.findByRole('heading', { name: 'Projects landing' })).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe('/projects');
+      expect(router.state.historyAction).toBe('POP');
+    });
+
+    it('lets Back through untouched, with no prompt (AC-3)', async () => {
+      // The AC-3 control for this path, and the one that discriminates a correct dirty
+      // check from `Object.keys(data).length > 0` — under that predicate the wizard is
+      // dirty on mount and this Back would prompt. See the file header.
+      const { router } = renderWithHistory();
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+
+      expect(confirmTitle()).not.toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Projects landing' })).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe('/projects');
+    });
+
+    it('re-arms after "Keep editing", so a second Back prompts again', async () => {
+      // `blocker.reset()` must return the blocker to `unblocked`, not spend it. A
+      // one-shot guard passes every test above and loses the user's work on the
+      // second press of the same button.
+      const user = userEvent.setup();
+      const { router } = renderWithHistory();
+      await typeCompany(user);
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+      await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+
+      expect(confirmTitle()).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe('/projects/new/dialogue');
     });
   });
 

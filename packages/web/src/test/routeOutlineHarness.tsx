@@ -48,7 +48,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, waitFor, type RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { RouterProvider, Route, Routes, createMemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 
 import { getOutline, type OutlineEntry } from './headingOutline';
@@ -106,26 +106,48 @@ export function renderRoute(element: ReactElement, options: RenderRouteOptions):
   const { path, pattern = path } = options;
   const queryClient = newQueryClient();
 
+  /*
+   * A *data* router, and a single catch-all route mounting descendant `<Routes>` —
+   * the same shape `App.tsx` took in WIC-1924, for the same reason. `MemoryRouter`
+   * supplies no `DataRouterContext`, so `useBlocker` throws `useBlocker must be used
+   * within a data router` under it, and `/projects/new/dialogue` mounts
+   * `DialogueCapture` -> `WizardContainer`, which calls it. That would take out this
+   * whole sweep, not one route: a throw in `collectOutlines` fails every assertion.
+   *
+   * Deliberately not narrowed to "the wizard route gets a data router": mirroring
+   * `App.tsx` is what makes this harness worth trusting, and mounting most routes
+   * one way and one route another is how the two drift.
+   */
+  const router = createMemoryRouter(
+    [
+      {
+        path: '*',
+        element: (
+          /*
+           * Mirrors `AppShellProviders` in `App.tsx`, which sits in exactly this
+           * position — inside the router, wrapping `Routes`. Not decoration: with no
+           * `CommandPaletteProvider` above it, `NotFound`'s `useCommandPalette()`
+           * *throws*, and a throw in `collectOutlines` fails the whole suite rather
+           * than one route, taking every other assertion with it.
+           */
+          <RouteMatchProvider>
+            <CommandPaletteProvider>
+              <Routes>
+                <Route path={pattern} element={element} />
+              </Routes>
+            </CommandPaletteProvider>
+          </RouteMatchProvider>
+        ),
+      },
+    ],
+    { initialEntries: [path] }
+  );
+
   const result = render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <OnboardingProvider>
-          <MemoryRouter initialEntries={[path]}>
-            {/*
-             * Mirrors `AppShellProviders` in `App.tsx`, which sits in exactly this
-             * position — inside the router, wrapping `Routes`. Not decoration: with no
-             * `CommandPaletteProvider` above it, `NotFound`'s `useCommandPalette()`
-             * *throws*, and a throw in `collectOutlines` fails the whole suite rather
-             * than one route, taking every other assertion with it.
-             */}
-            <RouteMatchProvider>
-              <CommandPaletteProvider>
-                <Routes>
-                  <Route path={pattern} element={element} />
-                </Routes>
-              </CommandPaletteProvider>
-            </RouteMatchProvider>
-          </MemoryRouter>
+          <RouterProvider router={router} />
         </OnboardingProvider>
       </AuthProvider>
     </QueryClientProvider>
