@@ -35,6 +35,17 @@ Every route now opens at a single top-level heading on **all four** of its rende
 - Web only. No API, schema, migration or wire change.
 
 
+### Added — Source content that enters `main` inside a merge commit is now caught, instead of appearing on no review surface at all (2026-09-04)
+
+`packages/api/scripts/detect-evil-merges.mjs` plus an `Evil-Merge Guard` workflow fail a PR whose branch carries a merge commit that *authored* source content — content held by none of the merge's parents (WIC-1979).
+
+- **The blind spot is the finding; the line that exposed it was benign.** Merge `d59c74bf` added three lines to `packages/web/vite.config.ts` present in neither parent. `git log --oneline` between two heads shows only the merge; `git log -S` skips merges unless given `-m`; and GitHub attributes merge-only content to no reviewable commit. So a source file changed between board approval and merge with nothing for a reviewer to look at.
+- **Gated on the narrow signal, so the check stays credible.** A hunk that merely differs from every parent also covers ordinary hand-resolutions: over all 594 merges on `main` at `e1bda4e8` that looser rule flags 75 files across 47 merges (7.9%). The gate instead requires every parent to have held the *same* blob — nothing was in conflict, so any difference is content the merge invented. Same 594 merges, that is **2**: `d59c74bf`, and `6f2b8f21`, which created a 329-line `dashboard.metrics.test.ts` present in neither parent. Resolutions are reported under `--report`, never failed.
+- **Tests exist for the decision, not the plumbing.** `test/detect-evil-merges.test.ts` (29 tests) runs the parser over `git show --cc` output pasted verbatim from this repository rather than hand-written fixtures, since reading git's grammar is the whole job. `inspectMerge` and `mergesIn` take an injectable runner, so no test needs a repo or depends on this history. Six mutants — including `every` weakened to `some` and the parent list left unsplit — were each killed with the total case count held at 29, so none passed by failing to compile.
+- **Non-test source only by default**, widened with `--include-tests`; a test invented in a merge is a review-visibility problem, not a runtime one. The workflow needs no dependency install (the script imports only `node:child_process` and `node:url`) and checks out PR head with full history, because the default depth of 1 would find zero merges and pass every time.
+- Tooling and CI only. No API, schema, migration or wire change, and no existing merge on `main` is rewritten.
+
+
 ### Fixed — Three pages skipped `h1 -> h3`, but only once they had content (2026-09-01)
 
 `/projects`, `/resumes` and `/projects/:projectId` each rendered the page `<h1>` and then went straight to `<h3>` for every row title, with no `<h2>` between them — a WCAG SC 1.3.1 level skip that leaves the row titles with no parent heading to belong to (WIC-1827).
