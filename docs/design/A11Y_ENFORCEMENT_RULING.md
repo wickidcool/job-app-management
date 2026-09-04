@@ -157,16 +157,55 @@ they do see. This is the mechanism **WIC-1675** ("rendered heading-outline enfor
 across every render branch") is asking for, and it argues that WIC-1675 should be implemented *as*
 an axe-core adoption rather than as a second bespoke utility.
 
-> ⚠️ **Outcome note, 2026-09-01 (`22e60707`) — WIC-1675 shipped, and it shipped the way this
-> subsection argued against.** Recorded here as fact, not as a ruling: `586712c2` (PR #299) landed
-> `src/test/routeOutline.render.test.tsx`, which renders all 30 routes across 4 branches and
-> asserts the outline using the **existing bespoke utility** `src/test/headingOutline.ts`
-> (`findOutlineSkips`). **`axe-core` is still not a dependency** — it appears in no `package.json`
-> and no workflow references it — so §4.3's precondition ("only after axe is green") has not been
-> met either. The blind spot §4.2 identifies is nonetheless closed *in practice*: the sweep reads
-> the computed DOM, so expression-built headings are visible to it. **What this note does not
-> decide is whether Ruling 2 is thereby satisfied, superseded, or still outstanding** — that is an
-> architectural call, not a documentation one, and it is routed to the Architect as **WIC-1945**.
+> **Disposition, 2026-09-01 (WIC-1945, Architect) — supersedes the Outcome note filed here at
+> `22e60707`, which recorded the facts below and routed the ruling call to this card.**
+>
+> **The subsection above is SUPERSEDED: its conclusion is not merely unnecessary, it is refuted.
+> Ruling 2 itself STANDS UNCHANGED.** Measured on `main` @ `76fdb6cf`, against `axe-core@4.13.0`.
+>
+> **What shipped.** WIC-1675 landed as `586712c2` (PR #299): `src/test/routeOutline.render.test.tsx`
+> renders all 30 routes across 4 branches and asserts the outline with the **existing bespoke
+> utility** `src/test/headingOutline.ts` — i.e. in precisely the form this subsection argued
+> against, and it shipped *well*.
+>
+> **The blind spot is real and is closed; the attribution was wrong.** The sweep reads the computed
+> DOM, so expression-built headings are visible to it. But the load-bearing ingredient is
+> **rendering the component**, not **axe's rule corpus**. This subsection conflated a *host* with a
+> *checker*, and only the host was doing the work.
+>
+> **Host and corpus are separable, and the tree proves it.** `routeOutlineHarness.tsx` exposes
+> `forEachBranch(factory, options, visit)` — a generic visitor over a mounted `root: HTMLElement`.
+> `collectOutlines` is one visitor over it; PR #339's `routeAxe.render.test.tsx` is a **second
+> visitor on the same harness** (`import { forEachBranch } from './routeOutlineHarness'`). "As an
+> axe-core adoption **rather than** a second bespoke utility" was a false dichotomy: the answer is
+> both corpora on one host, which is what shipped, one card late.
+>
+> **Had WIC-1675 been built as axe, it would have covered strictly less.** Two measurements:
+>
+> - `page-has-heading-one` carries the selector `html:not(html *)`, so it matches only the
+>   `<html>` element. This harness must read from `result.baseElement` (`document.body`), because
+>   `/applications/new` portals its whole body into a Radix dialog — the reason is written into
+>   `outlineRoot`. `<html>` is outside that context, so the rule is **structurally inapplicable on
+>   all 120 pairs**. The entire `MISSING_H1` inventory — **25 (route, branch) pairs**, ratcheted
+>   in both directions — would have been invisible.
+> - `heading-order` and `page-has-heading-one` are tagged `["cat.semantics","best-practice"]` —
+>   **not** `wcag2a`/`wcag2aa`, while `routeOutline.render.test.tsx` correctly calls these "a real
+>   WCAG 2.1 AA (SC 1.3.1) defect". Any conventional WCAG-scoped axe config
+>   (`runOnly: { tags: ['wcag2a','wcag2aa'] }`) drops both. The tags run **opposite** to this
+>   subsection's argument: Ruling 2's actual target, `aria-prohibited-attr`, is `wcag2a`/`wcag412`.
+>
+> **Narrowed, not withdrawn wholesale.** `heading-order` *does* apply here and *does* overlap on
+> the skip half. PR #339 runs axe's full default corpus (only `region` and `color-contrast`
+> excluded, both for jsdom reasons) over the same 120 pairs, and its frozen residual contains
+> **zero** `heading-order` findings — a second, independent implementation corroborating that
+> suite's unconditional no-skip assertion. The overlap is real and currently agreeing; the
+> **h1-presence half has no axe equivalent that can run in this harness at all.**
+>
+> **Consequence for §5.** "Nothing here needs a new card" was false, and this subsection is why:
+> §5 assumed WIC-1675 would carry the axe adoption, so Ruling 2 shipped nowhere and was owned by
+> nobody until **WIC-1926** (PR #339, green and in review) picked it up. Ownership is now explicit
+> rather than assumed: **WIC-1926** the adoption, **WIC-1942** the 26 frozen axe findings,
+> **WIC-1864** the 25 missing-`<h1>` pairs.
 
 ### 4.3 Retire `prohibitedName.ts` — but only after axe is green
 
@@ -177,6 +216,32 @@ components someone remembered to wire it into. A shared axe assertion inverts th
 
 Sequence, and do not shorten it: land axe → confirm it flags the same two components → then delete
 the helper. Deleting first trades a narrow working guard for an unproven one.
+
+> **Disposition, 2026-09-01 (WIC-1945, Architect). STANDS — and is executed in its stated order by
+> PR #339 (WIC-1926), with two corrections to what it says.** #339 is all-checks-green and in
+> review, not merged, at the time of writing; the two corrections below are properties of
+> `axe-core@4.13.0` and hold whether or not that particular PR is the one that lands.
+>
+> **1. "Only after axe is green" was the right shape but the wrong predicate.** Green under the
+> idiomatic helper would have been a *false* green. `axe-core@4.13.0` reports the WIC-1185 shape —
+> `aria-label` on a role-less element that **has text content** — as **`incomplete`, not
+> `violation`**, because the text supplies a fallback name and axe declines to decide. So
+> `expect(results).toHaveNoViolations()`, which reads only `results.violations`, **passes on the
+> exact defect that motivated Ruling 2**, and the confirmation step above would have passed
+> vacuously — retiring a working guard on the strength of a checker that saw nothing.
+>
+> The real precondition, and the one to cite hereafter, is: **axe is green under a helper that
+> fails on `incomplete` as well as `violations`, with a mutant proving the `incomplete` read is
+> load-bearing.** ADR-011 §4.1 made this binding before any code was written; PR #339's
+> `src/test/axe.ts` reads both lists, and `axe.test.ts` pins it — dropping the `incomplete` read
+> reds exactly one test in the package, that one, because the two components it guards are
+> currently *fixed*. Without that unit test the degradation would be invisible.
+>
+> **2. Retirement is partial by design.** The hand-rolled *detector* is deleted, because
+> `aria-prohibited-attr` replaces it. `dropProhibitedNames` **survives**, moved into `axe.ts`: axe
+> reports that a prohibited name *may* be ignored, and only the AT simulation shows what the user
+> is left with when it is. So this subsection is discharged as *"delete the detector, keep the
+> simulator"*, not *"delete the helper"* — there is no third module and no duplicated coverage.
 
 ---
 
