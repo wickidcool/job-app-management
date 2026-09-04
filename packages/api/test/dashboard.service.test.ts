@@ -134,6 +134,7 @@ CREATE TABLE applications (
   comp_target TEXT,
   next_action TEXT,
   next_action_due DATE,
+  interview_date TIMESTAMPTZ,
   job_description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

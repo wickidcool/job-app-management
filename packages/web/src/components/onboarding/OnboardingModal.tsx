@@ -11,6 +11,7 @@ import { useCreateApplication } from '../../hooks/useApplications';
 import type { Resume } from '../../services/api';
 import type { UpdatePersonalInfoRequest } from '../../services/api/types';
 import { useDialogFocusRestore } from '../../hooks/useDialogFocusRestore';
+import { PRODUCT_NAME } from '../../constants/title';
 
 const STEP_LABELS = [
   'Welcome',
@@ -61,6 +62,20 @@ export function OnboardingModal() {
   const outerFocusRestore = useDialogFocusRestore();
   const dismissFocusRestore = useDialogFocusRestore();
   const resumeSkipFocusRestore = useDialogFocusRestore();
+
+  // WIC-1868. Both confirmations are nested `Dialog.Root`s inside this panel's
+  // `Dialog.Content`. Radix's `hideOthers` hides everything *outside* the topmost
+  // content, and a nested dialog is not outside its parent — so when a confirmation
+  // opens, Radix correctly hides the panel's content subtree but leaves the panel's
+  // own `role="dialog"` node exposed. The result is an empty second dialog in the
+  // a11y tree that still computes a name off `onboarding-title`: a screen-reader user
+  // browsing dialogs finds two, and the first one has nothing in it.
+  //
+  // Hiding the panel node itself is the whole fix — see MODAL_FOCUS_MANAGEMENT_SPEC.md
+  // §11. It is safe to set unconditionally on state because focus is inside the
+  // confirmation (a DOM sibling under `body`, via its own portal) for exactly as long
+  // as this is true, so it never hides the focused element.
+  const confirmationOpen = showDismissConfirm || showResumeSkipConfirm;
 
   // WIC-1382 (D-9): an effect here used to write `onboarding_progress` to
   // localStorage on every step change. Nothing ever read it back — resumption is
@@ -291,6 +306,8 @@ export function OnboardingModal() {
           // cannot be a `Dialog.Title` here.
           aria-labelledby="onboarding-title"
           aria-describedby="onboarding-description"
+          // WIC-1868 — see `confirmationOpen` above.
+          aria-hidden={confirmationOpen || undefined}
           {...outerFocusRestore}
         >
           {/* Header */}
@@ -327,7 +344,9 @@ export function OnboardingModal() {
               <OnboardingStep
                 stepNumber={1}
                 totalSteps={totalSteps}
-                title="Welcome to Your Job Application Manager"
+                // WIC-1950: not "Welcome to Your Careerpin" — the possessive was doing the
+                // old descriptive name's job, and a brand name does not take it.
+                title={`Welcome to ${PRODUCT_NAME}`}
                 description="Let's get you set up in just a few minutes. We'll help you:"
                 canProceed={true}
                 onNext={() => handleCompleteStep(1)}
@@ -770,11 +789,9 @@ export function OnboardingModal() {
             wrote this as an early `return` that replaced the whole modal, which is a
             shape WIC-1141 removed — an unmanaged dialog has no focus trap, no Escape
             and no focus restore. Radix supplies all three here.
-            Measured caveat, so nobody reads more into this than is true: with the
-            warning open, jsdom reports *two* exposed dialogs — the panel behind it is
-            not `aria-hidden`. That is not specific to this dialog; the dismiss
-            confirmation above behaves identically, so it is a property of the nesting
-            WIC-1141 introduced. Tracked separately rather than fixed here. */}
+            The nesting used to leave the panel behind this exposed as a second, empty
+            dialog. Fixed in WIC-1868 by `aria-hidden={confirmationOpen}` on the panel's
+            own content — see the note at `confirmationOpen`. */}
           <Dialog.Root
             open={showResumeSkipConfirm}
             onOpenChange={(next) => {

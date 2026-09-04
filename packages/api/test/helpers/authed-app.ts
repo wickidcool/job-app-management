@@ -17,10 +17,13 @@ import { _resetJwksCache } from '../../src/middleware/auth.js';
  * caller rather than to relax the guard.
  *
  * This deliberately does NOT special-case local dev inside `requireOwner`.
- * ADR-010 D3 — whether local dev without Supabase config should resolve a real
- * `LOCAL_DEV_USER_ID` instead of an absence — is still open with the board, and
- * answering it here would be deciding it by implementation. Until it lands, an
- * owner-less request is a 401 and the tests supply an owner explicitly.
+ * ADR-010 D3 has since landed (WIC-1964): the bypass in `middleware/auth.ts`
+ * resolves a real `LOCAL_DEV_USER_ID` instead of an absence, so local dev is a
+ * tenant rather than an owner-less caller. That does not make this helper
+ * redundant. These suites assert HTTP contracts, and pinning them to an explicit
+ * JWT-derived owner keeps them independent of the bypass — they neither depend on
+ * the sentinel's value nor change meaning if `LOCAL_DEV_USER_ID` is re-pointed.
+ * The bypass's own behaviour is covered directly in `test/local-dev-owner.test.ts`.
  *
  * `wrap` returns a `.request()`-shaped object rather than a real Hono app so the
  * call sites do not change: only the `app = buildApp()` line in each suite does.

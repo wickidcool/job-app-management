@@ -137,9 +137,21 @@ function stubDb(tables: Array<[unknown, OwnedRow[]]>) {
     return { from };
   });
 
+  // `analyzeJobFit` persists the analysis since WIC-1652, so the double has to
+  // model the write as well as the reads. Recorded rather than discarded: the
+  // owner the analysis is stored under is a tenancy fact worth asserting.
+  const writes: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+  const insert = vi.fn((table: unknown) => ({
+    values: (values: Record<string, unknown>) => {
+      writes.push({ table, values });
+      return Promise.resolve();
+    },
+  }));
+
   return {
-    db: { select } as unknown as ReturnType<typeof getDb>,
+    db: { select, insert } as unknown as ReturnType<typeof getDb>,
     reads,
+    writes,
     clauseFor: (table: unknown) => reads.find((r) => r.table === table)?.clause,
   };
 }
@@ -187,6 +199,19 @@ describe('analyzeJobFit tenancy (WIC-1435)', () => {
     // No API key ⇒ `parseJobDescription` skips the LLM and takes the regex path,
     // so none of these assertions depend on a model response.
     vi.mocked(getConfig).mockReturnValue({ anthropicApiKey: undefined } as never);
+  });
+
+  it('stores the analysis under the caller, not unowned', async () => {
+    // The read half of this suite proves the caller cannot *see* another
+    // tenant's catalog. This is the write half: WIC-1652 persists the result,
+    // so an analysis written with a null owner would be a row the caller can
+    // never read back (an owner-less read scopes to `user_id IS NULL`).
+    const stub = install();
+
+    await analyzeJobFit({ jobDescriptionText: JD }, 'default', CALLER);
+
+    expect(stub.writes, 'the analysis must be persisted').toHaveLength(1);
+    expect(stub.writes[0].values.userId).toBe(CALLER);
   });
 
   // Control. Without it the assertions below could pass because the fixture

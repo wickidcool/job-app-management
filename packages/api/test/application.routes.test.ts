@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
 // Mock the service layer so tests don't need a real DB
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -11,12 +12,14 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
 import * as appService from '../src/services/application.service.js';
 import { NotFoundError, InvalidTransitionError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockApplication = {
   id: '01HXTEST000000000000000001',
@@ -68,7 +71,7 @@ describe('Application Routes', () => {
 
       expect(appService.listApplications).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'applied', sortBy: 'company', limit: 10 }),
-        undefined
+        DEV_OWNER
       );
     });
 

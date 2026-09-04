@@ -1,6 +1,6 @@
 # Authentication with Supabase
 
-This document describes the authentication system implemented for the Job Application Manager.
+This document describes the authentication system implemented for Careerpin.
 
 ## Overview
 
