@@ -1,0 +1,31 @@
+{
+  "_": "WIC-2031/WIC-2033. The migrations that are ALREADY APPLIED to production, and the exact drizzle.__drizzle_migrations.created_at each one holds there. This is a record of production state, NOT a copy of the journal: append a row only after that migration has actually run in production. Deliberately not shaped like meta/_journal.json - see the header of migration-journal.test.ts.",
+  "watermark": 1777638258000,
+  "createdAt": {
+    "0001_initial_schema": 1713196800000,
+    "0002_resumes_schema": 1713283200000,
+    "0003_projects_schema": 1713369600000,
+    "0004_catalog_schema": 1745529600000,
+    "0005_cover_letters_schema": 1745616000000,
+    "0006_cover_letters_emphasis": 1745769600000,
+    "0007_extended_application_fields": 1777390404000,
+    "0008_resume_variants": 1777395208000,
+    "0009_interview_prep": 1777421247000,
+    "0010_job_description": 1777561920000,
+    "0011_add_user_id_multi_tenancy": 1777587858000,
+    "0012_onboarding_status": 1777591458000,
+    "0013_personal_info": 1777595058000,
+    "0014_fix_personal_info_schema": 1777598658000,
+    "0015_onboarding_personal_info_step": 1777602258000,
+    "0016_personal_info_rls": 1777605858000,
+    "0017_enforce_userid_not_null": 1777609458000,
+    "0018_resume_content_hash": 1777613058000,
+    "0019_onboarding_status_rls": 1777616658000,
+    "0020_prep_relevance_score_pct": 1777620258000,
+    "0021_backfill_catalog_diffs_user_id": 1777623858000,
+    "0022_catalog_diff_open_review_count": 1777627458000,
+    "0023_enforce_catalog_diffs_userid_not_null": 1777631058000,
+    "0024_cover_letter_resume_variant_application_id": 1777634658000,
+    "0025_job_fit_analyses": 1777638258000
+  }
+}
