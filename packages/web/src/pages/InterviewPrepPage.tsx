@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { InterviewPrepCard } from '../components/InterviewPrepCard';
 import { STARStoryBank } from '../components/STARStoryBank';
@@ -28,6 +28,87 @@ const TABS = [
   { id: 'gaps' as const, label: 'Gaps', icon: '⚠️' },
 ];
 
+/**
+ * The page shell, carrying this route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it**, including the two that are not error states. This route
+ * was the only entry in `MISSING_H1` failing on all four branches: the invalid-id,
+ * loading and error states returned before the header, and the not-yet-generated state
+ * opened at its own second-level "No Interview Prep Yet" message with nothing above it.
+ * That last one is the same WCAG 2.1 AA (SC 1.3.1) defect wearing a different shape —
+ * a page whose first heading is level 2 has no accessible name for its own content.
+ *
+ * `subtitle` and `actions` are slots because both read `application`, which exists only
+ * once the prep query has resolved; the heading itself does not depend on it and so does
+ * not have to wait for it. `CoverLetterNew` is the pattern.
+ */
+function InterviewPrepLayout({
+  onBack,
+  subtitle,
+  actions,
+  children,
+}: {
+  onBack: () => void;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              {/*
+                The label is not optional decoration. This control is an icon with no
+                text, so without it axe raises `button-name` (critical) and a screen
+                reader announces it as just "button". It went unflagged until WIC-2050
+                because the header rendered on *no* branch the route sweep could reach:
+                the loading and error states returned before it, and the branch the
+                harness calls `loaded` fell through to the not-yet-generated state, which
+                had its own markup. Lifting the header above the early returns is what
+                put this button in front of the checker for the first time.
+              */}
+              <button
+                onClick={onBack}
+                aria-label="Back to application"
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Interview Preparation</h1>
+                {subtitle}
+              </div>
+            </div>
+            {actions}
+          </div>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Centred single-message body shared by the states that have no prep to show. */
+function StatusBody({ children }: { children: ReactNode }) {
+  return <div className="flex items-center justify-center py-24">{children}</div>;
+}
+
 export function InterviewPrepPage() {
   const { id: applicationId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -47,83 +128,91 @@ export function InterviewPrepPage() {
 
   if (!applicationId) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 text-lg">Invalid application ID</p>
-          <button
-            onClick={() => navigate('/applications')}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            Return to Applications
-          </button>
-        </div>
-      </div>
+      <InterviewPrepLayout onBack={() => navigate('/applications')}>
+        <StatusBody>
+          <div className="text-center">
+            <p className="text-red-600 text-lg">Invalid application ID</p>
+            <button
+              onClick={() => navigate('/applications')}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Return to Applications
+            </button>
+          </div>
+        </StatusBody>
+      </InterviewPrepLayout>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-gray-600">Loading interview prep...</p>
-        </div>
-      </div>
+      <InterviewPrepLayout onBack={() => navigate(`/applications/${applicationId}`)}>
+        <StatusBody>
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <p className="text-gray-600">Loading interview prep...</p>
+          </div>
+        </StatusBody>
+      </InterviewPrepLayout>
     );
   }
 
   if (isError) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 text-lg mb-2">Failed to load interview prep</p>
-          <p className="text-gray-600 text-sm mb-4">
-            {error instanceof Error ? error.message : 'Unknown error'}
-          </p>
-          <button
-            onClick={() => navigate(`/applications/${applicationId}`)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            Return to Application
-          </button>
-        </div>
-      </div>
+      <InterviewPrepLayout onBack={() => navigate(`/applications/${applicationId}`)}>
+        <StatusBody>
+          <div className="text-center">
+            <p className="text-red-600 text-lg mb-2">Failed to load interview prep</p>
+            <p className="text-gray-600 text-sm mb-4">
+              {error instanceof Error ? error.message : 'Unknown error'}
+            </p>
+            <button
+              onClick={() => navigate(`/applications/${applicationId}`)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Return to Application
+            </button>
+          </div>
+        </StatusBody>
+      </InterviewPrepLayout>
     );
   }
 
   if (!prepData?.interviewPrep) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <div className="text-5xl mb-4">🎯</div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">No Interview Prep Yet</h2>
-          <p className="text-gray-600 mb-6">
-            Generate tailored interview prep materials from your catalog and job fit analysis.
-          </p>
-          <button
-            onClick={() =>
-              generateMutation.mutate({ applicationId: applicationId! }, { onSuccess: () => {} })
-            }
-            disabled={generateMutation.isPending}
-            className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium mb-3"
-          >
-            {generateMutation.isPending ? 'Generating...' : 'Generate Interview Prep'}
-          </button>
-          {generateMutation.isError && (
-            <p className="text-sm text-red-600 mb-3">
-              {generateMutation.error instanceof Error
-                ? generateMutation.error.message
-                : 'Generation failed. Please try again.'}
+      <InterviewPrepLayout onBack={() => navigate(`/applications/${applicationId}`)}>
+        <StatusBody>
+          <div className="text-center max-w-md">
+            <div className="text-5xl mb-4">🎯</div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">No Interview Prep Yet</h2>
+            <p className="text-gray-600 mb-6">
+              Generate tailored interview prep materials from your catalog and job fit analysis.
             </p>
-          )}
-          <button
-            onClick={() => navigate(`/applications/${applicationId}`)}
-            className="text-sm text-gray-500 hover:text-gray-700"
-          >
-            Return to Application
-          </button>
-        </div>
-      </div>
+            <button
+              onClick={() =>
+                generateMutation.mutate({ applicationId: applicationId! }, { onSuccess: () => {} })
+              }
+              disabled={generateMutation.isPending}
+              className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium mb-3"
+            >
+              {generateMutation.isPending ? 'Generating...' : 'Generate Interview Prep'}
+            </button>
+            {generateMutation.isError && (
+              <p className="text-sm text-red-600 mb-3">
+                {generateMutation.error instanceof Error
+                  ? generateMutation.error.message
+                  : 'Generation failed. Please try again.'}
+              </p>
+            )}
+            <button
+              onClick={() => navigate(`/applications/${applicationId}`)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Return to Application
+            </button>
+          </div>
+        </StatusBody>
+      </InterviewPrepLayout>
     );
   }
 
@@ -240,43 +329,23 @@ export function InterviewPrepPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => navigate(`/applications/${applicationId}`)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Interview Preparation</h1>
-                <p className="text-sm text-gray-600 mt-1">
-                  {application.jobTitle} at {application.company}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowExportModal(true)}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2"
-            >
-              <span>⬇️</span>
-              <span>Export Quick Reference</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
+    <InterviewPrepLayout
+      onBack={() => navigate(`/applications/${applicationId}`)}
+      subtitle={
+        <p className="text-sm text-gray-600 mt-1">
+          {application.jobTitle} at {application.company}
+        </p>
+      }
+      actions={
+        <button
+          onClick={() => setShowExportModal(true)}
+          className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2"
+        >
+          <span>⬇️</span>
+          <span>Export Quick Reference</span>
+        </button>
+      }
+    >
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">
@@ -373,6 +442,6 @@ export function InterviewPrepPage() {
           onClose={() => setShowExportModal(false)}
         />
       )}
-    </div>
+    </InterviewPrepLayout>
   );
 }

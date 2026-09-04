@@ -1,9 +1,36 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsStale } from '../hooks/useReports';
 import { StatusBadge } from '../components/StatusBadge';
 import type { ApplicationStatus } from '../types/application';
 import { DEFAULT_STALE_THRESHOLD_DAYS, STALE_THRESHOLD_OPTIONS } from '../constants/stale';
+
+/**
+ * The page shell, carrying this route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it.** The loading and error states below used to return before
+ * the header block, so they came back with no heading at all — the route opened at
+ * nothing, which is the WCAG 2.1 AA (SC 1.3.1) defect `routeOutline.render.test.tsx`
+ * inventories. Putting the heading above the early returns rather than beside the loaded
+ * content is what makes those two branches conform. `CoverLetterNew` is the pattern.
+ *
+ * `actions` is a slot rather than a fixed child because the threshold control filters the
+ * loaded report and has nothing to act on while the request is in flight or failed.
+ */
+function ReportsStaleLayout({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-neutral-900">Stale Applications</h1>
+          <p className="mt-2 text-neutral-600">Applications that haven't been updated recently</p>
+        </div>
+        {actions}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export function ReportsStale() {
   const navigate = useNavigate();
@@ -19,32 +46,28 @@ export function ReportsStale() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsStaleLayout>
         <div className="text-center">Loading stale applications report...</div>
-      </div>
+      </ReportsStaleLayout>
     );
   }
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsStaleLayout>
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
           <p className="text-red-800 font-medium">Failed to load stale applications report</p>
           <p className="mt-2 text-sm text-red-600">
             {error instanceof Error ? error.message : 'Please try refreshing the page.'}
           </p>
         </div>
-      </div>
+      </ReportsStaleLayout>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-neutral-900">Stale Applications</h1>
-          <p className="mt-2 text-neutral-600">Applications that haven't been updated recently</p>
-        </div>
+    <ReportsStaleLayout
+      actions={
         <div>
           <label htmlFor="staleThreshold" className="mr-2 text-sm font-medium text-neutral-700">
             Stale threshold:
@@ -62,8 +85,8 @@ export function ReportsStale() {
             ))}
           </select>
         </div>
-      </div>
-
+      }
+    >
       {/* Summary Stats */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -174,6 +197,6 @@ export function ReportsStale() {
           Report generated at {new Date(data.generatedAt).toLocaleString()}
         </p>
       )}
-    </div>
+    </ReportsStaleLayout>
   );
 }

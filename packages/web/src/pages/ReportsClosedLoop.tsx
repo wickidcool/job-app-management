@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsClosedLoop } from '../hooks/useReports';
 import type { ClosedLoopApplication } from '../services/api';
@@ -64,6 +64,38 @@ function ClosedAppCard({ app, onClick }: { app: ClosedLoopApplication; onClick: 
   );
 }
 
+/**
+ * The page shell, carrying this route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it.** The loading and error states below used to return before
+ * the header block, so they came back with no heading at all — the route opened at
+ * nothing, which is the WCAG 2.1 AA (SC 1.3.1) defect `routeOutline.render.test.tsx`
+ * inventories. `CoverLetterNew` is the pattern.
+ *
+ * `actions` is a slot rather than a fixed child because the period control filters the
+ * loaded report and has nothing to act on while the request is in flight or failed.
+ */
+function ReportsClosedLoopLayout({
+  actions,
+  children,
+}: {
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-neutral-900">Closed Loop Analysis</h1>
+          <p className="mt-2 text-neutral-600">Analyze outcomes to identify patterns and improve</p>
+        </div>
+        {actions}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function ReportsClosedLoop() {
   const navigate = useNavigate();
   const [period, setPeriod] = useState<Period>('all');
@@ -87,32 +119,28 @@ export function ReportsClosedLoop() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsClosedLoopLayout>
         <div className="text-center">Loading closed loop analysis...</div>
-      </div>
+      </ReportsClosedLoopLayout>
     );
   }
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsClosedLoopLayout>
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
           <p className="text-red-800 font-medium">Failed to load closed loop analysis</p>
           <p className="mt-2 text-sm text-red-600">
             {error instanceof Error ? error.message : 'Please try refreshing the page.'}
           </p>
         </div>
-      </div>
+      </ReportsClosedLoopLayout>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-neutral-900">Closed Loop Analysis</h1>
-          <p className="mt-2 text-neutral-600">Analyze outcomes to identify patterns and improve</p>
-        </div>
+    <ReportsClosedLoopLayout
+      actions={
         <div>
           <label htmlFor="period" className="mr-2 text-sm font-medium text-neutral-700">
             Time period:
@@ -129,8 +157,8 @@ export function ReportsClosedLoop() {
             <option value="all">All time</option>
           </select>
         </div>
-      </div>
-
+      }
+    >
       {/* Summary Stats */}
       <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-5">
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -254,6 +282,6 @@ export function ReportsClosedLoop() {
           Report generated at {new Date(data.generatedAt).toLocaleString()}
         </p>
       )}
-    </div>
+    </ReportsClosedLoopLayout>
   );
 }

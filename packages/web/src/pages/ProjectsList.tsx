@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link, useNavigate } from 'react-router-dom';
 import { Announcer } from '../components/Announcer';
@@ -8,6 +8,34 @@ import { useProjects, useCreateProject } from '../hooks/useProjects';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useDialogFocusRestore } from '../hooks/useDialogFocusRestore';
 import { FOCUS_HANDOFF_TARGETS, useRouteFocusHandoff } from '../hooks/useRouteFocusHandoff';
+
+/**
+ * This route's top-level heading, rendered on the loading branch as well as the loaded one
+ * (WIC-2050).
+ *
+ * The skeleton below used to stand a grey block where the heading goes, so the route
+ * opened at no heading at all while the request was in flight — the WCAG 2.1 AA
+ * (SC 1.3.1) defect `routeOutline.render.test.tsx` inventories. A heading is static copy
+ * that does not depend on the response, so there was never anything to wait for: it is
+ * the *subtitle* skeleton that is load-bearing, and that one stays.
+ *
+ * Extracted as a component rather than duplicated because `routeOutline.source.test.ts`
+ * pins this file at exactly one literal `h1` — two copies of the same markup would read
+ * there as the page growing a second top-level heading.
+ */
+function ProjectsListHeading({ actions }: { actions?: ReactNode }) {
+  return (
+    <div className="mb-6 flex items-center justify-between">
+      <div>
+        <h1 className="text-3xl font-bold text-neutral-900">Projects</h1>
+        <p className="mt-2 text-sm text-neutral-600">
+          Organize your work experience and interview prep materials
+        </p>
+      </div>
+      {actions}
+    </div>
+  );
+}
 
 export function ProjectsList() {
   const navigate = useNavigate();
@@ -76,10 +104,7 @@ export function ProjectsList() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mb-6 animate-pulse">
-          <div className="mb-2 h-8 w-48 rounded bg-neutral-200"></div>
-          <div className="h-4 w-96 rounded bg-neutral-200"></div>
-        </div>
+        <ProjectsListHeading />
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-24 animate-pulse rounded-lg bg-neutral-200"></div>
@@ -107,30 +132,26 @@ export function ProjectsList() {
         ]}
       />
 
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-neutral-900">Projects</h1>
-          <p className="mt-2 text-sm text-neutral-600">
-            Organize your work experience and interview prep materials
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            ref={guidedCreateRef}
-            onClick={() => navigate('/projects/new/dialogue?variant=create')}
-            className="rounded-md bg-success-600 px-4 py-2 text-sm font-medium text-white hover:bg-success-700 flex items-center gap-2"
-          >
-            💬 Add New Project (Guided)
-          </button>
-          <button
-            ref={headerCreateRef}
-            onClick={handleOpenCreate}
-            className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-          >
-            Create Project
-          </button>
-        </div>
-      </div>
+      <ProjectsListHeading
+        actions={
+          <div className="flex gap-3">
+            <button
+              ref={guidedCreateRef}
+              onClick={() => navigate('/projects/new/dialogue?variant=create')}
+              className="rounded-md bg-success-600 px-4 py-2 text-sm font-medium text-white hover:bg-success-700 flex items-center gap-2"
+            >
+              💬 Add New Project (Guided)
+            </button>
+            <button
+              ref={headerCreateRef}
+              onClick={handleOpenCreate}
+              className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              Create Project
+            </button>
+          </div>
+        }
+      />
 
       {projects.length === 0 ? (
         <EmptyState

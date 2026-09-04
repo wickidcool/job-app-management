@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsNeedsAction } from '../hooks/useReports';
 import { StatusBadge } from '../components/StatusBadge';
@@ -39,6 +39,40 @@ function dueDateLabel(item: NeedsActionApplication): string {
   }
 }
 
+/**
+ * The page shell, carrying this route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it.** The loading and error states below used to return before
+ * the header block, so they came back with no heading at all — the route opened at
+ * nothing, which is the WCAG 2.1 AA (SC 1.3.1) defect `routeOutline.render.test.tsx`
+ * inventories. `CoverLetterNew` is the pattern.
+ *
+ * `actions` is a slot rather than a fixed child because the window control filters the
+ * loaded report and has nothing to act on while the request is in flight or failed.
+ */
+function ReportsNeedsActionLayout({
+  actions,
+  children,
+}: {
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-neutral-900">Needs Action</h1>
+          <p className="mt-2 text-neutral-600">
+            Applications with upcoming or overdue action items
+          </p>
+        </div>
+        {actions}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function ReportsNeedsAction() {
   const navigate = useNavigate();
   const [daysThreshold, setDaysThreshold] = useState(7);
@@ -50,34 +84,28 @@ export function ReportsNeedsAction() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsNeedsActionLayout>
         <div className="text-center">Loading needs action report...</div>
-      </div>
+      </ReportsNeedsActionLayout>
     );
   }
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ReportsNeedsActionLayout>
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
           <p className="text-red-800 font-medium">Failed to load needs action report</p>
           <p className="mt-2 text-sm text-red-600">
             {error instanceof Error ? error.message : 'Please try refreshing the page.'}
           </p>
         </div>
-      </div>
+      </ReportsNeedsActionLayout>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-neutral-900">Needs Action</h1>
-          <p className="mt-2 text-neutral-600">
-            Applications with upcoming or overdue action items
-          </p>
-        </div>
+    <ReportsNeedsActionLayout
+      actions={
         <div>
           <label htmlFor="daysThreshold" className="mr-2 text-sm font-medium text-neutral-700">
             Show items due within:
@@ -94,8 +122,8 @@ export function ReportsNeedsAction() {
             <option value={30}>30 days</option>
           </select>
         </div>
-      </div>
-
+      }
+    >
       {/* Summary */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -171,6 +199,6 @@ export function ReportsNeedsAction() {
           Report generated at {new Date(data.generatedAt).toLocaleString()}
         </p>
       )}
-    </div>
+    </ReportsNeedsActionLayout>
   );
 }

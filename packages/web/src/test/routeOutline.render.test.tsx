@@ -17,19 +17,24 @@ import appSource from '../App.tsx?raw';
  * page file had no heading, the child component had the `<h2>`, and **neither file was
  * defective on its own**. Only the assembled tree is. So this renders the tree.
  *
- * ## What is enforced unconditionally, and what is still an inventory
+ * ## Both rules are now enforced unconditionally (WIC-2050)
  *
- * Two different assertions, deliberately at different strengths:
+ * Two assertions, and as of this commit they are at the same strength:
  *
  *   - **No heading-level skip, on any route, on any branch.** No allowlist, no exemptions.
  *     This is closed and stays closed.
- *   - **Every route opens at a single `<h1>`.** 25 (route, branch) pairs do not yet, and
- *     they are enumerated in `MISSING_H1` below with a staleness guard in both directions.
- *     Every other pair is enforced.
+ *   - **Every route opens at a single `<h1>`.** Also closed. `MISSING_H1` below is now
+ *     **empty**, so this holds over all 120 (route, branch) pairs with no exemptions.
  *
- * Splitting them is the honest reading of the measurement: the skips were all one fix
- * (a row or empty-state heading a level too deep), while the missing `<h1>`s are a
- * structural change to each page's early returns and are tracked as follow-on work.
+ * They used to be split, and the split was the honest reading at the time: the skips were
+ * all one fix (a row or empty-state heading a level too deep), while the missing `<h1>`s
+ * were a structural change to eleven pages' early returns. That work is done — the
+ * inventory ran 25 -> 21 -> 0 — so the qualifier is gone from the rule.
+ *
+ * `MISSING_H1` is deliberately kept as an empty list rather than deleted, along with the
+ * two staleness guards that now range over nothing. They are hazard-keyed, and the hazard
+ * set is empty; what earns their keep is the size pin, which is now pinned at **zero** and
+ * so makes re-opening the allowlist an edit someone has to make on purpose and defend.
  */
 
 vi.mock('../services/api', async (importOriginal) =>
@@ -50,47 +55,35 @@ function key(path: string, branch: Branch): string {
 /**
  * The routes/branches that render no `<h1>` of their own, as measured on this tree.
  *
- * This is an inventory of open work, not a set of exemptions on the merits — every entry
- * is a real WCAG 2.1 AA (SC 1.3.1) defect and none of them is "fine". It exists so the
- * *skip* rule above can be enforced unconditionally today rather than waiting on a
- * 10-page structural change.
+ * **Empty as of WIC-2050 — every one of the 120 pairs now opens at a single `<h1>`.**
  *
- * Two properties keep it from rotting into a permanent hole, and both are asserted below:
+ * This was an inventory of open work, never a set of exemptions on the merits: every
+ * entry was a real WCAG 2.1 AA (SC 1.3.1) defect and none of them was "fine". It existed
+ * so the *skip* rule above could be enforced unconditionally without waiting on an
+ * eleven-page structural change. That change has landed, so the list is empty and the
+ * `<h1>` rule below is unconditional too.
+ *
+ * Two properties kept it from rotting into a permanent hole, and both are still asserted:
  *
  *   - it can only shrink — an entry that is no longer defective **fails**, so a fix
  *     cannot land without deleting its line;
  *   - its size is pinned, so entries cannot be added quietly to make a new defect pass.
  *
- * Nearly all of them are one shape: the page renders its `<h1>` only on the happy path,
- * so the `isLoading` / `isError` early returns come back with no heading at all. The fix
- * is to lift the `<h1>` above the early returns, as `CoverLetterNew` already does.
+ * The second one is what still does work now that the first ranges over nothing: the pin
+ * is at zero, so re-opening the allowlist means editing that number, which is exactly the
+ * deliberate, reviewable edit the ratchet was built to force.
+ *
+ * Every entry was one of two shapes, and both had the same fix. Fifteen were pages whose
+ * `<h1>` sat below an `isLoading` / `isError` early return, so those branches returned
+ * with no heading at all. Four more (`/projects`, `/projects/:projectId`, its file editor)
+ * stood a grey skeleton block where the heading goes — a heading is static copy, or comes
+ * off the URL, so there was never a response to wait for. The two `/applications/:id/prep`
+ * data branches were the odd shape: the page opened at its own `<h2>`. The fix in every
+ * case is to render the heading above the early returns, as `CoverLetterNew` does; where
+ * the heading is dynamic and genuinely unavailable, the branch shows the same
+ * `DYNAMIC_TITLE_FALLBACKS` string the tab does, per `ROUTE_TITLE_CONVENTION.md` §0.3.
  */
-const MISSING_H1: readonly string[] = [
-  // Renders <h2>No Interview Prep Yet</h2> with nothing above it.
-  '/applications/app-1/prep|empty',
-  '/applications/app-1/prep|loaded',
-
-  // Below: `<h1>` sits after an `isLoading` / `isError` early return.
-  '/applications/app-1|loading',
-  '/applications/app-1|error',
-  '/applications/app-1/prep|loading',
-  '/applications/app-1/prep|error',
-  '/cover-letters/cl-1|loading',
-  '/cover-letters/cl-1|error',
-  '/projects|loading',
-  '/projects/proj-1|loading',
-  '/projects/proj-1/files/notes.md|loading',
-  '/reports/by-fit-tier|loading',
-  '/reports/by-fit-tier|error',
-  '/reports/closed-loop|loading',
-  '/reports/closed-loop|error',
-  '/reports/needs-action|loading',
-  '/reports/needs-action|error',
-  '/reports/stale|loading',
-  '/reports/stale|error',
-  '/resume-variants/rv-1|loading',
-  '/resume-variants/rv-1|error',
-];
+const MISSING_H1: readonly string[] = [];
 
 /**
  * Routes declared in `App.tsx` that this sweep does not mount, and why.
@@ -236,7 +229,12 @@ describe('every route renders a clean heading outline on every branch', () => {
   it('pins the size of the inventory so entries cannot be added quietly', () => {
     // Paired with the staleness test above, this makes the list a one-way ratchet: it can
     // only get smaller, and only by someone editing this number down deliberately.
-    expect(MISSING_H1).toHaveLength(21);
+    //
+    // It is now at the bottom of that ratchet. Zero is not a milestone to celebrate in a
+    // comment, it is the assertion that does the work: with the list empty, the `<h1>`
+    // rule above ranges over all 120 pairs with no exemptions, and the only way to carve
+    // one back out is to edit this line — which is a reviewable act, not an oversight.
+    expect(MISSING_H1).toHaveLength(0);
     expect(new Set(MISSING_H1).size, 'duplicate entry in MISSING_H1').toBe(MISSING_H1.length);
   });
 });

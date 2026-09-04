@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import {
@@ -11,6 +11,27 @@ import type { ExportResumeVariantRequest } from '../services/api/types';
 import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
+/**
+ * This route's top-level heading (WIC-2050).
+ *
+ * **Every branch renders it.** The loading and error states below used to return before
+ * the header block, so they came back with no heading at all — the WCAG 2.1 AA
+ * (SC 1.3.1) defect `routeOutline.render.test.tsx` inventories.
+ *
+ * Those two branches pass the same fallback string the tab shows, rather than inventing
+ * one: `ROUTE_TITLE_CONVENTION.md` §0.3 makes a route's title its `<h1>` verbatim, so the
+ * heading and the title must not diverge on the branch where neither has real data yet.
+ *
+ * Note what this does *not* close. The loaded branch swaps the heading for a text input
+ * while the title is being edited, so the page renders no `<h1>` in that state — a
+ * heading hole that varies by *user* state, which this sweep (data state only) cannot
+ * see. Tracked separately rather than fixed here, because the remedy is a change to the
+ * rename affordance, not a lift.
+ */
+function ResumeVariantDetailHeading({ children }: { children: ReactNode }) {
+  return <h1 className="text-3xl font-bold text-neutral-900">{children}</h1>;
+}
+
 export function ResumeVariantDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -19,7 +40,8 @@ export function ResumeVariantDetail() {
   // Mirrors the page <h1> (`variant.title`). Read off `data?` rather than the
   // `const { variant } = data` destructure below, which is unreachable until after the
   // loading and error early-returns — the two renders the fallback exists for.
-  useDocumentTitle(data?.variant?.title || DYNAMIC_TITLE_FALLBACKS.resumeVariant);
+  const heading = data?.variant?.title || DYNAMIC_TITLE_FALLBACKS.resumeVariant;
+  useDocumentTitle(heading);
   const updateVariant = useUpdateResumeVariant();
   const reviseVariant = useReviseResumeVariant();
   const exportVariant = useExportResumeVariant();
@@ -31,8 +53,11 @@ export function ResumeVariantDetail() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <ResumeVariantDetailHeading>{heading}</ResumeVariantDetailHeading>
+        <div className="flex items-center justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+        </div>
       </div>
     );
   }
@@ -40,7 +65,8 @@ export function ResumeVariantDetail() {
   if (error || !data) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6">
-        <div className="rounded-md bg-red-50 p-4">
+        <ResumeVariantDetailHeading>{heading}</ResumeVariantDetailHeading>
+        <div className="mt-6 rounded-md bg-red-50 p-4">
           <p className="text-sm text-red-800">Failed to load resume variant. Please try again.</p>
           <button
             onClick={() => navigate('/resume-variants')}
@@ -167,7 +193,7 @@ export function ResumeVariantDetail() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <h1 className="text-3xl font-bold text-neutral-900">{variant.title}</h1>
+              <ResumeVariantDetailHeading>{variant.title}</ResumeVariantDetailHeading>
               <button
                 onClick={() => {
                   setTitle(variant.title);
