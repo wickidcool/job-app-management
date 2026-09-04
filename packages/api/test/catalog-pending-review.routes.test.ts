@@ -28,6 +28,7 @@ import { buildApp } from '../src/app.js';
 import { catalogDiffs } from '../src/db/schema.js';
 import { processCatalogChange } from '../src/services/extraction.service.js';
 import { resolveDiffItem } from '../src/services/catalog.service.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const dialect = new PgDialect();
 
@@ -173,11 +174,17 @@ function fakeDb() {
 /**
  * The uploader. `processCatalogChange` bails before doing anything when it
  * cannot resolve an owner, so this must carry one: an ownerless event never
- * reaches the code these tests are about. The list side is deliberately left
- * unauthenticated (single-user mode), which emits no `user_id` term at all, so
- * the diff written here is still the row the default list returns.
+ * reaches the code these tests are about.
+ *
+ * The list side runs `buildApp()` under the local-dev auth bypass, so the write
+ * and the read have to agree on an owner for the diff to come back. Before
+ * ADR-010 D3 they agreed by *absence* — the bypass emitted no `user_id` term at
+ * all, so any uploader id was still reachable. D3 makes the bypass a real tenant
+ * (WIC-1964), so they now agree by *identity* instead: the uploader is
+ * `DEV_OWNER`, which is the caller the list resolves. These tests are about
+ * reachability, not tenancy.
  */
-const OWNER = '3f2a1c88-5d61-4e07-9a3b-6c8d0e2f4a19';
+const OWNER = DEV_OWNER;
 
 /** Run the real extraction over `rawText` as a resume upload, as resume.service does. */
 async function uploadResume(rawText: string, sourceId: string) {

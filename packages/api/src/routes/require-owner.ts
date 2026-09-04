@@ -22,16 +22,18 @@ export class OwnerRequiredError extends AppError {
  * `c.get('userId') ?? undefined`, which pushed the decision down into every
  * predicate — the shape WIC-1638 is burning down.
  *
- * Two callers currently reach here with no owner, and both should be rejected:
+ * One caller reaches here with no owner, and it should be rejected:
  *
  *   - a token that verifies but carries no `sub` claim, which `middleware/auth.ts`
  *     resolves to `null` (WIC-1554). This is the security-relevant one.
- *   - local dev with neither `SUPABASE_URL` nor `SUPABASE_JWT_SECRET` set, which
- *     bypasses auth entirely and sets `null`. ADR-010 D3 gives local dev a real
- *     owner (a `LOCAL_DEV_USER_ID` defaulting to the `0017` sentinel) instead of
- *     an absence; until D1/D3 land in `middleware/auth.ts`, local dev without
- *     Supabase config gets a 401 on these routes rather than a silent
- *     cross-tenant read. That is the intended posture, not a regression.
+ *
+ * The local-dev auth bypass is no longer such a caller. ADR-010 D3 (WIC-1964)
+ * landed in `middleware/auth.ts`: with neither `SUPABASE_URL` nor
+ * `SUPABASE_JWT_SECRET` set, the bypass now supplies a real owner — a
+ * `LOCAL_DEV_USER_ID` defaulting to the sentinel migration `0017` backfills to —
+ * rather than `null`. So local dev reaches here with a concrete uuid and runs the
+ * owner branch like any tenant, instead of taking the 401 it took while D3 was
+ * outstanding. ADR-003's "left as null for local-only" affordance is retired.
  *
  * The empty string is rejected explicitly. `HonoVariables.userId` is
  * `string | null`, so `''` is representable, and it is falsy — which is exactly

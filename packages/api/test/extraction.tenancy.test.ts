@@ -806,10 +806,10 @@ describe('WIC-1406 — generateDiff scopes to the caller, not to the named docum
     // resolves the "owner" from the document being named is the cross-tenant
     // read the ADR exists to close.
     //
-    // Local dev is not collateral damage: D3 gives it a real LOCAL_DEV_USER_ID
-    // rather than an absence. Until D1/D3 land in middleware/auth.ts, local dev
-    // without Supabase config gets a 401 on these routes, which
-    // routes/require-owner.ts documents as the intended posture.
+    // Local dev is not collateral damage: D3 landed in middleware/auth.ts
+    // (WIC-1964), so the bypass supplies a real LOCAL_DEV_USER_ID rather than an
+    // absence. Local dev without Supabase config is therefore a tenant that runs
+    // this same owner branch, not an owner-less caller taking a 401.
     //
     // In production this service call is unreachable with an absent owner --
     // requireOwner(c) at POST /catalog/generate-diff rejects first -- so this
