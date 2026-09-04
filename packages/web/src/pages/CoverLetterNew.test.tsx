@@ -46,8 +46,10 @@ function countOccurrences(source: string, needle: RegExp): number {
 const useStarEntriesMock = vi.fn();
 const useApplicationMock = vi.fn();
 
+// Arguments are forwarded, not dropped: WIC-1820 made the analysis id an argument to this hook,
+// and `() => useStarEntriesMock()` would swallow it and report every call as argument-free.
 vi.mock('../hooks/useCatalog', () => ({
-  useStarEntries: () => useStarEntriesMock(),
+  useStarEntries: (...args: unknown[]) => useStarEntriesMock(...args),
 }));
 
 vi.mock('../hooks/useApplications', () => ({
@@ -65,13 +67,13 @@ const CATALOG_ENTRY = {
   tags: ['performance'],
 };
 
-function renderPage() {
+function renderPage(route = '/cover-letters/new') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/cover-letters/new']}>
+      <MemoryRouter initialEntries={[route]}>
         <CoverLetterNew />
       </MemoryRouter>
     </QueryClientProvider>
@@ -306,5 +308,33 @@ describe('the h1 survives every branch of the page', () => {
       ).toEqual([]);
       unmount();
     }
+  });
+});
+
+/**
+ * WIC-1820 — the page must fetch the catalog *scored against the analysis in the URL*.
+ *
+ * `CoverLetterGenerator` gates `showRecommended` on `!!fitAnalysisId` (`CoverLetterGenerator.tsx`),
+ * so if the page reads that id for the gate but not for the fetch, the section opens onto entries
+ * that were never scored — which is exactly the dead state this card was filed for. The two reads
+ * have to stay tied together, and nothing but this asserts it.
+ */
+describe('WIC-1820 — the analysis id reaches the catalog fetch', () => {
+  beforeEach(() => {
+    seedLoadedCatalog();
+  });
+
+  it('forwards ?fitAnalysisId to useStarEntries', () => {
+    renderPage('/cover-letters/new?fitAnalysisId=JFA123');
+
+    expect(useStarEntriesMock).toHaveBeenCalledWith('JFA123');
+  });
+
+  it('asks for an unscored list when the URL names no analysis', () => {
+    renderPage('/cover-letters/new');
+
+    // `undefined`, not `''` or `null`: the service treats a supplied-but-empty id as an id that
+    // does not resolve (422), so passing one through here would break the plain page (WIC-1818).
+    expect(useStarEntriesMock).toHaveBeenCalledWith(undefined);
   });
 });

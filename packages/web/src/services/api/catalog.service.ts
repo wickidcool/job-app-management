@@ -38,7 +38,8 @@ export interface CatalogService {
     search?: string;
     sort?: string;
   }): Promise<QuantifiedBullet[]>;
-  getStarEntries(): Promise<CatalogEntry[]>;
+  /** Scored against a stored job-fit analysis when `jobFitAnalysisId` is supplied (WIC-1820). */
+  getStarEntries(jobFitAnalysisId?: string): Promise<CatalogEntry[]>;
 }
 
 export function createCatalogService(client: APIClient): CatalogService {
@@ -144,10 +145,19 @@ export function createCatalogService(client: APIClient): CatalogService {
     },
 
     /**
-     * Get STAR catalog entries for cover letter generation
+     * Get STAR catalog entries for cover letter generation.
+     *
+     * Pass `jobFitAnalysisId` to have each entry scored against a stored job-fit analysis; that
+     * is what populates `relevanceScore` and so what makes `StarEntryPicker`'s "Recommended"
+     * section reachable at all (WIC-1820). Omit it and every entry comes back unscored.
+     *
+     * An id that does not resolve — stale, or another user's — is a 422, not an empty result.
      */
-    async getStarEntries(): Promise<CatalogEntry[]> {
-      const response = await client.get<{ entries: CatalogEntry[] }>('/star-entries');
+    async getStarEntries(jobFitAnalysisId?: string): Promise<CatalogEntry[]> {
+      const response = await client.get<{ entries: CatalogEntry[] }>(
+        '/star-entries',
+        jobFitAnalysisId === undefined ? undefined : { jobFitAnalysisId }
+      );
       return response.entries;
     },
   };

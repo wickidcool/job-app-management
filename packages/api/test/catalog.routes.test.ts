@@ -10,7 +10,8 @@ import {
 import { _resetConfig } from '../src/config.js';
 import { _resetJwksCache } from '../src/middleware/auth.js';
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -29,11 +30,13 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/job-fit.service.js', () => ({
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
   analyzeJobFit: vi.fn(),
 }));
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -42,7 +45,8 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -50,7 +54,8 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
@@ -505,11 +510,25 @@ describe('Catalog Routes', () => {
         'utf-8'
       );
 
-      const minters = source
-        .split('export async function ')
-        .slice(1)
-        .filter((body) => body.includes('nextCursor'))
-        .map((body) => body.slice(0, body.indexOf('(')));
+      // Match every exported declaration form, not just `export async function`
+      // (WIC-1351). Splitting on that one literal made the guard blind to a
+      // minter declared as `export const x = async () =>`: its text fell inside
+      // the *previous* match's segment, which already contained `nextCursor`,
+      // so the set was unchanged and a seventh list endpoint landed green.
+      // Anchoring at line start keeps the word `export` inside a string or a
+      // comment from opening a bogus segment.
+      const declaration = /^export (?:async function|function|const|let|var)\s+(\w+)/gm;
+      const declarations = [...source.matchAll(declaration)];
+
+      // Bound each segment at the next declaration of *any* form. The old code
+      // ran every segment to the next `export async function`, so a trailing
+      // arrow-const minter was blamed on whichever function preceded it.
+      const minters = declarations
+        .filter((match, i) => {
+          const end = declarations[i + 1]?.index ?? source.length;
+          return source.slice(match.index, end).includes('nextCursor');
+        })
+        .map((match) => match[1]);
 
       expect(new Set(minters)).toEqual(new Set(LIST_ROUTES.map(([fn]) => fn)));
       expect(minters).toHaveLength(LIST_ROUTES.length);

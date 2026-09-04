@@ -1,4 +1,4 @@
-# Job Application Manager — Metrics Baseline
+# Careerpin — Metrics Baseline
 
 **Version:** 1.0  
 **Date:** 2026-04-19  
@@ -8,7 +8,7 @@
 
 ## 1. Product Context
 
-The Job Application Manager enables users to upload resumes (PDF or DOCX), automatically parse and reformat them into STAR-format markdown, and manage their exports. The three core user flows covered by this document are:
+Careerpin enables users to upload resumes (PDF or DOCX), automatically parse and reformat them into STAR-format markdown, and manage their exports. The three core user flows covered by this document are:
 
 1. **Resume Upload & Parsing** — file upload, text extraction, STAR generation
 2. **Export Viewing** — browsing and consuming generated exports
@@ -78,11 +78,21 @@ Fired when client-side validation rejects the file before upload.
 
 Fired when the XHR upload begins (file passes validation).
 
-| Property          | Type                | Description        |
-| ----------------- | ------------------- | ------------------ |
-| `session_id`      | string              |                    |
-| `file_type`       | `"pdf"` \| `"docx"` | Uploaded file type |
-| `file_size_bytes` | number              |                    |
+| Property          | Type                | Description                                                     |
+| ----------------- | ------------------- | --------------------------------------------------------------- |
+| `session_id`      | string              |                                                                 |
+| `upload_id`       | string              | Per-upload ULID shared with the terminal leg — see note below    |
+| `file_type`       | `"pdf"` \| `"docx"` | Uploaded file type                                              |
+| `file_size_bytes` | number              |                                                                 |
+
+> **`upload_id` is the join key across all three upload legs** (`submitted` → `completed` \|
+> `failed`), generated once per `uploadResume()` call. `session_id` is one-to-many over uploads, and
+> `resume_id` / `export_id` are generated *by* the work that may fail, so they can never appear on
+> `_submitted` or `_failed`. Without `upload_id` the gap metric below is valid only in aggregate — a
+> session that uploads twice and fails once nets out to "fine" — and an upload spanning a window
+> boundary is miscounted. With it, §6.6 Query 2 resolves per upload. Emitting it does **not** make
+> `_failed` reliable and does not retire the gap metric; it makes the gap exactly joinable
+> (WIC-1487).
 
 #### `resume_upload_completed`
 
@@ -91,6 +101,7 @@ Fired on successful server response (upload + parse + export all done).
 | Property               | Type                | Description                                                                                                                                                                                                                                                          |
 | ---------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `session_id`           | string              |                                                                                                                                                                                                                                                                      |
+| `upload_id`            | string              | Per-upload ULID shared with `resume_upload_submitted` — see the note under that event                                                                                                                                                                                |
 | `resume_id`            | string              | Assigned resume ULID                                                                                                                                                                                                                                                 |
 | `export_id`            | string              | Auto-generated export ULID                                                                                                                                                                                                                                           |
 | `file_type`            | `"pdf"` \| `"docx"` |                                                                                                                                                                                                                                                                      |
@@ -108,6 +119,7 @@ Fired when the upload or server-side processing returns an error.
 | Property      | Type                                                                 | Description                           |
 | ------------- | -------------------------------------------------------------------- | ------------------------------------- |
 | `session_id`  | string                                                               |                                       |
+| `upload_id`   | string                                                               | Per-upload ULID shared with `resume_upload_submitted` |
 | `file_type`   | `"pdf"` \| `"docx"` \| `"unknown"`                                   |                                       |
 | `error_code`  | string                                                               | HTTP status or application error code |
 | `error_stage` | `"upload"` \| `"extraction"` \| `"parsing"` \| `"export_generation"` | Where the failure occurred            |

@@ -19,7 +19,9 @@ import {
   type TalkingPoint,
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
+import { EXPORT_BYLINE } from '../constants/product.js';
 import { AppError, NotFoundError } from '../types/index.js';
+import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import { clampPercent, type Percent } from '../types/units.js';
 
 // ── Tenancy ───────────────────────────────────────────────────────────────────
@@ -451,6 +453,12 @@ export async function generateInterviewPrep(
   catalogEntriesUsed: number;
   warnings: Array<{ code: string; message: string }>;
 }> {
+  // Resolved at the top, ahead of the application read: a malformed field in
+  // the request is a boundary rejection, and doing it here also keeps the
+  // NO_FIT_ANALYSIS decision below tied to a resolved row rather than to a
+  // non-empty string (WIC-1818 AC-5a/AC-5c).
+  const analysis = await resolveJobFitAnalysis(input.jobFitAnalysisId, userId);
+
   const db = getDb();
 
   const [app] = await db
@@ -514,7 +522,10 @@ export async function generateInterviewPrep(
       message: 'Fewer than 5 STAR entries in catalog',
     });
   }
-  if (!input.jobFitAnalysisId) {
+  // Was `if (!input.jobFitAnalysisId)`, so any non-empty string silenced a
+  // warning about the quality of the output while nothing ever read an
+  // analysis. Keyed on the resolved row now (WIC-1818 AC-5c).
+  if (!analysis) {
     warnings.push({
       code: 'NO_FIT_ANALYSIS',
       message: 'Generated without job fit analysis (gaps may be incomplete)',
@@ -547,7 +558,9 @@ export async function generateInterviewPrep(
     id: prepId,
     userId: userId ?? null,
     applicationId: input.applicationId,
-    jobFitAnalysisId: input.jobFitAnalysisId ?? null,
+    // The resolved analysis, never the raw request field — an id that does not
+    // resolve must not reach the column (WIC-1818 AC-5a).
+    jobFitAnalysisId: analysis?.id ?? null,
     interviewType,
     timeAvailable,
     focusAreas,
@@ -632,7 +645,13 @@ export async function getInterviewPrep(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: {
     id: string;
     recommendation?: string;
@@ -661,6 +680,9 @@ export async function getInterviewPrep(
       jobTitle: applications.jobTitle,
       company: applications.company,
       status: applications.status,
+      // WIC-2023. Backs `ApplicationSummary.interviewDate` on the web side, which
+      // `InterviewPrepCard:138` and `QuickReferenceExport:111` both gate on.
+      interviewDate: applications.interviewDate,
     })
     .from(applications)
     .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
@@ -668,9 +690,19 @@ export async function getInterviewPrep(
 
   return {
     interviewPrep: prepRowToDTO(prep, stories),
+    // The not-found fallback sends `interviewDate: null`, not `''`. The other
+    // fields use `''` because they are declared non-nullable strings; this one is
+    // nullable precisely so "no interview scheduled" is representable, and an
+    // empty string would make `new Date('')` produce an Invalid Date downstream.
     application: app
-      ? { id: app.id, jobTitle: app.jobTitle, company: app.company, status: app.status }
-      : { id: prep.applicationId, jobTitle: '', company: '', status: '' },
+      ? {
+          id: app.id,
+          jobTitle: app.jobTitle,
+          company: app.company,
+          status: app.status,
+          interviewDate: app.interviewDate?.toISOString() ?? null,
+        }
+      : { id: prep.applicationId, jobTitle: '', company: '', status: '', interviewDate: null },
     fitAnalysis: null,
   };
 }
@@ -682,7 +714,13 @@ export async function getInterviewPrepByApplication(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: { id: string } | null;
 }> {
   const db = getDb();
@@ -1124,6 +1162,14 @@ export async function exportInterviewPrep(
     }
     lines.push('');
   }
+
+  // Byline, at the foot and in every format — this artifact is downloaded, printed and
+  // read outside the app, often by someone who is not the user (WIC-1953). It sits below
+  // the content rather than under the title because the title belongs to the user's own
+  // document; see `docs/design/CONTENT_STYLE.md`, Exception 1.
+  lines.push('---');
+  lines.push('');
+  lines.push(`*${EXPORT_BYLINE}*`);
 
   const markdownContent = lines.join('\n');
 

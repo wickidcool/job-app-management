@@ -52,7 +52,8 @@ vi.mock('../src/config.js', () => ({
   getConfig: () => ({ dataDir }),
 }));
 
-vi.mock('../src/services/storage.service.js', () => ({
+vi.mock('../src/services/storage.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/storage.service.js')>()),
   isStorageAvailable: () => storageAvailable,
   uploadObject: async (key: string, body: Buffer | string) => {
     OBJECTS.set(key, typeof body === 'string' ? body : body.toString('utf-8'));
@@ -81,11 +82,12 @@ const {
   deleteProjectFile,
   generateProjectIndex,
   getOrCreateProjectBySlug,
+  getProject,
   getProjectBySlug,
   listProjects,
 } = await import('../src/services/project.service.js');
 const { projects } = await import('../src/db/schema.js');
-const { NotFoundError, ConflictError } = await import('../src/types/index.js');
+const { NotFoundError, ConflictError, AppError } = await import('../src/types/index.js');
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -343,5 +345,139 @@ describe('WIC-1433 — local filesystem backend', () => {
       expect((await listProjects(user)).map((p) => p.slug)).toEqual([]);
       await expect(getProjectBySlug('legacy-co', user)).rejects.toBeInstanceOf(NotFoundError);
     }
+  });
+});
+
+/**
+ * WIC-1976 — AC-T0: the *absent* owner.
+ *
+ * Every case above hands the service a real `userId`, so none of them can tell
+ * a correctly scoped predicate apart from one that simply never runs. AC-T0 is
+ * the other half: an authenticated request whose owner did **not** resolve must
+ * reach **zero** rows, never "whichever tenant the planner happens to hit
+ * first".
+ *
+ * This is not a hypothetical input. `middleware/auth.ts` sets `userId` to
+ * `null` on two live paths — the local auth-bypass dev mode (no Supabase
+ * config, ADR-003) *and* a fully verified JWT carrying no `sub` claim
+ * (`(payload.sub as string) ?? null`), which is production-reachable. The
+ * routes then pass `c.get('userId') ?? undefined` straight through.
+ *
+ * **The 400 is the specification, not an accident.** ADR-010 (WIC-1962) refused
+ * the alternative design in which these calls succeed under dev mode: making
+ * project routes work without an owner means resolving an absent owner to
+ * *something*, and every such something is a real tenant's data or a shared
+ * pseudo-tenant that later collides with one. Do not "fix" a 400 here by
+ * relaxing `requireOwner` — that is the exact recurrence ADR-010 exists to
+ * stop. (ADR-010 D3, resolving a real `LOCAL_DEV_USER_ID` in local dev, is a
+ * separate open question and is deliberately not exercised here.)
+ *
+ * Numbering is inherited from PR #316's AC-T0 block, which is where AC-T0-3 and
+ * AC-T0-4 were written; #316's AC-T0-1, AC-T0-2 and AC-T0-5 asserted the
+ * refused design and are deliberately absent, so the gap is intentional rather
+ * than a porting slip. AC-T0-6 and AC-T0-7 are new here — they are the two
+ * owner-less paths no branch has ever asserted.
+ *
+ * `NotFoundError` and `ConflictError` both extend `AppError`, so
+ * `toBeInstanceOf(AppError)` is satisfied by a 404 and a 409 alike. Every case
+ * below therefore pins `statusCode` and `message`: *which* rejection fires is
+ * the whole finding, and the bare "it throws" assertion is vacuous.
+ */
+describe('WIC-1976 — AC-T0: an owner-less caller reaches no tenant’s row', () => {
+  it('AC-T0-3 — getOrCreateProjectBySlug binds an owner-less caller to nobody', async () => {
+    await seedBothUsers();
+    const aRow = await rowFor(USER_A);
+    const bRow = await rowFor(USER_B);
+
+    // Unscoped this returned A's row, and every downstream write — resume
+    // upload (`resume.service.ts`), dialogue capture (`dialogue.service.ts`) —
+    // then landed in a project the caller does not own.
+    //
+    // The cast is the point being tested, not a way around the type: this
+    // function alone declares `userId: string` (required), and the guard under
+    // test exists precisely because the runtime value is `null` anyway on the
+    // no-`sub`-claim path, "however the signature reads" (its own comment).
+    // Asserting only what the signature permits would skip the guard entirely.
+    const noOwner = undefined as unknown as string;
+    await expect(getOrCreateProjectBySlug(SLUG, 'Acme Corp', noOwner)).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'userId is required to resolve a project by slug',
+    });
+
+    // ...and it did not create a row of its own either, so the failure is a
+    // rejection and not a silent third tenant.
+    const rows = await db.select().from(projects).where(eq(projects.slug, SLUG));
+    expect(rows.map((r) => r.id).sort()).toEqual([aRow.id, bRow.id].sort());
+  });
+
+  it('AC-T0-4 — createProject rejects before the existence check, not after it', async () => {
+    await seedBothUsers();
+
+    // The discriminating assertion. The owner-less caller always ended in a
+    // rejection, so "it throws" proves nothing — *which* error it throws is the
+    // finding. With the checks in the other order the slug-only SELECT runs
+    // first and produces `409 Project with this slug already exists`, which
+    // discloses that some other tenant holds `acme-corp` and turns the endpoint
+    // into an existence oracle over other tenants' project names. It must be
+    // the 400, which discloses nothing.
+    await expect(createProject({ name: 'Acme Corp', slug: SLUG }, undefined)).rejects.toMatchObject(
+      { statusCode: 400, message: 'userId is required to create a project' }
+    );
+    await expect(
+      createProject({ name: 'Acme Corp', slug: SLUG }, undefined)
+    ).rejects.not.toBeInstanceOf(ConflictError);
+
+    // Control: a slug no tenant holds takes the same 400 — i.e. the answer does
+    // not vary with another tenant's data, which is what makes it not an oracle.
+    await expect(
+      createProject({ name: 'Nobody Holds This', slug: 'nobody-holds-this' }, undefined)
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    // Control: within one owner the conflict still fires, so the 400 above is
+    // the owner guard and not the conflict check having stopped working.
+    await expect(createProject({ name: 'Acme Corp', slug: SLUG }, USER_A)).rejects.toBeInstanceOf(
+      ConflictError
+    );
+  });
+
+  it('AC-T0-6 — listProjects refuses an owner-less caller instead of returning every tenant', async () => {
+    await seedBothUsers();
+
+    // The widest of the degradations this file guards. A falsy `userId` handed
+    // Drizzle `undefined`, which is not a permissive predicate so much as *no*
+    // predicate: the SELECT returned every tenant's projects, unfiltered.
+    await expect(listProjects(undefined)).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'userId is required to list projects',
+    });
+    await expect(listProjects(undefined)).rejects.not.toBeInstanceOf(NotFoundError);
+
+    // Control: both tenants' rows are genuinely present and reachable by their
+    // own owners, so the rejection above is scoping and not an empty table.
+    expect((await listProjects(USER_A)).map((p) => p.slug)).toEqual([SLUG]);
+    expect((await listProjects(USER_B)).map((p) => p.slug)).toEqual([SLUG]);
+  });
+
+  it('AC-T0-7 — getProject refuses an owner-less caller holding a real project id', async () => {
+    await seedBothUsers();
+    const aRow = await rowFor(USER_A);
+
+    // The id is real and it is A's. An id-only predicate would return the row:
+    // a project id is unguessable, but it is routinely in scope for a caller
+    // who has seen it once — a shared link, a log line, a prior tenancy.
+    await expect(getProject(aRow.id, undefined)).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'userId is required to load a project',
+    });
+
+    // Control: the same id resolves for its owner...
+    await expect(getProject(aRow.id, USER_A)).resolves.toMatchObject({
+      id: aRow.id,
+      slug: SLUG,
+    });
+    // ...and for a *different real* tenant it is a 404, not the 400. That is
+    // what makes the assertion above about the absent owner specifically,
+    // rather than about the id failing to match anything.
+    await expect(getProject(aRow.id, USER_B)).rejects.toBeInstanceOf(NotFoundError);
   });
 });

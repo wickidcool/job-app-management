@@ -147,13 +147,55 @@ so it sees every syntactic shape, not the one shape a regex was written for. It 
 existing `Lint & Test` job, following the precedent already set there by
 `python3 docs/design/wireframe-casing-audit.py` and `npm run scan:secrets`.
 
-It reports two checks:
+It reports three checks:
 
 - **`[SIG]`** — an exported function whose owner parameter is optional or nullable. This is the
   _precondition_ for a fail-open predicate: you cannot branch on an absent owner if absence is
   unrepresentable. This is the check that enforces D2.
-- **`[COND]`** — the owner identifier in a conditional position (ternary test, `if`, `&&`/`||`).
-  This catches a predicate reintroduced against a still-optional signature.
+- **`[COND]`** — the owner identifier in a conditional position (ternary test, `if`, `&&`/`||`,
+  `!owner`, `owner == null`). This catches a predicate reintroduced against a still-optional
+  signature.
+- **`[NOWNER]`** — an UPDATE or DELETE against an owner-bearing table whose `where` predicate
+  contains no owner column. Added by D5 below.
+
+### D5 — The guard also checks owner-**absent** writes, not only fail-open predicates
+
+`[SIG]` and `[COND]` measure sites where the owner is _representable-as-absent and branched on_.
+They say nothing about a site that never mentions the owner at all — and such a site is **strictly
+worse** than a fail-open ternary. A ternary degrades only when the owner is absent; a write with no
+owner term fires unconditionally, **even when the owner is present**, matching every tenant's row.
+
+That class also inverted the burndown metric. A site that ignores the owner entirely satisfies the
+letter of both checks, so it yielded no finding and appeared in **neither the numerator nor the
+denominator** of the 157 → 131 count. Its absence read as health.
+
+`[NOWNER]` closes that hole. It keys on the **schema column** rather than on a parameter name:
+owner-bearing tables are read out of `packages/api/src/db/schema.ts` at run time, so a new table
+declared with a `user_id` column is in scope the day it lands, and the check cannot be evaded by
+the two one-line re-spellings that defeat the name-based checks (renaming `userId` to `callerId`,
+or hiding optionality behind a type alias).
+
+**It distinguishes cardinality, because the severities genuinely differ.** A write scoped by a
+primary key or a `.unique()` column matches at most one row and cannot fan out across tenants;
+whether that id was itself owner-checked upstream is an IDOR question this guard does not answer.
+Those are **counted and printed on every run**, but not gated on. Only a write scoped by a
+**non-unique** key with no owner term is a finding — which is exactly the shape the schema settles,
+since uniqueness on these tables is declared as `(userId, key)`, making the key alone non-unique
+across tenants by declaration.
+
+**What a green run does NOT assert** is now printed on every run and listed by `--stats`: the
+unique/pk-scoped writes above, any predicate the script cannot resolve, and read-side (`SELECT`)
+cross-tenant leaks, which are real but a far larger population and should be measured before being
+gated. A guard that prints only its own findings makes its blind spots invisible — which is how a
+green run came to be read as tree-wide owner-scoping health.
+
+**The guard now has positive controls of its own** (`packages/api/test/audit-owner-predicates.test.ts`,
+21 cases). The guard is what is advertised to hold the line as _new_ sites appear, and a new site
+has no tests yet, so the guard's own detection has to be the thing under test. Each case is a
+one-line re-spelling of a real pattern, run against a synthetic fixture tree via `--root` so the
+cases stay stable as the burndown proceeds. Notably the suite pins the fail-**closed** exemption:
+`if (!userId) throw` is the posture this ADR asks for, and counting it as a violation would make
+the fix read as the defect.
 
 **It ships in baseline mode.** `origin/main` carries 157 findings at the commit this guard lands on
 (`5e2956b`); it carried 138 when the set was first frozen at `1c54133` a day earlier — see
@@ -312,6 +354,34 @@ it*. Re-freezing at the landing commit (`5e2956b`, 157) is not an exception to t
 precondition: a guard pinned to a baseline older than the commit it merges into fails on debt it did
 not create and can never land. The +19 is recorded above rather than absorbed silently — that is the
 difference between re-freezing and appending. Every site added **after** `5e2956b` fails CI.
+
+### D5 — what `[NOWNER]` found on first run
+
+Measured on the WIC-1638 burndown head (`341d897`, the tree where `[SIG]`+`[COND]` report a clean
+131 and CI is green). Of **46** UPDATE/DELETE sites against the **21** owner-bearing tables:
+
+| class                              | count | gated |
+| ---------------------------------- | ----: | ----- |
+| owner-scoped                       |    21 | —     |
+| unique/pk-scoped (at most one row) |    18 | no    |
+| predicate unresolvable             |     0 | no    |
+| **non-unique key, no owner term**  | **7** | yes   |
+
+The 7 are the finding. Four are the `extraction.service.ts` catalog updates (`companyCatalog`,
+`techStackTags`, `jobFitTags`, `recurringThemes`), each scoped by a business key whose uniqueness is
+declared as `(userId, key)` — **already fixed on PR #141 (WIC-1404)**, which is sitting in the
+review queue.
+
+**Three were previously unreported:** `project.service.ts:464`, `:512`, `:548`, all
+`db.update(projects).set({ updatedAt }).where(eq(projects.slug, slug))`. `projects` declares
+`uniqueIndex('idx_projects_user_slug').on(t.userId, t.slug)`, so `slug` alone is non-unique across
+tenants by the same argument, and each of these touches every tenant's project with that slug. No
+fix is in flight for them; tracked separately.
+
+All 7 are frozen into the baseline (131 → 138) under the same rule as the rest: the guard fails on
+**new** sites, and burning these down is the burndown's job. `[SIG]`+`[COND]` remained at exactly
+131 across the `[COND]`/`[SIG]` hardening in this change — the added coverage found no new real
+sites in this tree, so the hardening is not a metric-inflating change.
 
 ## Consequences
 
@@ -472,6 +542,48 @@ does that. Two obligations follow:
    exactly the branchless shape this one cannot. The two are complementary and neither substitutes
    for the other.
 
+### A dev-mode 400/401 is D3 unimplemented — it is not a reason to relax D1/D2 (WIC-1962)
+
+Settled here because it is the same question arriving in a new costume, and this ADR exists to stop
+that. A route answering `400`/`401` in the local auth-bypass mode is the **intended** posture while
+D3 is unimplemented; it is not evidence that the owner-required change went too far, and the remedy
+is never to re-open an owner-absent branch in a service.
+
+The worked instance is `project.service.ts`. PR #316 (WIC-1901) and `main`'s WIC-1554 reach the same
+file from opposite directions: WIC-1554 routes every `projects` access through `requireOwner`, which
+is exactly this ADR's D2 for that service and is named as such in the remediation list above. #316
+instead keeps the bypass mode serving project routes, via per-caller `if (!userId)` guards that
+short-circuit before the scope helper. **#316's design is refused.** Three reasons, in order of
+weight:
+
+1. **It contradicts AC-T0 and D1 directly.** "Every read, write and existence check must match zero
+   rows" does not admit a mode in which reads are served from an owner-less caller. D1 already says
+   an authenticated route either has an owner or returns 401.
+2. **It does not achieve AC-T0 even on its own terms.** Measured 2026-09-02 on PGlite against #316
+   at `949ba5e8`, seeded with two tenants both holding the slug `acme-corp`:
+   `listProjects(undefined)` returns **both tenants' rows**, and `getProject(<A's id>, undefined)`
+   returns **A's row** — because #316 branched before `projectIdScope`/`requireOwner` existed and
+   left `.where(userId ? eq(...) : undefined)` and an id-only predicate in place. `main` throws on
+   both. #316's own AC-T0 suite asserts neither path, which is why "the cross-tenant assertions pass
+   under both designs" — the assertion set has a hole exactly where the design is weakest. This is
+   the AC-4 lesson again: a spec that never quantifies the absent owner is satisfied vacuously.
+3. **The mode it defends is not reachable fail-closed.** `projects.user_id` is `NOT NULL` and
+   `createProject` has rejected an owner-less caller since WIC-1434, so **no `projects` row can ever
+   exist for the bypass caller**. The DB half of every project operation in that mode is therefore
+   necessarily either skipped or unscoped — there is no third option, and "working dev mode" over a
+   table you cannot write to resolves to reading rows that belong to somebody else. #316 does not
+   deliver the mode either: `createProject` and `getOrCreateProjectBySlug` still `400`, and
+   `getOrCreateProjectBySlug` is the entry point for resume upload (`resume.service.ts:674,723`) and
+   dialogue capture (`dialogue.service.ts:209`). What the trade buys is browsing an `anon`
+   filesystem tree the API has no way to populate.
+
+**The dev-ergonomics cost #316 identified is real, and D3 is where it is paid.** Until D3 lands
+there is also a one-variable workaround that is strictly better than the bypass: the HS256 branch of
+`middleware/auth.ts` needs only `SUPABASE_JWT_SECRET`, with no Supabase project, so setting it in
+`.dev.vars` and minting a local HS256 token with any UUID `sub` gives every project route a real
+owner — and exercises the isolation logic instead of bypassing it, which is D3's stated benefit
+arriving early.
+
 ### Costs and risks
 
 - **D3 changes local-dev behaviour.** Any existing local database with genuine `NULL` `user_id`
@@ -505,6 +617,7 @@ does that. Two obligations follow:
 - WIC-1600 — this decision
 - WIC-1430 — document `tenancy-absent-caller-audit`; AC-T0 appended to all seven specs
 - WIC-1549, WIC-1554, WIC-1596, WIC-1435 — per-site remediation
+- WIC-1962 — a dev-mode 400/401 is D3 unimplemented; PR #316's owner-less project mode refused
 - ADR-003 — multi-user auth; origin of the nullable-`user_id` affordance retired here
 - `packages/api/src/db/migrations/0017_enforce_userid_not_null.sql`
 - `packages/api/src/db/migrations/0014_fix_personal_info_schema.sql` (lines 44-48)

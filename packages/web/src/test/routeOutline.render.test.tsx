@@ -66,12 +66,6 @@ function key(path: string, branch: Branch): string {
  * is to lift the `<h1>` above the early returns, as `CoverLetterNew` already does.
  */
 const MISSING_H1: readonly string[] = [
-  // The whole page body is a Radix dialog whose title is an <h2>; no route-level h1.
-  '/applications/new|loading',
-  '/applications/new|error',
-  '/applications/new|empty',
-  '/applications/new|loaded',
-
   // Renders <h2>No Interview Prep Yet</h2> with nothing above it.
   '/applications/app-1/prep|empty',
   '/applications/app-1/prep|loaded',
@@ -242,7 +236,7 @@ describe('every route renders a clean heading outline on every branch', () => {
   it('pins the size of the inventory so entries cannot be added quietly', () => {
     // Paired with the staleness test above, this makes the list a one-way ratchet: it can
     // only get smaller, and only by someone editing this number down deliberately.
-    expect(MISSING_H1).toHaveLength(25);
+    expect(MISSING_H1).toHaveLength(21);
     expect(new Set(MISSING_H1).size, 'duplicate entry in MISSING_H1').toBe(MISSING_H1.length);
   });
 });
