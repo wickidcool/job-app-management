@@ -27,8 +27,9 @@
 // interpolation and `JSON.stringify` all erase it. `relevanceScorePct: Percent`
 // is typed *and* tested for exactly that reason.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { buildJournalEntries } from '../src/db/journal.js';
 
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 vi.mock('../src/config.js', () => ({
@@ -313,17 +314,17 @@ describe('WIC-1520 — the column and the migration agree', () => {
     expect(migration).toMatch(/column_name = 'relevance_score_pct'/);
   });
 
-  it('is registered in the drizzle journal', () => {
-    const journal = JSON.parse(
-      readFileSync(
-        fileURLToPath(new URL('../src/db/migrations/meta/_journal.json', import.meta.url)),
-        'utf8'
-      )
-    ) as { entries: Array<{ idx: number; tag: string }> };
-    const entry = journal.entries.find((e) => e.tag === '0020_prep_relevance_score_pct');
+  it('is registered in the generated drizzle journal', () => {
+    // WIC-1963: `meta/_journal.json` is generated from the .sql files, not
+    // committed. Assert against the same builder the deploy's migrate step runs,
+    // so this gate still means "migration 0020 will actually be applied".
+    const migrationsDir = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
+    const sqlFileNames = readdirSync(migrationsDir).filter((name) => name.endsWith('.sql'));
+    const entries = buildJournalEntries(sqlFileNames);
+    const entry = entries.find((e) => e.tag === '0020_prep_relevance_score_pct');
     expect(
       entry,
-      'migration 0020 is absent from meta/_journal.json and will never run'
+      'migration 0020 is absent from the generated journal and will never run'
     ).toBeDefined();
     expect(entry!.idx).toBe(20);
   });
