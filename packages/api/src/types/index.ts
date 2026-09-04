@@ -1,3 +1,5 @@
+import type { Ratio } from './units.js';
+
 export type ApplicationStatus =
   | 'saved'
   | 'applied'
@@ -555,7 +557,25 @@ export interface CatalogEntryDTO {
   result: string;
   tags: string[];
   timeframe?: string;
-  relevanceScore?: number;
+  /**
+   * How relevant this entry is to the job under analysis. A ratio in `[0, 1]` per ADR-008 §1,
+   * mirroring `CatalogEntry.relevanceScore` on the web side.
+   *
+   * Populated only when `listStarEntries` is called with a `jobFitAnalysisId`, by joining the
+   * stored analysis's `recommendedStarEntries` on entry id. Both sides read `quantified_bullets`,
+   * so the two id spaces are the same one. `undefined` means "not scored in this request" — it is
+   * not a score of zero, and `StarEntryPicker` filters on it rather than ordering by it.
+   */
+  relevanceScore?: Ratio;
+  /**
+   * Why the entry is relevant, for display under the score.
+   *
+   * ⚠ No producer today. `RecommendedStarEntryDTO` carries `id`, `rawText`, `impactCategory` and
+   * `relevanceScore` — there is no reasoning column to join, and recomputing one here would make
+   * this a second, silently divergent implementation of the scorer in `job-fit.service.ts`.
+   * `StarEntryPicker` already guards the render on truthiness, so it stays dark until the
+   * analysis stores a reason (WIC-1820 follow-up). Do not populate it by re-deriving it.
+   */
   relevanceReasoning?: string;
 }
 
