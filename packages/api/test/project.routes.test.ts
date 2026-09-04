@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-vi.mock('../src/services/project.service.js', () => ({
+vi.mock('../src/services/project.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/project.service.js')>()),
   listProjects: vi.fn(),
   listProjectFiles: vi.fn(),
   getProjectFile: vi.fn(),
@@ -15,7 +16,8 @@ vi.mock('../src/services/project.service.js', () => ({
   deleteProjectFile: vi.fn(),
 }));
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -23,7 +25,8 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -32,13 +35,15 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
 import * as projectService from '../src/services/project.service.js';
 import * as resumeService from '../src/services/resume.service.js';
 import { NotFoundError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockProject = {
   id: 'acme-corp',
@@ -89,7 +94,7 @@ describe('Project Routes', () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ files: [mockFileMeta] });
-      expect(projectService.listProjectFiles).toHaveBeenCalledWith('acme-corp', undefined);
+      expect(projectService.listProjectFiles).toHaveBeenCalledWith('acme-corp', DEV_OWNER);
     });
 
     it('returns 404 when project not found', async () => {
@@ -116,7 +121,7 @@ describe('Project Routes', () => {
       expect(projectService.getProjectFile).toHaveBeenCalledWith(
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -152,7 +157,7 @@ describe('Project Routes', () => {
         'acme-corp',
         'resume-01HXTEST000000000000000001.md',
         '# Updated content',
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -194,7 +199,7 @@ describe('Project Routes', () => {
       expect(response.status).toBe(204);
       expect(resumeService.deleteResume).toHaveBeenCalledWith(
         '01HXTEST000000000000000001',
-        undefined
+        DEV_OWNER
       );
     });
 

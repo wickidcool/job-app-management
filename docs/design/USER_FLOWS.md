@@ -1,8 +1,8 @@
-# User Flows — Job Application Manager
+# User Flows — Careerpin
 
 ## Overview
 
-This document outlines the key user flows for the application tracking features in the Job Application Manager MVP (Phase 1).
+This document outlines the key user flows for the application tracking features in the Careerpin MVP (Phase 1).
 
 ## Primary User Flows
 
@@ -108,7 +108,7 @@ flowchart TD
 ```
 
 **Dashboard Features:**
-- Quick stats at top (total applications, applied this week, response rate)
+- Quick stats at top (total applications, applied in the last 7 days, response rate)
 - View toggle: Kanban vs Table
 - Filters: Status, Company, Date range
 - Search: Job title, company name

@@ -191,10 +191,14 @@ export function ProjectsList() {
             </Dialog.Title>
             <div className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-neutral-700">
+                <label
+                  htmlFor="new-project-name"
+                  className="mb-1 block text-sm font-medium text-neutral-700"
+                >
                   Project Name
                 </label>
                 <input
+                  id="new-project-name"
                   type="text"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
@@ -204,10 +208,14 @@ export function ProjectsList() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-neutral-700">
+                <label
+                  htmlFor="new-project-description"
+                  className="mb-1 block text-sm font-medium text-neutral-700"
+                >
                   Description (optional)
                 </label>
                 <textarea
+                  id="new-project-description"
                   value={newProjectDescription}
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"

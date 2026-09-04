@@ -50,6 +50,16 @@ const createApplicationSchema = z.object({
     .or(z.literal(''))
     .optional()
     .transform((v) => (v === '' ? undefined : v)),
+  // WIC-2023. `datetime({ offset: true })`, not the `^\d{4}-\d{2}-\d{2}$` regex
+  // `nextActionDue` uses: the column is TIMESTAMPTZ and the service feeds this
+  // straight to `new Date(...)`. The regex would admit a date-only string that
+  // `new Date` reads as UTC midnight, silently shifting the instant.
+  interviewDate: z
+    .string()
+    .datetime({ offset: true })
+    .or(z.literal(''))
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
   jobDescription: z
     .string()
     .max(50000)
@@ -85,6 +95,15 @@ const updateApplicationSchema = z.object({
   nextActionDue: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .or(z.literal(''))
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  // WIC-2023. See the create schema above for why this is `datetime`, not the
+  // date-only regex. `.nullable()` is what lets a caller clear a scheduled date.
+  interviewDate: z
+    .string()
+    .datetime({ offset: true })
     .or(z.literal(''))
     .nullable()
     .optional()

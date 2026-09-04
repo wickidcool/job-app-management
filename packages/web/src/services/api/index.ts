@@ -1,7 +1,7 @@
 /**
  * API Service Module
  *
- * This module provides the real API integration for the Job Application Manager.
+ * This module provides the real API integration for Careerpin.
  * When the backend is ready, import from this module instead of mockApplicationService.
  *
  * Usage:

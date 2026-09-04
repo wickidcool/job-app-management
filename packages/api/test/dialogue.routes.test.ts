@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
 // Mock project.service first so dialogue.service can import it without a real DB
-vi.mock('../src/services/project.service.js', () => ({
+vi.mock('../src/services/project.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/project.service.js')>()),
   listProjects: vi.fn(),
   listProjectFiles: vi.fn(),
   getProjectFile: vi.fn(),
@@ -35,7 +36,8 @@ vi.mock('../src/services/dialogue.service.js', async () => {
   };
 });
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -43,7 +45,8 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -52,12 +55,14 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
 import * as dialogueService from '../src/services/dialogue.service.js';
 import { NotFoundError, ConflictError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const validAccomplishment = {
   title: 'Improved API throughput',
@@ -108,7 +113,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         expect.objectContaining({ company: 'Acme Corp', role: 'Senior Engineer' }),
         undefined,
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -176,7 +181,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         expect.objectContaining({ technologies: [], jobFit: [] }),
         undefined,
-        undefined
+        DEV_OWNER
       );
     });
   });
@@ -204,7 +209,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         'acme-corp-senior-engineer.md',
         expect.objectContaining({ industry: 'Fintech', jobFit: ['payments'] }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -274,7 +279,7 @@ describe('Dialogue Routes', () => {
         'acme-corp',
         'acme-corp-senior-engineer.md',
         expect.objectContaining({ company: 'Acme Corp' }),
-        undefined
+        DEV_OWNER
       );
     });
 

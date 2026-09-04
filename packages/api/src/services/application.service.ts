@@ -38,6 +38,11 @@ function toDTO(app: Application): ApplicationDTO {
     compTarget: app.compTarget,
     nextAction: app.nextAction,
     nextActionDue: app.nextActionDue,
+    // WIC-2023. `interviewDate` is TIMESTAMPTZ, so drizzle hands back a `Date`
+    // and it needs the same `.toISOString()` treatment as `appliedAt` above.
+    // `nextActionDue` is a `date({ mode: 'string' })` and is already a string --
+    // do not copy its passthrough here.
+    interviewDate: app.interviewDate?.toISOString() ?? null,
     jobDescription: app.jobDescription,
   };
 }
@@ -79,6 +84,7 @@ export async function createApplication(
         compTarget: input.compTarget ?? null,
         nextAction: input.nextAction ?? null,
         nextActionDue: input.nextActionDue ?? null,
+        interviewDate: input.interviewDate ? new Date(input.interviewDate) : null,
         jobDescription: input.jobDescription ?? null,
         createdAt: now,
         updatedAt: now,
@@ -95,10 +101,14 @@ export async function createApplication(
       changedAt: now,
     });
 
-    // Pass the owner: processCatalogChange decides create-vs-update on this,
-    // and an application enqueued without it used to fall through to a
-    // slug-only company_catalog UPDATE that hit whichever tenant registered
-    // the company first. Mirrors resume.service.ts's enqueue.
+    // Pass the owner. processCatalogChange reads it off event.metadata.userId
+    // (the shape resume.service.ts and catalog.service.ts both use) and decides
+    // create-vs-update on it. Omitting it here left every application-triggered
+    // extraction ownerless, which cost twice over: it fell through to a
+    // slug-only company_catalog UPDATE that hit whichever tenant registered the
+    // company first, and once migration 0017 made user_id NOT NULL the
+    // auto-apply transaction died on a 23502 that flush() swallowed — silently,
+    // for authenticated callers too.
     enqueueChange('application', id, 'created', { userId: userId ?? null });
     return { application: toDTO(app) };
   });
@@ -247,6 +257,12 @@ export async function updateApplication(
   if ('compTarget' in input) updates.compTarget = input.compTarget;
   if ('nextAction' in input) updates.nextAction = input.nextAction;
   if ('nextActionDue' in input) updates.nextActionDue = input.nextActionDue;
+  // WIC-2023. `in`-keyed like its nullable siblings so an explicit `null` clears
+  // the date, but the value needs converting: the column is TIMESTAMPTZ, so
+  // drizzle wants a `Date`, not the ISO string the wire carries.
+  if ('interviewDate' in input) {
+    updates.interviewDate = input.interviewDate ? new Date(input.interviewDate) : null;
+  }
   if ('jobDescription' in input) updates.jobDescription = input.jobDescription;
 
   const baseWhere = and(eq(applications.id, id), eq(applications.version, input.version));
@@ -267,6 +283,7 @@ export async function updateApplication(
     throw new VersionConflictError();
   }
 
+  // Same as the create path above: without the owner this extraction is a no-op.
   enqueueChange('application', id, 'updated', { userId: userId ?? null });
   return { application: toDTO(updated) };
 }

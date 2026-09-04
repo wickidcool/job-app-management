@@ -3,11 +3,15 @@ import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
 import { _resetConfig } from '../src/config.js';
 
-vi.mock('../src/services/job-fit.service.js', () => ({
+vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
   analyzeJobFit: vi.fn(),
+  jobFitAnalysesScope: vi.fn(),
+  listJobFitAnalyses: vi.fn(),
 }));
 
-vi.mock('../src/services/catalog.service.js', () => ({
+vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
   getDiff: vi.fn(),
   generateDiff: vi.fn(),
@@ -26,7 +30,8 @@ vi.mock('../src/services/catalog.service.js', () => ({
   listThemes: vi.fn(),
 }));
 
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn(),
@@ -35,7 +40,8 @@ vi.mock('../src/services/application.service.js', () => ({
   updateApplicationStatus: vi.fn(),
 }));
 
-vi.mock('../src/services/resume.service.js', () => ({
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
   uploadResume: vi.fn(),
   listResumes: vi.fn(),
   listResumeExports: vi.fn(),
@@ -43,12 +49,14 @@ vi.mock('../src/services/resume.service.js', () => ({
   deleteResume: vi.fn(),
 }));
 
-vi.mock('../src/services/dashboard.service.js', () => ({
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
   getDashboardStats: vi.fn(),
 }));
 
 import * as jobFitService from '../src/services/job-fit.service.js';
 import { JobFitInputError, RateLimitError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockAnalysisResponse = {
   recommendation: 'moderate_fit' as const,
@@ -258,13 +266,16 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // No Supabase config in this suite, so `authMiddleware` sets `userId` to
-    // null and the caller id arrives as `undefined` — which the service scopes
-    // to `IS NULL`, not to the whole table (WIC-1435).
+    // The caller identity, third since WIC-1652: the analysis is now written
+    // down, so it has an owner, and the route threads it rather than defaulting
+    // it (WIC-1435). No Supabase config in this suite, so `authMiddleware` takes
+    // the local-dev bypass — which since ADR-010 D3 resolves a real tenant
+    // instead of an absence, so the id that arrives is `DEV_OWNER`, not
+    // `undefined` (WIC-1964; see `helpers/local-dev-owner.ts`).
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
       { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
       expect.any(String),
-      undefined
+      DEV_OWNER
     );
   });
 });
@@ -310,5 +321,135 @@ describe('POST /api/catalog/job-fit/analyze — caller identity', () => {
 
     expect(res.status).toBe(200);
     expect(vi.mocked(jobFitService.analyzeJobFit).mock.calls[0][2]).toBe(SUB);
+  });
+});
+
+describe('POST /api/catalog/job-fit/analyze — applicationId (WIC-1652)', () => {
+  let app: ReturnType<typeof buildApp>;
+
+  beforeEach(() => {
+    app = buildApp();
+    vi.clearAllMocks();
+    vi.mocked(jobFitService.analyzeJobFit).mockResolvedValue({
+      response: mockAnalysisResponse,
+      rateLimitHeaders: { remaining: 29, reset: 1714045860 },
+    });
+  });
+
+  const analyze = (body: unknown) =>
+    app.request('/api/catalog/job-fit/analyze', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  const JD = 'Senior Software Engineer role requiring TypeScript, React, and PostgreSQL.';
+
+  it('passes applicationId through to the service', async () => {
+    const res = await analyze({ jobDescriptionText: JD, applicationId: 'app-1' });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
+      { jobDescriptionText: JD, applicationId: 'app-1' },
+      expect.any(String),
+      DEV_OWNER
+    );
+  });
+
+  it('rejects an empty applicationId at the boundary', async () => {
+    // `z.string().optional()` admits `''`, and a truthiness test downstream
+    // would read it as "not supplied" — the WIC-1818 trap. `.min(1)` makes it a
+    // 400 here instead of an id the service has to disambiguate.
+    const res = await analyze({ jobDescriptionText: JD, applicationId: '' });
+
+    expect(res.status).toBe(400);
+    expect(vi.mocked(jobFitService.analyzeJobFit)).not.toHaveBeenCalled();
+  });
+
+  it('leaves applicationId optional', async () => {
+    const res = await analyze({ jobDescriptionText: JD });
+    expect(res.status).toBe(200);
+  });
+
+  it('surfaces an unresolvable applicationId as 404', async () => {
+    const { AppError } = await import('../src/types/index.js');
+    vi.mocked(jobFitService.analyzeJobFit).mockRejectedValue(
+      new AppError('APPLICATION_NOT_FOUND', 'Application not found', undefined, 404)
+    );
+
+    const res = await analyze({ jobDescriptionText: JD, applicationId: 'nope' });
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('APPLICATION_NOT_FOUND');
+  });
+});
+
+describe('GET /api/catalog/job-fit/analyses (WIC-1652)', () => {
+  let app: ReturnType<typeof buildApp>;
+
+  beforeEach(() => {
+    app = buildApp();
+    vi.clearAllMocks();
+  });
+
+  const summary = {
+    id: '01JQ0000000000000000000001',
+    applicationId: 'app-1',
+    recommendation: 'moderate_fit' as const,
+    fitScore: 62,
+    summary: 'You match 4 of 6 required skills.',
+    confidence: 'high' as const,
+    catalogEmpty: false,
+    analyzedAt: '2026-08-30T00:00:00.000Z',
+  };
+
+  const SCOPE = Symbol('owner-scope') as unknown as ReturnType<
+    typeof jobFitService.jobFitAnalysesScope
+  >;
+
+  beforeEach(() => {
+    vi.mocked(jobFitService.jobFitAnalysesScope).mockReturnValue(SCOPE);
+  });
+
+  it('returns the stored analyses for an application', async () => {
+    // The read half. Without it an analysis is stored but unfindable, so
+    // `ApplicationDetail` still cannot tell whether one exists.
+    vi.mocked(jobFitService.listJobFitAnalyses).mockResolvedValue({ analyses: [summary] });
+
+    const res = await app.request('/api/catalog/job-fit/analyses?applicationId=app-1');
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.analyses).toHaveLength(1);
+    expect(body.analyses[0]).toMatchObject({ id: summary.id, fitScore: 62 });
+    // The owner scope is built by the service's own factory from the caller id
+    // and passed through verbatim. This suite runs with auth bypassed, so since
+    // ADR-010 D3 the caller is `DEV_OWNER` rather than an absence (WIC-1964) —
+    // the route still just threads whatever it got, and the factory, not the
+    // route, is what turns an owner into a predicate.
+    expect(vi.mocked(jobFitService.jobFitAnalysesScope)).toHaveBeenCalledWith(DEV_OWNER);
+    expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith(
+      { applicationId: 'app-1' },
+      SCOPE
+    );
+  });
+
+  it('coerces limit and rejects one out of range', async () => {
+    vi.mocked(jobFitService.listJobFitAnalyses).mockResolvedValue({ analyses: [] });
+
+    await app.request('/api/catalog/job-fit/analyses?limit=5');
+    expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith({ limit: 5 }, SCOPE);
+
+    const res = await app.request('/api/catalog/job-fit/analyses?limit=500');
+    expect(res.status).toBe(400);
+  });
+
+  it('works with no filter at all', async () => {
+    vi.mocked(jobFitService.listJobFitAnalyses).mockResolvedValue({ analyses: [] });
+
+    const res = await app.request('/api/catalog/job-fit/analyses');
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith({}, SCOPE);
   });
 });
