@@ -1,4 +1,4 @@
-# Job Application Manager — PostHog Dashboard Spec
+# Careerpin — PostHog Dashboard Spec
 
 **Version:** 1.1
 **Date:** 2026-08-04 (rev 1.1 — 2026-08-26, §6 failure telemetry, WIC-1476)

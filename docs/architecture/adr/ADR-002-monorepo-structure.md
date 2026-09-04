@@ -7,7 +7,7 @@
 
 ## Context
 
-The Job Application Manager codebase has evolved into three distinct packages spread across inconsistent locations:
+The Careerpin codebase has evolved into three distinct packages spread across inconsistent locations:
 
 | Current Location | Package Name | Purpose |
 |------------------|--------------|---------|

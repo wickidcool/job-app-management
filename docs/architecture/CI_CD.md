@@ -1,6 +1,6 @@
 # CI/CD Pipeline Documentation
 
-This document describes the GitHub Actions CI/CD pipeline for the Job Application Manager.
+This document describes the GitHub Actions CI/CD pipeline for Careerpin.
 
 ## Overview
 

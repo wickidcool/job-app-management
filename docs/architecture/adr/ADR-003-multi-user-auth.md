@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The Job Application Manager was originally designed as a local-first, single-user application. To support multiple users and cloud deployment, we need authentication and per-user data isolation.
+Careerpin was originally designed as a local-first, single-user application. To support multiple users and cloud deployment, we need authentication and per-user data isolation.
 
 Requirements:
 - Support multiple users with separate data
