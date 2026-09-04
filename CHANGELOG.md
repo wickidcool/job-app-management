@@ -757,6 +757,29 @@ invites a reader to check, a denial tells them not to bother looking.
 Verified at `f3ed4e39`: all four `docs/design/` audits exit 0, and 422 code spans render-checked
 with zero unpaired delimiters.
 
+
+### Tests — the ProjectsList modal-hiding spec now names the control WIC-1155 left exposed (2026-09-02)
+
+`modal-focus-projects.spec.ts` asserted background hiding on the header "Create Project" trigger and
+on `#root[aria-hidden]`, but never on `EmptyState`'s own action button — the control the WIC-1155
+regression actually left reachable behind an open dialog. Added that assertion, anchored behind a
+positive `toHaveCount(1)` so it cannot pass vacuously on a page that never rendered the button, plus
+a matching re-check after the dialog closes.
+
+Both halves are measured, not assumed:
+
+- **Reintroducing `aria-live="polite"` on `EmptyState`'s wrapper** turns the new assertion red
+  (expected 0, received 1) while `trigger.toHaveCount(0)` — the assertion that was already there —
+  stays green. The two detectors are disjoint, so the pre-existing one cannot see this regression.
+  That is the whole reason the assertion was worth adding.
+- **Making the list non-empty** so `EmptyState` never renders turns the positive anchor red
+  (expected 1, received 0), which is what stops the count-0 assertion being a tautology.
+
+11/11 in the file at `main` `4957738d`, decomposed with `--reporter=json`: 11 `expected`, 0
+`test.fail()` pins. The file header said the test asserts two things; it now asserts three, and the
+note was corrected to match.
+
+
 ### Docs — the modal focus spec and the a11y checklist both denied work that had already shipped (2026-08-31)
 
 `MODAL_FOCUS_MANAGEMENT_SPEC.md` and `ACCESSIBILITY.md` each asserted, in force, that none of the modal focus work existed. PRs #95, #97 and #115 had all merged by 2026-08-31 — `e45cb04`, `ed71ed5`, `bf8c8b3`, all ancestors of `main` — so both documents were describing a tree that no longer existed (WIC-1902).
