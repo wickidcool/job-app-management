@@ -382,6 +382,7 @@ output — so they stay with the Copywriter / Editor and are tracked separately.
 
 Docs only; no source, no rendered output, and no test changed. `docs/design/README.md` picks up
 the same one-line front-matter correction (WIC-1102).
+
 ### Added — a merge that drops a migration from the journal is now a red build, not a silent data-loss (2026-09-01)
 
 Drizzle's `migrate()` is **journal-driven**: `packages/api/src/db/migrate.ts` hands it `meta/_journal.json`, and a `.sql` file that is not in the journal never runs. Nothing checked that the journal and the migrations directory agree, and the way they come to disagree is a routine merge. Merge-base `bb701190` had no `0020`; `main` claimed idx 20 for `0020_prep_relevance_score_pct` (WIC-1520) while PR #238 independently claimed idx 20 for `0020_backfill_catalog_diffs_user_id`. Re-verified at `main` `586712c2`: merging #238 conflicts on `_journal.json` and **on nothing else**, and the conflict region is a single `tag` line inside the idx-20 object — so resolving it the natural way, keeping both migrations because both are wanted, produces one entry object with two `"tag"` keys. That is valid JSON. Every parser keeps the last key, so WIC-1520's migration vanishes from the journal while its `.sql` stays on disk, and on a fresh database it would never run (WIC-1939).
