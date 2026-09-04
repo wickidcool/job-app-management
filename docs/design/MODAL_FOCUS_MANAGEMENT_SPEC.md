@@ -638,13 +638,45 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
   declared` — the exact string this follow-up specified as the pass condition, so the prop did not
   land under a different name and the audit is watching the thing it was built to watch.
 
+- ~~**Extend the focus E2E sweep to the four uncovered dialogs**~~ **Done 2026-09-01 (WIC-1925)** —
+  `modal-focus-onboarding.spec.ts` (19), `modal-focus-quick-reference.spec.ts` (9),
+  `modal-focus-wizard.spec.ts` (10), `modal-focus-diff-review.spec.ts` (9). All six dialogs in §2 now
+  have E2E focus coverage; 47 new tests, 72 across the six files.
+
+  **This follow-up predicted its own answer wrong, and that is the result worth keeping.** It said
+  "all four consume the same hook, so the expected result is that they already pass." Three do.
+  **`WizardContainer` does not** — its `useDialogFocusRestore` is inert, and closing the wizard
+  strands focus on `<body>`. Filed as **WIC-1931**, pinned `test.fail()` in
+  `modal-focus-wizard.spec.ts`. The argument from construction was load-bearing and it was false, on
+  1 of 4. Do not retire a coverage gap on the strength of a shared dependency again.
+
+  Measured with a **deletion control** on each dialog — removing `{...focusRestore}` from the
+  component and re-running its spec. `QuickReferenceExport`, `DiffReviewModal` and `OnboardingModal`
+  each lose exactly 4 tests; `WizardContainer` loses **0**, which is the measurement that the hook
+  does nothing there. A spec that stays green when the thing it tests is deleted is not coverage,
+  and that control is what separated the two cases.
+
+  **The WIC-1868 tripwire fired as designed, and this branch is where it was collected.** This
+  sweep wrote two honest assertions against `OnboardingModal`'s nested confirms — exactly one
+  `role="dialog"` exposed at a time — and pinned them `test.fail()` rather than weakening them to
+  pass, because WIC-1868 was open at the time. WIC-1868 then **shipped on `main` 2026-09-01**
+  (§11, `aria-hidden={confirmationOpen}` at `OnboardingModal.tsx:309`), which turned both pinned
+  tests RED — a `test.fail()` that passes is a Playwright failure. Merging `main` in is the moment
+  that surfaced, so **the two `test.fail()` lines were deleted here and the assertion bodies kept
+  unchanged**, which is what the pin's own docstring instructed. Both now pass on their merits.
+  Note what this cost if it had been missed: the four specs do not textually conflict with `main`,
+  so nothing in the merge flagged it — the branch was green, `main` was green, and the *merge*
+  was red. A pin is a dependency on another card's state, and merging is when that dependency is
+  settled.
+
 **Still open:**
 
-- **Extend the focus E2E sweep to the four uncovered dialogs** — `QuickReferenceExport`,
-  `OnboardingModal`, `WizardContainer`, `DiffReviewModal`. All four consume the same hook, so the
-  expected result is that they already pass; the point is that nothing currently *measures* it, and
-  "they share a hook" is an argument from construction. `OnboardingModal` is the one to do first: it
-  instantiates the hook three times (§5), the only dialog that does.
+- **`WizardContainer` focus restore is inert — WIC-1931.** Third instance of the WIC-1181 /
+  WIC-1222 class (`.focus()` on a detached trigger is a silent no-op). The wizard is entered by
+  `navigate()` from `ProjectsList`, so the captured trigger unmounts on the way in and is detached
+  by close time; there is no `fallbackRef`, so nothing is focused and focus falls to `<body>`. Per
+  §5.3 this dialog meets the bar where a fallback is **obligatory**. Pinned `test.fail()` rather
+  than asserted away — it turns RED when fixed, which is the signal to delete the pin.
 - **Pin `outerFocusRestore` on `OnboardingModal`.** Of its three hook instances, two are now
   guarded — `resumeSkipFocusRestore` by WIC-1711, `dismissFocusRestore` by WIC-1868 (§11). The
   panel's own binding still kills **zero** tests: delete `{...outerFocusRestore}` and the suite stays
