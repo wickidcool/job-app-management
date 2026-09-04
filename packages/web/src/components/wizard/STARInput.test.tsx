@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { STARInput, type STARData } from './STARInput';
-import { dropProhibitedNames, elementsWithProhibitedName } from '../../test/prohibitedName';
+import { dropProhibitedNames, expectNoAxeFindings } from '../../test/axe';
 
 /**
  * Regression cover for WIC-1191.
@@ -77,10 +77,13 @@ describe('STARInput validity tick — ARIA prohibited name (WIC-1191)', () => {
     );
   });
 
-  it('carries no author name on any role-less element', () => {
+  it('carries no author name on any role-less element', async () => {
+    // WIC-1926: was a hand-rolled `elementsWithProhibitedName` query; now the shared axe
+    // assertion. The name-agreement test above is the one axe cannot replace — it reports
+    // that a prohibited name *may* be ignored, never what the user is left with when it is.
     const { container } = renderValid();
 
-    expect(elementsWithProhibitedName(container)).toEqual([]);
+    await expectNoAxeFindings(container);
   });
 
   it('shows no validity affordance at all while the field is too short', () => {
