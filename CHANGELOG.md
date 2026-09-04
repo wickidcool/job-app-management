@@ -439,6 +439,26 @@ WIC-1428 (`open_review_count` on `catalog_diffs`) and WIC-1408 (the `catalog_dif
 
 
 
+### Docs — the product name is `Careerpin`, and that ruling now exists in the repository
+
+The Copywriter / Editor ruled on 2026-08-19 (WIC-1102) that the product is **`Careerpin`**,
+with ` — ` (U+2014) as the title separator, and recorded the ruling in a comment saying it had
+landed in `docs/design/CONTENT_STYLE.md`. It had not. That file carried **zero** occurrences of
+`Careerpin` until this change, and its own front matter still read
+`**Project:** Job Application Manager` — so for thirteen days the standard was undiscoverable by
+anyone who read the document it was supposed to live in, and unenforceable by anything.
+
+The same comment reported two of the four affected sites as already fixed. Re-measured at
+`origin/main`, **all four still read the old name**: `packages/web/index.html:13`,
+`pages/Login.tsx:64`, `components/onboarding/OnboardingModal.tsx:330` and
+`components/QuickReferenceExport.tsx:201`. The first two are fixed by WIC-1089 (PR #336), which
+routes both through a single `PRODUCT_NAME` constant. The last two are **not** mechanical
+substitutions — "Welcome to Your Careerpin" does not read, and the export footer reaches printed
+output — so they stay with the Copywriter / Editor and are tracked separately.
+
+Docs only; no source, no rendered output, and no test changed. `docs/design/README.md` picks up
+the same one-line front-matter correction (WIC-1102).
+
 ### Added — a merge that drops a migration from the journal is now a red build, not a silent data-loss (2026-09-01)
 
 Drizzle's `migrate()` is **journal-driven**: `packages/api/src/db/migrate.ts` hands it `meta/_journal.json`, and a `.sql` file that is not in the journal never runs. Nothing checked that the journal and the migrations directory agree, and the way they come to disagree is a routine merge. Merge-base `bb701190` had no `0020`; `main` claimed idx 20 for `0020_prep_relevance_score_pct` (WIC-1520) while PR #238 independently claimed idx 20 for `0020_backfill_catalog_diffs_user_id`. Re-verified at `main` `586712c2`: merging #238 conflicts on `_journal.json` and **on nothing else**, and the conflict region is a single `tag` line inside the idx-20 object — so resolving it the natural way, keeping both migrations because both are wanted, produces one entry object with two `"tag"` keys. That is valid JSON. Every parser keeps the last key, so WIC-1520's migration vanishes from the journal while its `.sql` stays on disk, and on a fresh database it would never run (WIC-1939).

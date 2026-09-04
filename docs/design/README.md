@@ -1,6 +1,6 @@
 # UI/UX Design Specifications
 
-**Project:** Job Application Manager  
+**Project:** Careerpin  
 **Phase:** MVP (Phase 1)  
 **Created:** April 15, 2026  
 **Designer:** UI/UX Developer  
