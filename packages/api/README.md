@@ -1,6 +1,6 @@
 # @wic/api — Hono Backend
 
-The backend for the Job Application Manager. A single [Hono](https://hono.dev) app that
+The backend for Careerpin. A single [Hono](https://hono.dev) app that
 runs both as a **Cloudflare Worker** (production and `wrangler dev`) and on **Node.js**
 (fast local iteration via `@hono/node-server`). It serves the `/api/*` routes; in
 production the same Worker also serves the built React SPA.

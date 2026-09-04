@@ -7,7 +7,7 @@
 
 ## Context
 
-The Job Application Manager is currently a local-first, single-user application running entirely on the user's machine. To enable multi-user access and provide a hosted SaaS offering, we need to migrate to a cloud architecture while maintaining:
+Careerpin is currently a local-first, single-user application running entirely on the user's machine. To enable multi-user access and provide a hosted SaaS offering, we need to migrate to a cloud architecture while maintaining:
 
 - Data model compatibility with existing features
 - Development experience parity (local dev must still work)

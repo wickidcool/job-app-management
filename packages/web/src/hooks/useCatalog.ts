@@ -15,7 +15,11 @@ const QUERY_KEYS = {
   jobFitTags: (params?: Record<string, unknown>) => ['catalog', 'tags', 'job-fit', params] as const,
   quantifiedBullets: (params?: Record<string, unknown>) =>
     ['catalog', 'quantified-bullets', params] as const,
-  starEntries: ['catalog', 'star-entries'] as const,
+  // Keyed by the analysis id, not a bare constant: the same endpoint returns scored and unscored
+  // entries depending on it, so a fixed key would serve one request's `relevanceScore`s to the
+  // other and make "Recommended" appear or vanish according to which mounted first.
+  starEntries: (jobFitAnalysisId?: string) =>
+    ['catalog', 'star-entries', jobFitAnalysisId ?? null] as const,
 };
 
 /**
@@ -129,11 +133,15 @@ export function useQuantifiedBullets(params?: { impact?: string; search?: string
 }
 
 /**
- * Get STAR catalog entries for cover letter generation
+ * Get STAR catalog entries for cover letter generation.
+ *
+ * Pass the job-fit analysis id to have the entries scored against it — `relevanceScore` is only
+ * populated in that context, and it is what `StarEntryPicker` filters its "Recommended" section
+ * on (WIC-1820).
  */
-export function useStarEntries() {
+export function useStarEntries(jobFitAnalysisId?: string) {
   return useQuery({
-    queryKey: QUERY_KEYS.starEntries,
-    queryFn: () => catalogService.getStarEntries(),
+    queryKey: QUERY_KEYS.starEntries(jobFitAnalysisId),
+    queryFn: () => catalogService.getStarEntries(jobFitAnalysisId),
   });
 }

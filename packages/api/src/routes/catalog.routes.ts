@@ -154,6 +154,13 @@ const listJobFitAnalysesSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+// `min(1)` is load-bearing, not boilerplate: `?jobFitAnalysisId=` arrives as `''`, and a bare
+// `z.string().optional()` would accept it and hand the service a supplied-but-unresolvable id
+// (WIC-1818). Rejecting it here makes the empty case a 400 rather than a silent no-op.
+const listStarEntriesSchema = z.object({
+  jobFitAnalysisId: z.string().min(1).max(100).optional(),
+});
+
 export const catalogRoutes = new Hono<AppEnv>()
   // ── Diffs ──────────────────────────────────────────────────────────────────
   .get('/catalog/diffs', async (c) => {
@@ -316,7 +323,13 @@ export const catalogRoutes = new Hono<AppEnv>()
   })
   // ── STAR Catalog Entries ───────────────────────────────────────────────────
   .get('/star-entries', async (c) => {
-    const entries = await listStarEntries(c.get('userId') ?? undefined);
+    const parsed = listStarEntriesSchema.safeParse(c.req.query());
+    if (!parsed.success)
+      return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
+    const entries = await listStarEntries(
+      c.get('userId') ?? undefined,
+      parsed.data.jobFitAnalysisId
+    );
     return c.json({ entries });
   })
   // ── Themes ─────────────────────────────────────────────────────────────────

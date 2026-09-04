@@ -72,7 +72,10 @@ export function CoverLetterNew() {
   const targetRole = application?.jobTitle || state.targetRole || '';
   const applicationId = appId;
 
-  const { data: catalogEntries = [], isLoading, error } = useStarEntries();
+  // Scored against the analysis when the URL names one. `CoverLetterGenerator` already gates
+  // `showRecommended` on the same id, so before WIC-1820 that gate opened a section whose filter
+  // could never match: nothing populated `relevanceScore`. Passing the id here is what supplies it.
+  const { data: catalogEntries = [], isLoading, error } = useStarEntries(fitAnalysisId);
 
   const handleComplete = (result: CoverLetterResult) => {
     // Cover letter is already saved by the generation API
