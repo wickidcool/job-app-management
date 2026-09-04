@@ -639,7 +639,7 @@ semantics and belongs with the PR that actually lands the behaviour. Tracked in 
   land under a different name and the audit is watching the thing it was built to watch.
 
 - ~~**Extend the focus E2E sweep to the four uncovered dialogs**~~ **Done 2026-09-01 (WIC-1925)** —
-  `modal-focus-onboarding.spec.ts` (20), `modal-focus-quick-reference.spec.ts` (9),
+  `modal-focus-onboarding.spec.ts` (19), `modal-focus-quick-reference.spec.ts` (9),
   `modal-focus-wizard.spec.ts` (10), `modal-focus-diff-review.spec.ts` (9). All six dialogs in §2 now
   have E2E focus coverage; 47 new tests, 72 across the six files.
 
