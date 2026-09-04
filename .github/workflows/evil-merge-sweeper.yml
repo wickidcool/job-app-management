@@ -1,0 +1,540 @@
+name: Evil-Merge Sweeper
+
+# WIC-2055. Companion to evil-merge-guard.yml (WIC-1979), which is correct but
+# CANNOT BE A REQUIRED STATUS CHECK — and, unlike the skip-ci pair, cannot be
+# reshaped into one either. That collision is the whole reason this file exists.
+#
+# WHY THE GUARD ALONE IS NOT ENOUGH
+#
+# The guard is `pull_request`-triggered, and it has to be: it is the one check
+# in this repo that runs `actions/checkout` on PR HEAD code, so moving it to
+# `pull_request_target` would hand untrusted code a base-repo token. That
+# trigger is right, and it is also unreachable in the three situations
+# skip-ci-sweeper.yml's header records for skip-ci-guard.yml:
+#
+#   1. A PR whose base branch predates the workflow file has no workflow to run.
+#   2. Edge triggers do not retro-fire, so every PR open when the guard merged
+#      carries no verdict until its next push.
+#   3. A CONFLICTING PR runs no `pull_request` workflows at all — they build the
+#      merge ref, and there isn't one. (The bonus trap: such a PR can show a
+#      single passing check and no pending ones, which reads as all-green.)
+#
+# Naming `Merge commits authored no source` required would therefore leave PRs
+# pending forever. So the gate needs a second shape, and this is it: `schedule`
+# plus `pull_request_target`, running from the DEFAULT branch, publishing a
+# COMMIT STATUS that a repository ruleset can name as required. That is the part
+# that makes it fail-closed — a required context that has not reported leaves a
+# PR pending rather than clean, so an unreachable guard stops reading as a green
+# light.
+#
+# ⚠️ ADMIN BYPASS STILL OVERRIDES THIS CHECK — IT IS NOT AN UNCONDITIONAL BLOCK
+#
+# Ruleset `skip-ci-sweep-required` (id 21489705) carries two bypass actors,
+# `OrganizationAdmin` and `RepositoryRole` 5, both at `bypass_mode: always`.
+# `gh pr merge --admin` — the route this fleet's agents normally take — goes
+# straight through every required context here, this one included. So a red
+# `evil-merge-sweep` stops an ordinary merge and does NOT stop an admin merge.
+# Treat it as a loud, durable signal on the PR, not as an enforcement boundary,
+# and do not cite "the gate is green" as evidence nobody bypassed it.
+#
+# SECURITY: like skip-ci-sweeper.yml, this job never checks out or executes PR
+# head code. There is NO actions/checkout and NO run: step. It reads commit
+# parents and git trees over the API only, and the rule it applies is a pure
+# blob-sha comparison that never needs file contents. That is what makes
+# `pull_request_target` — which grants a base-repo token — safe here.
+
+on:
+  # Edge-trigger: publish the required status the moment a PR head appears or
+  # changes, so it never sits `pending` waiting for the next cron pass. NO
+  # checkout / NO run: step here — see the header SECURITY note.
+  #
+  # On this trigger the job evaluates ONLY the triggering PR, which is what
+  # keeps a per-push run cheap (median ~9 tree reads). The full sweep is the
+  # cron's job.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  schedule:
+    # Backstop only, same reasoning as skip-ci-sweeper.yml (WIC-1558): base
+    # branch drift and PRs opened before this merged, which the edge trigger
+    # cannot retro-fire. GitHub delays or drops frequent scheduled runs under
+    # load; the ruleset holds the gate shut meanwhile, so lateness costs
+    # visibility, never enforcement.
+    #
+    # HOURLY, not skip-ci-sweeper's */15. That job costs 2-3 API calls per PR;
+    # this one reads a git tree per merge commit per parent, and GITHUB_TOKEN
+    # allows 1,000 REST requests per hour per repository. Four full sweeps an
+    # hour would not fit alongside the per-push runs, and the per-push trigger
+    # already covers the case that actually matters. Offset off the hour
+    # because GitHub throttles crons hardest at :00.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: evil-merge-sweeper
+  # Coalesce: every pass re-evaluates the full open-PR set from live API state,
+  # so a newer run wholly subsumes an older one. Fail-closed is preserved — any
+  # head a cancelled run had not reached simply stays `pending`.
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    name: Sweep open PRs for merge-authored source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Evaluate every open PR and publish a commit status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            // The status context named by the repository ruleset. Changing this
+            // string silently detaches the gate — update the ruleset too.
+            const CONTEXT = 'evil-merge-sweep';
+
+            // Global tree-read budget for one pass.
+            //
+            // Sized from measurement over this repo's real merge history, not
+            // from taste. Merge counts per PR range are strongly bimodal — p50
+            // is 5 merges, p90 is 246, max 390 — because stacked PRs carry
+            // their whole parent stack in `base...head`.
+            //
+            // What makes that affordable is the sha-keyed cache above, and its
+            // effect is large because stacked siblings share history. Measured
+            // over the most recent N historical PR ranges evaluated as one
+            // sweep:
+            //
+            //   PRs   distinct trees (cached)   sum if uncached   largest one PR
+            //    10          426                      508              400
+            //    50          426                    2,227              400
+            //   100          811                   10,849              650
+            //
+            // So a full sweep of a 100-PR board costs ~811 reads, not ~10.8k,
+            // and the expensive case is a single huge stacked branch evaluated
+            // with a cold cache (650). 900 clears both with headroom while
+            // staying under GITHUB_TOKEN's 1,000 REST requests per hour per
+            // repository — which the hourly cron and the per-push runs share.
+            //
+            // Running out is handled by LEAVING THE REMAINING PRs UNEVALUATED,
+            // never by publishing a verdict from a partial read. An unposted
+            // status is `pending`, which is fail-closed under the ruleset, and
+            // the next pass picks it up. Hitting the REST limit mid-pass lands
+            // in the same place: the error is caught, the status is not
+            // written, and the run goes red.
+            const MAX_TREE_READS = 900;
+
+            // >>> SHARED-CORE BEGIN — mirrored in packages/api/scripts/evil-merge-api-detector.mjs
+
+            /** A git tree API response omits absent paths; the script sees an all-zero id. */
+            const ABSENT_BLOB = '0'.repeat(40);
+
+            /** Combined-diff blob ids are all-zero when the file is absent in that parent. */
+            function isAbsent(blob) {
+              return /^0+$/.test(blob);
+            }
+
+            // The gate surface, mirroring `pathspecFor()` in detect-evil-merges.mjs.
+            //
+            // Those are git pathspecs (`*.ts`, `:!*.test.*`, `:!*/test/*`). Git matches a
+            // plain wildcard pathspec with fnmatch and WITHOUT FNM_PATHNAME, so `*` crosses
+            // `/` freely: `*.ts` matches `packages/web/vite.config.ts`, and `:!*/test/*`
+            // excludes `packages/api/test/x.ts`. The regexes below reproduce that, which is
+            // why they are anchored the way they are and not as path-segment matches.
+            //
+            // One deliberate consequence, shared with the script: `*/test/*` requires a `/`
+            // before `test`, so a repository-root `test/x.ts` is NOT excluded by it.
+
+            /** Default gate surface: runtime source, excluding tests. */
+            const SOURCE_EXTENSIONS = /\.(ts|tsx|js|mjs|cjs)$/;
+
+            // Mirrors TEST_EXCLUDES in detect-evil-merges.mjs, in the same order:
+            // `:!*.test.*`, `:!*.spec.*`, then the two directory ones for `test` and
+            // `tests`. (Written as a line comment, not JSDoc, because a git pathspec ends
+            // in `*` + `/` and would close a block comment early.)
+            const TEST_EXCLUDE_PATTERNS = [/\.test\./, /\.spec\./, /\/test\//, /\/tests\//];
+
+            function isGatedPath(path, { includeTests = false } = {}) {
+              if (!SOURCE_EXTENSIONS.test(path)) return false;
+              if (includeTests) return true;
+              return !TEST_EXCLUDE_PATTERNS.some((re) => re.test(path));
+            }
+
+            /**
+             * `GET /git/trees/{sha}?recursive=1` -> `Map<path, blobSha>` over gated paths.
+             *
+             * Only `type === 'blob'` entries carry content. Submodules (`commit`) and
+             * directories (`tree`) are dropped: a submodule pointer moving inside a merge
+             * is a different finding than invented source, and this rule has nothing to say
+             * about it.
+             *
+             * `truncated` is NOT handled here on purpose — a truncated tree silently loses
+             * paths, which would turn this gate fail-open. The caller must check it and
+             * refuse to publish a verdict. See `assertTreeComplete`.
+             */
+            function blobMapFromTree(tree, { includeTests = false } = {}) {
+              const map = new Map();
+              for (const entry of tree || []) {
+                if (entry.type !== 'blob') continue;
+                if (!isGatedPath(entry.path, { includeTests })) continue;
+                map.set(entry.path, entry.sha);
+              }
+              return map;
+            }
+
+            /**
+             * A tree the API truncated is missing paths we would have gated on, so any
+             * verdict drawn from it is fail-open. Refuse it loudly instead.
+             */
+            function assertTreeComplete(response, sha) {
+              if (response && response.truncated) {
+                throw new Error(
+                  `git tree for ${String(sha).slice(0, 8)} came back truncated; a partial ` +
+                    `tree cannot support a fail-closed verdict`
+                );
+              }
+              return response;
+            }
+
+            /**
+             * Classify one path from its blob in each parent and in the merge result.
+             *
+             * `invented`  — every parent held the same blob, and the result differs.
+             *               Nothing was in conflict; the merge authored this itself. This
+             *               is the gated class, and it is in exact parity with the script.
+             * `contested` — parents disagreed and the result matches no parent. A STRICT
+             *               SUPERSET of the script's `resolved`: it also contains ordinary
+             *               clean auto-merges, which differ from both parents by blob but
+             *               print nothing under `git show --cc`. Never gated, and not
+             *               published by the sweeper — see the header.
+             * `taken`     — parents disagreed and the result is one parent's blob verbatim.
+             *               An explicit "took one side", carrying no invented content.
+             * `unchanged` — every parent and the result agree.
+             */
+            function classifyBlobs({ path, parents, result }) {
+              const [first, ...rest] = parents;
+              const parentsAgree = rest.every((p) => p === first);
+              if (!parentsAgree) {
+                const kind = parents.includes(result) ? 'taken' : 'contested';
+                return { file: path, parents, result, kind, newFile: false };
+              }
+              if (result === first) {
+                return { file: path, parents, result, kind: 'unchanged', newFile: false };
+              }
+              return { file: path, parents, result, kind: 'invented', newFile: isAbsent(first) };
+            }
+
+            /**
+             * Classify every gated path of one merge commit.
+             *
+             * `parentMaps` is one `blobMapFromTree` per parent, in parent order; `resultMap`
+             * is the merge commit's own tree. A path missing from a map reads as
+             * `ABSENT_BLOB`, which is what the script sees as an all-zero combined-diff id.
+             *
+             * Output drops `unchanged` and `taken`, keeping `invented` (the gate) and
+             * `contested` (informational, and broader than the script's `resolved`).
+             */
+            function inspectMergeBlobMaps({ sha, parentMaps, resultMap }) {
+              if (!Array.isArray(parentMaps) || parentMaps.length < 2) {
+                throw new Error(`${String(sha).slice(0, 8)} is not a merge: needs >= 2 parent trees`);
+              }
+              const paths = new Set();
+              for (const map of parentMaps) for (const p of map.keys()) paths.add(p);
+              for (const p of resultMap.keys()) paths.add(p);
+
+              const findings = [];
+              for (const path of [...paths].sort()) {
+                const f = classifyBlobs({
+                  path,
+                  parents: parentMaps.map((m) => m.get(path) ?? ABSENT_BLOB),
+                  result: resultMap.get(path) ?? ABSENT_BLOB,
+                });
+                if (f.kind === 'unchanged' || f.kind === 'taken') continue;
+                findings.push({ ...f, sha });
+              }
+              return findings;
+            }
+
+            /**
+             * Turn per-file classifications into a verdict. `ok`/`exitCode` mirror
+             * `verdict()` in detect-evil-merges.mjs exactly, so the two tools cannot
+             * disagree about what counts as a failure.
+             *
+             * `contested` is carried for callers that want to look, but it is NOT the
+             * script's `resolved` and must not be reported as if it were.
+             */
+            function verdictFor(findings) {
+              const invented = findings.filter((f) => f.kind === 'invented');
+              const contested = findings.filter((f) => f.kind === 'contested');
+              return {
+                ok: invented.length === 0,
+                exitCode: invented.length === 0 ? 0 : 2,
+                invented,
+                contested,
+              };
+            }
+
+            /**
+             * The commit-status description for a verdict, in the <=140 chars the statuses
+             * API accepts (it truncates silently past that, which would cut the file list
+             * mid-path and read as a different finding).
+             */
+            function describeVerdict(v, { mergesInspected = 0 } = {}) {
+              const text = v.ok
+                ? `No parent-independent source content in ${mergesInspected} merge commit(s) on this branch.`
+                : `${v.invented.length} file(s) authored inside a merge commit, on no reviewable commit: ` +
+                  v.invented.map((f) => f.file).slice(0, 3).join(', ');
+              return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+            }
+
+            // >>> SHARED-CORE END
+
+            // ---------------------------------------------------------------
+            // Driver: enumerate open PRs, read each branch's merges over the
+            // API, and publish one commit status per head.
+            // ---------------------------------------------------------------
+
+            const runUrl =
+              `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            /**
+             * `GET /git/trees/{sha}?recursive=1`, refusing a truncated tree.
+             *
+             * Cached by tree sha across the WHOLE pass, which is where most of
+             * the saving comes from: stacked PRs share their parents' history,
+             * so the same commits are re-read across sibling branches.
+             */
+            const treeCache = new Map();
+            let treeReads = 0;
+            async function gatedBlobMap(sha) {
+              if (!treeCache.has(sha)) {
+                treeReads += 1;
+                const { data } = await github.rest.git.getTree({
+                  owner, repo, tree_sha: sha, recursive: '1',
+                });
+                // A truncated tree is missing paths we would have gated on, so
+                // a verdict drawn from it would be fail-OPEN.
+                assertTreeComplete(data, sha);
+                treeCache.set(sha, blobMapFromTree(data.tree));
+              }
+              return treeCache.get(sha);
+            }
+
+            // On a per-PR event, evaluate ONLY that PR. The full sweep is the
+            // cron/dispatch job. This is what keeps the edge trigger cheap
+            // enough to run on every push: the median PR costs ~9 tree reads,
+            // while a full sweep of a large open-PR set can approach the budget
+            // above. Same verdict either way — only the population differs.
+            const single = context.payload && context.payload.pull_request;
+            const prs = single
+              ? [single]
+              : await github.paginate(github.rest.pulls.list, {
+                  owner, repo, state: 'open', per_page: 100,
+                });
+
+            /** PRs the budget ran out on: reported, never silently passed. */
+            const unevaluated = [];
+
+            const results = [];
+            const errors = [];
+
+            for (const pr of prs) {
+              try {
+                // A fork's head commit does not exist in this repository, so
+                // POSTing a status for it would 422 and abort the sweep.
+                const headRepo = pr.head.repo && pr.head.repo.full_name;
+                if (headRepo !== `${owner}/${repo}`) {
+                  // `invented: []` is load-bearing, not tidiness: the summary
+                  // and the final core.info both read `.invented` on every
+                  // result, so omitting it here throws at the END of the sweep
+                  // and takes down a pass that had already evaluated every
+                  // other PR correctly.
+                  results.push({ n: pr.number, state: 'skipped', why: `fork (${headRepo})`, invented: [] });
+                  continue;
+                }
+
+                const sha = pr.head.sha;
+
+                // `compare` returns the commits reachable from head but not
+                // from base — exactly `git rev-list base..head`, which is the
+                // range evil-merge-guard.yml passes to the detector. Paginated,
+                // because the un-paginated form caps `commits` at 250 and would
+                // silently hide the tail of a long branch.
+                const pages = await github.paginate(github.rest.repos.compareCommitsWithBasehead, {
+                  owner, repo,
+                  basehead: `${pr.base.ref}...${sha}`,
+                  per_page: 100,
+                });
+
+                // ⚠️ FAIL-OPEN TRIPWIRE. `paginate` normalises only responses
+                // carrying `total_count`, so today it hands back one compare
+                // OBJECT per page and the commits live under `.commits`. If a
+                // future Octokit starts normalising `compare`, each element
+                // becomes a commit instead — and a naive `page.commits || []`
+                // would quietly yield ZERO merges and publish `success` on
+                // every PR forever. Both shapes are accepted, and the count is
+                // then checked against the API's own `total_commits`, so a
+                // third shape fails the sweep instead of passing it.
+                const commits = pages.flatMap((page) =>
+                  Array.isArray(page.commits) ? page.commits : page && page.sha ? [page] : []
+                );
+                const expected = pages.length && typeof pages[0].total_commits === 'number'
+                  ? pages[0].total_commits
+                  : null;
+                if (expected !== null && commits.length !== expected) {
+                  throw new Error(
+                    `compare yielded ${commits.length} commit(s) but reports total_commits=` +
+                      `${expected}; the paginated response shape was misread, so this branch ` +
+                      `was not fully inspected`
+                  );
+                }
+
+                const merges = commits.filter((c) => (c.parents || []).length >= 2);
+
+                // Stop before starting a PR we cannot afford to finish. Posting
+                // nothing leaves the context `pending` — fail-closed under the
+                // ruleset — and the next pass retries it. The one case that
+                // must NOT reach here is a PR so large it can never fit in a
+                // whole budget, which would sit pending forever and wedge the
+                // queue; that is reported as an explicit failure below.
+                if (treeReads >= MAX_TREE_READS) {
+                  unevaluated.push(pr.number);
+                  results.push({
+                    n: pr.number, state: 'deferred', invented: [],
+                    why: `budget spent (${treeReads}/${MAX_TREE_READS} tree reads); retried next pass`,
+                  });
+                  continue;
+                }
+
+                const startedAt = treeReads;
+                const findings = [];
+                let exhausted = false;
+                for (const merge of merges) {
+                  if (treeReads >= MAX_TREE_READS) { exhausted = true; break; }
+                  const parentMaps = await Promise.all(
+                    merge.parents.map((p) => gatedBlobMap(p.sha))
+                  );
+                  const resultMap = await gatedBlobMap(merge.sha);
+                  findings.push(
+                    ...inspectMergeBlobMaps({ sha: merge.sha, parentMaps, resultMap })
+                  );
+                }
+
+                // Which of the two shapes an exhausted budget takes depends on
+                // whether anything ELSE had already spent it.
+                if (exhausted && startedAt > 0) {
+                  unevaluated.push(pr.number);
+                  results.push({
+                    n: pr.number, state: 'deferred', invented: [],
+                    why: `budget spent mid-PR (${treeReads}/${MAX_TREE_READS}); retried next pass`,
+                  });
+                  continue;
+                }
+
+                const v = verdictFor(findings);
+                let state = v.ok ? 'success' : 'failure';
+                let description = describeVerdict(v, { mergesInspected: merges.length });
+
+                if (exhausted) {
+                  // This PR alone cannot fit in an entire pass. Deferring it
+                  // would leave the context `pending` FOREVER and wedge the
+                  // merge queue — the exact outcome this file exists to
+                  // prevent — so it gets a POSTED failure the author can act
+                  // on, not a thrown error that publishes nothing.
+                  state = 'failure';
+                  description =
+                    `Branch carries ${merges.length} merge commits; more than one pass can read ` +
+                    `over the API. Verify locally with detect-evil-merges.mjs.`;
+                  description = description.length > 140
+                    ? `${description.slice(0, 137)}...`
+                    : description;
+                  errors.push(
+                    `#${pr.number}: ${merges.length} merge commits exceeds a full ` +
+                      `${MAX_TREE_READS}-read pass; posted failure rather than leaving it pending`
+                  );
+                }
+
+                // Re-posting an identical status on every 15-minute pass would
+                // bury each commit's status history, so only write on change.
+                const { data: combined } = await github.rest.repos.getCombinedStatusForRef({
+                  owner, repo, ref: sha, per_page: 100,
+                });
+                const existing = combined.statuses.find((s) => s.context === CONTEXT);
+                if (existing && existing.state === state && existing.description === description) {
+                  results.push({ n: pr.number, state, why: 'unchanged', invented: v.invented });
+                  continue;
+                }
+
+                await github.rest.repos.createCommitStatus({
+                  owner, repo, sha, state, context: CONTEXT, description, target_url: runUrl,
+                });
+                results.push({ n: pr.number, state, why: 'posted', invented: v.invented });
+              } catch (err) {
+                errors.push(`#${pr.number}: ${err.message}`);
+                results.push({ n: pr.number, state: 'error', why: err.message, invented: [] });
+              }
+            }
+
+            const failing = results.filter((r) => r.state === 'failure');
+            const summary = core.summary
+              .addHeading('Evil-Merge Sweeper', 2)
+              .addRaw(
+                `${single ? 'Evaluated' : 'Swept'} **${prs.length}** open PR(s) using ` +
+                `**${treeReads}/${MAX_TREE_READS}** tree reads. ` +
+                `Status context: \`${CONTEXT}\`.\n\n`
+              );
+
+            // Never let a capped pass read as full coverage.
+            if (unevaluated.length) {
+              summary.addRaw(
+                `\n> ⚠️ **${unevaluated.length} PR(s) were not evaluated this pass** — the ` +
+                `${MAX_TREE_READS}-tree-read budget ran out: ` +
+                `${unevaluated.map((n) => `#${n}`).join(', ')}. Their \`${CONTEXT}\` status is ` +
+                `left untouched, so it stays \`pending\` and the ruleset keeps the gate shut. ` +
+                `The next pass picks them up.\n\n`
+              );
+            }
+
+            if (results.length) {
+              summary.addTable([
+                [{ data: 'PR', header: true }, { data: 'State', header: true }, { data: 'Note', header: true }],
+                ...results.map((r) => [`#${r.n}`, r.state, r.why]),
+              ]);
+            }
+
+            if (failing.length) {
+              summary.addRaw(
+                `\n**${failing.length} PR(s) carry a merge commit that authored source content:**\n\n` +
+                failing
+                  .flatMap((r) =>
+                    r.invented.map(
+                      (f) =>
+                        `- #${r.n} \`${f.sha.slice(0, 8)}\` \`${f.file}\` — ` +
+                        (f.newFile
+                          ? 'created outright, absent from every parent'
+                          : 'every parent held the same blob; the merge changed it')
+                    )
+                  )
+                  .join('\n') +
+                `\n\nThis content is on no reviewable commit. Land it as its own commit on the ` +
+                `branch so a reviewer can see it, or redo the merge taking a parent's version. ` +
+                `Reproduce locally with \`node packages/api/scripts/detect-evil-merges.mjs ` +
+                `origin/<base>..<head>\`.\n`
+              );
+            } else {
+              summary.addRaw('\nNo open PR carries a merge commit that authored source content.\n');
+            }
+            await summary.write();
+
+            core.info(JSON.stringify(results.map((r) => ({ ...r, invented: r.invented.length })), null, 1));
+
+            // A sweep that could not evaluate a PR must not report success: the
+            // ruleset would otherwise be gated on a stale status, which is the
+            // fail-open shape this whole file exists to remove.
+            if (errors.length) {
+              core.setFailed(`Could not evaluate ${errors.length} PR(s): ${errors.join('; ')}`);
+            }
