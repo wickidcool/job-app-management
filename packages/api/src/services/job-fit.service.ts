@@ -1124,6 +1124,50 @@ export async function listJobFitAnalyses(
   return { analyses: rows.map(analysisToSummaryDTO) };
 }
 
+/**
+ * One stored analysis, by id, for this caller.
+ *
+ * ## Why this exists rather than the viewer filtering `listJobFitAnalyses`
+ *
+ * WIC-2058 needs a route that renders a single analysis by id, and the list
+ * contract cannot answer that question. Its only exact narrowing is
+ * `applicationId`, which `/job-fit-analysis/:id` does not carry, so resolving an
+ * id through it means fetching the newest `MAX_ANALYSIS_LIMIT` rows and scanning
+ * them in the browser. That is the page-cap defect this codebase has already
+ * shipped twice: a client filter applied after the server has chosen a page can
+ * only remove rows, never recover one it did not send (WIC-1533, WIC-1652). A
+ * user whose analysis is not among their hundred most recent would get "not
+ * found" for a row sitting in the table — and, worse, would get it *silently*,
+ * since nothing distinguishes that from a genuinely absent id.
+ *
+ * The response is the same {@link JobFitAnalysisSummaryDTO} the list returns,
+ * deliberately: this is a second way into the existing contract, not a new one.
+ * The four JSONB payloads stay unexposed here for the reason the summary shape
+ * exists at all.
+ *
+ * ## A miss and a cross-tenant hit are the same `null`
+ *
+ * `ownerTerm` is ANDed into the predicate rather than checked against the row
+ * afterwards, so another user's id is indistinguishable from a nonexistent one.
+ * The route turns both into the same 404 and cannot leak existence through its
+ * status code — ids are ULIDs and caller-supplied, so this is the only place
+ * that property can be established.
+ */
+export async function getJobFitAnalysis(
+  id: string,
+  ownerTerm: SQL
+): Promise<JobFitAnalysisSummaryDTO | null> {
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(jobFitAnalyses)
+    .where(and(ownerTerm, eq(jobFitAnalyses.id, id)))
+    .limit(1);
+
+  return rows[0] ? analysisToSummaryDTO(rows[0]) : null;
+}
+
 function analysisToSummaryDTO(row: JobFitAnalysis): JobFitAnalysisSummaryDTO {
   return {
     id: row.id,

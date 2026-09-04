@@ -31,6 +31,7 @@ import { ReportsStale } from './pages/ReportsStale';
 import { ReportsClosedLoop } from './pages/ReportsClosedLoop';
 import { ReportsByFitTier } from './pages/ReportsByFitTier';
 import { JobFitAnalysis } from './pages/JobFitAnalysis';
+import { JobFitAnalysisDetail } from './pages/JobFitAnalysisDetail';
 import { CoverLettersList } from './pages/CoverLettersList';
 import { CoverLetterNew } from './pages/CoverLetterNew';
 import { CoverLetterDetail } from './pages/CoverLetterDetail';
@@ -130,6 +131,7 @@ function AppShell() {
                         <Route path="/resumes/:resumeId/exports" element={<ResumeExports />} />
                         <Route path="/catalog" element={<CatalogPage />} />
                         <Route path="/job-fit-analysis" element={<JobFitAnalysis />} />
+                        <Route path="/job-fit-analysis/:id" element={<JobFitAnalysisDetail />} />
                         <Route path="/cover-letters" element={<CoverLettersList />} />
                         <Route path="/cover-letters/new" element={<CoverLetterNew />} />
                         <Route path="/cover-letters/:id" element={<CoverLetterDetail />} />

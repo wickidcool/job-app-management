@@ -56,6 +56,28 @@ interface WorkflowChecklistProps {
    */
   fitScore?: number | null;
   /**
+   * The analysis the "Job Fit Analysis" step was completed by, if there is one.
+   *
+   * Same role as {@link coverLetterId} and {@link resumeVariantId}, and it closes the same
+   * defect on the one row that still had it: a completed step used to drop its link
+   * outright (`link: hasFitAnalysis ? undefined : …`), which is right for a step whose only
+   * destination is "go create one" and wrong once the artefact it produced has a page.
+   * Supplying the id repoints the row at `/job-fit-analysis/:id` instead of leaving a
+   * finished step inert (WIC-2058, dispatching WIC-1860).
+   *
+   * **Deliberately independent of {@link fitScore}.** The row this is really for is the
+   * *unscored* analysis — `fitScore === null`, from an empty catalog or a JD naming no
+   * required skills — which ticks the step with no badge. Gating the link on a score would
+   * link exactly the analyses that already show the user something and leave the one that
+   * shows them nothing still a dead end, which is the defect restated rather than fixed.
+   *
+   * Optional, and absence is honest rather than defensive: `hasFitAnalysis` is resolved
+   * from a list read that can be settled-and-present before the caller has an id to hand.
+   * A completed step with no id keeps today's behaviour — a plain `<span>` — rather than
+   * linking somewhere that would 404.
+   */
+  jobFitAnalysisId?: string;
+  /**
    * Whether a cover letter exists for this application, or whether the query
    * that would say has not settled yet. Defaults to `'absent'` so a caller that
    * does not wire the step at all keeps the old behaviour rather than showing a
@@ -124,6 +146,7 @@ export function WorkflowChecklist({
   hasJobDescription,
   hasFitAnalysis = false,
   fitScore,
+  jobFitAnalysisId,
   coverLetterStatus = 'absent',
   coverLetterId,
   resumeVariantStatus = 'absent',
@@ -148,7 +171,15 @@ export function WorkflowChecklist({
       // stay identical while the other three load.
       unknown: false,
       recommended: hasJobDescription && !hasFitAnalysis,
-      link: hasFitAnalysis ? undefined : `/job-fit-analysis?appId=${applicationId}`,
+      // Same three-way shape the two rows below take: create it, read it, or — only when
+      // the artefact exists but its id has not reached us — nothing. Note the completed
+      // branch does not consult `fitScore`: an unscored analysis is exactly the one whose
+      // row shows no badge, so it is the row that most needs somewhere to go (WIC-2058).
+      link: hasFitAnalysis
+        ? jobFitAnalysisId
+          ? `/job-fit-analysis/${jobFitAnalysisId}`
+          : undefined
+        : `/job-fit-analysis?appId=${applicationId}`,
       // `!= null`, not truthiness: a genuine 0% match is a score, and the `?`
       // this replaces rendered it as no badge at all. See {@link fitScore}.
       badge: fitScore != null ? `${fitScore}% match` : undefined,

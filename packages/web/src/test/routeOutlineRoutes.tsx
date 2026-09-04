@@ -24,6 +24,7 @@ import { Dashboard } from '../pages/Dashboard';
 import { DialogueCapture } from '../pages/DialogueCapture';
 import { InterviewPrepPage } from '../pages/InterviewPrepPage';
 import { JobFitAnalysis } from '../pages/JobFitAnalysis';
+import { JobFitAnalysisDetail } from '../pages/JobFitAnalysisDetail';
 import { Login } from '../pages/Login';
 import { NotFound } from '../pages/NotFound';
 import { OutreachNew } from '../pages/OutreachNew';
@@ -122,6 +123,29 @@ export const ROUTES: RouteCase[] = [
   },
   { path: '/catalog', render: () => <CatalogPage /> },
   { path: '/job-fit-analysis', render: () => <JobFitAnalysis /> },
+  {
+    // The generic payload carries no `analysis` key, so `data.analysis` would be
+    // `undefined` on the `loaded` branch and the page would take its not-found path —
+    // measuring the same branch twice and never rendering the populated one.
+    path: '/job-fit-analysis/jfa-1',
+    pattern: '/job-fit-analysis/:id',
+    render: () => <JobFitAnalysisDetail />,
+    payload: (branch) =>
+      branch === 'loaded'
+        ? {
+            analysis: {
+              id: 'jfa-1',
+              applicationId: 'app-1',
+              recommendation: 'moderate_fit',
+              fitScore: 62,
+              summary: 'You match 4 of 6 required skills.',
+              confidence: 'high',
+              catalogEmpty: false,
+              analyzedAt: '2026-01-01T00:00:00.000Z',
+            },
+          }
+        : { analysis: null },
+  },
   { path: '/cover-letters', render: () => <CoverLettersList /> },
   { path: '/cover-letters/new', render: () => <CoverLetterNew /> },
   {

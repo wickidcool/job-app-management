@@ -161,6 +161,23 @@ export interface ListJobFitAnalysesResponse {
 }
 
 /**
+ * `GET /catalog/job-fit/analyses/:id` (WIC-2058).
+ *
+ * The read-one companion to {@link ListJobFitAnalysesResponse}, carrying the same
+ * {@link JobFitAnalysisSummary}. It exists because the list cannot answer "show me *this*
+ * analysis": its only exact narrowing is `applicationId`, which `/job-fit-analysis/:id`
+ * does not carry, so resolving an id through the list would mean scanning the newest 100
+ * rows in the browser — a client filter over a server-chosen page, which can only remove
+ * rows and never recover one the server did not send (WIC-1533, WIC-1652).
+ *
+ * A 404 here means "no such analysis *for you*" and nothing narrower: the server ANDs the
+ * owner term into the read, so a stranger's id and a nonexistent one are the same answer.
+ */
+export interface GetJobFitAnalysisResponse {
+  analysis: JobFitAnalysisSummary;
+}
+
+/**
  * Job fit analysis error codes
  */
 export type JobFitErrorCode =

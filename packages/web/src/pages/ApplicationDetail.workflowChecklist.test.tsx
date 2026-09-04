@@ -460,8 +460,11 @@ describe('ApplicationDetail — workflow checklist wiring', () => {
 
       expect(step('Job Fit Analysis').completed).toBe(true);
       expect(step('Job Fit Analysis').badge).toBe('72% match');
-      // A completed step drops its "go create one" link, as the other two do.
-      expect(step('Job Fit Analysis').href).toBeNull();
+      // A completed step drops its "go create one" link — and, since WIC-2058, repoints at
+      // the analysis rather than going inert. This line used to read `.toBeNull()`, which
+      // froze the dead end as the expected behaviour; the WIC-2058 suite below is where
+      // that is pinned properly.
+      expect(step('Job Fit Analysis').href).toBe('/job-fit-analysis/jfa_1');
       expect(within(checklist()).getByText('4 of 4 steps completed')).toBeInTheDocument();
       expect(within(checklist()).getByText('100%')).toBeInTheDocument();
     });
@@ -585,6 +588,82 @@ describe('ApplicationDetail — workflow checklist wiring', () => {
       renderDetail({ fitAnalyses: [analysis({ fitScore: null, recommendation: null })] });
 
       expect(recommendedSteps()).toEqual(['Cover Letter', 'Tailored Resume']);
+    });
+  });
+
+  /**
+   * WIC-2058 AC-3 — a completed Job Fit Analysis row keeps a way back to the analysis.
+   *
+   * The defect: `link: hasFitAnalysis ? undefined : …` meant ticking the step *removed*
+   * the only route to what had just been completed. The row rendered as a plain `<span>`,
+   * and unlike Cover Letter and Tailored Resume — which repoint at `/cover-letters/:id`
+   * and `/resume-variants/:id` — there was nowhere for it to repoint to until this card
+   * added `/job-fit-analysis/:id`.
+   *
+   * Measured against `main` at `b4457529` before the fix: the first two cells here fail
+   * (`href` is `null` on both the scored and unscored rows) and the third passes, which is
+   * the split that makes the third a control rather than a duplicate.
+   */
+  describe('WIC-2058 AC-3 — the completed analysis row links to the analysis', () => {
+    it('repoints the completed row at the stored analysis, by id', () => {
+      renderDetail({ fitAnalyses: [analysis({ id: 'jfa_42', fitScore: 72 })] });
+
+      expect(step('Job Fit Analysis').completed).toBe(true);
+      expect(step('Job Fit Analysis').href).toBe('/job-fit-analysis/jfa_42');
+    });
+
+    /**
+     * AC-4, and the state the card is actually about.
+     *
+     * An unscored analysis (`fitScore === null`) ticks the step *and* renders no badge, so
+     * before this it was the one row that told the user "you have done this", showed them
+     * nothing, and gave them nowhere to go. A fix that linked only scored analyses would
+     * pass the cell above and leave exactly this case broken, which is why it is asserted
+     * separately rather than being folded in as another `analysis()` override.
+     */
+    it('links an unscored analysis too — badge absent, link present', () => {
+      renderDetail({
+        fitAnalyses: [analysis({ id: 'jfa_7', fitScore: null, recommendation: null })],
+      });
+
+      expect(step('Job Fit Analysis').completed).toBe(true);
+      expect(step('Job Fit Analysis').badge).toBeNull();
+      expect(step('Job Fit Analysis').href).toBe('/job-fit-analysis/jfa_7');
+    });
+
+    /**
+     * The control. Completing the step must not be the *only* thing that changes the
+     * destination — an incomplete row still has to offer the generator, or the two cells
+     * above are satisfied by a component that links to the analysis unconditionally and
+     * has simply stopped offering to create one.
+     */
+    it('still sends an uncompleted row to the generator', () => {
+      renderDetail();
+
+      expect(step('Job Fit Analysis').completed).toBe(false);
+      expect(step('Job Fit Analysis').href).toBe('/job-fit-analysis?appId=app_1');
+    });
+
+    /**
+     * The header entry point, which is what `route-integrity.test.ts` can actually see.
+     *
+     * The checklist row's link is computed into `item.link` and rendered as
+     * `<Link to={item.link}>`, so the static route→link audit cannot read it — a route
+     * reachable only that way is reported as an orphan page nothing links to.
+     * `/applications/:id/prep` has carried the same button/row pair since WIC-1536; this
+     * asserts the analysis one is present and, in the negative cell, that it is conditional
+     * on there being an analysis rather than always rendered at `/job-fit-analysis/undefined`.
+     */
+    it('offers a header link to the analysis, and only when one exists', () => {
+      const { unmount } = renderDetail();
+      expect(screen.queryByRole('link', { name: 'View Fit Analysis' })).not.toBeInTheDocument();
+      unmount();
+
+      renderDetail({ fitAnalyses: [analysis({ id: 'jfa_42' })] });
+      expect(screen.getByRole('link', { name: 'View Fit Analysis' })).toHaveAttribute(
+        'href',
+        '/job-fit-analysis/jfa_42'
+      );
     });
   });
 });

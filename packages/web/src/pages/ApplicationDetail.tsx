@@ -252,6 +252,26 @@ export function ApplicationDetail() {
             </div>
 
             <div className="flex flex-wrap gap-2 sm:flex-shrink-0">
+              {/*
+                The header entry point to the stored analysis, alongside "Prepare for
+                Interview" and for the same reason that one exists: the checklist row below
+                links there too, but a `<Link to={item.link}>` driven by a computed field is
+                invisible to `route-integrity.test.ts`'s static scan, so a route reachable
+                *only* through the checklist reads as an orphan page no button can find.
+                `/applications/:id/prep` has carried exactly this pair since WIC-1536.
+
+                A `<Link>` rather than a `navigate()` button, unlike its neighbour: this is
+                a plain destination, so the real anchor gives it middle-click, open-in-new-
+                tab and the right role for free.
+              */}
+              {latestFitAnalysis && (
+                <Link
+                  to={`/job-fit-analysis/${latestFitAnalysis.id}`}
+                  className="px-4 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-300 rounded-md hover:bg-blue-50"
+                >
+                  View Fit Analysis
+                </Link>
+              )}
               {application.status === 'interview' && (
                 <button
                   onClick={() => navigate(`/applications/${id}/prep`)}
@@ -284,6 +304,7 @@ export function ApplicationDetail() {
             hasJobDescription={!!application.jobDescription}
             hasFitAnalysis={hasFitAnalysis}
             fitScore={fitScore}
+            jobFitAnalysisId={latestFitAnalysis?.id}
             coverLetterStatus={artefactStatus(coverLettersLoading, coverLetters.length > 0)}
             coverLetterId={latestCoverLetter?.id}
             resumeVariantStatus={artefactStatus(resumeVariantsLoading, resumeVariants.length > 0)}

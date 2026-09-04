@@ -13,6 +13,13 @@ export const jobFitKeys = {
   all: ['jobFit'] as const,
   analyses: () => [...jobFitKeys.all, 'analysis'] as const,
   list: (params?: ListJobFitAnalysesParams) => [...jobFitKeys.analyses(), 'list', params] as const,
+  /**
+   * One analysis, by id. Nested under {@link jobFitKeys.analyses} rather than beside it so
+   * that invalidating `analyses()` clears the detail entries too — a new analysis for an
+   * application changes which one the checklist points at, and a stale detail cached under
+   * a sibling prefix would survive that invalidation (WIC-2058).
+   */
+  detail: (id: string) => [...jobFitKeys.analyses(), 'detail', id] as const,
 };
 
 /**
@@ -48,5 +55,27 @@ export function useJobFitAnalyses(
     queryKey: jobFitKeys.list(params),
     queryFn: () => jobFitService.listAnalyses(params),
     enabled: options?.enabled ?? true,
+  });
+}
+
+/**
+ * One stored analysis, by id (`GET /catalog/job-fit/analyses/:id`).
+ *
+ * `enabled: !!id` follows the convention of the other by-id hooks: `useParams` types its
+ * result as possibly-`undefined`, and firing a request at `/analyses/undefined` would spend
+ * a round trip to be told 404 — which the caller would then render as "not found" for what
+ * is really "no id in the URL".
+ *
+ * `retry: false` is deliberate and is the one place this hook differs from the list. A 404
+ * here is the *answer* — the analysis does not exist, or is not yours — not a transient
+ * failure, and React Query's default three retries would hold the page on its loading
+ * branch for several seconds before showing the not-found copy it already knew to show.
+ */
+export function useJobFitAnalysisById(id?: string) {
+  return useQuery({
+    queryKey: jobFitKeys.detail(id ?? ''),
+    queryFn: () => jobFitService.getAnalysis(id!),
+    enabled: !!id,
+    retry: false,
   });
 }
