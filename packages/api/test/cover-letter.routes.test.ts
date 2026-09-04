@@ -78,6 +78,7 @@ vi.mock('../src/services/project.service.js', async (importOriginal) => ({
 
 import * as coverLetterService from '../src/services/cover-letter.service.js';
 import { NotFoundError, CoverLetterError, VersionConflictError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockCoverLetter = {
   id: '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
@@ -293,7 +294,7 @@ describe('Cover Letter Routes', () => {
       expect(response.status).toBe(200);
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'draft' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -302,7 +303,7 @@ describe('Cover Letter Routes', () => {
       await app.request('/api/cover-letters?company=Acme', { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ company: 'Acme' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -311,7 +312,7 @@ describe('Cover Letter Routes', () => {
       await app.request('/api/cover-letters?search=typescript', { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ search: 'typescript' }),
-        undefined
+        DEV_OWNER
       );
     });
 
@@ -332,7 +333,7 @@ describe('Cover Letter Routes', () => {
       await app.request(`/api/cover-letters?cursor=${cursor}`, { method: 'GET' });
       expect(coverLetterService.listCoverLetters).toHaveBeenCalledWith(
         expect.objectContaining({ cursor }),
-        undefined
+        DEV_OWNER
       );
     });
   });
@@ -713,7 +714,7 @@ describe('Cover Letter Routes', () => {
       expect(coverLetterService.exportCoverLetter).toHaveBeenCalledWith(
         '01HXK5R3J7Q8N2M4P6W9Y1Z3E1',
         expect.objectContaining({ includeHeader: true, fontSize: 12 }),
-        undefined
+        DEV_OWNER
       );
     });
 

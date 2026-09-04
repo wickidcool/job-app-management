@@ -1,4 +1,4 @@
-# Job Application Manager — Metrics Baseline
+# Careerpin — Metrics Baseline
 
 **Version:** 1.0  
 **Date:** 2026-04-19  
@@ -8,7 +8,7 @@
 
 ## 1. Product Context
 
-The Job Application Manager enables users to upload resumes (PDF or DOCX), automatically parse and reformat them into STAR-format markdown, and manage their exports. The three core user flows covered by this document are:
+Careerpin enables users to upload resumes (PDF or DOCX), automatically parse and reformat them into STAR-format markdown, and manage their exports. The three core user flows covered by this document are:
 
 1. **Resume Upload & Parsing** — file upload, text extraction, STAR generation
 2. **Export Viewing** — browsing and consuming generated exports

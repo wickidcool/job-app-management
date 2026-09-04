@@ -10,6 +10,7 @@ import type {
 } from '../types/interviewPrep';
 import { useDownloadQuickReference } from '../hooks/useInterviewPrep';
 import { useDialogFocusRestore } from '../hooks/useDialogFocusRestore';
+import { PRODUCT_NAME } from '../constants/title';
 
 const strategyKeyMap: Record<
   MitigationStrategy,
@@ -196,9 +197,14 @@ export function QuickReferenceExport({
                 </div>
               )}
 
-              {/* Footer */}
+              {/* Footer. WIC-1950: this is the on-screen preview only — every downloaded
+                  format is built server-side in `exportInterviewPrep`, which carries its
+                  own `*Generated {date} | Type: … | Time: …*` line and no product byline.
+                  So this string is UI chrome, not a document byline: no URL. */}
               <div className="mt-6 pt-4 border-t text-center text-xs text-gray-500">
-                <p>Generated with Job Application Manager • {new Date().toLocaleDateString()}</p>
+                <p>
+                  Generated with {PRODUCT_NAME} • {new Date().toLocaleDateString()}
+                </p>
               </div>
             </div>
           </div>

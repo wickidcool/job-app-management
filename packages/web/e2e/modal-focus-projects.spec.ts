@@ -13,16 +13,21 @@ import { test, expect, type Page } from '@playwright/test';
  *
  * Runs entirely on mocked API responses; no backend required.
  *
- * Note on the background-hiding test: it asserts the trigger's reachability *and*
- * `#root[aria-hidden="true"]`. The redundancy is deliberate, not a workaround — the two
- * catch different failures. Role queries prove the requirement (nothing behind the modal
- * is reachable by the virtual cursor). `#root[aria-hidden]` proves the mechanism, and it
- * is the only one of the two that catches a stray in-page `[aria-live]` node: that leaves
- * `#root` unhidden while every *sibling* subtree still hides correctly, so the header
- * trigger disappears from the a11y tree exactly as it should and reachability stays green.
- * That silent shape is the WIC-1155 failure class, and `docs/design/ACCESSIBILITY.md`'s
- * keyboard checklist asks for this assertion specifically against an **empty-list** state —
- * which is what `setupProjectsList` builds.
+ * Note on the background-hiding test: it asserts reachability on *two* controls — the
+ * header trigger and `EmptyState`'s action button — *and* `#root[aria-hidden="true"]`.
+ * The redundancy is deliberate, not a workaround; the three catch different failures.
+ *
+ * Role queries prove the requirement (nothing behind the modal is reachable by the virtual
+ * cursor). But *which* control you query decides what you can see. A stray in-page
+ * `[aria-live]` node exempts itself and its whole ancestor chain, which leaves `#root`
+ * unhidden while every *sibling* subtree still hides correctly — so the header trigger
+ * disappears from the a11y tree exactly as it should and an assertion on it alone stays
+ * green. That silent shape is the WIC-1155 failure class. Two assertions here see it:
+ * `#root[aria-hidden]`, which proves the mechanism, and the `EmptyState` action button,
+ * which is the control that was actually left exposed — `EmptyState` carried the
+ * `aria-live` on the container wrapping its own button. `docs/design/ACCESSIBILITY.md`'s
+ * keyboard checklist asks for this specifically against an **empty-list** state — which is
+ * what `setupProjectsList` builds, and which is why that button is on the page at all.
  *
  * The mechanism, since it constrains where this assertion is valid: Radix hides the
  * background via the `aria-hidden` package, which deliberately exempts `[aria-live]`
@@ -221,12 +226,27 @@ test.describe('ProjectsList — create project dialog', () => {
     const trigger = page.getByRole('button', { name: 'Create Project', exact: true });
     await expect(trigger).toHaveCount(1);
 
+    // `EmptyState`'s own action button — the control WIC-1155 was actually about.
+    // The list is empty here, so it is on the page; asserting count 1 first is what
+    // keeps the count-0 assertion below from passing vacuously on a page that simply
+    // never rendered it.
+    const emptyStateAction = page.getByRole('button', { name: 'Create Your First Project' });
+    await expect(emptyStateAction).toHaveCount(1);
+
     const root = page.locator('#root');
     await expect(root).not.toHaveAttribute('aria-hidden', 'true');
 
     await openCreateDialogByKeyboard(page);
     await expect(trigger).toHaveCount(0);
     await expect(page.getByRole('navigation')).toHaveCount(0);
+
+    // WIC-1155 stated as the requirement rather than the mechanism: `EmptyState` used to
+    // carry `aria-live="polite"` on the container wrapping this button, which exempted it
+    // — and its whole ancestor chain — from the background hiding, leaving a live control
+    // behind every open dialog. This is the one assertion here that names that control.
+    // It is not redundant with `trigger` above: the two live in different subtrees, and
+    // in the regression the sibling subtree holding `trigger` hides correctly anyway.
+    await expect(emptyStateAction).toHaveCount(0);
 
     // The mechanism behind those two counts, and the half that reachability cannot see:
     // an in-page [aria-live] node exempts its whole ancestor chain, so #root would stay
@@ -240,6 +260,7 @@ test.describe('ProjectsList — create project dialog', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(trigger).toHaveCount(1);
+    await expect(emptyStateAction).toHaveCount(1);
     await expect(root).not.toHaveAttribute('aria-hidden', 'true');
   });
 

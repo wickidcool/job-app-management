@@ -56,6 +56,7 @@ vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
 
 import * as jobFitService from '../src/services/job-fit.service.js';
 import { JobFitInputError, RateLimitError } from '../src/types/index.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 
 const mockAnalysisResponse = {
   recommendation: 'moderate_fit' as const,
@@ -265,17 +266,16 @@ describe('POST /api/catalog/job-fit/analyze', () => {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // No Supabase config in this suite, so `authMiddleware` sets `userId` to
-    // null and the caller id arrives as `undefined` — which the service scopes
-    // to `IS NULL`, not to the whole table (WIC-1435).
+    // The caller identity, third since WIC-1652: the analysis is now written
+    // down, so it has an owner, and the route threads it rather than defaulting
+    // it (WIC-1435). No Supabase config in this suite, so `authMiddleware` takes
+    // the local-dev bypass — which since ADR-010 D3 resolves a real tenant
+    // instead of an absence, so the id that arrives is `DEV_OWNER`, not
+    // `undefined` (WIC-1964; see `helpers/local-dev-owner.ts`).
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
       { jobDescriptionText: 'Senior TypeScript Engineer with React and AWS skills required.' },
       expect.any(String),
-      // The caller identity, third since WIC-1652: the analysis is now written
-      // down, so it has an owner. `undefined` here because this suite runs with
-      // auth bypassed, which is the same value an unauthenticated request
-      // produces — the identity is passed through, not defaulted.
-      undefined
+      DEV_OWNER
     );
   });
 });
@@ -352,7 +352,7 @@ describe('POST /api/catalog/job-fit/analyze — applicationId (WIC-1652)', () =>
     expect(vi.mocked(jobFitService.analyzeJobFit)).toHaveBeenCalledWith(
       { jobDescriptionText: JD, applicationId: 'app-1' },
       expect.any(String),
-      undefined
+      DEV_OWNER
     );
   });
 
@@ -423,10 +423,11 @@ describe('GET /api/catalog/job-fit/analyses (WIC-1652)', () => {
     expect(body.analyses).toHaveLength(1);
     expect(body.analyses[0]).toMatchObject({ id: summary.id, fitScore: 62 });
     // The owner scope is built by the service's own factory from the caller id
-    // and passed through verbatim. `undefined` is the caller here because this
-    // suite runs with auth bypassed; the factory, not the route, decides that an
-    // absent owner means `user_id IS NULL`.
-    expect(vi.mocked(jobFitService.jobFitAnalysesScope)).toHaveBeenCalledWith(undefined);
+    // and passed through verbatim. This suite runs with auth bypassed, so since
+    // ADR-010 D3 the caller is `DEV_OWNER` rather than an absence (WIC-1964) —
+    // the route still just threads whatever it got, and the factory, not the
+    // route, is what turns an owner into a predicate.
+    expect(vi.mocked(jobFitService.jobFitAnalysesScope)).toHaveBeenCalledWith(DEV_OWNER);
     expect(vi.mocked(jobFitService.listJobFitAnalyses)).toHaveBeenCalledWith(
       { applicationId: 'app-1' },
       SCOPE

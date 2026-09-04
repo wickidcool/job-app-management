@@ -1,4 +1,4 @@
-# Cloudflare Workers configuration for Job Application Manager API
+# Cloudflare Workers configuration for the Careerpin API
 # See: https://developers.cloudflare.com/workers/wrangler/configuration/
 
 name = "jobapp-api"

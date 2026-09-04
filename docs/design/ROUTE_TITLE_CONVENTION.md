@@ -57,7 +57,7 @@ Three defects fell out of the original audit and are **not** in scope here — f
 >   written as "learned from the 404's version". That version is gone; they still hold, but nothing
 >   in the tree demonstrates them.
 
-So today all 31 in-app route entries plus `/login` announce the same string, and the browser tab, the history entry, the bookmark name, and the window-switcher entry are identical for every screen in the product.
+So today all 30 routes that render a page — `/login` among them — announce the same string, and the browser tab, the history entry, the bookmark name, and the window-switcher entry are identical for every screen in the product. (30, not the 32 `route-title-table-audit.py` counts in `App.tsx`: `/dashboard` and `/reports/pipeline` only ever `<Navigate>`, so they never paint a title to share. This sentence read "all 31 in-app route entries plus `/login`" until WIC-1960 — arithmetically the same 32, but the trailing clause did not survive being paraphrased into `constants/title.ts`'s module docstring, which then claimed a bare 31. Quote the 30 the audit prints; it has no clause to lose.)
 
 That is the actual user cost, and it is not primarily a screen-reader cost:
 
@@ -387,18 +387,32 @@ screen beneath it. ~~The two changes collided in the merge and the resolution ta
 
 > **Correction to §2 — `index.html` and `Login.tsx` were not the only two.** §2 says the stale
 > product name lives in "`index.html` title and the `<h2>` on `pages/Login.tsx:60`". Measured
-> 2026-09-01, two more user-visible occurrences exist and were **not** touched by this work:
-> `components/onboarding/OnboardingModal.tsx:330` (`title="Welcome to Your Job Application
-> Manager"`, the onboarding step-1 headline) and `components/QuickReferenceExport.tsx:201`
-> (`Generated with Job Application Manager`, in the footer of the exported interview sheet — so it
-> reaches printed and shared output).
+> 2026-09-01, two more user-visible occurrences existed and were **not** touched by this work:
+> `components/onboarding/OnboardingModal.tsx` (`title="Welcome to Your Job Application
+> Manager"`, the onboarding step-1 headline) and `components/QuickReferenceExport.tsx`
+> (`Generated with Job Application Manager`, in the footer of the export modal).
 >
-> Both are **prose, not titles**, and neither renames mechanically: "Welcome to Your Careerpin"
-> does not read. Renaming them is a copy decision belonging to the Copywriter/Editor, and §2 itself
-> flags the name to that role "for confirmation, not for permission". They are therefore recorded
-> here rather than changed, so that the next reader does not repeat §2's count. Anyone completing
-> the rename should also check `packages/web/src/components/index.ts` and
-> `services/api/index.ts`, where it survives in comments only.
+> Both are **prose, not titles**, and neither renamed mechanically: "Welcome to Your Careerpin"
+> does not read. Renaming them was a copy decision belonging to the Copywriter/Editor, and §2
+> itself flags the name to that role "for confirmation, not for permission". **Both are now
+> settled** — WIC-1950, 2026-09-01: the onboarding headline reads `Welcome to Careerpin` (the
+> possessive goes with the descriptive name it was introducing) and the footer reads
+> `Generated with Careerpin • {date}` with no URL. Both read from `PRODUCT_NAME`, so §2's count
+> is now four sites on one line. The reasoning is in
+> [`CONTENT_STYLE.md`](./CONTENT_STYLE.md) under Exception 1.
+>
+> One factual correction to the note above, which said the export footer "reaches printed and
+> shared output": it does not. Every downloadable format is assembled server-side in
+> `exportInterviewPrep` (`packages/api/src/services/interviewPrep.service.ts`), which emits its
+> own `*Generated {date} | Type: … | Time: …*` line and no product byline; there is no
+> `window.print()` or `@media print` rule in `packages/web/src`. The string is the modal's
+> on-screen preview. That the *exported* artifact carries no attribution is a real gap, tracked
+> separately.
+>
+> What survives is internal only, and out of scope for a user-facing rename:
+> `packages/web/src/components/index.ts`, `components/README.md`, `services/api/index.ts` and
+> `services/api/README.md`, all comments and prose. The `docs/design/*.md` set still carries the
+> old name in its own headings and intros; that sweep is tracked separately too.
 
 **AC7 is enforced structurally.** Rather than open each dialog and assert the title held still,
 the coverage test asserts that `useDocumentTitle` is called only from pages and from

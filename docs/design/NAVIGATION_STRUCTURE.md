@@ -3,7 +3,7 @@
 ## Application Structure
 
 ```
-Job Application Manager
+Careerpin
 │
 ├── Dashboard (/)
 │   ├── Stats Overview

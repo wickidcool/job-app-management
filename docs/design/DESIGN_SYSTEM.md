@@ -1,6 +1,6 @@
-# Design System — Job Application Manager
+# Design System — Careerpin
 
-This design system provides a consistent visual language and reusable tokens for the Job Application Manager.
+This design system provides a consistent visual language and reusable tokens for Careerpin.
 
 ---
 

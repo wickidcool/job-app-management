@@ -2,7 +2,7 @@
   "name": "@wic/api",
   "private": true,
   "version": "1.0.0",
-  "description": "Hono backend for Job Application Manager (Cloudflare Workers + Node.js)",
+  "description": "Hono backend for Careerpin (Cloudflare Workers + Node.js)",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

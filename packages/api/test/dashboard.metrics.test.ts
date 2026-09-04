@@ -28,9 +28,18 @@ import { buildApp } from '../src/app.js';
 import { getDb } from '../src/db/client.js';
 import { getDashboardStats } from '../src/services/dashboard.service.js';
 import { aggregateDbStub, type StubRow } from './helpers/aggregate-db-stub.js';
+import { DEV_OWNER } from './helpers/local-dev-owner.js';
 import { expectScopedTo, renderClause } from './helpers/tenancy.js';
 
-const USER = '11111111-1111-4111-8111-111111111111';
+/**
+ * The caller that owns the fixture. Every test below passes it to
+ * `getDashboardStats` explicitly except the AC-T1e HTTP case, which drives
+ * `buildApp()` under the local-dev auth bypass — so since ADR-010 D3 that one
+ * reads as `DEV_OWNER` (WIC-1964). Pinning `USER` to the same id keeps the
+ * fixture visible on both paths; before D3 the bypass emitted no owner term at
+ * all, which is why any id used to work here.
+ */
+const USER = DEV_OWNER;
 const OTHER_USER = '22222222-2222-4222-8222-222222222222';
 
 /**

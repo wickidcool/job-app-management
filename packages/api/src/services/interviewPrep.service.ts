@@ -19,6 +19,7 @@ import {
   type TalkingPoint,
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
+import { EXPORT_BYLINE } from '../constants/product.js';
 import { AppError, NotFoundError } from '../types/index.js';
 import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import { clampPercent, type Percent } from '../types/units.js';
@@ -644,7 +645,13 @@ export async function getInterviewPrep(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: {
     id: string;
     recommendation?: string;
@@ -673,6 +680,9 @@ export async function getInterviewPrep(
       jobTitle: applications.jobTitle,
       company: applications.company,
       status: applications.status,
+      // WIC-2023. Backs `ApplicationSummary.interviewDate` on the web side, which
+      // `InterviewPrepCard:138` and `QuickReferenceExport:111` both gate on.
+      interviewDate: applications.interviewDate,
     })
     .from(applications)
     .where(and(eq(applications.id, prep.applicationId), ownerScope(applications, userId)))
@@ -680,9 +690,19 @@ export async function getInterviewPrep(
 
   return {
     interviewPrep: prepRowToDTO(prep, stories),
+    // The not-found fallback sends `interviewDate: null`, not `''`. The other
+    // fields use `''` because they are declared non-nullable strings; this one is
+    // nullable precisely so "no interview scheduled" is representable, and an
+    // empty string would make `new Date('')` produce an Invalid Date downstream.
     application: app
-      ? { id: app.id, jobTitle: app.jobTitle, company: app.company, status: app.status }
-      : { id: prep.applicationId, jobTitle: '', company: '', status: '' },
+      ? {
+          id: app.id,
+          jobTitle: app.jobTitle,
+          company: app.company,
+          status: app.status,
+          interviewDate: app.interviewDate?.toISOString() ?? null,
+        }
+      : { id: prep.applicationId, jobTitle: '', company: '', status: '', interviewDate: null },
     fitAnalysis: null,
   };
 }
@@ -694,7 +714,13 @@ export async function getInterviewPrepByApplication(
   userId?: string
 ): Promise<{
   interviewPrep: InterviewPrepDTO;
-  application: { id: string; jobTitle: string; company: string; status: string };
+  application: {
+    id: string;
+    jobTitle: string;
+    company: string;
+    status: string;
+    interviewDate: string | null;
+  };
   fitAnalysis?: { id: string } | null;
 }> {
   const db = getDb();
@@ -1136,6 +1162,14 @@ export async function exportInterviewPrep(
     }
     lines.push('');
   }
+
+  // Byline, at the foot and in every format — this artifact is downloaded, printed and
+  // read outside the app, often by someone who is not the user (WIC-1953). It sits below
+  // the content rather than under the title because the title belongs to the user's own
+  // document; see `docs/design/CONTENT_STYLE.md`, Exception 1.
+  lines.push('---');
+  lines.push('');
+  lines.push(`*${EXPORT_BYLINE}*`);
 
   const markdownContent = lines.join('\n');
 

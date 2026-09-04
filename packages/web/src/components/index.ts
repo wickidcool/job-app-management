@@ -1,6 +1,6 @@
 /**
  * Component Exports
- * Core UI components for Job Application Manager
+ * Core UI components for Careerpin
  */
 
 export { StatusBadge } from './StatusBadge';

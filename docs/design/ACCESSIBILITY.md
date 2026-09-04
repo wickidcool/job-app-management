@@ -1,6 +1,6 @@
-# Accessibility Guidelines — Job Application Manager
+# Accessibility Guidelines — Careerpin
 
-This document outlines accessibility requirements and best practices to ensure the Job Application Manager is usable by everyone, including people with disabilities.
+This document outlines accessibility requirements and best practices to ensure Careerpin is usable by everyone, including people with disabilities.
 
 **Target Compliance:** WCAG 2.1 Level AA
 
