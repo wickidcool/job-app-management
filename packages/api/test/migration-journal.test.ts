@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { JournalEntry } from '../src/db/journal.js';
 import {
   buildJournal,
   buildJournalEntries,
@@ -22,6 +23,17 @@ function realSqlFileNames(): string[] {
     .sort();
 }
 
+/**
+ * The next unused migration number, derived from the real set. Hardcoding this
+ * (it was `0021`) makes every one of the tests below break the moment any
+ * migration PR lands — the synthetic name collides with a real file and trips
+ * the density guard. Derive it so the suite survives the next migration.
+ */
+function nextNumber(): number {
+  return realSqlFileNames().length + 1;
+}
+const pad = (n: number) => String(n).padStart(4, '0');
+
 /** The frozen historical `when`s, oldest-first, as an ordered [tag, when] list. */
 const HISTORICAL_ENTRIES = Object.entries(HISTORICAL_WHEN);
 const LAST_HISTORICAL_TAG = HISTORICAL_ENTRIES[HISTORICAL_ENTRIES.length - 1][0];
@@ -33,12 +45,20 @@ describe('migration journal generation (WIC-1963)', () => {
     // Generation from the .sql files on disk must equal it exactly — same order,
     // same idx, and above all the same `when` for every already-applied
     // migration, so production's applied/skip watermark does not move.
-    const expected = readFileSync(
-      new URL('./fixtures/journal.baseline.json', import.meta.url),
-      'utf8'
-    );
-    const generated = serializeJournal(buildJournal(realSqlFileNames()));
-    expect(generated).toBe(expected);
+    // The baseline pins the migrations that are ALREADY APPLIED in production.
+    // Assert generation reproduces every one of them exactly — same idx, tag and
+    // above all the same `when` — while allowing later migrations to be appended
+    // after it. Pinning the whole file instead would make this fail on every new
+    // migration, which is how the pin ends up deleted and the tripwire lost.
+    const baseline = JSON.parse(
+      readFileSync(new URL('./fixtures/journal.baseline.json', import.meta.url), 'utf8')
+    ) as { version: string; dialect: string; entries: JournalEntry[] };
+    const generated = buildJournal(realSqlFileNames());
+    expect(generated.version).toBe(baseline.version);
+    expect(generated.dialect).toBe(baseline.dialect);
+    expect(generated.entries.length).toBeGreaterThanOrEqual(baseline.entries.length);
+    // Prefix equality: the applied set must be reproduced byte-for-byte, in order.
+    expect(generated.entries.slice(0, baseline.entries.length)).toEqual(baseline.entries);
   });
 
   it('preserves every historical `when` exactly', () => {
@@ -75,16 +95,19 @@ describe('migration journal generation (WIC-1963)', () => {
   });
 
   describe('a new migration appended after the historical set', () => {
-    const withNew = () => [...realSqlFileNames(), '0021_add_widget.sql'];
+    const NEW_TAG = () => `${pad(nextNumber())}_add_widget`;
+    const withNew = () => [...realSqlFileNames(), `${NEW_TAG()}.sql`];
 
     it('gets a `when` strictly greater than the production watermark', () => {
       // This is the whole point: a newly added migration MUST sort above the
       // last applied `when`, or drizzle silently never runs it.
       const entries = buildJournalEntries(withNew());
-      const added = entries.find((e) => e.tag === '0021_add_widget')!;
+      const added = entries.find((e) => e.tag === NEW_TAG())!;
       expect(added.when).toBeGreaterThan(MAX_HISTORICAL_WHEN);
-      expect(added.when).toBe(HISTORICAL_WHEN[LAST_HISTORICAL_TAG] + WHEN_STEP);
-      expect(added.idx).toBe(21);
+      // The appended migration extends whatever the last real entry is.
+      const lastReal = buildJournalEntries(realSqlFileNames()).at(-1)!;
+      expect(added.when).toBe(lastReal.when + WHEN_STEP);
+      expect(added.idx).toBe(nextNumber());
     });
 
     it('does not disturb any historical `when`', () => {
@@ -97,29 +120,34 @@ describe('migration journal generation (WIC-1963)', () => {
     });
 
     it('numbers two appended migrations monotonically', () => {
+      const n = nextNumber();
       const entries = buildJournalEntries([
         ...realSqlFileNames(),
-        '0021_add_widget.sql',
-        '0022_add_gadget.sql',
+        `${pad(n)}_add_widget.sql`,
+        `${pad(n + 1)}_add_gadget.sql`,
       ]);
-      const a = entries.find((e) => e.tag === '0021_add_widget')!;
-      const b = entries.find((e) => e.tag === '0022_add_gadget')!;
+      const a = entries.find((e) => e.tag === `${pad(n)}_add_widget`)!;
+      const b = entries.find((e) => e.tag === `${pad(n + 1)}_add_gadget`)!;
       expect(b.when).toBeGreaterThan(a.when);
-      expect(b.idx).toBe(22);
+      expect(b.idx).toBe(n + 1);
     });
   });
 
   describe('rejects a broken migration set loudly at generate time', () => {
     it('throws on two migrations claiming the same number (the WIC-1939 shape)', () => {
       expect(() =>
-        buildJournalEntries([...realSqlFileNames(), '0021_branch_a.sql', '0021_branch_b.sql'])
+        buildJournalEntries([
+          ...realSqlFileNames(),
+          `${pad(nextNumber())}_branch_a.sql`,
+          `${pad(nextNumber())}_branch_b.sql`,
+        ])
       ).toThrow(/not dense|same number/i);
     });
 
     it('throws on a gap in the numbering', () => {
-      expect(() => buildJournalEntries([...realSqlFileNames(), '0023_skips_ahead.sql'])).toThrow(
-        /not dense/i
-      );
+      expect(() =>
+        buildJournalEntries([...realSqlFileNames(), `${pad(nextNumber() + 1)}_skips_ahead.sql`])
+      ).toThrow(/not dense/i);
     });
 
     it('throws on a file with no numeric prefix', () => {

@@ -97,6 +97,16 @@ export const HISTORICAL_WHEN: Readonly<Record<string, number>> = Object.freeze({
   '0018_resume_content_hash': 1777613058000,
   '0019_onboarding_status_rls': 1777616658000,
   '0020_prep_relevance_score_pct': 1777620258000,
+  // Appended 2026-09-04 (WIC-2031): these five landed on main after this file was
+  // first written, and are already applied in production. Their real committed
+  // `when`s must be frozen here — deriving them as prevWhen+WHEN_STEP produced
+  // values BELOW production's watermark, which would make the next migration
+  // (0026) sort under the watermark and be skipped forever.
+  '0021_backfill_catalog_diffs_user_id': 1777623858000,
+  '0022_catalog_diff_open_review_count': 1777627458000,
+  '0023_enforce_catalog_diffs_userid_not_null': 1777631058000,
+  '0024_cover_letter_resume_variant_application_id': 1777634658000,
+  '0025_job_fit_analyses': 1777638258000,
 });
 
 /** `0020_prep_relevance_score_pct.sql` -> `0020_prep_relevance_score_pct`. */
