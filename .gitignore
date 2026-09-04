@@ -47,3 +47,8 @@ packages/api/coverage/
 # Python bytecode (docs/analytics/ helper scripts)
 __pycache__/
 *.pyc
+
+# WIC-1963: the drizzle migration journal is generated from the .sql files, not
+# committed — it is the shared mutable file every migration PR used to conflict
+# on. `db:migrate` regenerates it in-process; `db:journal` writes it explicitly.
+packages/api/src/db/migrations/meta/_journal.json
