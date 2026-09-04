@@ -7,9 +7,13 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 import prettierConfig from 'eslint-config-prettier';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 import noLiteralCapsJsxText from './eslint-rules/no-literal-caps-jsx-text.js';
+import noUseStateFromProp from './eslint-rules/no-usestate-from-prop.js';
 
 const localRules = {
-  rules: { 'no-literal-caps-jsx-text': noLiteralCapsJsxText },
+  rules: {
+    'no-literal-caps-jsx-text': noLiteralCapsJsxText,
+    'no-usestate-from-prop': noUseStateFromProp,
+  },
 };
 
 /**
@@ -153,6 +157,32 @@ export default defineConfig([
       // `allow` option itself — see src/test/caps-baseline.test.ts for why a
       // reintroduced `allow` list needs its own staleness test again.
       'local/no-literal-caps-jsx-text': 'error',
+    },
+  },
+  {
+    // WIC-1618: `useState` seeded from a prop snapshots it on mount, so the parent goes on
+    // updating the prop while the component keeps its mount-time copy. A prop named
+    // `initial*` declares that contract and is exempt (the WIC-1583 convention).
+    //
+    // Scope is `{ts,tsx}`, wider than the caps rule's `tsx`, so that a hook written in a
+    // `.ts` file with a destructured options object is covered the day someone writes one.
+    // No such hook exists today; the cost of including `.ts` is zero and the cost of
+    // discovering the gap later is not.
+    //
+    // TEST FILES ARE DELIBERATELY IN SCOPE, stated here rather than left implicit. A
+    // test-helper component is a throwaway with no second writer, so the argument for
+    // excluding them is real — but `hooks/useRouteFocusHandoff.test.tsx` defines exactly
+    // the shape this rule reads, and a carve-out would mean the rule's own test-shaped
+    // blind spot were the one place nobody checked. The caps rule likewise lints
+    // `src/**/*.tsx` including tests.
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { local: localRules },
+    rules: {
+      // Lands at `error` with zero findings and no allowlist. `warn` was rejected
+      // deliberately: it would push both `--max-warnings 26` ceilings in package.json,
+      // which WIC-2053 showed are coupled to the a11y baselines. `error` + zero findings
+      // touches neither.
+      'local/no-usestate-from-prop': 'error',
     },
   },
 ]);
