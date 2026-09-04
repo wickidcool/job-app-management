@@ -120,16 +120,91 @@ you:"). Sentence case holds; `Careerpin` capitalizes under this exception.
 document byline carrying a URL, on the premise that it reaches printed output. **Measured,
 it does not.** Every downloaded format is built server-side in `exportInterviewPrep`
 (`packages/api/src/services/interviewPrep.service.ts`) — markdown, the `print` HTML
-document, and PDF alike — and that output carries its own
+document, and PDF alike — and at the time of the ruling that output carried its own
 `*Generated {date} | Type: … | Time: …*` line and no product byline at all. There is no
 `window.print()` and no `@media print` rule anywhere in `packages/web/src`. So this string
 is the footer of the **on-screen preview inside the export modal**, seen only by a
 signed-in user who is already in the product: UI chrome, not a byline, and a domain in it
 would be noise.
 
-That leaves a real gap — **the exported artifact is unattributed**, which is the case a
-URL would actually serve. Adding one is new copy in `packages/api`, in output users carry
-into interviews, so it is tracked separately rather than folded in here.
+That left a real gap — **the exported artifact was unattributed**, which is the case a URL
+actually serves. That gap is now closed, in the other package, by the ruling below.
+
+#### The export byline
+
+**`Generated with Careerpin — careerpin.app`**, at the **foot** of every exported
+interview prep sheet. Ruled by the Copywriter / Editor on 2026-09-01 under WIC-1953 and
+shipped in `exportInterviewPrep`, which assembles markdown, the `print` HTML document and
+the PDF fallback from one `lines[]` array — so one line covers all three formats.
+
+**Why a byline here and not in the modal.** The two strings look alike and the ruling for
+them is opposite, so the test is worth stating plainly: **attribution earns its place
+exactly where context is absent.** The modal footer is read by a signed-in user standing
+inside the product; naming the product to them is a signpost pointed at someone already
+in the building. The exported sheet is downloaded, printed, and carried into an interview,
+where it is read cold — sometimes by an interviewer who has never heard of us and has no
+way to ask. That reader is the whole justification for the string, and the only one.
+
+**Why the apex domain.** `careerpin.app`, bare — no scheme, no `www.`, no trailing slash.
+Nobody types `https://` off a printed page. Deliberately **not** `app.careerpin.app`,
+which is the signed-in application: sending a stranger to a login screen is worse than
+sending them nowhere. The apex is what `.github/workflows/deploy-marketing.yml` points at
+the marketing site (apex and `www` both CNAME to `careerpin-marketing.pages.dev`).
+
+**Why the foot and not a header line.** The document's first line is the user's own —
+`# Interview Prep — {jobTitle} at {company}` — and the line beneath it is their prep's
+metadata. A byline placed there competes with the user's title for the first thing a
+reader sees, and reads as advertising inside a document whose content is theirs. At the
+foot it is a colophon: available to a reader who wants to know where the sheet came from,
+invisible to one who does not. **Attribution is a footnote, not a masthead.**
+
+**Why a separate line, and no date.** The metadata line above describes the *user's
+interview*; the byline names *our tool*. Folding the product into
+`*Generated {date} | Type: … | Time: …*` mixes the two and puts a domain in the first
+thing read. The date is already on that line — repeating it would make the byline a
+timestamp, which is not its job.
+
+**Why ` — ` and not ` • `.** U+2014 EM DASH with spaces, per the WIC-1102 separator
+ruling — even though the modal footer above keeps ` • ` (U+2022). The bullet joins a
+phrase to a date, two metadata atoms of the same kind, which is enumeration. The byline
+joins a name to its address, which is apposition, and the em dash is the house separator
+for that. The exported document also already uses ` | ` for metadata; ` • ` beside it
+would read as two competing systems in one file.
+
+**Why `Generated with`, not `Powered by` or `Made with`.** It matches the verb the
+document already uses one line up (`Generated {date}`) and the modal footer's
+`Generated with Careerpin`, so the product says the same thing about itself in both
+places. `Powered by` is a vendor badge — the register of `Powered by Cloudflare` in
+Exception 1 above — and it claims the document is *running on* us, which it is not: it is
+a file the user owns. No terminal period; it is a byline, not a sentence
+([Punctuation](#punctuation)).
+
+**The `print` HTML `<title>` does not change.** It stays
+`Interview Prep — {jobTitle} at {company}` and does **not** adopt the `{Page} — Careerpin`
+pattern. That pattern governs *our chrome* — pages we serve, in a tab the user opened by
+navigating to us. This is a file the user downloads and may hand to someone else, and its
+`<title>` becomes the print header and the suggested filename in some print dialogs.
+Stamping the brand there makes the user's own prep look like our collateral. The tool
+signs the foot of the document; that is the whole of our claim on it. **Recorded so it is
+not re-opened.** (The em dash already in that title is U+2014 and needs no change.)
+
+The string lives in `packages/api/src/constants/product.ts` as `EXPORT_BYLINE`, beside
+`PRODUCT_NAME` and `PRODUCT_URL`. That is a **second** `PRODUCT_NAME`, duplicating
+`packages/web/src/constants/title.ts` — there is no shared package between `@wic/api` and
+`@wic/web`, so the name cannot cross the boundary. **The two constants must move
+together.** `packages/api/test/interview-prep.export.test.ts` pins the byline against the
+literal string, its presence in all three export formats, its position at the foot, and
+the unchanged `<title>`.
+
+> **Correction to the WIC-1953 filing.** That issue warned that the export content looked
+> test-pinned, citing an in-file comment reading "Pinned by test; the brand does not
+> survive template interpolation" at a `relevanceScorePct` line. Measured: neither that
+> comment nor the symbol `relevanceScorePct` exists anywhere in the repository, and the
+> export content was pinned by **nothing** — the only two test files that touch
+> `exportInterviewPrep` (`interview-prep.routes.test.ts`, `auth.test.ts`) `vi.mock` the
+> whole service, so no test had ever read a byte of its output. The warning was wrong in
+> substance and right in effect: there was a test gap, pointing the other way. It is now
+> filled.
 
 **2. Acronyms and initialisms** — keep their established casing.
 
@@ -423,4 +498,6 @@ standard, and let the migration close the gap.
 - WIC-1090 — UI/UX review: the slot matrix, and the selector audit behind the test section
 - WIC-1069 / WIC-1086 — baked-caps cleanup
 - WIC-1102 — the product-name ruling (`Careerpin`) and the ` — ` title separator
+- WIC-1950 / WIC-1953 — the last two `packages/web` strings, and the export byline in
+  `packages/api` (the only user-facing copy the API emits)
 - WIC-1089 / WIC-1098 — per-route `document.title`, which consumes `PRODUCT_NAME`

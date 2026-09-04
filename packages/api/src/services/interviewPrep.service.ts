@@ -19,6 +19,7 @@ import {
   type TalkingPoint,
 } from '../db/schema.js';
 import { getConfig } from '../config.js';
+import { EXPORT_BYLINE } from '../constants/product.js';
 import { AppError, NotFoundError } from '../types/index.js';
 import { resolveJobFitAnalysis } from './job-fit-analysis.service.js';
 import { clampPercent, type Percent } from '../types/units.js';
@@ -1136,6 +1137,14 @@ export async function exportInterviewPrep(
     }
     lines.push('');
   }
+
+  // Byline, at the foot and in every format — this artifact is downloaded, printed and
+  // read outside the app, often by someone who is not the user (WIC-1953). It sits below
+  // the content rather than under the title because the title belongs to the user's own
+  // document; see `docs/design/CONTENT_STYLE.md`, Exception 1.
+  lines.push('---');
+  lines.push('');
+  lines.push(`*${EXPORT_BYLINE}*`);
 
   const markdownContent = lines.join('\n');
 
