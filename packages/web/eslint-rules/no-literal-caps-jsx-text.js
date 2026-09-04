@@ -22,10 +22,16 @@
  *   - Caps containing `$` — see the CAPS_PATTERN note below.
  * Widening to those is deliberately deferred; see WIC-1209 / WIC-1192.
  *
+ * NOT a gap since WIC-1922: text nodes prettier has wrapped onto several lines. The
+ * whitespace collapse in `create()` is what closes that one.
+ *
  * Every claim above about what this rule does and does not catch is pinned by
  * src/test/caps-rule.test.ts, which lints synthetic snippets through the real resolved
- * config. That file is the only thing standing between a silently-dead rule and a green
- * CI run — caps-baseline.test.ts cannot tell the two apart (WIC-1903).
+ * config — including all four KNOWN GAPS, each paired with a differential control so that
+ * "no finding" cannot be satisfied by a rule that reports nothing at all (WIC-1922; before
+ * it, only the `$` gap was pinned and the other three were unchecked prose). That file is
+ * the only thing standing between a silently-dead rule and a green CI run —
+ * caps-baseline.test.ts cannot tell the two apart (WIC-1903).
  */
 
 // Per WIC-1209 / §5b of WIREFRAME_CASING_TRIAGE_WIC1195.md, widened by WIC-1262.
@@ -180,7 +186,22 @@ export default {
 
     return {
       JSXText(node) {
-        const text = node.value.trim();
+        // Collapse internal runs of whitespace; don't just trim the ends (WIC-1922).
+        //
+        // CAPS_PATTERN's character class admits a space but not a newline, so before this
+        // a JSX text node spanning more than one line could never match and the rule
+        // silently reported nothing. That is not a rare shape: `printWidth: 100` in
+        // .prettierrc plus the `packages/**/*.{ts,tsx,css,md}` glob on `format:check`
+        // means prettier wraps any heading whose line runs past 100 columns, and the
+        // wrapped form is the one that survives CI. The rule was blind to exactly the
+        // longest shouted headings — the ones most worth catching.
+        //
+        // Collapsing is the accurate reading, not merely the convenient one: JSX folds a
+        // whitespace run containing a newline down to a single space, so `text` is what
+        // actually reaches the DOM and therefore the accessibility tree. It is also the
+        // string matched against `allow` and quoted in the report, so both now key off
+        // the rendered name rather than the source layout.
+        const text = node.value.trim().replace(/\s+/g, ' ');
         if (!text) return;
         if (!CAPS_PATTERN.test(text) || !HAS_CAPS_WORD.test(text)) return;
         if (isAllAcronyms(text)) return;

@@ -138,11 +138,84 @@ const ALLOWED_CASES: readonly Case[] = [
   },
 ];
 
+/**
+ * Headings prettier has wrapped onto more than one line (WIC-1922).
+ *
+ * CAPS_PATTERN's character class admits a space but not a newline, so before WIC-1922 a
+ * multi-line JSX text node could not match at all and the rule silently reported nothing.
+ * The repo's own mandatory formatter is what puts the newline there: `printWidth: 100`
+ * plus a `format:check` glob of `packages/**\/*.{ts,tsx,css,md}` means the wrapped form is
+ * the one that survives CI, so the rule was blind to exactly the longest shouted headings.
+ *
+ * Each `jsx` below is prettier's real output, verified by running prettier over the
+ * one-line form at the configured width. Note the one-line source has to exceed 100
+ * columns for prettier to wrap it at all: WIC-1922's own worked example
+ * (`...THE ATTACHED RESUME FIRST!`) is 92 columns and prettier leaves it alone, which is
+ * why the strings here are longer than the ones in that ticket. Real components indent
+ * deeper than this probe, so in `src/**` the wrap — and therefore the blind spot — starts
+ * at a shorter heading than these cases need.
+ */
+const WRAPPED_CASES: readonly Case[] = [
+  {
+    name: 'two lines',
+    jsx: '<h3>\n    NOTE: DO NOT SUBMIT THIS APPLICATION WITHOUT REVIEWING THE ATTACHED RESUME AND COVER LETTER\n    FIRST!\n  </h3>',
+    why: 'WIC-1922',
+  },
+  {
+    name: 'three lines',
+    jsx: '<h2>\n    WARNING: THIS ACTION PERMANENTLY DELETES EVERY SAVED RESUME VARIANT, EVERY COVER LETTER\n    DRAFT AND EVERY INTERVIEW NOTE ATTACHED TO THIS APPLICATION, AND IT CANNOT BE UNDONE\n    LATER.\n  </h2>',
+    why: 'WIC-1922',
+  },
+  {
+    name: 'a newline as the only separator between two caps words',
+    // The minimal case: identical to `<h3>GAP TALKING POINTS</h3>` except that one of the
+    // spaces is a newline. If this flags, nothing but the whitespace class was ever
+    // stopping it.
+    jsx: '<h3>\n    GAP TALKING\n    POINTS\n  </h3>',
+    why: 'WIC-1922 minimal case',
+  },
+];
+
+/**
+ * The KNOWN GAPS named in the rule's own doc comment.
+ *
+ * The rule claims these are out of scope; the docstring claims every such claim is pinned
+ * here. Before WIC-1922 only the `$` gap actually was, so three of the four were prose
+ * that nothing checked — a rule that quietly started flagging attribute values, or that
+ * never could, read identically.
+ *
+ * Each case carries its own differential control: the SAME shouted string, moved into a
+ * plain JSX text node, must flag. Without that pairing an assertion of "0 findings" is
+ * satisfied just as well by a rule that reports nothing at all, which is precisely the
+ * failure mode this file exists to catch.
+ */
+const KNOWN_GAP_CASES: readonly (Case & { readonly control: string })[] = [
+  {
+    name: 'runtime .toUpperCase()',
+    jsx: '<h3>{"Gap talking points".toUpperCase()}</h3>',
+    control: '<h3>GAP TALKING POINTS</h3>',
+    why: 'JobFitAnalysis.tsx, owned by WIC-1122 / WIC-1146',
+  },
+  {
+    name: 'caps inside an attribute value',
+    // ChangeActionBadge's worst instance (WIC-1185): `text-transform` cannot reach an
+    // attribute, so this one is unfixable from CSS — and this rule still cannot see it.
+    jsx: '<button aria-label="CREATE ACTION">Create</button>',
+    control: '<button>CREATE ACTION</button>',
+    why: 'WIC-1185',
+  },
+];
+// The fourth gap — caps reaching JSX through a variable — needs a module-level binding, so
+// it cannot go through `component()` and gets its own test below.
+
+/** Module source for the variable gap: the caps live in a binding, not a text node. */
+const VARIABLE_GAP_SOURCE = `const LABEL = 'GAP TALKING POINTS';\nexport const Probe = () => <h3>{LABEL}</h3>;\n`;
+
 let eslint: ESLint;
 
-/** Lint one snippet through the real config and return this rule's messages. */
-async function lintSnippet(jsx: string) {
-  const results = await eslint.lintText(component(jsx), { filePath: PROBE_PATH });
+/** Lint a whole module source through the real config and return this rule's messages. */
+async function lintSource(source: string) {
+  const results = await eslint.lintText(source, { filePath: PROBE_PATH });
 
   // Fail loudly rather than silently returning zero messages. A snippet that does not
   // parse, or a path ESLint declines to lint, would otherwise make every "must not
@@ -151,10 +224,15 @@ async function lintSnippet(jsx: string) {
   const fatal = results.flatMap((r) => r.messages).filter((m) => m.fatal);
   expect(
     fatal.map((m) => m.message),
-    `snippet failed to parse: ${jsx}`
+    `snippet failed to parse: ${source}`
   ).toEqual([]);
 
   return results.flatMap((r) => r.messages).filter((m) => m.ruleId === RULE_ID);
+}
+
+/** Lint one JSX fragment through the real config and return this rule's messages. */
+async function lintSnippet(jsx: string) {
+  return lintSource(component(jsx));
 }
 
 describe('no-literal-caps-jsx-text', () => {
@@ -220,6 +298,88 @@ describe('no-literal-caps-jsx-text', () => {
         messages.length,
         'the `$` gap has been closed — good, but update this case and the rule comment'
       ).toBe(0);
+    }, 60_000);
+  });
+
+  describe("prettier's line wrapping no longer defeats the pattern (WIC-1922)", () => {
+    it.each(WRAPPED_CASES)(
+      'flags a shouted heading prettier has wrapped onto $name',
+      async ({ jsx }) => {
+        const messages = await lintSnippet(jsx);
+        expect(messages.length, `expected a finding for: ${jsx}`).toBeGreaterThan(0);
+      },
+      60_000
+    );
+
+    it('reports the wrapped text collapsed onto one line', async () => {
+      // `caps-baseline.test.ts` recovers the flagged string by regex over this message and
+      // compares it against the `allow` list, so the reported string is an interface, not
+      // an incidental. Collapsing means a multi-line node reports its RENDERED name — the
+      // same string the one-line source would report — rather than a fragment ending at
+      // the first newline. Pin it: an `allow` entry could otherwise never match a wrapped
+      // site, and the two files cannot see this coupling from either side alone.
+      const [message] = await lintSnippet('<h3>\n    GAP TALKING\n    POINTS\n  </h3>');
+
+      expect(message.message).toMatch(/^Literal ALL-CAPS text "GAP TALKING POINTS" reaches/);
+    }, 60_000);
+
+    it('still exempts a wrapped heading that carries an uppercase class', async () => {
+      // The widening must not cost the R1 exemption. This shape was unreachable before
+      // WIC-1922 — the pattern rejected it long before `hasUppercaseClass` was consulted —
+      // so it is the exemption's first real test on a multi-line node.
+      const WRAPPED = '\n    GAP TALKING\n    POINTS\n  ';
+      const messages = await lintSnippet(
+        `<h3 className="text-xs uppercase tracking-wider">${WRAPPED}</h3>`
+      );
+
+      expect(
+        messages.map((m) => m.message),
+        'a wrapped R1-pattern heading must stay green'
+      ).toEqual([]);
+
+      // Differential control, and the reason this case is not vacuous: the SAME wrapped
+      // text without the class must flag. Revert the whitespace collapse and the
+      // assertion above still passes — but this one goes red, because it is the class,
+      // not the newline, that has to be doing the exempting.
+      const controlMessages = await lintSnippet(`<h3>${WRAPPED}</h3>`);
+      expect(
+        controlMessages.length,
+        'control failed, so the exemption above is not what kept the case green'
+      ).toBeGreaterThan(0);
+    }, 60_000);
+  });
+
+  describe('the documented KNOWN GAPS are still open, and pinned (WIC-1922)', () => {
+    it.each(KNOWN_GAP_CASES)(
+      'does not see: $name',
+      async ({ jsx, control }) => {
+        const messages = await lintSnippet(jsx);
+        expect(
+          messages.length,
+          `this gap has been closed — good, but update the rule's KNOWN GAPS comment: ${jsx}`
+        ).toBe(0);
+
+        // The differential control. Same string, plain text node: this MUST flag, or the
+        // assertion above is satisfied by a dead rule rather than by the gap.
+        const controlMessages = await lintSnippet(control);
+        expect(
+          controlMessages.length,
+          `control failed, so the 0 above proves nothing: ${control}`
+        ).toBeGreaterThan(0);
+      },
+      60_000
+    );
+
+    it('does not follow a caps string through a variable binding', async () => {
+      // Needs a module-level binding, so it cannot go through `component()`.
+      const messages = await lintSource(VARIABLE_GAP_SOURCE);
+      expect(messages.length, VARIABLE_GAP_SOURCE).toBe(0);
+
+      const controlMessages = await lintSnippet('<h3>GAP TALKING POINTS</h3>');
+      expect(
+        controlMessages.length,
+        'control failed, so the 0 above proves nothing'
+      ).toBeGreaterThan(0);
     }, 60_000);
   });
 
