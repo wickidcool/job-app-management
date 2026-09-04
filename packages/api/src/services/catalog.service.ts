@@ -1,4 +1,6 @@
-import { eq, and, ilike, asc, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, gt, ilike, asc, desc, inArray, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
@@ -11,6 +13,9 @@ import {
   catalogDiffs,
   catalogChangeLog,
   wikilinkRegistry,
+  resumes,
+  applications,
+  jobFitAnalyses,
 } from '../db/schema.js';
 import type { DiffChange, ReviewItem } from '../db/schema.js';
 import {
@@ -20,9 +25,14 @@ import {
   VALID_TECH_STACK_CATEGORIES,
   validateTechStackCategory,
   validateJobFitCategory,
+  type CatalogEntryDTO,
   type JobFitCategory,
   type TechStackCategory,
 } from '../types/index.js';
+import { clampRatio, type Ratio } from '../types/units.js';
+// Imported from the boundary module rather than `job-fit.service.ts` on purpose: that module
+// pulls in the LLM client, `node:dns` and config, and this one is a plain catalog read.
+import { JobFitAnalysisNotFoundError } from './job-fit-analysis.service.js';
 import { processCatalogChange } from './extraction.service.js';
 
 /**
@@ -102,23 +112,24 @@ function toCompanyDTO(row: typeof companyCatalog.$inferSelect) {
   };
 }
 
-export async function mergeCompanies(sourceIds: string[], targetId: string, userId?: string) {
+export async function mergeCompanies(sourceIds: string[], targetId: string, userId: string) {
   const db = getDb();
   assertMergeSources(sourceIds, targetId);
   // Every read AND every write is scoped to the caller, so a known id belonging
   // to another user can neither be folded into a target nor soft-deleted. The
-  // predicate is conditional on userId for the same reason as resolveDiffItem:
-  // single-user/local mode (SUPABASE_JWT_SECRET unset) has no userId to scope by.
-  const targetWhere = userId
-    ? and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId))
-    : eq(companyCatalog.id, targetId);
+  // owner is required rather than optional (ADR-010 D2): an absent owner used to
+  // degrade this to a bare id match, which is the cross-tenant merge WIC-1365
+  // closed. Local dev resolves a real owner at the route edge (ADR-010 D3), so
+  // there is no owner-absent path left for this predicate to serve.
+  const targetWhere = and(eq(companyCatalog.id, targetId), eq(companyCatalog.userId, userId));
   // The id term must be `inArray`, never a raw `= ANY(${sourceIds})`: Drizzle
   // interpolates a JS array into a `sql` template as a comma-separated
   // parameter list, so that renders `= ANY(($1, $2))` — a row constructor,
   // which Postgres rejects outright. See the WIC-1377 tests.
-  const sourcesWhere = userId
-    ? and(inArray(companyCatalog.id, sourceIds), eq(companyCatalog.userId, userId))
-    : inArray(companyCatalog.id, sourceIds);
+  const sourcesWhere = and(
+    inArray(companyCatalog.id, sourceIds),
+    eq(companyCatalog.userId, userId)
+  );
 
   const [target] = await db.select().from(companyCatalog).where(targetWhere);
   if (!target) throw new NotFoundError('Company');
@@ -213,14 +224,12 @@ function toJobFitTagDTO(row: typeof jobFitTags.$inferSelect) {
 export async function updateJobFitTag(
   id: string,
   patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
-  userId?: string
+  userId: string
 ) {
   const db = getDb();
   // Scope the read so another user's tag reports NotFound rather than falling
   // through to the version check and reporting a misleading version conflict.
-  const scoped = userId
-    ? and(eq(jobFitTags.id, id), eq(jobFitTags.userId, userId))
-    : eq(jobFitTags.id, id);
+  const scoped = and(eq(jobFitTags.id, id), eq(jobFitTags.userId, userId));
   const [existing] = await db.select().from(jobFitTags).where(scoped);
   if (!existing) throw new NotFoundError('JobFitTag');
 
@@ -255,16 +264,14 @@ export async function updateJobFitTag(
   return toJobFitTagDTO(updated);
 }
 
-export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId?: string) {
+export async function mergeJobFitTags(sourceIds: string[], targetId: string, userId: string) {
   const db = getDb();
   assertMergeSources(sourceIds, targetId);
-  const targetWhere = userId
-    ? and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId))
-    : eq(jobFitTags.id, targetId);
+  // See mergeCompanies: the owner is required, so neither the target read nor
+  // the source read can degrade to a bare id match (ADR-010 D2).
+  const targetWhere = and(eq(jobFitTags.id, targetId), eq(jobFitTags.userId, userId));
   // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
-  const sourcesWhere = userId
-    ? and(inArray(jobFitTags.id, sourceIds), eq(jobFitTags.userId, userId))
-    : inArray(jobFitTags.id, sourceIds);
+  const sourcesWhere = and(inArray(jobFitTags.id, sourceIds), eq(jobFitTags.userId, userId));
 
   const [target] = await db.select().from(jobFitTags).where(targetWhere);
   if (!target) throw new NotFoundError('JobFitTag');
@@ -292,11 +299,7 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string, use
     for (const source of sources) {
       await tx
         .delete(jobFitTags)
-        .where(
-          userId
-            ? and(eq(jobFitTags.id, source.id), eq(jobFitTags.userId, userId))
-            : eq(jobFitTags.id, source.id)
-        );
+        .where(and(eq(jobFitTags.id, source.id), eq(jobFitTags.userId, userId)));
     }
   });
 
@@ -350,12 +353,12 @@ function toTechStackTagDTO(row: typeof techStackTags.$inferSelect) {
 export async function updateTechStackTag(
   id: string,
   patch: { displayName?: string; category?: string; needsReview?: boolean; version: number },
-  userId?: string
+  userId: string
 ) {
   const db = getDb();
-  const scoped = userId
-    ? and(eq(techStackTags.id, id), eq(techStackTags.userId, userId))
-    : eq(techStackTags.id, id);
+  // See updateJobFitTag: scoped so another user's tag is NotFound, not a
+  // misleading version conflict. Owner required per ADR-010 D2.
+  const scoped = and(eq(techStackTags.id, id), eq(techStackTags.userId, userId));
   const [existing] = await db.select().from(techStackTags).where(scoped);
   if (!existing) throw new NotFoundError('TechStackTag');
 
@@ -387,16 +390,14 @@ export async function updateTechStackTag(
   return toTechStackTagDTO(updated);
 }
 
-export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId?: string) {
+export async function mergeTechStackTags(sourceIds: string[], targetId: string, userId: string) {
   const db = getDb();
   assertMergeSources(sourceIds, targetId);
-  const targetWhere = userId
-    ? and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId))
-    : eq(techStackTags.id, targetId);
+  // See mergeCompanies: the owner is required, so neither the target read nor
+  // the source read can degrade to a bare id match (ADR-010 D2).
+  const targetWhere = and(eq(techStackTags.id, targetId), eq(techStackTags.userId, userId));
   // See mergeCompanies: `inArray`, not a raw `= ANY(${sourceIds})` template.
-  const sourcesWhere = userId
-    ? and(inArray(techStackTags.id, sourceIds), eq(techStackTags.userId, userId))
-    : inArray(techStackTags.id, sourceIds);
+  const sourcesWhere = and(inArray(techStackTags.id, sourceIds), eq(techStackTags.userId, userId));
 
   const [target] = await db.select().from(techStackTags).where(targetWhere);
   if (!target) throw new NotFoundError('TechStackTag');
@@ -422,11 +423,7 @@ export async function mergeTechStackTags(sourceIds: string[], targetId: string, 
     for (const source of sources) {
       await tx
         .delete(techStackTags)
-        .where(
-          userId
-            ? and(eq(techStackTags.id, source.id), eq(techStackTags.userId, userId))
-            : eq(techStackTags.id, source.id)
-        );
+        .where(and(eq(techStackTags.id, source.id), eq(techStackTags.userId, userId)));
     }
   });
 
@@ -488,8 +485,74 @@ export async function listBullets(opts: ListBulletsOptions = {}, userId?: string
 
 // ── STAR Catalog Entries ──────────────────────────────────────────────────────
 
-export async function listStarEntries(userId?: string) {
+/**
+ * Fail-closed owner term: an absent owner selects the genuinely unowned rows, never the whole
+ * table. Single-expression by design — this is the one shape `audit-owner-predicates.mjs`
+ * recognises, and a function carrying an optional owner of its own is the `[SIG]` shape that
+ * audit exists to stop spreading.
+ */
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+/**
+ * Relevance scores from a stored job-fit analysis, keyed by STAR entry id.
+ *
+ * This is the join WIC-1820 was filed for. `recommendedStarEntries[].id` is a
+ * `quantified_bullets` id — `analyzeJobFit` scores the rows it read from that table and stores
+ * their ids verbatim — and `listStarEntries` lists the same table, so the two id spaces are
+ * identical and the join needs no mapping.
+ *
+ * Unresolvable ids throw rather than degrading to "no scores". An id that validates and then
+ * silently means nothing is precisely the defect this card was filed about (WIC-1818), and the
+ * lenient reading would make a stale id indistinguishable from an analysis that recommended
+ * nothing. The owner term makes "not yours" and "no such analysis" the same answer, so this
+ * cannot be used to enumerate other users' analyses.
+ *
+ * Takes the owner *scope* rather than the owner itself. `ownerScope` is a single-expression
+ * fail-closed helper, so the absent-owner decision is made once, in the one place the
+ * owner-predicate audit recognises and checks by shape — instead of this function carrying an
+ * optional owner of its own, which is the `[SIG]` shape that audit exists to stop spreading.
+ */
+async function relevanceByStarEntryId(
+  jobFitAnalysisId: string,
+  ownerTerm: SQL
+): Promise<Map<string, Ratio>> {
   const db = getDb();
+  const [row] = await db
+    .select({ recommendedStarEntries: jobFitAnalyses.recommendedStarEntries })
+    .from(jobFitAnalyses)
+    .where(and(eq(jobFitAnalyses.id, jobFitAnalysisId), ownerTerm));
+
+  if (!row) throw new JobFitAnalysisNotFoundError();
+
+  // `clampRatio`, not `ratio()`: the column is `jsonb`, so its contents are whatever was written
+  // rather than something the type system still guarantees. The live producer already emits
+  // `Math.min(1, …)`, so this is a no-op today and a guard against a legacy or hand-edited row
+  // rendering as `4700%`. `NaN` folds to 0, which simply fails the picker's threshold.
+  return new Map(row.recommendedStarEntries.map((e) => [e.id, clampRatio(e.relevanceScore)]));
+}
+
+/**
+ * List the caller's STAR catalog entries, optionally scored against a stored job-fit analysis.
+ *
+ * `jobFitAnalysisId` is what makes `StarEntryPicker`'s "Recommended" section reachable: without
+ * it every entry carries `relevanceScore: undefined` and the section is filtered down to empty.
+ */
+export async function listStarEntries(
+  userId?: string,
+  jobFitAnalysisId?: string
+): Promise<CatalogEntryDTO[]> {
+  const db = getDb();
+
+  // ⚠ Presence is `!== undefined`, not truthiness. `z.string().min(1)` at the route rejects the
+  // empty string, but a direct caller can still pass `''` — and reading that as "not supplied"
+  // is the exact trap WIC-1818 documents one layer up.
+  const relevance =
+    jobFitAnalysisId === undefined
+      ? undefined
+      : await relevanceByStarEntryId(jobFitAnalysisId, ownerScope(jobFitAnalyses, userId));
+
   const rows = await db
     .select()
     .from(quantifiedBullets)
@@ -509,7 +572,9 @@ export async function listStarEntries(userId?: string) {
       ...(r.secondaryMetricType ? [r.secondaryMetricType] : []),
     ].filter(Boolean),
     timeframe: undefined,
-    relevanceScore: undefined,
+    // `undefined` for an entry the analysis did not recommend — it scores only bullets that
+    // matched at least one required term, and keeps the top 5.
+    relevanceScore: relevance?.get(r.id),
     relevanceReasoning: undefined,
   }));
 }
@@ -577,9 +642,16 @@ export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
   const conditions = [];
   if (userId) conditions.push(eq(catalogDiffs.userId, userId));
   if (opts.status) {
+    // An explicit status means exactly that status, unchanged. Callers asking for
+    // `approved` want the apply decision, not the review state.
     conditions.push(eq(catalogDiffs.status, opts.status as any));
   } else {
-    conditions.push(eq(catalogDiffs.status, 'pending'));
+    // The default list is "everything still wanting the user's attention", which is
+    // two independent things: a diff whose changes have not been applied yet, and a
+    // diff carrying an ambiguity nobody has decided. Resume uploads auto-apply and
+    // land on `approved`, so before WIC-1428 the second arm did not exist and every
+    // `pending_review` item raised on a resume was listed to nobody.
+    conditions.push(or(eq(catalogDiffs.status, 'pending'), gt(catalogDiffs.openReviewCount, 0))!);
   }
 
   const rows = await db
@@ -602,6 +674,7 @@ export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
       summary: r.summary,
       changeCount: (r.changes as DiffChange[]).length,
       pendingReviewCount: (r.pendingReview as ReviewItem[]).length,
+      openReviewCount: r.openReviewCount,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt?.toISOString() ?? null,
@@ -625,6 +698,7 @@ export async function getDiff(id: string, userId?: string) {
     summary: diff.summary,
     changeCount: (diff.changes as DiffChange[]).length,
     pendingReviewCount: (diff.pendingReview as ReviewItem[]).length,
+    openReviewCount: diff.openReviewCount,
     status: diff.status,
     createdAt: diff.createdAt.toISOString(),
     expiresAt: diff.expiresAt?.toISOString() ?? null,
@@ -662,9 +736,13 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
   let rejectedCount = 0;
 
   if (input.action === 'reject_all') {
+    // `applyDiff` dispositions the whole diff, ambiguities included, so nothing is
+    // left open. Without this the diff would satisfy the `openReviewCount > 0` arm
+    // of the default list forever, with no way left to clear it — `applyDiff` is
+    // gated on `status = 'pending'` and would now refuse it (WIC-1428).
     await db
       .update(catalogDiffs)
-      .set({ status: 'rejected', resolvedAt: now, userDecisions: input })
+      .set({ status: 'rejected', resolvedAt: now, userDecisions: input, openReviewCount: 0 })
       .where(eq(catalogDiffs.id, id));
     return { applied: 0, rejected: changes.length, pendingReview: 0, status: 'rejected' };
   }
@@ -710,7 +788,7 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
 
     await tx
       .update(catalogDiffs)
-      .set({ status: finalStatus, resolvedAt: now, userDecisions: input })
+      .set({ status: finalStatus, resolvedAt: now, userDecisions: input, openReviewCount: 0 })
       .where(eq(catalogDiffs.id, id));
   });
 
@@ -884,9 +962,32 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
 export async function generateDiff(
   sourceType: 'resume' | 'application',
   sourceId: string,
-  userId?: string
+  userId: string
 ) {
   const db = getDb();
+  // The route validates only the *shape* of sourceId, so an authenticated
+  // caller may name any user's document ULID. Nothing downstream re-checks it
+  // on the way in: getTextContent reads the source row by id alone, and the
+  // extraction that follows auto-applies whatever it finds into the *caller's*
+  // catalog before the scoped lookup below ever runs. Resolving ownership here
+  // is what makes the 404 a decision this boundary takes, rather than a side
+  // effect of a predicate two layers down — so it holds even if the reader
+  // beneath is later widened.
+  if (userId) {
+    const [owned] =
+      sourceType === 'resume'
+        ? await db
+            .select({ id: resumes.id })
+            .from(resumes)
+            .where(and(eq(resumes.id, sourceId), eq(resumes.userId, userId)))
+        : await db
+            .select({ id: applications.id })
+            .from(applications)
+            .where(and(eq(applications.id, sourceId), eq(applications.userId, userId)));
+    // Same 404 the owner's own missing document yields — a foreign id and an
+    // absent one must stay indistinguishable to the caller.
+    if (!owned) throw new NotFoundError(sourceType === 'resume' ? 'Resume' : 'Application');
+  }
   // processCatalogChange reads the owner off event.metadata.userId (the shape
   // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
   // and every catalog row auto-applied alongside it — with user_id null, which
@@ -906,7 +1007,7 @@ export async function generateDiff(
     sourceId,
     changeType: 'created',
     timestamp: new Date().toISOString(),
-    metadata: { userId: userId ?? null },
+    metadata: { userId },
   });
   const conditions = [
     eq(catalogDiffs.triggerSource, sourceType === 'resume' ? 'resume_upload' : 'app_change'),
@@ -916,7 +1017,8 @@ export async function generateDiff(
   // back whichever diff is newest for that trigger. processCatalogChange bails
   // early when the source yields no text, so the row this call would otherwise
   // have inserted need not exist — the lookup then falls through to the owner's.
-  if (userId) conditions.push(eq(catalogDiffs.userId, userId));
+  // Unconditional: the owner is required, so this term is always present.
+  conditions.push(eq(catalogDiffs.userId, userId));
   const [diff] = await db
     .select()
     .from(catalogDiffs)
@@ -931,6 +1033,7 @@ export async function generateDiff(
     summary: diff.summary,
     changeCount: (diff.changes as DiffChange[]).length,
     pendingReviewCount: (diff.pendingReview as ReviewItem[]).length,
+    openReviewCount: diff.openReviewCount,
     status: diff.status,
     createdAt: diff.createdAt.toISOString(),
     expiresAt: diff.expiresAt?.toISOString() ?? null,
@@ -984,7 +1087,23 @@ export async function resolveDiffItem(
   }
   const decisions = { changeDecisions, reviewDecisions };
 
-  await db.update(catalogDiffs).set({ userDecisions: decisions }).where(eq(catalogDiffs.id, id));
+  // Recompute rather than decrement: this route is idempotent per item index, and a
+  // client re-submitting a decision for an index it already sent must not drive the
+  // count below the number of items genuinely left. Both `approve` and `reject`
+  // count as decided — rejecting an ambiguity is dismissing it, which is exactly as
+  // resolved as picking an option. Once this reaches 0 the diff drops out of the
+  // default list (WIC-1428, AC-2).
+  const reviewItems = (diff.pendingReview as ReviewItem[]) ?? [];
+  const decidedIndices = Object.keys(reviewDecisions).filter((k) => {
+    const i = Number(k);
+    return Number.isInteger(i) && i >= 0 && i < reviewItems.length;
+  });
+  const openReviewCount = Math.max(0, reviewItems.length - decidedIndices.length);
 
-  return { id, updated: true };
+  await db
+    .update(catalogDiffs)
+    .set({ userDecisions: decisions, openReviewCount })
+    .where(eq(catalogDiffs.id, id));
+
+  return { id, updated: true, openReviewCount };
 }

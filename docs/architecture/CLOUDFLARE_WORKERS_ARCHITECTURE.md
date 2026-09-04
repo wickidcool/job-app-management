@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document defines the architecture for migrating the Job Application Manager backend from Fastify/Node.js to Cloudflare Workers. The migration enables global edge deployment while maintaining compatibility with existing Supabase PostgreSQL and R2 storage.
+This document defines the architecture for migrating the Careerpin backend from Fastify/Node.js to Cloudflare Workers. The migration enables global edge deployment while maintaining compatibility with existing Supabase PostgreSQL and R2 storage.
 
 ## Architecture Overview
 

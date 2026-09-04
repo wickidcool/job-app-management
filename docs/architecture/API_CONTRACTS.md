@@ -1,8 +1,8 @@
-# Job Application Manager — API Contracts
+# Careerpin — API Contracts
 
 ## Overview
 
-This document defines the REST API contracts for the Job Application Manager backend.
+This document defines the REST API contracts for the Careerpin backend.
 The API is a **Hono** application deployed as a single **Cloudflare Worker**
 (`packages/api/src/worker.ts`), which serves both the `/api/*` routes and the built React
 SPA. It is backed by Supabase Postgres and by Cloudflare R2 for document storage. The
@@ -641,6 +641,14 @@ GET /dashboard
 
 Returns aggregated statistics for the authenticated user.
 
+`appliedThisWeek` and `appliedThisMonth` count the **act of applying** — every
+application whose `appliedAt` falls inside a rolling 7- or 30-day window,
+whatever its current status. Advancing an application to `phone_screen` (or
+even to `rejected`) therefore never decreases either number. `appliedThisMonth`
+is a fixed **30 days**, not calendar month-to-date; a surface that renders it
+must label it "last 30 days". Definitions and the two ways they have previously
+been got wrong: `docs/architecture/DATA_MODEL.md`, "Window metric definitions".
+
 **Response**: `200 OK`
 
 ```typescript
@@ -648,8 +656,8 @@ interface DashboardResponse {
   stats: {
     total: number;
     byStatus: Record<ApplicationStatus, number>;
-    appliedThisWeek: number;
-    appliedThisMonth: number;
+    appliedThisWeek: number;  // submissions in the last 7 days, any status
+    appliedThisMonth: number; // submissions in the last 30 days, any status
     responseRate: number;     // Ratio in [0,1] — applications with a response / applied. NOT a percentage; multiply at render
   };
   recentActivity: ActivityItem[];
@@ -799,7 +807,7 @@ export interface DashboardStats {
   byStatus: Record<ApplicationStatus, number>;
   appliedThisWeek: number;
   appliedThisMonth: number;
-  responseRate: number;     // 0-1, percentage of applications with response
+  responseRate: number;     // Ratio in [0,1] — applications with a response / applied. NOT a percentage; multiply at render
 }
 
 export interface ActivityItem {
@@ -1434,6 +1442,7 @@ interface AnalyzeJobFitRequest {
   // Exactly one of jobDescriptionText or jobDescriptionUrl required
   jobDescriptionText?: string;  // 50-50,000 characters
   jobDescriptionUrl?: string;   // Valid URL to job posting
+  applicationId?: string;       // Application this analysis is about (WIC-1652)
 }
 ```
 
@@ -1441,7 +1450,10 @@ interface AnalyzeJobFitRequest {
 
 ```typescript
 interface AnalyzeJobFitResponse {
+  id: string;                   // ULID of the persisted analysis (WIC-1652)
+  applicationId: string | null; // Owning application, or null for a scratch analysis
   recommendation: 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit' | null;
+  fitScore: number | null;      // Weighted required-skill match, 0-100
   summary: string;
   confidence: 'high' | 'medium' | 'low';
   
@@ -1676,6 +1688,12 @@ curl -X POST "$API_BASE/catalog/job-fit/analyze" \
 | `URL_FETCH_FAILED` | 422 | Could not retrieve job description from URL (blocked, timeout, etc.) |
 | `URL_FETCH_TIMEOUT` | 422 | URL fetch exceeded 10 second timeout |
 | `RATE_LIMIT_EXCEEDED` | 429 | Request rate limit exceeded (see headers) |
+| `APPLICATION_NOT_FOUND` | 404 | `applicationId` names no application the caller owns |
+
+`APPLICATION_NOT_FOUND` is raised **before** the rate-limit slot is taken and before the model is
+called, so an unresolvable `applicationId` costs the caller nothing. It deliberately does not
+distinguish "no such application" from "belongs to another user" — the lookup is scoped by owner, so
+telling the two apart would make the endpoint an existence oracle over other users' application ids.
 
 **Error Response Example**:
 
@@ -1691,6 +1709,49 @@ curl -X POST "$API_BASE/catalog/job-fit/analyze" \
   }
 }
 ```
+
+---
+
+#### List Stored Analyses
+
+```
+GET /catalog/job-fit/analyses
+```
+
+Every analysis is persisted (WIC-1652 / ADR-012), so this is how a client finds one again — in
+particular how `ApplicationDetail` decides whether an application has been analysed and what it
+scored, without re-running a rate-limited LLM call.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `applicationId` | string | — | Restrict to analyses owned by this application |
+| `limit` | integer | 20 | Page size, 1-100 |
+
+**Response**: `200 OK`
+
+```typescript
+interface ListJobFitAnalysesResponse {
+  analyses: JobFitAnalysisSummary[];   // newest first, by analyzedAt
+}
+
+interface JobFitAnalysisSummary {
+  id: string;
+  applicationId: string | null;
+  recommendation: 'strong_fit' | 'moderate_fit' | 'stretch' | 'low_fit' | null;
+  fitScore: number | null;
+  summary: string;
+  confidence: 'high' | 'medium' | 'low';
+  catalogEmpty: boolean;
+  analyzedAt: string;                  // ISO 8601
+}
+```
+
+A **summary**, not the whole analysis: the caller this exists for renders a tick and a percentage,
+and would otherwise pull four JSONB payloads per application to do it. Results are scoped to the
+calling user; the `applicationId` filter is applied *in addition to* that scoping, never instead of
+it, because application ids are caller-supplied.
 
 ---
 
@@ -1714,6 +1775,9 @@ AI-powered cover letter generation from catalog STAR entries, with support for r
 ```typescript
 interface CoverLetter {
   id: string;                    // ULID
+  applicationId?: string | null; // Application this was written for; null for
+                                 // rows created before this was recorded, and
+                                 // cleared if that application is deleted
   status: 'draft' | 'finalized';
   title: string;                 // Auto-generated or user-provided
   targetCompany: string;
@@ -1770,6 +1834,11 @@ Generates a new cover letter using catalog STAR entries and optional job fit ana
 
 ```typescript
 interface GenerateCoverLetterRequest {
+  // The application this letter is being written for (optional).
+  // Persisted as `cover_letters.application_id`. Must belong to the caller —
+  // an id the caller does not own is a 404, not a silent drop.
+  applicationId?: string;
+
   // Job context (at least one required)
   jobDescriptionText?: string;   // 50-50,000 characters
   jobDescriptionUrl?: string;    // Valid URL to job posting
@@ -2217,6 +2286,7 @@ Returns saved cover letters with search and filtering.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `status` | string | No | Filter by status: `draft`, `finalized` |
+| `applicationId` | string | No | Filter to one application's letters (**exact** match, unlike `company`) |
 | `company` | string | No | Filter by target company (partial match) |
 | `search` | string | No | Search in title, company, role, content |
 | `limit` | number | No | Max results (default: 20, max: 100) |
@@ -2232,6 +2302,7 @@ interface ListCoverLettersResponse {
 
 interface CoverLetterSummary {
   id: string;
+  applicationId?: string | null; // Application this was written for, if recorded
   status: 'draft' | 'finalized';
   title: string;
   targetCompany: string;
@@ -2781,10 +2852,17 @@ new member is ranked — the two cannot silently drift apart again. Display labe
 concern and do not version anything (`packages/web/src/constants/fitLevel.ts`; see the note under
 the UC-3 scoring algorithm).
 
-**Current limitation**: UC-3 analyses are not persisted — there is no `job_fit_analyses` table and
-`applications` carries no analysis reference — so every application currently reports
-`not_analyzed`, `analyzed: 0`. The contract above is what the endpoint returns once that lands; only
-the data source changes.
+> **Superseded 2026-08-30 (WIC-1652).** This section used to read *"UC-3 analyses are not persisted —
+> there is no `job_fit_analyses` table"*. They are now: `job_fit_analyses` exists, every
+> `POST /catalog/job-fit/analyze` writes a row, and an analysis may carry an owning `application_id`.
+> So `FitTier` is a live wire value with a real data source, and the warning above about
+> `weak_fit`/`not_analyzed` having been safe to change *because nothing was stored* no longer
+> applies — any further change to either union is now a genuine breaking revision.
+
+**Current limitation**: this report does not yet read `job_fit_analyses`. The table and its write
+path landed under WIC-1652; joining `applications` to its newest analysis so the report stops
+reporting `not_analyzed` for every row is the remaining work. Only the data source changes — the
+contract above is unaffected.
 
 ---
 

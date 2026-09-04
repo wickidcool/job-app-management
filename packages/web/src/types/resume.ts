@@ -42,13 +42,24 @@ export type ExportFormat = 'markdown' | 'pdf' | 'docx';
 
 export interface ResumeExport {
   id: string;
+  /** Owning resume. Always present on the wire, so `export_viewed` never needs a fallback. */
+  resumeId: string;
   name: string;
   createdAt: Date;
   linkedApplicationId?: string;
   linkedApplicationTitle?: string;
-  experienceIds: string[];
+  /**
+   * Optional: `resume_exports` does not record which experiences went into an
+   * export. Undefined means "unknown" and is not rendered — it must not be
+   * defaulted to `[]`, which would render a false "0 experiences".
+   */
+  experienceIds?: string[];
   format: ExportFormat;
-  fileSize: number;
+  /**
+   * Optional: `resume_exports` records no file size. Undefined means "unknown"
+   * and is not rendered — defaulting to `0` would render a false "0 B".
+   */
+  fileSize?: number;
 }
 
 export type UploadState = 'empty' | 'uploading' | 'processing' | 'complete' | 'error';

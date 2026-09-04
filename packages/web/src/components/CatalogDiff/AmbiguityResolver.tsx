@@ -104,10 +104,13 @@ export function AmbiguityResolver({ item, onResolve, onSkip }: AmbiguityResolver
               onChange={() => setSelectedOptionId('skip')}
               className="mt-0.5 h-4 w-4 border-neutral-300 text-neutral-600 focus:ring-neutral-500"
             />
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-neutral-700">
-                Skip (I&apos;ll resolve this later)
-              </div>
+            {/*
+              One wrapper, not two. The nesting was redundant, and it buried this radio's
+              only text three levels deep — past where a static check looks, and past the
+              flat structure the option labels above already have.
+            */}
+            <div className="flex-1 min-w-0 font-medium text-neutral-700">
+              Skip (I&apos;ll resolve this later)
             </div>
           </label>
         </div>

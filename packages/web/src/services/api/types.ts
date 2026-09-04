@@ -139,7 +139,12 @@ export interface APIConfig {
 export interface DashboardStats {
   total: number;
   byStatus: Record<ApplicationStatus, number>;
+  /** Submissions in the last 7 days, regardless of current status. */
   appliedThisWeek: number;
+  /**
+   * Submissions in the last **30 days** — a rolling window, not calendar
+   * month-to-date. Label it "last 30 days" if you bind it to a surface.
+   */
   appliedThisMonth: number;
   /**
    * Share of applications that drew a response, as a **ratio in [0, 1]** —
@@ -192,20 +197,28 @@ export interface AttentionApplication {
  * expected and does not mean the count is truncated.
  */
 export interface DashboardAttention {
+  /**
+   * The window `/reports/stale` applies by default. The attention card renders
+   * this rather than a hardcoded number, so its label can never promise a
+   * threshold different from the one the report it links to will apply
+   * (WIC-1479).
+   */
   staleThresholdDays: number;
-  savedThresholdDays: number;
+  /** Days after which a `saved` application counts as not-yet-submitted. */
+  unsubmittedThresholdDays: number;
   counts: {
     interviewing: number;
+    /** `applied` or `phone_screen`, not updated within `staleThresholdDays`. */
     stale: number;
-    staleActive: number;
     missingJobDescription: number;
-    staleSaved: number;
+    /** `saved`, created over `unsubmittedThresholdDays` ago. Not staleness. */
+    unsubmittedSaved: number;
   };
   samples: {
     interviewing: AttentionApplication[];
-    staleActive: AttentionApplication[];
+    stale: AttentionApplication[];
     missingJobDescription: AttentionApplication[];
-    staleSaved: AttentionApplication[];
+    unsubmittedSaved: AttentionApplication[];
   };
 }
 
@@ -235,6 +248,31 @@ export interface APIResume {
  */
 export interface ListResumesResponse {
   resumes: APIResume[];
+}
+
+/**
+ * A single `resume_exports` row, as returned by `GET /resumes/:id/exports`.
+ *
+ * Deliberately narrower than the `ResumeExport` the UI renders: the table stores
+ * no display name, no file size and no experience ids, so those are derived or
+ * left undefined by `transformAPIResumeExport` rather than faked. `metadata` is
+ * `{ sections, charCount }` today — `charCount` counts characters of the *source*
+ * resume text, so it is NOT a file size and must not be rendered as one.
+ */
+export interface APIResumeExport {
+  id: string;
+  resumeId: string;
+  exportType: string;
+  filePath: string;
+  generatedAt: string; // ISO 8601
+  metadata?: Record<string, unknown> | null;
+}
+
+/**
+ * List resume exports response
+ */
+export interface ListResumeExportsResponse {
+  exports: APIResumeExport[];
 }
 
 /**

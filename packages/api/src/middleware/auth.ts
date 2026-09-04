@@ -19,14 +19,61 @@ export function _resetJwksCache() {
   jwksCache.clear();
 }
 
+/**
+ * WIC-1554 — the authenticated caller's id, or a rejected request.
+ *
+ * A token can verify perfectly — right signature, right issuer, right audience,
+ * unexpired — and still carry no `sub`. This previously read
+ * `(payload.sub as string) ?? null` and called `next()`, so such a request was
+ * *authenticated with no identity*: `userId: null`, which every route launders
+ * into `undefined` via `c.get('userId') ?? undefined`, which the services then
+ * treated as "no owner filter". `/api/projects/*` is not in `PUBLIC_PATHS`, so
+ * this was reachable on the guarded path in a fully configured deployment, not
+ * only in the local bypass.
+ *
+ * There is no such thing as an anonymous authenticated caller, so this is a 401
+ * rather than something for each service to defend against. Note the check is
+ * not `?? null`: that admits an empty-string `sub`, which is falsy and degrades
+ * identically at every call site downstream.
+ *
+ * The genuine dev bypass is a different branch — the `!supabaseUrl &&
+ * !jwtSecret` early return above. Its *condition* is untouched by this guard
+ * and by ADR-010 D3 alike; what D3 changed is that it now supplies the
+ * `LOCAL_DEV_USER_ID` sentinel rather than `null`, retiring ADR-003's
+ * "left as null for local-only" affordance. So after D3 there is no path
+ * through this middleware that admits a request with no owner: this one 401s,
+ * and the bypass resolves a real tenant.
+ */
+function requireSubject(payload: { sub?: unknown }): string {
+  if (typeof payload.sub !== 'string' || payload.sub === '') {
+    // Thrown inside the caller's `try`, matching the `Missing iss claim` path
+    // below: the response is the generic 401, which discloses nothing about
+    // which claim was wrong.
+    throw new Error('Missing sub claim');
+  }
+  return payload.sub;
+}
+
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const supabaseUrl = (c.env?.SUPABASE_URL as string | undefined) ?? getConfig().supabaseUrl;
   const jwtSecret =
     (c.env?.SUPABASE_JWT_SECRET as string | undefined) ?? getConfig().supabaseJwtSecret;
 
-  // Bypass when no Supabase config is present (local dev without auth)
+  // Bypass when no Supabase config is present (local dev without auth).
+  //
+  // ADR-010 D3 — the bypass supplies a *real owner*, not an absence. Local dev
+  // is therefore "one specific tenant" rather than "no tenant", so every
+  // tenancy predicate downstream runs its owner branch here exactly as it does
+  // in production, instead of being skipped. That is the point: it is what
+  // makes local dev and E2E exercise the isolation logic rather than bypass it.
+  //
+  // The *condition* is deliberately untouched — D3 changes what the bypass
+  // supplies, never when it fires. A deployment with either variable set still
+  // takes the JWT path below and still 401s on a missing or invalid token.
   if (!supabaseUrl && !jwtSecret) {
-    c.set('userId', null);
+    // `||`, not `??`: a blank binding must fall through to the configured
+    // default rather than resolve to `''`, which `requireOwner` rejects.
+    c.set('userId', c.env?.LOCAL_DEV_USER_ID?.trim() || getConfig().localDevUserId);
     return next();
   }
 
@@ -59,13 +106,13 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         issuer,
         audience: 'authenticated',
       });
-      c.set('userId', (payload.sub as string) ?? null);
+      c.set('userId', requireSubject(payload));
     } else {
       // HS256 / symmetric path
       if (!jwtSecret) throw new Error('No JWT secret configured for HS256 token');
       const secret = new TextEncoder().encode(jwtSecret);
       const { payload } = await jwtVerify(token, secret);
-      c.set('userId', (payload.sub as string) ?? null);
+      c.set('userId', requireSubject(payload));
     }
   } catch {
     return c.json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } }, 401);

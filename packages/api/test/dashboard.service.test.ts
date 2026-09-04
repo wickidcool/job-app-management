@@ -28,9 +28,7 @@
  *
  * | | mutation to `dashboard.service.ts`                        | caught by |
  * |---|---------------------------------------------------------|-----------|
- * | A | stale predicate `lt` → `gt`                              | `stale counts rows NOT touched for STALE_THRESHOLD_DAYS` |
- * | B | `staleCondition` `NON_TERMINAL_STATUSES` → `ACTIVE_STATUSES` | `stale spans saved; staleActive excludes it` |
- * | C | `staleActive` sample order `asc` → `desc`                | `staleActive sample leads with the most stale row` |
+ * | C | `stale` sample order `asc` → `desc`                      | `stale sample leads with the most stale row` |
  * | D | `countMatching` bounded by `ATTENTION_SAMPLE_LIMIT`      | `AC-N1c: counts are full-table, samples are bounded` |
  * | E | `userFilter` dropped from `countMatching`                | `counts are scoped to the caller` |
  * | F | `interviewing` drops `phone_screen`                      | `interviewing sample spans both interviewing statuses` |
@@ -39,45 +37,54 @@
  * server-side — bound the counts by the sample limit and the Dashboard goes quietly
  * blind again. E leaks another user's counts (the WIC-1554 `userId: null` class).
  *
- * ## Four more cells, added in review — the "indistinguishable pair" axis
+ * **A and B retired here (WIC-1479).** They mutated the `lt`/status-list literals
+ * `buildAttentionConditions` used to build `staleCondition` locally. That
+ * predicate is now `staleWhere()`, whole, imported from `stale.ts` — this file no
+ * longer holds the literals A and B mutated, so it cannot grade them. Both live
+ * on, unchanged in spirit, as `stale.definition.test.ts`'s job: it owns
+ * `staleWhere`/`isStale` and mutation-tests the comparison direction and status
+ * set directly against the one place they are now declared. What this file still
+ * owns is that `getDashboardStats` *wires* that predicate through correctly —
+ * scoped by owner (E), bounded on samples but not counts (D), ordered right (C).
  *
- * The first revision of this file passed A–F but was blind to four mutations that
- * swap one member of a pair the typechecker cannot separate, because no fixture row
- * made the pair disagree:
+ * ## Two more cells — the "indistinguishable pair" axis, on the surviving predicate
  *
- * | | mutation to `dashboard.service.ts`                        | caught by |
- * |---|---------------------------------------------------------|-----------|
- * | I1 | `staleCondition` reads `savedThreshold` (3d), not `staleThreshold` (7d) | the two `counts.stale` assertions |
- * | I2 | same swap on `staleActiveCondition`                     | `stale spans saved; staleActive excludes it` |
- * | J | `staleCondition` keys off `createdAt`, not `updatedAt`   | the two `counts.stale` assertions |
- * | N | `staleActive` sample orders by `createdAt`, not `updatedAt` | `staleActive sample leads with the most stale row` |
- *
- * Two rows close all four. `applied-5d` sits in the (3, 7)-day gap that nothing
- * previously occupied, so the two `Date`s stop being interchangeable. `applied-stale-
- * born-yesterday` is the only row here whose `createdAt` and `updatedAt` disagree,
- * which is what makes the column choice observable at all. Both are inert under
- * correct code — one is fresh, one is stale-and-active exactly as the bucket intends.
- *
- * ## Three more, added in round 2 — the same axis on `staleSaved`
- *
- * Both rows above are `status = 'applied'`, and `staleSavedCondition` requires
- * `status = 'saved'`, so neither ever reaches that bucket and the identical axis
- * stayed open there:
+ * `staleCondition` no longer has a sibling `staleActiveCondition` to confuse it
+ * with (WIC-1479 merged the two: the unified definition is `applied`/
+ * `phone_screen` only, so a separate "active" subset is the same set). The pair
+ * this file can still confuse is the sample's sort column:
  *
  * | | mutation to `dashboard.service.ts`                        | caught by |
  * |---|---------------------------------------------------------|-----------|
- * | R | `staleSavedCondition` reads `staleThreshold` (7d), not `savedThreshold` (3d) | `staleSaved keys off createdAt, and against the 3-day saved threshold` |
- * | S | `staleSavedCondition` keys off `updatedAt`, not `createdAt` | the same cell, and the ordering cell below |
- * | U | `staleSaved` sample orders by `updatedAt`, not `createdAt` | `staleSaved sample is ordered by createdAt, not updatedAt` |
+ * | N | `stale` sample orders by `createdAt`, not `updatedAt`    | `stale sample leads with the most stale row` |
+ *
+ * `applied-stale-born-yesterday` is the row that closes N: stale by `updatedAt`
+ * (20d) but created yesterday, so it is the only row in the fixture where the two
+ * columns disagree — which is what makes the sort column observable at all.
+ *
+ * ## Three more, on `unsubmittedSaved` (`staleSaved` pre-WIC-1479)
+ *
+ * `unsubmittedSavedCondition` is still built locally in `dashboard.service.ts` —
+ * WIC-1479 only extracted the `stale` bucket to `staleWhere()`, because
+ * "unsubmitted" is explicitly not staleness (§ the module's own comment). So its
+ * threshold-confusion and column-confusion mutations are still this file's to
+ * catch:
+ *
+ * | | mutation to `dashboard.service.ts`                        | caught by |
+ * |---|---------------------------------------------------------|-----------|
+ * | R | `unsubmittedSavedCondition` reads a 14d threshold, not `UNSUBMITTED_THRESHOLD_DAYS` (3d) | `unsubmittedSaved keys off createdAt, and against the 3-day threshold` |
+ * | S | `unsubmittedSavedCondition` keys off `updatedAt`, not `createdAt` | the same cell, and the ordering cell below |
+ * | U | `unsubmittedSaved` sample orders by `updatedAt`, not `createdAt` | `unsubmittedSaved sample is ordered by createdAt, not updatedAt` |
  *
  * `saved-created-5d` is the one row that closes R and U: it is `saved` (so it
- * reaches the bucket), created into the (3, 7)-day window (so the threshold choice
- * moves it), and disagrees between its two columns (so the ordering choice moves
- * it). Inert under correct code — it is stale-and-saved exactly as intended.
+ * reaches the bucket), created into the (3, 14)-day window (so the threshold
+ * choice moves it), and disagrees between its two columns (so the ordering choice
+ * moves it). Inert under correct code — it is unsubmitted-and-saved exactly as
+ * intended.
  *
- * Note `staleSaved` now counts 3, which is above `ATTENTION_SAMPLE_LIMIT`, so D
- * reds these cells too. D was already a blanket mutation, so no discrimination is
- * lost — but it is why D moved from 6 cells to 7.
+ * Note `unsubmittedSaved` now counts 3, which is above `ATTENTION_SAMPLE_LIMIT`,
+ * so D reds these cells too. D was already a blanket mutation, so no
+ * discrimination is lost.
  *
  * Keep that property when editing `FIXTURE`: a row is worth adding when some mutation
  * moves it across a boundary, and worth keeping only while it still does.
@@ -95,8 +102,9 @@ vi.mock('../src/db/client.js', () => ({
   closeDb: async () => {},
 }));
 
-const { getDashboardStats, STALE_THRESHOLD_DAYS, SAVED_THRESHOLD_DAYS } =
+const { getDashboardStats, UNSUBMITTED_THRESHOLD_DAYS } =
   await import('../src/services/dashboard.service.js');
+const { DEFAULT_STALE_THRESHOLD_DAYS } = await import('../src/services/stale.js');
 const { applications } = await import('../src/db/schema.js');
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
@@ -126,6 +134,7 @@ CREATE TABLE applications (
   comp_target TEXT,
   next_action TEXT,
   next_action_due DATE,
+  interview_date TIMESTAMPTZ,
   job_description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -220,11 +229,10 @@ describe('getDashboardStats — attention counts are full-table', () => {
     expect(stats.total).toBe(150);
     // The headline: 40, not 2 and not 110.
     expect(attention.counts.stale).toBe(40);
-    expect(attention.counts.staleActive).toBe(40);
     // ...while the sample beside it stays bounded. Both numbers, together, are
     // the assertion — either one alone is satisfied by a mutation.
-    expect(attention.samples.staleActive).toHaveLength(2);
-    expect(attention.staleThresholdDays).toBe(STALE_THRESHOLD_DAYS);
+    expect(attention.samples.stale).toHaveLength(2);
+    expect(attention.staleThresholdDays).toBe(DEFAULT_STALE_THRESHOLD_DAYS);
   });
 
   it('counts survive well past the 50-row page the client can see', async () => {
@@ -241,9 +249,9 @@ describe('getDashboardStats — attention counts are full-table', () => {
 
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(attention.counts.staleSaved).toBe(137);
-    expect(attention.samples.staleSaved).toHaveLength(2);
-    expect(attention.savedThresholdDays).toBe(SAVED_THRESHOLD_DAYS);
+    expect(attention.counts.unsubmittedSaved).toBe(137);
+    expect(attention.samples.unsubmittedSaved).toHaveLength(2);
+    expect(attention.unsubmittedThresholdDays).toBe(UNSUBMITTED_THRESHOLD_DAYS);
   });
 });
 
@@ -253,45 +261,58 @@ describe('getDashboardStats — attention predicates', () => {
    * mutation moves it across a boundary.
    */
   const FIXTURE: Seed[] = [
-    // Stale and non-terminal, but `saved` — in `stale`, out of `staleActive`.
+    // Wrong status for `stale` (WIC-1479: `applied`/`phone_screen` only), but
+    // old enough that it would wrongly qualify if the status filter were
+    // dropped. Still reaches `unsubmittedSaved` on its `createdAt`.
     { id: 'saved-old', status: 'saved', updatedAt: daysAgo(30), createdAt: daysAgo(30) },
-    // The most stale *active* row. The `staleActive` sample must lead with it.
+    // The most stale row of the surviving population. The `stale` sample must
+    // lead with it.
     { id: 'applied-oldest', status: 'applied', updatedAt: daysAgo(30) },
-    // Stale and active, but newer than the one above.
-    { id: 'interview-newer', status: 'interview', updatedAt: daysAgo(10) },
-    // Fresh — inside the threshold, so stale by no definition.
+    // Wrong status for `stale` (interview is excluded, unlike pre-WIC-1479),
+    // but old enough — 20d — that it would wrongly qualify if the status
+    // filter were dropped rather than merely narrowed.
+    { id: 'interview-newer', status: 'interview', updatedAt: daysAgo(20) },
+    // Right status, inside the 14-day threshold: fresh, so stale by no definition.
     { id: 'applied-fresh', status: 'applied', updatedAt: daysAgo(1) },
     // Terminal and old: excluded from every stale bucket.
     { id: 'rejected-old', status: 'rejected', updatedAt: daysAgo(30) },
     { id: 'offer-old', status: 'offer', updatedAt: daysAgo(30) },
     { id: 'withdrawn-old', status: 'withdrawn', updatedAt: daysAgo(30) },
-    // Interviewing, both statuses, fresh so they touch no stale bucket.
+    // Right status, still fresh.
     { id: 'phone-screen-fresh', status: 'phone_screen', updatedAt: daysAgo(2) },
-    // Aged into the gap BETWEEN the two thresholds: older than SAVED (3d), newer
-    // than STALE (7d). Not stale. Present so the stale predicates cannot quietly
-    // read `savedThreshold` — the two Dates are declared four lines apart and are
-    // interchangeable to the typechecker, and with no row in this window the swap
-    // is invisible while the payload still reports `staleThresholdDays: 7`.
+    // Right status, inside the 14-day threshold (5d), so still fresh — the
+    // 3-day `UNSUBMITTED_THRESHOLD_DAYS` is a different bucket's threshold
+    // entirely and does not apply to a non-`saved` status.
     { id: 'applied-5d', status: 'applied', updatedAt: daysAgo(5) },
-    // Stale by `updatedAt` but brand new by `createdAt`. The mirror of the
-    // `staleSaved keys off createdAt` case below: it is the only row in this
+    // Stale by `updatedAt` (20d) but created yesterday. The only row in this
     // fixture where the two columns disagree, so it is the only thing standing
     // between `stale` and a silent rewrite onto `createdAt` — and, because it
-    // sorts between the other two active rows by one column and last by the
-    // other, between the sample's `orderBy` and the same rewrite.
+    // sorts between `applied-oldest` by one column and last by the other,
+    // between the sample's `orderBy` and the same rewrite.
     {
       id: 'applied-stale-born-yesterday',
       status: 'applied',
       updatedAt: daysAgo(20),
       createdAt: daysAgo(1),
     },
-    // The `staleSaved` mirror of the two rows above, and the reason it has to be
-    // separate from them: `staleSavedCondition` requires `status = 'saved'`, so
-    // `applied-5d` and `applied-stale-born-yesterday` never enter that bucket at
-    // all and neither of the properties they pin is observable there. Created into
-    // the (3, 7)-day window, so reading `staleThreshold` here drops it; last by
-    // `createdAt` but second by `updatedAt`, so ordering on the wrong column pulls
-    // it into the sample.
+    // Third row past the 14-day threshold, so the sample (limit 2) has a real
+    // choice to make: correctly ranked 3rd (least stale of the three) by
+    // `updatedAt`, but created long before either — so ordering by `createdAt`
+    // instead would rank it 1st and push `applied-stale-born-yesterday` out.
+    {
+      id: 'applied-stale-fresher',
+      status: 'applied',
+      updatedAt: daysAgo(15),
+      createdAt: daysAgo(40),
+    },
+    // The `unsubmittedSaved` mirror of `applied-stale-born-yesterday` above,
+    // and the reason it has to be separate: `unsubmittedSavedCondition`
+    // requires `status = 'saved'`, so an `applied` row never enters that
+    // bucket and the property it pins is not observable there. Created into
+    // the (3, 14)-day window, so
+    // reading a 14-day threshold here instead of `UNSUBMITTED_THRESHOLD_DAYS`
+    // drops it; last by `createdAt` but second by `updatedAt`, so ordering on
+    // the wrong column pulls it into the sample.
     {
       id: 'saved-created-5d',
       status: 'saved',
@@ -302,38 +323,38 @@ describe('getDashboardStats — attention predicates', () => {
 
   beforeEach(() => seed(FIXTURE));
 
-  /** Kills A: under `gt`, `stale` becomes the fresh rows instead. */
-  it('stale counts rows NOT touched for STALE_THRESHOLD_DAYS', async () => {
+  /**
+   * Confirms `stale` is wired to `staleWhere()`'s real definition end to end —
+   * `applied`/`phone_screen` only, past the 14-day threshold, keyed on
+   * `updatedAt` — against a real query rather than the unit-level coverage
+   * `stale.definition.test.ts` already has for the predicate itself.
+   */
+  it('stale counts only applied/phone_screen rows past the 14-day threshold', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    // saved-old + applied-oldest + interview-newer + applied-stale-born-yesterday
-    // + saved-created-5d (untouched for 20d, and `saved` is non-terminal).
-    // Not applied-fresh, not phone-screen-fresh, not applied-5d (inside the 7-day
-    // threshold, though outside the 3-day one), and none of the three terminal rows.
-    expect(attention.counts.stale).toBe(5);
-    expect(ids(attention.samples.staleActive)).not.toContain('applied-fresh');
-  });
-
-  /** Kills B: scoping `stale` to ACTIVE_STATUSES collapses it onto `staleActive`. */
-  it('stale spans saved; staleActive excludes it', async () => {
-    const { attention } = await getDashboardStats(USER_A);
-
-    expect(attention.counts.stale).toBe(5); // incl. saved-old + saved-created-5d
-    expect(attention.counts.staleActive).toBe(3); // excl. both saved rows
-    // The strict containment is the property; equality means the scopes merged.
-    expect(attention.counts.stale).toBeGreaterThan(attention.counts.staleActive);
-    expect(ids(attention.samples.staleActive)).not.toContain('saved-old');
+    // applied-oldest + applied-stale-born-yesterday + applied-stale-fresher.
+    // Not saved-old or interview-newer, despite both being 20-30 days old — wrong
+    // status. Not applied-fresh, phone-screen-fresh or applied-5d — right status,
+    // too fresh. Not saved-created-5d — wrong status. None of the three terminal rows.
+    expect(attention.counts.stale).toBe(3);
+    // ...while the sample beside it stays bounded at 2 — the same D property
+    // `AC-N1c` pins at larger scale, exercised here alongside the status filter.
+    expect(attention.samples.stale).toHaveLength(2);
+    expect(ids(attention.samples.stale)).not.toContain('applied-fresh');
+    expect(ids(attention.samples.stale)).not.toContain('saved-old');
+    expect(ids(attention.samples.stale)).not.toContain('interview-newer');
   });
 
   /**
-   * Kills C: `asc` → `desc` puts the 10-day row first.
+   * Kills C: `asc` → `desc` puts `applied-stale-fresher` (15d, least stale of
+   * the three) first instead of last.
    * Kills N: `applied-stale-born-yesterday` is second by `updatedAt` (20d) but last
    * by `createdAt` (1d), so ordering on the wrong column drops it from the sample.
    */
-  it('staleActive sample leads with the most stale row', async () => {
+  it('stale sample leads with the most stale row', async () => {
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(ids(attention.samples.staleActive)).toEqual([
+    expect(ids(attention.samples.stale)).toEqual([
       'applied-oldest',
       'applied-stale-born-yesterday',
     ]);
@@ -356,22 +377,22 @@ describe('getDashboardStats — attention predicates', () => {
   /**
    * Kills S: keying off `updatedAt` drops saved-touched (touched today) and admits
    * nothing to replace it.
-   * Kills R: reading `staleThreshold` (7d) instead of `savedThreshold` (3d) drops
-   * saved-created-5d, which sits in the gap between the two.
+   * Kills R: reading a 14-day threshold instead of `UNSUBMITTED_THRESHOLD_DAYS`
+   * (3d) drops saved-created-5d, which sits in the gap between the two.
    */
-  it('staleSaved keys off createdAt, and against the 3-day saved threshold', async () => {
+  it('unsubmittedSaved keys off createdAt, and against the 3-day threshold', async () => {
     await seed([
       // Created long ago but touched today: still not-yet-submitted, so it counts.
       { id: 'saved-touched', status: 'saved', updatedAt: daysAgo(0), createdAt: daysAgo(25) },
-      // Created today: inside the saved threshold.
+      // Created today: inside the unsubmitted threshold.
       { id: 'saved-new', status: 'saved', updatedAt: daysAgo(0), createdAt: daysAgo(0) },
     ]);
 
     const { attention } = await getDashboardStats(USER_A);
 
     // saved-old + saved-touched + saved-created-5d.
-    expect(attention.counts.staleSaved).toBe(3);
-    expect(ids(attention.samples.staleSaved)).not.toContain('saved-new');
+    expect(attention.counts.unsubmittedSaved).toBe(3);
+    expect(ids(attention.samples.unsubmittedSaved)).not.toContain('saved-new');
   });
 
   /**
@@ -382,14 +403,14 @@ describe('getDashboardStats — attention predicates', () => {
    * Separate from the case above so the ordering and the predicate fail
    * independently — together they would pin three properties under one name.
    */
-  it('staleSaved sample is ordered by createdAt, not updatedAt', async () => {
+  it('unsubmittedSaved sample is ordered by createdAt, not updatedAt', async () => {
     await seed([
       { id: 'saved-touched', status: 'saved', updatedAt: daysAgo(0), createdAt: daysAgo(25) },
     ]);
 
     const { attention } = await getDashboardStats(USER_A);
 
-    expect(ids(attention.samples.staleSaved)).toEqual(['saved-old', 'saved-touched']);
+    expect(ids(attention.samples.unsubmittedSaved)).toEqual(['saved-old', 'saved-touched']);
   });
 
   /**
@@ -478,9 +499,8 @@ describe('getDashboardStats — attention is scoped to the caller', () => {
 
     expect(stats.total).toBe(4);
     // Every one of these is 4 if `countMatching` loses its owner term.
-    expect(attention.counts.stale).toBe(2); // a-stale + a-saved
-    expect(attention.counts.staleActive).toBe(1); // a-stale
-    expect(attention.counts.staleSaved).toBe(1); // a-saved
+    expect(attention.counts.stale).toBe(1); // a-stale (a-saved is not applied/phone_screen)
+    expect(attention.counts.unsubmittedSaved).toBe(1); // a-saved
     expect(attention.counts.missingJobDescription).toBe(1); // a-nodesc
     expect(attention.counts.interviewing).toBe(1); // a-interview
   });
@@ -490,9 +510,9 @@ describe('getDashboardStats — attention is scoped to the caller', () => {
 
     const sampled = [
       ...attention.samples.interviewing,
-      ...attention.samples.staleActive,
+      ...attention.samples.stale,
       ...attention.samples.missingJobDescription,
-      ...attention.samples.staleSaved,
+      ...attention.samples.unsubmittedSaved,
     ];
     expect(sampled.length).toBeGreaterThan(0);
     // Anchored: assert the owner, not merely the absence of a known-bad id.
@@ -501,15 +521,14 @@ describe('getDashboardStats — attention is scoped to the caller', () => {
     for (const row of sampled) {
       expect(row.id.startsWith('a-')).toBe(true);
     }
-    expect(ids(attention.samples.staleActive)).toEqual(['a-stale']);
+    expect(ids(attention.samples.stale)).toEqual(['a-stale']);
   });
 
   it('user B sees its own aggregates, not A’s', async () => {
     const { attention } = await getDashboardStats(USER_B);
 
-    expect(attention.counts.stale).toBe(6); // 3 applied + 3 saved
-    expect(attention.counts.staleActive).toBe(3);
-    expect(attention.counts.staleSaved).toBe(3);
+    expect(attention.counts.stale).toBe(3); // 3 applied only (saved no longer counts)
+    expect(attention.counts.unsubmittedSaved).toBe(3);
     expect(attention.counts.missingJobDescription).toBe(3);
   });
 
@@ -529,7 +548,6 @@ describe('getDashboardStats — attention is scoped to the caller', () => {
     const { stats, attention } = await getDashboardStats();
 
     expect(stats.total).toBe(16); // 4 of A's + 12 of B's
-    expect(attention.counts.stale).toBe(8);
-    expect(attention.counts.staleActive).toBe(4);
+    expect(attention.counts.stale).toBe(4); // a-stale + 3 of B's applied rows
   });
 });
