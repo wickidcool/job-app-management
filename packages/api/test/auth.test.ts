@@ -13,7 +13,8 @@ vi.mock('jose', async (importOriginal) => {
 });
 
 // Mock all services so no DB is needed
-vi.mock('../src/services/application.service.js', () => ({
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
   createApplication: vi.fn(),
   getApplication: vi.fn(),
   listApplications: vi.fn().mockResolvedValue({ applications: [], totalCount: 0 }),
@@ -21,14 +22,25 @@ vi.mock('../src/services/application.service.js', () => ({
   deleteApplication: vi.fn(),
   updateApplicationStatus: vi.fn(),
 }));
-vi.mock('../src/services/dashboard.service.js', () => ({ getDashboardStats: vi.fn() }));
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
+  getDashboardStats: vi.fn(),
+}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/cover-letter.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/resume.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/project.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/dialogue.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/catalog.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/reports.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/resume-variant.service.js', () => ({}));
+// deliberate-total-mock: auth middleware only; routes are registered, never invoked, so the real module would add DB imports for no assertion
 vi.mock('../src/services/interviewPrep.service.js', () => ({}));
 vi.mock('../src/db/client.js', () => ({ db: {} }));
 

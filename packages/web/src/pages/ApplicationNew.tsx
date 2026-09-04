@@ -51,11 +51,20 @@ export function ApplicationNew() {
 
   return (
     <>
+      {/*
+        The dialog is not an overlay here — it is the entire route, opened unconditionally
+        and never closed except by navigating away. So its title is this route's h1, and
+        the page renders no heading of its own: a Radix modal aria-hides everything outside
+        its portal, so an h1 sitting beside this element would be present in the DOM and
+        missing from the accessibility tree. See ApplicationForm's `titleLevel` and
+        ApplicationNew.test.tsx, which fails on exactly that arrangement. WIC-1099.
+      */}
       <ApplicationForm
         open={true}
         onOpenChange={handleOpenChange}
         onSubmit={handleSubmit}
         mode="create"
+        titleLevel={1}
         defaultValues={defaultValues ?? undefined}
       />
 

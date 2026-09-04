@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { LOGIN_TITLES, PRODUCT_NAME } from '../constants/title';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 type AuthMode = 'login' | 'register';
 
@@ -14,6 +16,11 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // `/login` is in the outer <Routes>, above ProtectedRoute, so the shell's `RouteTitle`
+  // is not mounted for it — this page sets its own (ROUTE_TITLE_CONVENTION.md §5). Keyed
+  // by mode so the tab title mirrors the `<h1>` below, which is mode-dependent (WIC-1099).
+  useDocumentTitle(LOGIN_TITLES[mode]);
 
   useEffect(() => {
     if (user) {
@@ -45,9 +52,14 @@ export function Login() {
     }
   };
 
+  // The bootstrap branch is a route state a user can sit in, so it carries the route's h1
+  // like every other branch does. Visually hidden because this screen is a spinner-in-prose
+  // and a display heading over it would be chrome for something that is about to vanish —
+  // but an outline with a hole in it is not a state a screen-reader user can orient in.
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <h1 className="sr-only">Sign in</h1>
         <div className="text-gray-600">Loading...</div>
       </div>
     );
@@ -57,14 +69,29 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          {/* The page h1. `/login` sits outside the app chrome — it is the one route
-              `ProtectedRoute` does not wrap — so there is no ancestor heading for an h2
-              to belong to, and as an h2 this route had no h1 at all (WIC-1675 AC-3). */}
-          <h1 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Job Application Manager
+          {/*
+            The wordmark keeps its size and its position and stops being a heading. It named
+            the product, not the screen, and — since WIC-1675 AC-3 promoted it from h2 to
+            h1 — it was the page's *only* heading, with nothing naming the screen at all: so
+            heading navigation landed on a string that says nothing about what the user is
+            being asked to do (WIC-1099). Its text is `PRODUCT_NAME`, the same constant that
+            builds every page title (WIC-1089) — this element carried the rebrand from the
+            hardcoded "Job Application Manager" independently of the markup change here.
+
+            Note the new h1 below is the one place the "title mirrors the h1" rule
+            (ROUTE_TITLE_CONVENTION.md §5) does not apply to the *wordmark*: mirroring it
+            would yield "Careerpin — Careerpin". The route's title is the new copy
+            `Sign in` / `Create an account` instead, because this element names the
+            product rather than the screen — §5 and §6.1.
+          */}
+          <p className="mt-6 text-center text-3xl font-extrabold text-gray-900">{PRODUCT_NAME}</p>
+          <h1 className="mt-4 text-center text-xl font-bold text-gray-900">
+            {mode === 'login' ? 'Sign in' : 'Create an account'}
           </h1>
           <p className="mt-2 text-center text-sm text-gray-600">
-            {mode === 'login' ? 'Sign in to manage your job applications' : 'Create an account'}
+            {mode === 'login'
+              ? 'Sign in to manage your job applications'
+              : 'Start tracking your job applications'}
           </p>
         </div>
         <div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
