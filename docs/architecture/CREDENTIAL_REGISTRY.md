@@ -28,6 +28,7 @@ quarterly; individual rows may carry an earlier review date after an incident.
 | `LAYER0_DRIVER_TOKEN` (org Actions secret) | GitHub | DevOps / al@wickidcool.com | **Target: `Actions: read and write` on all org repos and nothing else** — a GitHub App installation token (preferred) or a fine-grained PAT. Cross-repo `actions:write` is required and the ephemeral `GITHUB_TOKEN` cannot provide it at any scope. | Annually; **immediately on the v1 → target swap** | **2026-09-19** (deliberately early — see note below) | Org Actions secret `LAYER0_DRIVER_TOKEN`, visibility *selected* → `job-app-management` only |
 | `CLOUDFLARE_API_TOKEN` (prod, `cfut_…`) | Cloudflare | DevOps / CEO (account owner) | Pages: Edit; Workers Scripts: Edit; Account: Read — **account-scoped to the deploy account only**. Mis-scoped/over-broad tokens are the WIC-869 failure. | Annually, or on compromise | **2026-11-08** | Company Cloudflare token; installed as GitHub prod secret (WIC-633) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare | DevOps | Non-secret identifier; must match the token's account | On account change | 2026-11-08 | GH secret / CI env (`CLOUDFLARE_ACCOUNT_ID`) |
+| `CLOUDFLARE_CAREERPIN_API` (marketing deploy) | Cloudflare | DevOps / CEO (account owner) | **Inferred from call sites — not measured; see note below.** Account: Read; DNS: Edit on zones `ace9c419c6a5129cf7b8d104528a29e1` (`careerpin.app`) and `e31283e2f9ddc738087daaf4698fb88c` (`careerpin.io`); Pages: Edit on project `careerpin-marketing`. A revoked token cannot be probed, so this column is derived from what `deploy-marketing.yml` calls, not from the token's actual grant. | Annually, or on compromise | ⛔ **REVOKED — measured 2026-09-05** (run `33983093085`). Rotation pending on **WIC-2100**; re-set this date when a working token lands. | Company Cloudflare token; installed as a **repo-level** GitHub Actions secret `CLOUDFLARE_CAREERPIN_API` (set by board 2026-06-11) |
 | `SUPABASE_SERVICE_KEY` (`service_role`) | Supabase | DevOps / al@wickidcool.com | Server-side only; bypasses RLS. Never shipped to the client bundle. | On compromise | **2026-11-08** | Supabase project `fnmuvgnkxdeupprcyvdt` → Settings → API |
 | `SUPABASE_ANON_KEY` | Supabase | DevOps | Client-safe; respects RLS. Must belong to the prod project ref. | On project/JWT rotation | 2026-11-08 | Supabase project `fnmuvgnkxdeupprcyvdt` → Settings → API |
 | `SUPABASE_JWT_SECRET` | Supabase | DevOps | Token signing/verification only | On compromise | **2026-11-08** | Supabase project `fnmuvgnkxdeupprcyvdt` → Settings → API → JWT |
@@ -72,6 +73,41 @@ and nothing else:
 4. Update this row's scope, cadence and review date; drop this note.
 
 Until step 4 lands, treat this row as **over-privileged and known**, not as compliant.
+
+### Note — `CLOUDFLARE_CAREERPIN_API` is revoked, and its scopes are inferred (WIC-2119)
+
+This row was **added after the credential had already died**, and the two facts are causally
+linked: it had no row, so it had no owner and no review date, so nothing was in a position to
+notice. It is the worked example for the last bullet under *How to use this registry*.
+
+**Measured 2026-09-05**, run `33983093085` (`careerpin-redirect-ownership-probe.yml`, 18:07:57Z):
+`GET /accounts` returned **403 / Cloudflare code 9109** *"Invalid access token"*, and the
+secondary zone-read control returned **403 / 9109** as well. The control is what makes the verdict
+unambiguous — a token that is merely under-scoped still reads its own zone. The run concludes
+`FATAL: token is REVOKED or EXPIRED — it cannot read its own zone either.`
+
+**It is not `CLOUDFLARE_API_TOKEN`, which is alive.** Measured the same day, run `33989113004`
+(20:06:40Z): `GET /accounts/{id}/tokens/verify` → **HTTP 200**, status `active`; corroborated by
+`deploy.yml`'s Deploy Production job succeeding at 19:19:59Z. Two Cloudflare tokens, two different
+states, similar names. Do not reason about one from the other.
+
+**The *Required scopes* column above is inferred, not measured, and that is a permanent property of
+this row while the token stays revoked** — nothing can be probed about a credential that 403s on
+every call. The entries are read off `deploy-marketing.yml`'s call sites: `GET /accounts` (`:43-56`),
+the DNS CNAME upserts on both zones (`:109-113`), and Pages `add_domain` on `careerpin-marketing`
+(`:156+`). Treat them as *what the workflow needs*, not as *what the token was granted* — the two
+may differ, and the difference is exactly what a rotation should resolve. **When the token is
+replaced, verify the grant and relabel this column as measured.**
+
+Consumers: `deploy-marketing.yml` (production marketing deploy — DNS + Pages, the only writer),
+`careerpin-redirect-ownership-probe.yml`, `cf-token-capability-probe.yml` and
+`remediate-worker-secret-leak.yml` (all read-only). The probe's failure is what surfaced this.
+
+⚠️ **Do not file another rotation ask.** WIC-2100 carries the pending one; WIC-2114 is a duplicate
+of the same finding. ⚠️ **WIC-2118 may change which token `deploy-marketing.yml` uses** — it is
+probing whether the live `CLOUDFLARE_API_TOKEN` can take over. This row describes today's measured
+state; if that probe lands, revisit the consumer list and this note rather than assuming either
+outcome.
 
 ## Column definitions
 
