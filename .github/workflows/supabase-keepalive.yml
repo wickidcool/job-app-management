@@ -369,6 +369,10 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no `actions/checkout`, so `gh` cannot infer the repo from a
+          # git remote and every `gh issue` call fails with "not a git repository".
+          # GH_REPO makes the target explicit and removes the checkout dependency.
+          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
