@@ -115,15 +115,38 @@ export async function createApplication(
   });
 }
 
+/**
+ * Read one application, plus its status history.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The where clause used to
+ * be `userId ? and(eq(applications.id, id), eq(applications.userId, userId)) : eq(applications.id,
+ * id)` — the `userId ? and(idTerm, ownerTerm) : idTerm` idiom `resume-variant.service.ts:55` names
+ * as the WIC-1482 / WIC-1500 defect. The fallback still *looks* scoped because the id term
+ * survives; what it drops is the owner term, turning a caller-supplied `id` into an IDOR read of
+ * any tenant's application. A `: undefined` grep does not find this shape — match on the fallback.
+ *
+ * The `statusHistory` read below is keyed on `applicationId` alone and is safe only because this
+ * read threw first, which is why the owner term here is not optional.
+ *
+ * Deliberately *not* repaired to `isNull(applications.userId)`. `applications.user_id` is nullable
+ * (`schema.ts:38`) and the `userId ?? null` insert paths at `:74`/`:98` are live, so an `isNull()`
+ * fallback would be a real reading — of somebody else's anonymous rows. Absence is an error here,
+ * not a narrower query.
+ */
 export async function getApplication(
   id: string,
-  userId?: string
+  userId: string
 ): Promise<{ application: ApplicationDTO; statusHistory: StatusHistoryDTO[] }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070). Narrowing
+  // the type is not the mechanism: `tsc` accepts a reintroduced `userId ?? undefined` at the call
+  // site, and the value comes from a JWT `sub` claim that can be absent at runtime.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to read an application', undefined, 400);
+  }
+
   const db = getDb();
 
-  const whereClause = userId
-    ? and(eq(applications.id, id), eq(applications.userId, userId))
-    : eq(applications.id, id);
+  const whereClause = and(eq(applications.id, id), eq(applications.userId, userId));
 
   const [app] = await db.select().from(applications).where(whereClause);
   if (!app) throw new NotFoundError('Application');
@@ -326,11 +349,28 @@ export async function updateApplication(
   return { application: toDTO(updated) };
 }
 
-export async function deleteApplication(id: string, userId?: string): Promise<void> {
+/**
+ * Delete one application.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). This is the fail-open
+ * ternary at its worst: the deleted fallback `: eq(applications.id, id)` dropped the owner term
+ * from a **DELETE**, so an absent owner destroyed any tenant's row by caller-supplied id. Not
+ * repaired to `isNull()` — on a nullable `user_id` that would delete somebody else's anonymous
+ * row instead. Absence is an error, so the branch is deleted rather than inverted.
+ */
+export async function deleteApplication(id: string, userId: string): Promise<void> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to delete an application',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(applications.id, id), eq(applications.userId, userId))
-    : eq(applications.id, id);
+  const whereClause = and(eq(applications.id, id), eq(applications.userId, userId));
 
   const [deleted] = await db
     .delete(applications)
@@ -340,17 +380,34 @@ export async function deleteApplication(id: string, userId?: string): Promise<vo
   if (!deleted) throw new NotFoundError('Application');
 }
 
+/**
+ * Transition one application's status, writing a `status_history` row.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The deleted fallback
+ * dropped the owner term from the `SELECT ... FOR UPDATE` that opens the transaction. That row
+ * lock is the *only* ownership check on this path — every write below keys on `id` alone and
+ * trusts it — so an absent owner did not merely read another tenant's application, it took a row
+ * lock on it and then transitioned it. Not repaired to `isNull()`; absence is an error here.
+ */
 export async function updateApplicationStatus(
   id: string,
   input: UpdateStatusInput,
-  userId?: string
+  userId: string
 ): Promise<{ application: ApplicationDTO; statusHistory: StatusHistoryDTO[] }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to update an application status',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
 
   return db.transaction(async (tx) => {
-    const lockWhere = userId
-      ? and(eq(applications.id, id), eq(applications.userId, userId))
-      : eq(applications.id, id);
+    const lockWhere = and(eq(applications.id, id), eq(applications.userId, userId));
 
     const [current] = await tx.select().from(applications).where(lockWhere).for('update');
 

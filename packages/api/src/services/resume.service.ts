@@ -893,16 +893,29 @@ export async function listResumeExports(
   return exports.map(exportToDTO);
 }
 
+/**
+ * Read one export of one resume, after proving the resume belongs to the caller.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The sibling of
+ * `listResumeExports`, which slice 2 (WIC-2071) closed for the same reason: the deleted `:
+ * eq(resumes.id, resumeId)` fallback dropped the owner term, and the export read below is keyed on
+ * `exportId` alone, so this probe is the entire tenancy guarantee of the function. Not repaired to
+ * `isNull()` — `resumes.user_id` is nullable (`schema.ts:77`) with live `userId ?? null` insert
+ * paths, so that reading would disclose somebody else's anonymous resumes.
+ */
 export async function getResumeExport(
   resumeId: string,
   exportId: string,
-  userId?: string
+  userId: string
 ): Promise<ResumeExportDTO> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to read a resume export', undefined, 400);
+  }
+
   const db = getDb();
 
-  const resumeWhere = userId
-    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
-    : eq(resumes.id, resumeId);
+  const resumeWhere = and(eq(resumes.id, resumeId), eq(resumes.userId, userId));
   const resume = await db.select().from(resumes).where(resumeWhere).limit(1);
   if (resume.length === 0) {
     throw new NotFoundError('Resume');
@@ -921,11 +934,23 @@ export async function getResumeExport(
   return exportToDTO(exp);
 }
 
-export async function deleteResume(resumeId: string, userId?: string): Promise<void> {
+/**
+ * Delete one resume, along with its stored file.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The deleted `:
+ * eq(resumes.id, resumeId)` fallback dropped the owner term from the read that authorises this
+ * DELETE — and the blast radius is wider than the row: `resume.filePath` from that read is handed
+ * to `deleteObject`/`fs.unlink` below, so an absent owner destroyed another tenant's **file in
+ * object storage** as well, which no database rollback recovers. Absence is an error here.
+ */
+export async function deleteResume(resumeId: string, userId: string): Promise<void> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to delete a resume', undefined, 400);
+  }
+
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
-    : eq(resumes.id, resumeId);
+  const whereClause = and(eq(resumes.id, resumeId), eq(resumes.userId, userId));
   const [resume] = await db.select().from(resumes).where(whereClause).limit(1);
   if (!resume) throw new NotFoundError('Resume');
 
@@ -949,14 +974,31 @@ export async function deleteResume(resumeId: string, userId?: string): Promise<v
   await db.delete(resumes).where(eq(resumes.id, resumeId));
 }
 
+/**
+ * Mint a time-limited signed URL for one resume's stored file.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The deleted `:
+ * eq(resumes.id, resumeId)` fallback dropped the owner term, and this read is the only check
+ * standing between a caller-supplied `resumeId` and a signed URL for the underlying object. That
+ * makes the fail-open branch worse than an ordinary IDOR read: it minted a **bearer credential**,
+ * valid for an hour and usable without any further authentication, over another tenant's file.
+ */
 export async function getResumeDownloadUrl(
   resumeId: string,
-  userId?: string
+  userId: string
 ): Promise<{ url: string; expiresAt: string }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to get a resume download URL',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
-    : eq(resumes.id, resumeId);
+  const whereClause = and(eq(resumes.id, resumeId), eq(resumes.userId, userId));
   const [resume] = await db.select().from(resumes).where(whereClause).limit(1);
   if (!resume) throw new NotFoundError('Resume');
 

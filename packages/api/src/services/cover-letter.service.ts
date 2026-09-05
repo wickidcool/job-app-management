@@ -25,6 +25,7 @@ import {
   CoverLetterError,
   NotFoundError,
   VersionConflictError,
+  AppError,
 } from '../types/index.js';
 
 // ── Application association (WIC-1544) ────────────────────────────────────────
@@ -426,17 +427,39 @@ Rules:
 
 // ── Get ───────────────────────────────────────────────────────────────────────
 
+/**
+ * Read one cover letter, plus the STAR entries it quotes.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The where clause used to
+ * be `userId ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId)) : eq(coverLetters.id,
+ * id)` — the `userId ? and(idTerm, ownerTerm) : idTerm` idiom `resume-variant.service.ts:55` names
+ * as the WIC-1482 / WIC-1500 defect. The fallback still *looks* scoped because the id term
+ * survives; what it drops is the owner term, so an absent owner turned a caller-supplied `id` into
+ * an IDOR read of any tenant's letter — content included.
+ *
+ * Deliberately *not* repaired to `isNull(coverLetters.userId)`. `cover_letters.user_id` is
+ * nullable (`schema.ts:479`), so the fail-closed reading would be a real read of somebody else's
+ * anonymous letters. Absence is an error on this path, so the branch is deleted, not inverted.
+ *
+ * Note the owner still flows into `fetchStarEntries` below, which keeps its own optional owner on
+ * purpose (`:53`) — that one is genuinely fail-**closed** via `isNull()` and is out of scope here.
+ */
 export async function getCoverLetter(
   id: string,
-  userId?: string
+  userId: string
 ): Promise<{
   coverLetter: CoverLetterDTO;
   usedStarEntries: UsedStarEntryDTO[];
 }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070). Narrowing
+  // the type is not the mechanism: `tsc` accepts a reintroduced `userId ?? undefined` at the call
+  // site, and the value comes from a JWT `sub` claim that can be absent at runtime.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to read a cover letter', undefined, 400);
+  }
+
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
-    : eq(coverLetters.id, id);
+  const whereClause = and(eq(coverLetters.id, id), eq(coverLetters.userId, userId));
   const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
@@ -517,11 +540,39 @@ export async function listCoverLetters(
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
+/**
+ * Apply an optimistic-locked update to one cover letter.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). This function carried
+ * **two** fail-open ternaries, not one — the same double slice 2 found in `updateApplication`:
+ *
+ *   1. the UPDATE predicate, whose fallback `and(eq(id), eq(version))` dropped the owner term and
+ *      left a caller-supplied `id` + `version` rewriting any tenant's letter — an IDOR **write**;
+ *   2. the read below that disambiguates 404 from 409, whose fallback `eq(id)` dropped it too.
+ *
+ * The second matters on its own, and is easy to wave through as merely a read. Unscoped, it
+ * answered `VersionConflictError` rather than `NotFoundError` for another tenant's letter —
+ * confirming the row exists, and re-opening precisely the distinction the owner term erases.
+ * Fixing only the write predicate would have left that oracle intact.
+ *
+ * Not repaired to `isNull()`: `cover_letters.user_id` is nullable (`schema.ts:479`), so the
+ * fail-closed reading would rewrite somebody else's anonymous letters. Absence is an error here.
+ */
 export async function updateCoverLetter(
   id: string,
   input: UpdateCoverLetterInput,
-  userId?: string
+  userId: string
 ): Promise<CoverLetterDTO> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to update a cover letter',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
 
   const updates: Record<string, unknown> = {
@@ -532,20 +583,18 @@ export async function updateCoverLetter(
   if (input.content !== undefined) updates.content = input.content;
   if (input.status !== undefined) updates.status = input.status;
 
-  const whereClause = userId
-    ? and(
-        eq(coverLetters.id, id),
-        eq(coverLetters.version, input.version),
-        eq(coverLetters.userId, userId)
-      )
-    : and(eq(coverLetters.id, id), eq(coverLetters.version, input.version));
+  const whereClause = and(
+    eq(coverLetters.id, id),
+    eq(coverLetters.version, input.version),
+    eq(coverLetters.userId, userId)
+  );
 
   const [row] = await db.update(coverLetters).set(updates).where(whereClause).returning();
 
   if (!row) {
-    const existingWhere = userId
-      ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
-      : eq(coverLetters.id, id);
+    // Ternary 2 of 2 (see the header). This read decides 404-vs-409, so dropping its owner term
+    // leaked existence even when the write above was correctly refused.
+    const existingWhere = and(eq(coverLetters.id, id), eq(coverLetters.userId, userId));
     const [existing] = await db.select().from(coverLetters).where(existingWhere).limit(1);
     if (!existing) throw new NotFoundError('Cover letter');
     throw new VersionConflictError();
@@ -556,11 +605,28 @@ export async function updateCoverLetter(
 
 // ── Delete ────────────────────────────────────────────────────────────────────
 
-export async function deleteCoverLetter(id: string, userId?: string): Promise<void> {
+/**
+ * Delete one cover letter.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). `whereClause` is reused
+ * by both the existence probe and the DELETE below, so the deleted `: eq(coverLetters.id, id)`
+ * fallback dropped the owner term from a **DELETE** — an absent owner destroyed any tenant's
+ * letter by caller-supplied id. Not repaired to `isNull()`; on a nullable `user_id` that would
+ * delete somebody else's anonymous letters instead. Absence is an error, so the branch is gone.
+ */
+export async function deleteCoverLetter(id: string, userId: string): Promise<void> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to delete a cover letter',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
-    : eq(coverLetters.id, id);
+  const whereClause = and(eq(coverLetters.id, id), eq(coverLetters.userId, userId));
   const [existing] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Cover letter');
   await db.delete(coverLetters).where(whereClause);
@@ -568,19 +634,36 @@ export async function deleteCoverLetter(id: string, userId?: string): Promise<vo
 
 // ── Revise ────────────────────────────────────────────────────────────────────
 
+/**
+ * Revise one cover letter through the LLM, then persist the result.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The deleted `:
+ * eq(coverLetters.id, id)` fallback dropped the owner term from the read that fetches the letter
+ * to be revised. That read is the only ownership check on this path, and its result is *sent to
+ * the model* — so an absent owner did not merely disclose another tenant's letter to the caller,
+ * it put that text in a third-party prompt. Absence is an error here, not a narrower query.
+ */
 export async function reviseCoverLetter(
   id: string,
   input: ReviseCoverLetterInput,
-  userId?: string
+  userId: string
 ): Promise<{
   coverLetter: CoverLetterDTO;
   changesApplied: string[];
   usedStarEntries: UsedStarEntryDTO[];
 }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to revise a cover letter',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
-    : eq(coverLetters.id, id);
+  const whereClause = and(eq(coverLetters.id, id), eq(coverLetters.userId, userId));
   const [existing] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!existing) throw new NotFoundError('Cover letter');
 
@@ -705,12 +788,30 @@ Rules:
 
 // ── Generate Outreach ─────────────────────────────────────────────────────────
 
+/**
+ * Generate an outreach message from a cover letter, a job-fit analysis, or STAR entries.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The deleted fallback sat
+ * on the optional `input.coverLetterId` read below, which becomes `contextText` for the prompt.
+ * With the owner term dropped, any tenant's letter could be pulled in as the context for a message
+ * addressed to a named human — the WIC-1818 hazard, one layer down. Absence is an error here.
+ */
 export async function generateOutreach(
   input: GenerateOutreachInput,
-  userId?: string
+  userId: string
 ): Promise<{
   message: OutreachMessageDTO;
 }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to generate an outreach message',
+      undefined,
+      400
+    );
+  }
+
   // Validation.
   //
   // Site the WIC-1818 card does not enumerate: the id satisfied
@@ -746,9 +847,10 @@ export async function generateOutreach(
 
   if (input.coverLetterId) {
     const db = getDb();
-    const whereClause = userId
-      ? and(eq(coverLetters.id, input.coverLetterId), eq(coverLetters.userId, userId))
-      : eq(coverLetters.id, input.coverLetterId);
+    const whereClause = and(
+      eq(coverLetters.id, input.coverLetterId),
+      eq(coverLetters.userId, userId)
+    );
     const [cl] = await db.select().from(coverLetters).where(whereClause).limit(1);
     if (!cl)
       throw new CoverLetterError(
@@ -851,15 +953,31 @@ Requirements:
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
+/**
+ * Render one cover letter to a downloadable document.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2072). The deleted `:
+ * eq(coverLetters.id, id)` fallback dropped the owner term, so an absent owner exported any
+ * tenant's letter to a file the caller then receives in full. Absence is an error, not a narrower
+ * query; not repaired to `isNull()` on a nullable `user_id`.
+ */
 export async function exportCoverLetter(
   id: string,
   input: ExportCoverLetterInput,
-  userId?: string
+  userId: string
 ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070).
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to export a cover letter',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(coverLetters.id, id), eq(coverLetters.userId, userId))
-    : eq(coverLetters.id, id);
+  const whereClause = and(eq(coverLetters.id, id), eq(coverLetters.userId, userId));
   const [row] = await db.select().from(coverLetters).where(whereClause).limit(1);
   if (!row) throw new NotFoundError('Cover letter');
 
