@@ -315,6 +315,59 @@ describe('OnboardingModal — nested confirmations hide the panel behind them (W
 });
 
 /**
+ * WIC-2060 — `outerFocusRestore` (`OnboardingModal.tsx:311`) was the last of the three
+ * focus-restore bindings deletable with a fully green suite. The two tests above pin the
+ * *nested* confirmations, and neither can reach this one: both open and close a
+ * confirmation while the panel stays mounted, so the panel's own `Dialog.Content` never
+ * unmounts and its `onCloseAutoFocus` never fires.
+ *
+ * Pinning it therefore needs the panel itself to open and close. `showOnboarding` is a
+ * plain field on the mocked context, so a rerender is the open and a second rerender is
+ * the close. The opener is captured by the hook's `focusin` mechanism rather than by
+ * `onOpenAutoFocus`: the component stays mounted throughout — `OnboardingModal.tsx:89`'s
+ * `!showOnboarding` early return sits *below* the hooks — so focusing a control while the
+ * panel is closed is exactly the "last element focused while no dialog was open" case
+ * that mechanism exists for.
+ *
+ * Asserted against the opener rather than `not.toBe(document.body)`, for the reason given
+ * at the "Skip for now" test above. Dropping the spread does not leave the panel with no
+ * close handler: Radix's own `onCloseAutoFocus` still runs, and it `preventDefault()`s and
+ * focuses `context.triggerRef`, which only a rendered `Dialog.Trigger` populates. There is
+ * none here, so the `?.` no-ops and focus is left on `<body>`.
+ */
+describe('OnboardingModal — the panel restores focus to whatever opened it (WIC-2060)', () => {
+  const harness = () => (
+    <MemoryRouter>
+      <button type="button">Open onboarding</button>
+      <OnboardingModal />
+    </MemoryRouter>
+  );
+
+  it('restores focus to the opener when the panel itself closes', async () => {
+    mockOnboarding({ currentStep: 3, showOnboarding: false });
+    const { rerender } = render(harness());
+
+    const opener = screen.getByRole('button', { name: /open onboarding/i });
+    opener.focus();
+    expect(document.activeElement).toBe(opener);
+
+    // Open the panel: its focus scope takes focus off the opener.
+    mockOnboarding({ currentStep: 3, showOnboarding: true });
+    rerender(harness());
+    await screen.findByRole('dialog');
+    expect(document.activeElement).not.toBe(opener);
+
+    // Close it. `outerFocusRestore` is the only thing that sends focus back.
+    mockOnboarding({ currentStep: 3, showOnboarding: false });
+    rerender(harness());
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: /open onboarding/i }))
+    );
+  });
+});
+
+/**
  * WIC-1429 review, required 3. The race these cover survived the WIC-1141 merge, but its
  * mechanism changed and the original wording no longer describes the code: the warning
  * used to early-`return` in place of the whole modal, unmounting ResumeUploadZone. It is
