@@ -1,0 +1,277 @@
+# WIC-2097: answer board question (i) on approval `d61d200b` with a measurement
+# instead of a lookup.
+#
+# Production's API has been 503 for logged-in users since 2026-08-26. The agreed
+# remedy (ADR-007 opt 1) is to give prod a Hyperdrive binding, and the approval
+# has sat pending for 4 days on one unanswered question: does the CI
+# `CLOUDFLARE_API_TOKEN` carry `Hyperdrive:Edit`, so DevOps can provision the
+# config from a workflow (clause i) — or must a human create it in the console
+# (clause ii)?
+#
+# That is a measurable fact, so this workflow measures it. It is READ-ONLY and
+# it DOES NOT FIX PRODUCTION: no Hyperdrive config is created, `wrangler.jsonc`
+# is untouched, nothing deploys. The prod deploy stays board-gated under
+# `d61d200b`.
+#
+# Safety fence (non-negotiable, see the card):
+#   * the token is never printed, not even a prefix — it reaches curl through a
+#     0600 config file so it never appears in `ps` argv either;
+#   * no `set -x` anywhere the token is in scope;
+#   * the ONLY non-GET is the deliberately-invalid `{}` POST that is the whole
+#     point of the probe. No PUT/PATCH/DELETE, no `wrangler deploy`;
+#   * the config list is re-read afterwards and the job FAILS LOUDLY if the set
+#     of config ids moved.
+name: CF Token Capability Probe
+
+# Manual only. This must never fire on push/PR — it spends a production-scoped
+# credential to answer a one-off board question.
+on:
+  workflow_dispatch:
+
+# The probe only ever reads. It needs no write scope on the repo.
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe CLOUDFLARE_API_TOKEN for Hyperdrive scope
+    runs-on: ubuntu-latest
+    # WIC-1095 house rule: every job is bounded, or GitHub's 6h default turns a
+    # wedged network call into a runner slot held all day. Four curls; 10m is
+    # already generous.
+    timeout-minutes: 10
+    # REQUIRED, not decorative: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+    # exist ONLY as `production` environment secrets (verified 2026-09-05 —
+    # the repo-level secret list holds just CLOUDFLARE_CAREERPIN_API). Without
+    # this line both interpolate to the empty string and every call below would
+    # 400 in a way that reads exactly like a dead token.
+    #
+    # This does not add a human gate: the `production` environment has
+    # `protection_rules: []`, so a dispatch reaches these secrets directly.
+    environment: production
+    steps:
+      # One step, on purpose: the token is in scope for exactly this block and
+      # nowhere else in the job.
+      - name: Probe Hyperdrive scope
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # NOTE: deliberately no `set -x` — the token is in scope here.
+
+          API="https://api.cloudflare.com/client/v4"
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "FATAL: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
+            echo "They are 'production' ENVIRONMENT secrets — check this job still declares"
+            echo "'environment: production'. Refusing to report a verdict from empty creds."
+            exit 1
+          fi
+
+          # Pass the credential via a 0600 curl config file rather than -H, so it
+          # is absent from the process argv table as well as from the logs.
+          CFG="$RUNNER_TEMP/cf-probe.conf"
+          BODY="$RUNNER_TEMP/cf-probe-body.json"
+          ( umask 077; printf 'header = "Authorization: Bearer %s"\nsilent\n' "$CLOUDFLARE_API_TOKEN" > "$CFG" )
+          trap 'rm -f "$CFG" "$BODY"' EXIT
+
+          HTTP=""
+          # req <method> <url> [json-body] -> sets $HTTP, writes response to $BODY
+          req() {
+            local method="$1" url="$2" data="${3-}"
+            if [ -n "$data" ]; then
+              HTTP="$(curl --config "$CFG" -o "$BODY" -w '%{http_code}' \
+                -X "$method" -H 'Content-Type: application/json' --data "$data" "$url")"
+            else
+              HTTP="$(curl --config "$CFG" -o "$BODY" -w '%{http_code}' -X "$method" "$url")"
+            fi
+          }
+
+          # Response bodies are NOT echoed wholesale: a Hyperdrive config's
+          # `origin` block carries the database host and user. Only these
+          # projections are ever printed.
+          cf_codes()   { jq -r '[.errors[]?.code]   | join(",")' "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+          cf_msgs()    { jq -r '[.errors[]?.message]| join(" | ")' "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+          cf_success() { jq -r '.success // "n/a"' "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+          cf_ids()     { jq -r '[.result[]?.id] | sort | join(",")' "$BODY" 2>/dev/null || echo "(unreadable)"; }
+
+          echo "=============================================================="
+          echo "STEP 1 - identify the token (ACCOUNT-scoped verify endpoint)"
+          echo "=============================================================="
+          # The account path is deliberate. An account-scoped token fails
+          # /user/tokens/verify BY DESIGN, and that 400 reads like a dead token.
+          # That exact misread has happened on this fleet before.
+          req GET "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify"
+          VERIFY_HTTP="$HTTP"
+          echo "  HTTP           : $VERIFY_HTTP"
+          echo "  success        : $(cf_success)"
+          # `.result.status` is active/expired/disabled. The token ID is NOT printed.
+          echo "  token status   : $(jq -r '.result.status // "n/a"' "$BODY" 2>/dev/null || echo '(non-JSON)')"
+          echo "  CF error codes : $(cf_codes)"
+          echo "  CF messages    : $(cf_msgs)"
+
+          echo
+          echo "=============================================================="
+          echo "STEP 2 - can the token READ Hyperdrive?"
+          echo "=============================================================="
+          req GET "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs"
+          READ_HTTP="$HTTP"
+          echo "  HTTP           : $READ_HTTP"
+          echo "  success        : $(cf_success)"
+          echo "  CF error codes : $(cf_codes)"
+
+          HYPERDRIVE_READ="no"
+          PRE_IDS="(unread)"
+          if [ "$READ_HTTP" = "200" ]; then
+            HYPERDRIVE_READ="yes"
+            PRE_IDS="$(cf_ids)"
+            echo "  existing configs (id / name):"
+            jq -r '.result[]? | "    - \(.id)  \(.name)"' "$BODY" 2>/dev/null || echo "    (none parseable)"
+            echo "  config count   : $(jq -r '[.result[]?] | length' "$BODY" 2>/dev/null || echo '?')"
+          else
+            echo "  messages       : $(cf_msgs)"
+            echo "  -> no Hyperdrive READ scope; clause (i) cannot hold."
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 3 - ORDERING CONTROL: does CF check authz before schema?"
+          echo "=============================================================="
+          # The card's Edit test (step 4) assumes Cloudflare evaluates
+          # authorization BEFORE payload validation. That assumption is
+          # falsifiable, so it gets tested rather than believed: fire the SAME
+          # invalid `{}` POST at an account this token certainly cannot touch.
+          #
+          # Nothing can be created here — the account is not ours.
+          # The literal is pure hex on purpose: `looksHighEntropy()` exempts
+          # pure-hex tokens, so this cannot trip `npm run scan:secrets`, which
+          # entropy-scans every file under .github/workflows/.
+          CONTROL_ACCT="00000000000000000000000000000001"
+          req POST "$API/accounts/$CONTROL_ACCT/hyperdrive/configs" '{}'
+          CTRL_HTTP="$HTTP"
+          echo "  control HTTP   : $CTRL_HTTP"
+          echo "  CF error codes : $(cf_codes)"
+          echo "  CF messages    : $(cf_msgs)"
+
+          # A definitely-unauthorized caller sending a definitely-invalid body:
+          #   * authz-shaped answer (401/403/404/...) => authz runs FIRST => step 4 is valid;
+          #   * 400 validation answer               => schema runs FIRST => step 4 proves nothing.
+          # Treating *any* 400 as schema-first is the conservative direction: it
+          # costs a verdict of "undetermined" rather than an overclaim.
+          if [ "$CTRL_HTTP" = "400" ]; then
+            AUTHZ_FIRST="no"
+            echo "  -> schema validation appears to run BEFORE authorization."
+            echo "     Step 4 is NOT a valid Edit test; Edit will be reported UNDETERMINED."
+          else
+            AUTHZ_FIRST="yes"
+            echo "  -> authorization runs BEFORE payload validation. Step 4 is a valid Edit test."
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 4 - can the token EDIT Hyperdrive? (nothing is created)"
+          echo "=============================================================="
+          # Deliberately invalid body. If authz clears, the request dies on the
+          # schema and no config is written; if authz does not clear, it never
+          # reaches the schema. Either way this creates nothing.
+          req POST "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs" '{}'
+          EDIT_HTTP="$HTTP"
+          EDIT_CODES="$(cf_codes)"
+          echo "  HTTP           : $EDIT_HTTP"
+          echo "  success        : $(cf_success)"
+          echo "  CF error codes : $EDIT_CODES"
+          echo "  CF messages    : $(cf_msgs)"
+
+          CREATED="no"
+          case "$EDIT_HTTP" in
+            2*) CREATED="yes" ;;
+          esac
+
+          HYPERDRIVE_EDIT="undetermined"
+          if [ "$HYPERDRIVE_READ" = "no" ]; then
+            HYPERDRIVE_EDIT="no"
+          elif [ "$AUTHZ_FIRST" = "no" ]; then
+            HYPERDRIVE_EDIT="undetermined"
+          else
+            case "$EDIT_HTTP" in
+              401|403) HYPERDRIVE_EDIT="no" ;;
+              400)     HYPERDRIVE_EDIT="yes" ;;
+              *)       HYPERDRIVE_EDIT="undetermined" ;;
+            esac
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 5 - prove the probe created nothing"
+          echo "=============================================================="
+          POST_IDS="(unread)"
+          if [ "$HYPERDRIVE_READ" = "yes" ]; then
+            req GET "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs"
+            echo "  re-read HTTP   : $HTTP"
+            POST_IDS="$(cf_ids)"
+            echo "  pre-probe  ids : $PRE_IDS"
+            echo "  post-probe ids : $POST_IDS"
+            if [ "$PRE_IDS" != "$POST_IDS" ]; then
+              echo "  FATAL: the Hyperdrive config list CHANGED across the probe."
+              echo "  This probe must be side-effect free. Investigate immediately."
+              exit 1
+            fi
+            LIST_CHECK="yes (pre-probe id set == post-probe id set)"
+            echo "  -> config list unchanged. Probe created nothing."
+          else
+            # Read was denied, so the list cannot be compared. The
+            # nothing-was-created claim then rests solely on step 4 not
+            # returning 2xx — assert that explicitly rather than passing quietly.
+            echo "  config list unreadable (no read scope), so no list diff is possible."
+            if [ "$CREATED" = "yes" ]; then
+              echo "  FATAL: the create POST returned $EDIT_HTTP (2xx) — something may exist now."
+              exit 1
+            fi
+            LIST_CHECK="n/a - list unreadable; asserted create POST was non-2xx instead"
+            echo "  -> create POST returned $EDIT_HTTP (non-2xx). Nothing was created."
+          fi
+
+          if [ "$CREATED" = "yes" ]; then
+            echo "  FATAL: create POST returned $EDIT_HTTP (2xx). A config may have been created."
+            exit 1
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "VERDICT"
+          echo "=============================================================="
+          if [ "$HYPERDRIVE_READ" = "no" ]; then
+            echo "HYPERDRIVE_READ=no"
+            VERDICT="HYPERDRIVE_READ=no"
+            NOTE="Token has no Hyperdrive scope at all. Board question (i) is REFUTED; the board must take clause (ii) and create the config in the Cloudflare console."
+          else
+            echo "HYPERDRIVE_READ=yes"
+            echo "HYPERDRIVE_EDIT=$HYPERDRIVE_EDIT"
+            VERDICT="HYPERDRIVE_EDIT=$HYPERDRIVE_EDIT"
+            case "$HYPERDRIVE_EDIT" in
+              yes) NOTE="Clause (i) is SATISFIED: the token carries Hyperdrive:Edit, so DevOps can provision the config from a workflow. The board's remaining decision is ONLY whether to approve the prod deploy." ;;
+              no)  NOTE="Clause (i) is REFUTED: the token can read Hyperdrive but cannot create a config. The board must take clause (ii) and create it in the Cloudflare console." ;;
+              *)   NOTE="Edit scope is UNDETERMINED — the ordering control showed this endpoint does not cleanly separate authz from schema validation, so the invalid-body test proves nothing. Steps 1-2 stand; do not infer Edit from them." ;;
+            esac
+          fi
+          echo
+          echo "$NOTE"
+
+          {
+            echo "## CF token capability probe (WIC-2097)"
+            echo
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| token verify (account path) | HTTP $VERIFY_HTTP |"
+            echo "| Hyperdrive read | \`HYPERDRIVE_READ=$HYPERDRIVE_READ\` (HTTP $READ_HTTP) |"
+            echo "| authz-before-schema control | \`AUTHZ_FIRST=$AUTHZ_FIRST\` (HTTP $CTRL_HTTP) |"
+            echo "| Hyperdrive edit | \`HYPERDRIVE_EDIT=$HYPERDRIVE_EDIT\` (HTTP $EDIT_HTTP, codes $EDIT_CODES) |"
+            echo "| config list unchanged | $LIST_CHECK |"
+            echo
+            echo "**Verdict: \`$VERDICT\`**"
+            echo
+            echo "$NOTE"
+            echo
+            echo "_This probe is read-only. It did not create a Hyperdrive config, touch \`wrangler.jsonc\`, or deploy. The production deploy remains board-gated under approval \`d61d200b\`._"
+          } >> "$GITHUB_STEP_SUMMARY"
