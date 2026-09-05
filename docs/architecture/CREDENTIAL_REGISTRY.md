@@ -26,7 +26,7 @@ quarterly; individual rows may carry an earlier review date after an incident.
 | `Github api key` (canonical GitHub PAT, `ghp_…`) | GitHub | DevOps / al@wickidcool.com | `repo`, `workflow`, `admin:org` (org automation). Trim `admin:org` if org-level actions stop being needed. | Annually, or on compromise | **2026-11-08** | Company secret store, key `Github api key` (see [precedence](./CREDENTIAL_PRECEDENCE.md), GitHub row) |
 | `GITHUB_TOKEN` (GH Actions ephemeral) | GitHub | GitHub Actions (auto) | Job-scoped, default read; elevate per-workflow only as needed | Per-run (ephemeral) | n/a (ephemeral) | GitHub Actions runtime |
 | `LAYER0_DRIVER_TOKEN` (org Actions secret) | GitHub | DevOps / al@wickidcool.com | **Target: `Actions: read and write` on all org repos and nothing else** — a GitHub App installation token (preferred) or a fine-grained PAT. Cross-repo `actions:write` is required and the ephemeral `GITHUB_TOKEN` cannot provide it at any scope. | Annually; **immediately on the v1 → target swap** | **2026-09-19** (deliberately early — see note below) | Org Actions secret `LAYER0_DRIVER_TOKEN`, visibility *selected* → `job-app-management` only |
-| `CLOUDFLARE_API_TOKEN` (prod, `cfut_…`) | Cloudflare | DevOps / CEO (account owner) | Pages: Edit; Workers Scripts: Edit; Account: Read — **account-scoped to the deploy account only**. Mis-scoped/over-broad tokens are the WIC-869 failure. | Annually, or on compromise | **2026-11-08** | Company Cloudflare token; installed as GitHub prod secret (WIC-633) |
+| `CLOUDFLARE_API_TOKEN` (prod, `cfut_…`) | Cloudflare | DevOps / CEO (account owner) | **Measured 2026-09-05** (runs `33989113004`, `33989995418`) — see note below. **Confirmed present:** Account: Read; Zone: Read and **DNS: Read** on `careerpin.app` + `careerpin.io`; Workers Scripts: Edit (exercised by `deploy.yml`'s `wrangler deploy`). **Confirmed ABSENT: Pages** — the `careerpin-marketing` project read returns 403/`10000`, and Cloudflare's Pages *write* group grants read, so a denied read rules out `Pages: Edit`. **`DNS: Edit` unverified in either direction** — do not record it as present. Also absent: Hyperdrive (WIC-2097), API Tokens: Read. **Account-scoped to the deploy account only**; mis-scoped/over-broad tokens are the WIC-869 failure. | Annually, or on compromise | **2026-11-08** | Company Cloudflare token; installed as GitHub prod secret (WIC-633) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare | DevOps | Non-secret identifier; must match the token's account | On account change | 2026-11-08 | GH secret / CI env (`CLOUDFLARE_ACCOUNT_ID`) |
 | `CLOUDFLARE_CAREERPIN_API` (marketing deploy) | Cloudflare | DevOps / CEO (account owner) | **Inferred from call sites — not measured; see note below.** Account: Read; DNS: Edit on zones `ace9c419c6a5129cf7b8d104528a29e1` (`careerpin.app`) and `e31283e2f9ddc738087daaf4698fb88c` (`careerpin.io`); Pages: Edit on project `careerpin-marketing`. A revoked token cannot be probed, so this column is derived from what `deploy-marketing.yml` calls, not from the token's actual grant. | Annually, or on compromise | ⛔ **REVOKED — measured 2026-09-05** (run `33983093085`). Rotation pending on **WIC-2100**; re-set this date when a working token lands. | Company Cloudflare token; installed as a **repo-level** GitHub Actions secret `CLOUDFLARE_CAREERPIN_API` (set by board 2026-06-11) |
 | `SUPABASE_SERVICE_KEY` (`service_role`) | Supabase | DevOps / al@wickidcool.com | Server-side only; bypasses RLS. Never shipped to the client bundle. | On compromise | **2026-11-08** | Supabase project `fnmuvgnkxdeupprcyvdt` → Settings → API |
@@ -103,11 +103,71 @@ Consumers: `deploy-marketing.yml` (production marketing deploy — DNS + Pages, 
 `careerpin-redirect-ownership-probe.yml`, `cf-token-capability-probe.yml` and
 `remediate-worker-secret-leak.yml` (all read-only). The probe's failure is what surfaced this.
 
+### Note — `CLOUDFLARE_API_TOKEN` has **no Pages access**, and a green production deploy does not say otherwise (WIC-2121)
+
+Until 2026-09-05 this row claimed *Pages: Edit; Workers Scripts: Edit; Account: Read*. That was
+**inverted on both counts it spoke to**: the capability it named is absent, and a capability it did
+not name reads fine. The row was never measured — it was inferred, and the inference had a specific
+bad step, recorded below so it is not repeated.
+
+**Measured 2026-09-05**, run `33989995418` (`cf-marketing-token-drop-in-probe.yml`, read-only, GETs
+only, dispatched on `main` at 20:24:11Z), with a **positive control first** so that every 403 below
+is a scope gap rather than a dead credential:
+
+| # | capability | HTTP | CF code |
+|---|---|---|---|
+| 0 | **positive control** — account-scoped `tokens/verify` | **200**, status `active` | — |
+| 1 | `GET /accounts` | 200 (count = 1) | — |
+| 2 | read the token's **own policy** (`/user/tokens`) | **403** | **9109** |
+| 3 | zone reads, `careerpin.app` / `careerpin.io` | 200 / 200 | — |
+| 4 | **DNS record list**, both zones | **200 / 200** (5 and 4 records) | — |
+| 5 | **Pages project read** (`careerpin-marketing`) | **403** | **10000** |
+
+Verdict line: `TOKEN_ALIVE=yes  DNS_READ=yes  PAGES_READ=no  POLICY_READ=no  DROP_IN=no`. Aliveness is
+corroborated by run `33989113004` (20:06:40Z, `tokens/verify` → 200 `active`).
+
+**Scope inference here is one-directional, and that is what makes the Pages result decisive.**
+Cloudflare's *write* permission groups grant read as well, so:
+
+- a **denied read rules out write** — step 5's 403 is decisive against `Pages: Edit`;
+- a **successful read proves only read** — step 4 establishes `DNS: Read` and says *nothing* about
+  `DNS: Edit`.
+
+So `DNS: Edit` is **unverified in either direction**, not present and not absent. It could not be
+settled because step 2 failed: the token cannot read its own policy, so its permission groups could
+not be enumerated. **Do not promote `DNS: Read` to `DNS: Edit` on the strength of the 200.** The only
+things that would settle it are a policy read (needs `API Tokens: Read`, which this token lacks) or
+an actual write, which no read-only probe may perform.
+
+#### ⛔ A green `deploy.yml` production run is **not** evidence of Pages capability — Workers ≠ Pages
+
+This is the misread the old row invites, and almost certainly how it was written. `deploy.yml`'s
+Deploy Production job succeeded on this exact token at 19:19:59Z the same day (run `33986788859`),
+which reads as *"Pages works"*. It does not. That job runs `wrangler deploy`, `wrangler secret bulk`
+and `wrangler r2 bucket create` — **Cloudflare Workers**, a different product with a different
+permission group from **Cloudflare Pages**. The string `pages` does not appear in `deploy.yml` at
+all; `wrangler pages deploy` and `/pages/projects` appear only in `deploy-marketing.yml`, which uses
+the *other* token. A green production deploy is therefore strong evidence for **`Workers Scripts:
+Edit`** — and no evidence whatsoever about Pages.
+
+The general rule, worth more than this row: **a green pipeline certifies the capabilities it actually
+exercises, not the ones the product names suggest.** When two Cloudflare products share a vendor and
+a CLI, the deploy log is the only thing that tells you which one ran.
+
+**Remediation is out of scope here and is not a fresh ask.** The missing scope is tracked on
+**WIC-2100**, which already carries a pending `human_only` request; WIC-2114 is a duplicate of the
+same finding. This note is the documentation correction only.
+
 ⚠️ **Do not file another rotation ask.** WIC-2100 carries the pending one; WIC-2114 is a duplicate
-of the same finding. ⚠️ **WIC-2118 may change which token `deploy-marketing.yml` uses** — it is
-probing whether the live `CLOUDFLARE_API_TOKEN` can take over. This row describes today's measured
-state; if that probe lands, revisit the consumer list and this note rather than assuming either
-outcome.
+of the same finding.
+
+✅ **WIC-2118 has landed, and the answer is no — `deploy-marketing.yml` keeps this token.** That card
+asked whether the live `CLOUDFLARE_API_TOKEN` could stand in for this one. Run `33989995418` measured
+it against every one of this workflow's call sites and returned **`DROP_IN=no`**: the substitute
+clears `GET /accounts` and both zones' DNS reads, but is **denied on the Pages project read**, which
+is the capability `deploy-marketing.yml` exists to exercise. So the consumer list below is unchanged,
+and the rotation on WIC-2100 remains the only route. See the `CLOUDFLARE_API_TOKEN` note below for
+the full measurement.
 
 ## Column definitions
 

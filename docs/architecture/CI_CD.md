@@ -90,7 +90,7 @@ A job sees them only if it declares `environment: dev` or `environment: producti
 
 | Secret                  | Description                                     | How to obtain                                                                                                 |
 | ----------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`  | Cloudflare API token with Pages edit permission | [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) > Create Token > Edit Cloudflare Pages |
+| `CLOUDFLARE_API_TOKEN`  | Cloudflare API token for the **Workers** production deploy (`wrangler deploy`). **Not a Pages token** — measured 2026-09-05, it has no Pages access at all; see [CREDENTIAL_REGISTRY.md](./CREDENTIAL_REGISTRY.md) (WIC-2121). | [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) > Create Token > **Edit Cloudflare Workers** |
 | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID                      | Cloudflare Dashboard > Account Home > right sidebar                                                           |
 | `SUPABASE_DATABASE_URL` | PostgreSQL connection string (pooler)           | Supabase Dashboard > Project Settings > Database > Connection string (use Pooler mode)                        |
 
