@@ -179,6 +179,21 @@ jobs:
       - name: Audit migration journal
         run: node packages/api/scripts/audit-migration-journal.mjs
 
+      # WIC-2107: wrangler resolves its config by three independent find-up
+      # walks, one per FILENAME (wrangler.json > .jsonc > .toml), so filename
+      # precedence beats directory proximity — a root `wrangler.jsonc` silently
+      # outranks a `wrangler.toml` sitting in the very directory a step cd'd
+      # into. That is not what anyone reads a `working-directory:` line to mean,
+      # and this repo carried a second config whose `[env.preview]` named the
+      # PRODUCTION Worker while every other caller's `--env preview` meant
+      # `jobtrail-preview`. Nothing resolved it, so nothing broke — but the gap
+      # between the two was invisible in every diff and one filename away from
+      # going live. This asserts every wrangler call site still resolves the root
+      # config, and that no config in the tree is shadowed by an ancestor.
+      # Pure-stdlib python3, no network, ~50ms.
+      - name: Audit wrangler config resolution
+        run: python3 scripts/wrangler-config-resolution-check.py
+
       - name: Run tests
         run: npm run test
 

@@ -146,14 +146,31 @@ Schema and table documentation live in [DATA_MODEL.md](./DATA_MODEL.md).
 
 ## Environments
 
-**The deployed configuration is the repository-root [`wrangler.jsonc`](../../wrangler.jsonc).** `deploy.yml` invokes `cloudflare/wrangler-action` with `command: deploy` from the repo root and no `--config`, so that file — not `packages/api/wrangler.toml` — is what ships:
+**The deployed configuration is the repository-root [`wrangler.jsonc`](../../wrangler.jsonc), and it is the _only_ Worker config the app has.** Every wrangler caller resolves it:
 
 | Environment | Worker name | R2 bucket | Hyperdrive |
 |---|---|---|---|
 | production (top level) | `jobtrail` | `jobtrail-documents` | none — Supabase pooler via `DATABASE_URL` |
 | `preview` (PR deploys) | `jobtrail-preview` | `jobtrail-documents-dev` | bound |
 
-> ⚠️ `packages/api/wrangler.toml` is a **second, divergent config that never deploys**. It names different Workers (`jobapp-api`, `jobapp-api-dev`, `jobapp-api-staging`), pins `compatibility_date = "2024-01-01"`, declares no static assets, and carries Hyperdrive only as a commented-out template. Read the root `wrangler.jsonc` for anything authoritative.
+### `working-directory` does not choose the wrangler config — filename precedence does
+
+Wrangler resolves its config with **three independent find-up walks, one per filename**, in the order `wrangler.json` → `wrangler.jsonc` → `wrangler.toml` (`findWranglerConfig`). The consequence is unintuitive and worth internalising before you add a wrangler step:
+
+> **Filename precedence is evaluated before directory proximity.** The `.jsonc` walk runs to completion before the `.toml` walk begins, so a `wrangler.jsonc` at **any ancestor** beats a `wrangler.toml` sitting in the cwd itself. Proximity only breaks ties *within* one filename's pass.
+
+So `cd packages/api && npx wrangler ...` reads the repo-root `wrangler.jsonc`. Measured — CI run `33972023673`, from a step that declared `working-directory: packages/api`:
+
+```
+▲ [WARNING] Processing ../../wrangler.jsonc configuration:
+🌀 Creating the secret for the Worker "jobtrail-preview"
+```
+
+`packages/api/wrangler.toml` used to sit next to that step and was **deleted in WIC-2107**. Nothing ever resolved it, so nothing was broken — but its `[env.preview]` named `jobtrail`, the *production* Worker, where the root config maps `--env preview` to `jobtrail-preview`. A dormant file that silently redefines `preview` as `production` is one filename away from being live (convert the root config to `.toml`, or add a `packages/api/wrangler.jsonc`, and it wins), and the divergence shows up in no diff.
+
+`scripts/wrangler-config-resolution-check.py` (wired into `Lint & Test`) enforces both halves: every wrangler call site under `.github/workflows` must resolve the root config, and no config in the tree may be shadowed by an ancestor. It models wrangler's resolution rather than executing it — after a wrangler major bump, re-confirm behaviourally with `npx wrangler deploy --dry-run --env preview`, whose `Processing <path> configuration` line names the resolved file. `wrangler` is not a declared dependency, so `npx wrangler` installs whatever is latest at run time.
+
+> ⚠️ `packages/infra/redirect-worker/wrangler.toml` is shadowed by the same rule and is **allowlisted, not fixed**. Nothing in CI deploys it, but `cd packages/infra/redirect-worker && npx wrangler deploy` deploys the root config — the production `jobtrail` app — rather than `careerpin-redirects`. Deploy that Worker with an explicit `--config`.
 
 Non-secret config lives in `vars` — `NODE_ENV`, and the analytics sink `ANALYTICS_SINK: "posthog"` with `POSTHOG_HOST` (WIC-821). Workers observability is enabled.
 
