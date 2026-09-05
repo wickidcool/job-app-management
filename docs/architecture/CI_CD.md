@@ -81,9 +81,12 @@ Deploys to production with safeguards:
 
 ## Required Secrets
 
-Configure these in GitHub repository settings under Settings > Secrets and variables > Actions:
+Every credential below lives on a GitHub Actions **environment**, not at the repository level —
+measured 2026-09-05 against `main` (`9cf938b3`). Configure them under Settings > Environments >
+_(environment)_ > Environment secrets, **not** under Settings > Secrets and variables > Actions.
+A job sees them only if it declares `environment: dev` or `environment: production`.
 
-### Repository Secrets
+### Environment Secrets (`dev` and `production`)
 
 | Secret                  | Description                                     | How to obtain                                                                                                 |
 | ----------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -91,7 +94,13 @@ Configure these in GitHub repository settings under Settings > Secrets and varia
 | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID                      | Cloudflare Dashboard > Account Home > right sidebar                                                           |
 | `SUPABASE_DATABASE_URL` | PostgreSQL connection string (pooler)           | Supabase Dashboard > Project Settings > Database > Connection string (use Pooler mode)                        |
 
-### Repository Variables
+All three are set on **both** the `dev` and `production` environments. The repository level holds
+exactly one secret — `CLOUDFLARE_CAREERPIN_API`, which is revoked and belongs to the marketing
+deploy, not to this pipeline (see `CREDENTIAL_REGISTRY.md`). Do not add a repo-level copy of
+anything above: two copies that drift is the reconciliation failure `CREDENTIAL_PRECEDENCE.md`
+exists to prevent.
+
+### Environment Variables (`dev` and `production`)
 
 | Variable            | Description                                                                                                                                                                                                                                          | Example                    |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
@@ -103,8 +112,9 @@ Configure these in GitHub repository settings under Settings > Secrets and varia
 ### Environment Setup
 
 1. Go to repository Settings > Environments
-2. Create a `production` environment
-3. Optionally configure:
+2. Create the `dev` and `production` environments (both exist as of 2026-09-05) and populate each
+   with the secrets and variables tabled above
+3. On `production`, optionally configure:
    - **Required reviewers**: Require approval before production deploys
    - **Wait timer**: Add a delay before deployment starts
    - **Deployment branches**: Restrict to `main` only

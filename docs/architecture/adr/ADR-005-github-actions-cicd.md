@@ -93,7 +93,23 @@ Use **GitHub Actions** for CI/CD with Cloudflare Wrangler for deployments.
 
 ### Required Secrets & Variables
 
-**Repository Secrets** (Settings > Secrets):
+> **Correction, measured 2026-09-05 on `main` (`9cf938b3`) — the two tables below record what this
+> ADR decided in 2026, not where these credentials live now. They are kept verbatim as the
+> historical decision; do not follow them as setup instructions.**
+>
+> - **Placement.** `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `SUPABASE_DATABASE_URL` are
+>   **environment** secrets on both `dev` and `production`, not repository secrets.
+>   `SUPABASE_URL` and `SUPABASE_ANON_KEY` are likewise **environment** variables. The repository
+>   level holds exactly one secret, `CLOUDFLARE_CAREERPIN_API` (revoked; `CREDENTIAL_REGISTRY.md`),
+>   and **zero** variables. Current setup steps live in `CI_CD.md` and `CLOUD_ENV_SECRETS.md`.
+> - **Never provisioned.** The four `E2E_TEST_USER*` rows exist at no level at all — not
+>   repository, not `dev`, not `production`, not organization. `deploy.yml`'s `e2e-tests` job
+>   interpolates them anyway, so they resolve to the empty string and the credential-gated specs
+>   self-skip; a green run reports "48 skipped" (run `33986788859`). The "Tests multi-user data
+>   isolation" coverage claimed under **e2e-tests** above is therefore not running in CI. Tracked
+>   separately — workflow files are out of scope for a documentation change.
+
+**Repository Secrets** (Settings > Secrets) — _as decided in this ADR; see correction above_:
 | Name | Description |
 |------|-------------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Pages edit permission |
@@ -104,7 +120,7 @@ Use **GitHub Actions** for CI/CD with Cloudflare Wrangler for deployments.
 | `E2E_TEST_USER2_EMAIL` | Test user 2 email (isolation tests) |
 | `E2E_TEST_USER2_PASSWORD` | Test user 2 password |
 
-**Repository Variables** (Settings > Variables):
+**Repository Variables** (Settings > Variables) — _as decided in this ADR; see correction above_:
 | Name | Description |
 |------|-------------|
 | `SUPABASE_URL` | Supabase project URL |
