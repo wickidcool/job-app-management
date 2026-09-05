@@ -31,18 +31,30 @@ import type { Application } from '../types/application';
  * `SortableApplicationCard` and trips `nested-interactive` (the finding that reverted
  * WIC-2077's attempt on this file).
  *
- * Mutation-checked, after committing the fix — `git checkout` on an uncommitted tree wipes the
- * fix along with the mutant and grades a reverted file (WIC-2076). Reverting
- * `showQuickActions && (isHovered || isFocusWithin)` to `showQuickActions && isHovered` reds
- * **3 of the 5** below: 'reveals the quick actions when the card receives focus', 'reaches
- * Edit by Tab' and 'reaches Delete by Tab'. The two that stay green are correct to stay green
- * — 'stays hidden at rest' pins the axe-preserving half, which the mutant also satisfies, and
- * 'hides again once focus leaves' passes vacuously when the bar never appeared. Recorded as
- * measured rather than as the "all 5" a first draft of this comment predicted.
+ * Mutation-checked against three mutants, each run after COMMITTING the fix — `git checkout`
+ * on an uncommitted tree wipes the fix along with the mutant and grades a reverted file
+ * (WIC-2076). Each mutant's anchor was asserted unique before writing, and each run's
+ * `passed + failed` equals the 11 of the baseline, so none silently failed to apply or to
+ * compile (WIC-2068, WIC-1610).
  *
- * The `relatedTarget` containment test in `handleBlur` gets its own mutant: dropping it (so
- * any `blur` collapses the bar) reds 'reaches Edit by Tab', because focus moving card -> Edit
- * fires `blur` on the card and would unmount the very button receiving the focus.
+ *   M1  revert the reveal to `showQuickActions && isHovered`          -> 8 of 11 red
+ *   M2  drop the `relatedTarget` containment test in `handleBlur`     -> 1 of 11 red
+ *   M3  drop the `e.target !== e.currentTarget` guard in handleKeyDown -> 4 of 11 red
+ *
+ * M1's 3 survivors are correct to survive: 'stays hidden at rest' pins the axe-preserving
+ * half, which the mutant also satisfies; 'still activates the card when Enter is pressed on
+ * the card itself' never involves the bar; and the `showQuickActions: false` case asserts an
+ * absence the mutant also produces.
+ *
+ * ⚠️ M2 is the one worth reading, because it caught a false claim in this very comment. An
+ * earlier revision asserted that dropping the containment test would red 'reaches Edit by
+ * Tab'. It does not — measured, that mutant left all nine then-existing tests GREEN. jsdom
+ * processes the `focusout`/`focusin` pair a Tab produces closely enough that React re-renders
+ * once with the final state, so the intermediate `false` never unmounts anything. The guard
+ * was real but unpinned, and the Tab-driven tests could not pin it in this environment. Hence
+ * 'keeps the bar mounted when focus moves from the card to its own Edit button', which
+ * asserts the intermediate state directly — it is the sole test M2 reds, and it exists only
+ * because the mutant contradicted the prediction rather than confirming it.
  */
 
 const APPLICATION: Application = {
