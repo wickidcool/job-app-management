@@ -241,7 +241,7 @@ describe("WIC-1469 — storageOwner's traversal guard", () => {
    * guard lives in the shared helper, so a pin that exercised only one of them
    * would still pass if the helper were bypassed at the other call site.
    */
-  const reachers: [string, (owner?: string) => string][] = [
+  const reachers: [string, (owner: string) => string][] = [
     ['projectFileKey', (owner) => projectFileKey(owner, SLUG, FILE)],
     ['localProjectsDir', (owner) => localProjectsDir(owner)],
   ];
@@ -253,9 +253,65 @@ describe("WIC-1469 — storageOwner's traversal guard", () => {
     expect(localProjectsDir(USER_A)).toBe(`./data/projects/${USER_A}`);
   });
 
-  it('AC-9 — an absent userId resolves to `anon`, not a throw', () => {
-    expect(projectFileKey(undefined, SLUG, FILE)).toBe(`projects/anon/${SLUG}/${FILE}`);
-    expect(localProjectsDir(undefined)).toBe('./data/projects/anon');
+  /**
+   * ADR-010 D2 (WIC-2070) — **this AC is inverted from what it pinned before.**
+   * It used to assert that an absent owner resolved to `anon`. `storageOwner`'s
+   * `userId ?? 'anon'` is now deleted, so an absent owner throws instead.
+   *
+   * The cast is deliberate and is the whole point of the test. The narrowed
+   * `userId: string` makes this call unrepresentable to `tsc`, but the type is
+   * not the mechanism: `userId` originates in a JWT `sub` claim that can be
+   * absent at runtime, and JS callers are not bound by the signature at all. So
+   * the runtime throw needs a pin that the type cannot supply, and reaching it
+   * requires stepping around the type on purpose.
+   */
+  it.each(reachers)(
+    'AC-9 — %s rejects an absent owner rather than inventing a tenant',
+    (_n, call) => {
+      const absent = undefined as unknown as string;
+      expect(() => call(absent)).toThrow(AppError);
+      try {
+        call(absent);
+        expect.unreachable('an absent owner must not become a storage key');
+      } catch (err) {
+        expect((err as AppError).code).toBe('BAD_REQUEST');
+        expect((err as AppError).statusCode).toBe(400);
+      }
+    }
+  );
+
+  /**
+   * The hazard is **ordering**, not the throw's existence, and this is the case
+   * that discriminates. `/^[A-Za-z0-9._-]+$/.test(undefined)` coerces its
+   * argument to the *string* `'undefined'`, which passes the character class and
+   * contains no `..` — so a `storageOwner` that dropped the `?? 'anon'` but left
+   * the falsy check *below* the regex would return `'undefined'` and silently
+   * rename the shared ownerless tenant from `projects/anon/` to
+   * `projects/undefined/`, with AC-8 and AC-10..12 all still green.
+   *
+   * `''` pins the same ordering from the other side: it is falsy, so it must
+   * answer `BAD_REQUEST`, whereas the regex (which requires at least one
+   * character) would answer `INVALID_PATH`. Reading the *code* off each error is
+   * what makes this test able to tell the two orderings apart at all.
+   */
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+  ])('AC-9b — an absent owner (%s) never becomes a tenant segment', (_label, absent) => {
+    const owner = absent as unknown as string;
+    for (const [name, call] of reachers) {
+      let key: string | undefined;
+      try {
+        key = call(owner);
+      } catch (err) {
+        expect((err as AppError).code, `${name} must reject before the traversal guard`).toBe(
+          'BAD_REQUEST'
+        );
+        continue;
+      }
+      expect.unreachable(`${name} returned ${String(key)} for an absent owner`);
+    }
   });
 
   it.each(reachers)(

@@ -50,38 +50,60 @@ export interface CreateProjectInput {
 // project, so the owner is now part of the key.
 
 /**
- * Owner segment of a storage key. Mirrors `buildObjectKey`'s `userId ?? 'anon'`
- * so resume and project artefacts share one namespacing convention: in
- * production the JWT always supplies a `userId`, and `anon` is only reached in
- * the local auth-bypass dev mode where there is a single implicit user.
+ * Owner segment of a storage key.
  *
- * The parity is on that fallback only — **the traversal guard below is
- * deliberately not in `buildObjectKey`** (WIC-1469). `storage.service` never
- * touches the filesystem, so its keys are only ever R2/S3 object keys, where
- * `..` is an ordinary key character. This owner segment is also joined into a
- * real path by `localProjectsDir` on the local-filesystem backend, which is
- * what makes the guard load-bearing here and inert there.
+ * ADR-010 D2 (WIC-2070) — this **no longer mirrors** `buildObjectKey`'s
+ * `userId ?? 'anon'` (`storage.service.ts:178`), and the divergence is the
+ * point. That fallback collapses every ownerless caller into one shared
+ * `projects/anon/` tenant, which is a real tenancy sink and not a dev-mode
+ * convenience: WIC-1554 already made every DB path here 400 on an absent owner,
+ * so `anon` was reachable only by a caller that had bypassed the row guards.
+ * There is no correct outcome it was preserving.
+ *
+ * ⚠️ **Deleting the `??` without adding the throw below would have been strictly
+ * worse than leaving it.** `undefined` is not rejected by the character class —
+ * `/^[A-Za-z0-9._-]+$/.test(undefined)` coerces to the *string* `'undefined'`
+ * and passes — so the fallback tenant would have silently moved from
+ * `projects/anon/` to `projects/undefined/` with every guard still green. The
+ * required type does not prevent that: `userId` originates in a JWT `sub` claim
+ * that can be absent at runtime however the signature reads. Type and throw are
+ * two mechanisms, and only the throw is one.
+ *
+ * Historical objects already written under `projects/anon/` are **not** touched
+ * here — that is a data question owned by WIC-1929 (project-storage-key
+ * backfill). This change closes the code path that creates new ones.
+ *
+ * The traversal guard is **deliberately not in `buildObjectKey`** (WIC-1469).
+ * `storage.service` never touches the filesystem, so its keys are only ever
+ * R2/S3 object keys, where `..` is an ordinary key character. This owner segment
+ * is also joined into a real path by `localProjectsDir` on the local-filesystem
+ * backend, which is what makes the guard load-bearing here and inert there.
  */
-function storageOwner(userId?: string): string {
-  const owner = userId ?? 'anon';
+function storageOwner(userId: string): string {
+  // Belt and braces with the required type — see the `'undefined'` coercion
+  // note above. This must run *before* the character class, which would accept
+  // the coerced spelling of an absent owner.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to build a storage key', undefined, 400);
+  }
   // The owner segment becomes a path component on the local-filesystem backend,
   // so it gets the same traversal guard as a file name. `userId` arrives from a
   // JWT `sub` claim, which is not ours to trust blindly.
-  if (!/^[A-Za-z0-9._-]+$/.test(owner) || owner.includes('..')) {
+  if (!/^[A-Za-z0-9._-]+$/.test(userId) || userId.includes('..')) {
     throw new AppError('INVALID_PATH', 'Invalid storage owner', undefined, 400);
   }
-  return owner;
+  return userId;
 }
 
-export function projectFileKey(userId: string | undefined, slug: string, fileName: string): string {
+export function projectFileKey(userId: string, slug: string, fileName: string): string {
   return `${projectPrefix(userId, slug)}${fileName}`;
 }
 
-function projectPrefix(userId: string | undefined, slug: string): string {
+function projectPrefix(userId: string, slug: string): string {
   return `${ownerProjectsPrefix(userId)}${slug}/`;
 }
 
-function ownerProjectsPrefix(userId?: string): string {
+function ownerProjectsPrefix(userId: string): string {
   return `projects/${storageOwner(userId)}/`;
 }
 
@@ -118,8 +140,17 @@ function validateFileName(fileName: string): void {
  * `action` is not decoration: several of these guards answer the same
  * `BAD_REQUEST`/400, so without a distinct message a test cannot tell which one
  * fired and grades the wrong function (the AC-R1/AC-R8 lesson from WIC-1434).
+ *
+ * ADR-010 D2 (WIC-2070) narrowed the parameter to `string`. **That did not make
+ * this function redundant, and it must not be deleted.** The type removes the
+ * *representability* of an ownerless call — a future caller can no longer write
+ * one without `tsc` objecting — while the throw is what actually rejects one.
+ * `tsc` exits 0 on a reintroduced `?? undefined` at a call site, and `userId`
+ * comes from a JWT `sub` claim that is `null` at runtime however the signature
+ * reads. Removing the throw because "the type says it cannot be undefined"
+ * leaves the file strictly less safe than it was before the narrowing.
  */
-function requireOwner(userId: string | undefined, action: string): string {
+function requireOwner(userId: string, action: string): string {
   if (!userId) {
     throw new AppError('BAD_REQUEST', `userId is required to ${action}`, undefined, 400);
   }
@@ -132,7 +163,7 @@ function requireOwner(userId: string | undefined, action: string): string {
  * for an UPDATE with no `LIMIT`, rewrites) every tenant holding that slug.
  * The owner is required rather than optional — see `requireOwner`.
  */
-function projectScope(slug: string, userId: string | undefined, action: string) {
+function projectScope(slug: string, userId: string, action: string) {
   const owner = requireOwner(userId, action);
   return and(eq(projects.slug, slug), eq(projects.userId, owner));
 }
@@ -142,7 +173,7 @@ function projectScope(slug: string, userId: string | undefined, action: string) 
  * is a ULID belonging to exactly one user, so an id-only predicate is a
  * cross-tenant reach the moment the id is guessed, logged or leaked.
  */
-function projectIdScope(projectId: string, userId: string | undefined, action: string) {
+function projectIdScope(projectId: string, userId: string, action: string) {
   const owner = requireOwner(userId, action);
   return and(eq(projects.id, projectId), eq(projects.userId, owner));
 }
@@ -156,7 +187,7 @@ function projectIdScope(projectId: string, userId: string | undefined, action: s
  * has a project by this name*; it is the owner-namespaced storage key, not this
  * check, that decides which files the call then touches.
  */
-async function assertProjectOwned(slug: string, userId?: string): Promise<void> {
+async function assertProjectOwned(slug: string, userId: string): Promise<void> {
   const where = projectScope(slug, userId, 'access a project');
   const db = getDb();
   const [project] = await db.select({ id: projects.id }).from(projects).where(where).limit(1);
@@ -171,7 +202,7 @@ async function assertProjectOwned(slug: string, userId?: string): Promise<void> 
  * `projectScope`, which still degraded to that same slug-only UPDATE whenever
  * the caller had no identity; WIC-1554 removed the degradation.
  */
-async function touchProject(slug: string, userId?: string): Promise<void> {
+async function touchProject(slug: string, userId: string): Promise<void> {
   const where = projectScope(slug, userId, 'update a project');
   const db = getDb();
   await db.update(projects).set({ updatedAt: new Date() }).where(where);
@@ -188,7 +219,7 @@ async function localPath() {
 }
 
 /** Root of one owner's project tree: `{dataDir}/projects/{userId}`. */
-export function localProjectsDir(userId?: string): string {
+export function localProjectsDir(userId: string): string {
   return `${getConfig().dataDir}/projects/${storageOwner(userId)}`;
 }
 
@@ -217,7 +248,7 @@ function slugToName(slug: string): string {
     .join(' ');
 }
 
-async function getFileCount(userId: string | undefined, slug: string): Promise<number> {
+async function getFileCount(userId: string, slug: string): Promise<number> {
   if (isStorageAvailable()) {
     const keys = await listObjectKeys(projectPrefix(userId, slug));
     return keys.filter((k) => k.endsWith('.md')).length;
@@ -237,7 +268,7 @@ async function getFileCount(userId: string | undefined, slug: string): Promise<n
 
 export async function createProject(
   input: CreateProjectInput,
-  userId?: string
+  userId: string
 ): Promise<ProjectMeta> {
   const db = getDb();
   const slug = input.slug || toSlug(input.name);
@@ -301,7 +332,7 @@ export async function createProject(
   };
 }
 
-export async function getProject(projectId: string, userId?: string): Promise<ProjectMeta> {
+export async function getProject(projectId: string, userId: string): Promise<ProjectMeta> {
   // Guard before `getDb()`: no query should be issued on behalf of a caller
   // with no identity, and an id-only predicate is a cross-tenant read.
   const whereClause = projectIdScope(projectId, userId, 'load a project');
@@ -328,7 +359,7 @@ export async function getProject(projectId: string, userId?: string): Promise<Pr
   };
 }
 
-export async function getProjectBySlug(slug: string, userId?: string): Promise<ProjectMeta> {
+export async function getProjectBySlug(slug: string, userId: string): Promise<ProjectMeta> {
   const where = projectScope(slug, userId, 'resolve a project by slug');
   const db = getDb();
   const [project] = await db.select().from(projects).where(where).limit(1);
@@ -386,7 +417,7 @@ export async function getProjectBySlug(slug: string, userId?: string): Promise<P
   };
 }
 
-export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
+export async function listProjects(userId: string): Promise<ProjectMeta[]> {
   // The widest of the three degradations this file carried: a falsy `userId`
   // handed Drizzle `undefined`, which is not a permissive predicate so much as
   // *no* predicate — the SELECT returned every tenant's projects, not one
@@ -463,7 +494,7 @@ export async function listProjects(userId?: string): Promise<ProjectMeta[]> {
   return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function deleteProject(projectId: string, userId?: string): Promise<void> {
+export async function deleteProject(projectId: string, userId: string): Promise<void> {
   // The destructive site. `whereClause` is reused for the DELETE below, and the
   // storage prefix on line ~478 is built from `project.userId` — the *row's*
   // owner — so an id-only match here did not merely disclose another user's
@@ -489,7 +520,7 @@ export async function deleteProject(projectId: string, userId?: string): Promise
   await db.delete(projects).where(whereClause);
 }
 
-export async function listProjectFiles(slug: string, userId?: string): Promise<ProjectFileMeta[]> {
+export async function listProjectFiles(slug: string, userId: string): Promise<ProjectFileMeta[]> {
   await assertProjectOwned(slug, userId);
 
   if (isStorageAvailable()) {
@@ -527,7 +558,7 @@ export async function listProjectFiles(slug: string, userId?: string): Promise<P
 export async function getProjectFile(
   slug: string,
   fileName: string,
-  userId?: string
+  userId: string
 ): Promise<string> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
@@ -555,7 +586,7 @@ export async function updateProjectFile(
   slug: string,
   fileName: string,
   content: string,
-  userId?: string
+  userId: string
 ): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
@@ -586,7 +617,7 @@ export async function createProjectFile(
   slug: string,
   fileName: string,
   content: string,
-  userId?: string
+  userId: string
 ): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
@@ -624,7 +655,7 @@ export async function createProjectFile(
 export async function deleteProjectFile(
   slug: string,
   fileName: string,
-  userId?: string
+  userId: string
 ): Promise<void> {
   if (!fileName.endsWith('.md')) {
     throw new AppError('BAD_REQUEST', 'Only .md files are supported', undefined, 400);
@@ -649,7 +680,7 @@ export async function deleteProjectFile(
 }
 
 export async function generateProjectIndex(
-  userId?: string
+  userId: string
 ): Promise<{ path: string; projectCount: number }> {
   const allProjects = await listProjects(userId);
 

@@ -218,11 +218,17 @@ export async function captureProjectFile(
   return { slug, fileName, content };
 }
 
+// ADR-010 D2 (WIC-2070) — narrowed to `string` because `getProjectFile` and
+// `updateProjectFile` now require an owner. This is a forced consequence of
+// narrowing `project.service`, not an independent burndown: the rest of this
+// file's owner signatures are still optional and belong to a later D2 slice
+// under WIC-2068. Both route call sites already pass `requireOwner(c)`, so no
+// caller changed. `captureProjectFile` above keeps its own `if (!userId)` throw.
 export async function enrichProjectFile(
   slug: string,
   fileName: string,
   additions: ProjectEnrichInput,
-  userId?: string
+  userId: string
 ): Promise<{ content: string }> {
   const existing = await getProjectFile(slug, fileName, userId);
   const parsed = parseExistingFile(existing);
@@ -232,11 +238,12 @@ export async function enrichProjectFile(
   return { content };
 }
 
+// ADR-010 D2 (WIC-2070) — narrowed for the same reason as `enrichProjectFile`.
 export async function correctProjectFile(
   slug: string,
   fileName: string,
   data: ProjectCaptureInput,
-  userId?: string
+  userId: string
 ): Promise<{ content: string }> {
   await getProjectFile(slug, fileName, userId); // verify file exists
   const content = generateDialogueMarkdown(data);
