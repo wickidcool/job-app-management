@@ -69,9 +69,34 @@ export function recommendationToFitTier(
   return analysis.recommendation ?? 'unscored';
 }
 
+/**
+ * Every read in this file is owner-scoped unconditionally (ADR-010 AC-T0,
+ * WIC-2065).
+ *
+ * `userId` is `string`, not `string | undefined`, and the owner term is a plain
+ * member of each `and(...)` rather than something an absent owner could switch
+ * off. That is the whole change, and it is worth stating why the old shape was
+ * so much worse than it looked.
+ *
+ * Eight helpers elsewhere in this package spell an absent owner as
+ * `userId ? eq(t.userId, userId) : isNull(t.userId)`. That is fail-**closed**:
+ * absence scopes to the orphan rows, and `audit-owner-predicates.mjs` baselines
+ * it as a precondition rather than a defect. These five did something different
+ * — `...(userId ? [eq(applications.userId, userId)] : [])` — which does not
+ * weaken the owner term, it **removes it from the query**. The predicate then
+ * reduced to the status filter and the read returned every tenant's
+ * `applications` rows, which the four Reports pages rendered verbatim.
+ *
+ * Absence is now unrepresentable here, so there is no arm to get wrong.
+ * `requireOwner(c)` in `routes/reports.ts` is the single place it becomes an
+ * error (401 `OWNER_REQUIRED`), which is what lets these signatures be total.
+ * Pinned end to end by `test/reports.tenancy.test.ts` (the predicate) and
+ * `test/require-owner.routes.test.ts` (the edge, including that the service is
+ * never called at all).
+ */
 export async function getPipelineReport(
   params: PipelineParams = {},
-  userId?: string
+  userId: string
 ): Promise<PipelineReportResponse> {
   const db = getDb();
 
@@ -88,9 +113,10 @@ export async function getPipelineReport(
       orderBy = sortOrder(applications.updatedAt);
   }
 
-  const whereClause = userId
-    ? and(inArray(applications.status, ACTIVE_STATUSES), eq(applications.userId, userId))
-    : inArray(applications.status, ACTIVE_STATUSES);
+  const whereClause = and(
+    inArray(applications.status, ACTIVE_STATUSES),
+    eq(applications.userId, userId)
+  );
 
   const rows = await db
     .select({
@@ -140,7 +166,7 @@ export async function getPipelineReport(
 
 export async function getNeedsActionReport(
   params: NeedsActionParams = {},
-  userId?: string
+  userId: string
 ): Promise<NeedsActionReportResponse> {
   const db = getDb();
   const days = Math.min(Math.max(params.days ?? 7, 1), 365);
@@ -160,7 +186,7 @@ export async function getNeedsActionReport(
     isNotNull(applications.nextActionDue),
     isNotNull(applications.nextAction),
     notInArray(applications.status, TERMINAL_STATUSES),
-    ...(userId ? [eq(applications.userId, userId)] : []),
+    eq(applications.userId, userId),
   ];
 
   if (includeOverdue) {
@@ -227,7 +253,7 @@ export async function getNeedsActionReport(
 
 export async function getStaleReport(
   params: StaleParams = {},
-  userId?: string
+  userId: string
 ): Promise<StaleReportResponse> {
   const db = getDb();
   const staleDays = resolveStaleThresholdDays(params.days);
@@ -258,10 +284,7 @@ export async function getStaleReport(
     .select()
     .from(applications)
     .where(
-      and(
-        staleWhere({ days: staleDays, statuses: staleStatuses }),
-        ...(userId ? [eq(applications.userId, userId)] : [])
-      )
+      and(staleWhere({ days: staleDays, statuses: staleStatuses }), eq(applications.userId, userId))
     )
     .orderBy(asc(applications.updatedAt))
     .limit(limit + 1)
@@ -328,7 +351,7 @@ export async function getStaleReport(
 
 export async function getClosedLoopReport(
   params: ClosedLoopParams = {},
-  userId?: string
+  userId: string
 ): Promise<ClosedLoopReportResponse> {
   const db = getDb();
   const limit = Math.min(params.limit ?? 50, 100);
@@ -352,7 +375,7 @@ export async function getClosedLoopReport(
 
   const conditions = [
     inArray(applications.status, terminalStatuses),
-    ...(userId ? [eq(applications.userId, userId)] : []),
+    eq(applications.userId, userId),
   ];
 
   if (params.period && params.period !== 'all') {
@@ -464,7 +487,7 @@ export async function getClosedLoopReport(
 
 export async function getByFitTierReport(
   params: FitTierParams = {},
-  userId?: string
+  userId: string
 ): Promise<ByFitTierReportResponse> {
   const db = getDb();
 
@@ -478,12 +501,14 @@ export async function getByFitTierReport(
       orderBy = sortOrder(applications.updatedAt);
   }
 
-  const conditions = [];
+  // The owner term is unconditional, so `conditions` is never empty and the
+  // `conditions.length > 0 ? and(...) : undefined` this used to carry is gone
+  // with it. That arm was not a harmless default: a bare `.where(undefined)` in
+  // drizzle is **no predicate at all**, i.e. the entire `applications` table.
+  // `?includeTerminal=true` from an owner-less caller took exactly that path.
+  const conditions = [eq(applications.userId, userId)];
   if (!params.includeTerminal) {
     conditions.push(notInArray(applications.status, TERMINAL_STATUSES));
-  }
-  if (userId) {
-    conditions.push(eq(applications.userId, userId));
   }
 
   const rows = await db
@@ -495,7 +520,7 @@ export async function getByFitTierReport(
       updatedAt: applications.updatedAt,
     })
     .from(applications)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(orderBy);
 
   // UC-3 analyses are not persisted yet — there is no `job_fit_analyses` table

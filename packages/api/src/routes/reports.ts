@@ -8,6 +8,7 @@ import {
   getByFitTierReport,
 } from '../services/reports.service.js';
 import type { AppEnv } from '../types/env.js';
+import { requireOwner } from './require-owner.js';
 
 const pipelineQuerySchema = z.object({
   sortBy: z.enum(['updatedAt', 'createdAt', 'company']).optional(),
@@ -101,7 +102,7 @@ export const reportsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await getPipelineReport(query.data, c.get('userId') ?? undefined);
+    const result = await getPipelineReport(query.data, requireOwner(c));
     return c.json(result);
   })
   .get('/reports/needs-action', async (c) => {
@@ -118,7 +119,7 @@ export const reportsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await getNeedsActionReport(query.data, c.get('userId') ?? undefined);
+    const result = await getNeedsActionReport(query.data, requireOwner(c));
     return c.json(result);
   })
   .get('/reports/stale', async (c) => {
@@ -135,7 +136,7 @@ export const reportsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await getStaleReport(query.data, c.get('userId') ?? undefined);
+    const result = await getStaleReport(query.data, requireOwner(c));
     return c.json(result);
   })
   .get('/reports/closed-loop', async (c) => {
@@ -152,7 +153,7 @@ export const reportsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await getClosedLoopReport(query.data, c.get('userId') ?? undefined);
+    const result = await getClosedLoopReport(query.data, requireOwner(c));
     return c.json(result);
   })
   .get('/reports/by-fit-tier', async (c) => {
@@ -169,6 +170,6 @@ export const reportsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await getByFitTierReport(query.data, c.get('userId') ?? undefined);
+    const result = await getByFitTierReport(query.data, requireOwner(c));
     return c.json(result);
   });
