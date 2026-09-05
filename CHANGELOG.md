@@ -47,6 +47,29 @@ All notable changes to the Job Application Manager are documented here.
 - Test configuration only. No production code, no schema, no wire change.
 
 
+### Fixed — The skip-CI allowlist treated `docs/` as documentation, so a PR could edit a CI gate script and skip the gate it just changed (2026-09-05)
+
+`skip-ci-guard.yml` and `skip-ci-sweeper.yml` each carried `(p) => p.startsWith('docs/')` as the first entry in their `ALLOWED` list — paths exempt from the "runtime code shipped under a skip marker" check. But `docs/` is not documentation-only: **four of the scripts that constitute the `lint-and-test` gate live under it**, and `deploy.yml` invokes all four with no `continue-on-error` (`:81`, `:106`, `:115`, `:125`). A PR editing `docs/design/wireframe-casing-audit.py` under `[skip ci]` was classified as having no runtime surface and could merge without the gate it modified ever running (WIC-2084, dispatched as WIC-2094).
+
+- **The sweeper's copy is the load-bearing one; the guard's is advisory.** Enforcement on `main` is the ruleset `skip-ci-sweep-required` (id `21489705`, `enforcement: active`, `include: ["~ALL"]`), which requires **two** contexts — `skip-ci-sweep` and `evil-merge-sweep`. Only `skip-ci-sweeper.yml` publishes a commit status (`createCommitStatus`, `CONTEXT = 'skip-ci-sweep'`); `skip-ci-guard.yml` publishes none, emitting only its own `pull_request_target` check run (`Skip-CI vs runtime code`), which no ruleset requires. Both are fixed — they carry an explicit `KEEP IN SYNC` note — but only one of them was gating merges.
+- **Classic branch protection is absent, and that reads like "no gate".** `GET /branches/main/protection/required_status_checks` returns **404**. The gate is entirely in the ruleset API. `skip-ci-sweeper.yml:30` asserted in prose that `skip-ci-sweep` was the *only* required context; that went stale when `evil-merge-sweep` was added (WIC-2055) and is corrected here.
+- **Verified by executing the shipped predicates, not by re-typing them.** The control extracts the `ALLOWED` array out of each YAML and evaluates it, asserting the anchor matches exactly once first — a non-matching anchor would otherwise grade an unmutated tree green. Against unfixed `main` it fails **8/8** (four gate scripts × two files); against the fix it passes, with `docs/architecture/ARCHITECTURE.md` and `docs/design/DESIGN_SYSTEM.md` still ALLOWED via the surviving `endsWith('.md')` predicate. The two files' verdicts were **identical on all 9 probe paths** both before and after — previously assumed, now measured.
+- **Blast radius is 14 files, and the collateral is fail-safe.** All 84 paths under `docs/` were classified both ways: 14 non-`.md` files change ALLOWED → RUNTIME (the 4 gate scripts plus 10 under `docs/analytics/`), and all 70 `.md` files are unaffected. The 10 collateral files now demand *more* CI, never less, so the cost is a slower merge and not a weakened gate.
+- **The `.github/workflows/` predicate is deliberately kept** — a workflow-only change is the intentional no-deploy merge route (WIC-1686 declined to call it a defect). This entry is solely about `docs/`.
+- CI configuration only. No production code, no schema, no wire change.
+
+
+### Documentation — `gh pr merge --delete-branch` closes stacked children, and the repo setting does not stop it (2026-09-05)
+
+Root `CLAUDE.md` gains a **Merging a PR** section. `--delete-branch` is a per-invocation override that deletes the head branch regardless of `delete_branch_on_merge` (currently `false`), and when that branch is another PR's base, GitHub **closes the child unmerged** rather than retargeting it (WIC-2089 item 1, under WIC-1625).
+
+- **It has happened twice, and the board's citation is confirmed.** **#126** was closed at `2026-08-27T04:55:10Z`, **2 seconds** after parent **#124** merged at `04:55:08Z` — stranding the WIC-238 AC-10 returning-user bypass. A second, previously unrecorded instance: **#34** closed at `2026-08-04T18:43:06Z`, **2 seconds** after parent **#33** merged at `18:43:04Z`. #126 was recovered in place (reopened `05:12:18Z`, retargeted `05:12:20Z`); #34 never was, and its work re-landed as a fresh **PR #35**.
+- **⚠️ `gh pr view` cannot see this — check the timeline.** #126 today reports `MERGED` from a `main` base and looks healthy, because the recovery retargeted it; only `GET /issues/126/timeline` shows the `closed` → `reopened` → `base_ref_changed` sequence. An earlier draft of this entry mis-read that post-recovery state as evidence the board's citation was wrong. It was not.
+- **One board-side detail does not hold: #126 carried no reviews.** It was described as having "two `APPROVED` reviews"; `GET /pulls/126/reviews` returns empty. This generalises — **agents cannot approve PRs here** (every agent authenticates as `alwick`, the PR author, and GitHub 422s a self-approval), so no merge recipe should wait for one.
+- The section gives the ordering that avoids it — retarget children first, then merge the parent with the flag omitted — plus a one-liner that lists any open PR naming a given branch as its base.
+- Documentation only. No code, no tests, no schema change.
+
+
 ### Accessibility — Four keyboard-unreachable click targets, and one toggle that silently did nothing (2026-09-05)
 
 `A11Y_BASELINE` drops **18 → 10** (WIC-2073, continuing WIC-2062's 26 → 18 under WIC-1589). Both `--max-warnings` ceilings in `packages/web/package.json` move with it. Four files reach zero findings and their baseline entries are deleted rather than zeroed, each with a comment recording the transition.

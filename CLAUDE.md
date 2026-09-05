@@ -138,6 +138,51 @@ For accessible-name assertions use jest-dom's `toHaveAccessibleName`, which is d
 
 GitHub Actions (`.github/workflows/deploy.yml`): PRs get a preview Worker deploy; merges to `main` run DB migrations over the Supabase pooler, validate secrets, and `wrangler deploy` to production. See `docs/architecture/CI_CD.md`.
 
+## Merging a PR
+
+### ⛔ Never pass `--delete-branch` to a PR that has children stacked on it
+
+`gh pr merge --delete-branch` deletes the head branch **regardless of the repository setting**. The repo has `delete_branch_on_merge: false` (verified 2026-09-05), so a plain `gh pr merge` leaves the branch alone — but the flag is a per-invocation override, not a request the setting can veto. Do not reason "the setting is off, so the flag is harmless."
+
+When the deleted branch is some other PR's **base**, GitHub does not retarget that child onto the merged parent's base. It **closes the child**, unmerged, and does it as an automatic side effect with no prompt and no undo.
+
+Measured, not hypothetical — it has happened **twice**, both times with the child closing exactly **2 seconds** after the parent merged:
+
+| child | parent | parent merged | child closed | Δ | recovery |
+|---|---|---|---|---|---|
+| **#126** (WIC-1359) | #124 | `2026-08-27T04:55:08Z` | `04:55:10Z` | **2s** | reopened `05:12:18Z`, retargeted to `main` `05:12:20Z`, merged 08-29 |
+| **#34** (WIC-808) | #33 | `2026-08-04T18:43:04Z` | `18:43:06Z` | **2s** | never reopened; re-landed as a fresh **PR #35** 36 min later |
+
+Nothing was wrong with either child — the close was purely the base branch vanishing underneath it. #126 stranded the WIC-238 AC-10 returning-user bypass, so onboarding kept opening over established users' dashboards until someone noticed by hand.
+
+**⚠️ Do not check this with `gh pr view` — the current state hides it.** #126 today reports `MERGED` with base `main` and looks entirely healthy, because the recovery reopened and retargeted it. The close is only visible in the timeline:
+
+```bash
+gh api repos/:owner/:repo/issues/126/timeline --paginate \
+  -q '.[] | select(.event=="closed" or .event=="reopened" or .event=="base_ref_changed") | "\(.event)\t\(.created_at)"'
+```
+
+*(One board-side detail does not hold up: #126 was described as carrying "two `APPROVED` reviews". `GET /pulls/126/reviews` returns **empty** — it had none. That is expected rather than surprising, and it generalises: **agents cannot approve PRs here.** Every agent authenticates as `alwick`, who is the PR author, and GitHub 422s a self-approval. Any merge recipe that waits for an approving review will wait forever; use `--admin` instead, which is configured behaviour on this repo, not a bypass.)*
+
+**The recipe for merging a stacked parent:**
+
+1. **Retarget the children first**, while the parent's branch still exists — `gh pr edit <child> --base <parent's own base>`. Do this even if you intend to merge the children momentarily; it is what makes their close-on-delete impossible.
+2. **Merge the parent with the flag omitted** — `gh pr merge <parent> --squash` (add `--admin` if a required check is blocking; see below).
+3. Delete the branch by hand afterwards if you actually want it gone, once no open PR still names it as a base.
+
+Check for children before merging anything:
+
+```bash
+gh pr list --state open --json number,baseRefName \
+  -q ".[] | select(.baseRefName == \"$(gh pr view <parent> --json headRefName -q .headRefName)\") | .number"
+```
+
+Empty output means the flag is safe. Any number means it is not.
+
+### Required checks live in a ruleset, not in branch protection
+
+Classic `required_status_checks` on `main` is **absent** — `gh api repos/:owner/:repo/branches/main/protection/required_status_checks` returns 404, which reads like "no gate at all" and is misleading. Enforcement is the ruleset **`skip-ci-sweep-required`** (id `21489705`, `enforcement: active`, `include: ["~ALL"]`), which requires **two** contexts: `skip-ci-sweep` and `evil-merge-sweep`. Read `gh api repos/:owner/:repo/rulesets`, not the branch-protection API.
+
 ## Changelog conventions
 
 Every change gets an entry under `## [Unreleased]` in `CHANGELOG.md`.
