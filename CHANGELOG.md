@@ -21,6 +21,17 @@ A stacked-child close detector was scoped for `.github/workflows/evil-merge-swee
 
 
 
+### Decided — `runtime-paths.cjs` keeps its two-predicate allowlist: the shared predicate is tuned to the stricter consumer on purpose (2026-09-05)
+
+`.github/scripts/runtime-paths.cjs` gains the **decision** on top of the rationale it already carried, so the next reader meets a settled question rather than a puzzle (WIC-2113, ruling on WIC-2101). `ALLOWED` is unchanged — comment-only, zero behaviour change.
+
+- **The two consumers' errors are not symmetric in cost, and that is what decides it.** A wrong answer costs `deploy-drift.yml` a page with no remedy; it costs `skip-ci-guard.yml` a PR that adds a gitleaks allowlist entry — one suppressing a leaked secret — merging under a CI-skip marker with **zero check runs**. A nuisance page is recoverable; a suppressed secret scan is not. So `.gitleaks.toml`, `.gitleaks-baseline.json`, `.gitattributes`, `.github/secret-scan-allowlist.json` and `.github/scripts/**` all stay runtime-bearing, and the over-alerting on CI-only paths is a price knowingly paid.
+- **Both alternatives were rejected in writing, not merely passed over.** Per-consumer allowlists model the asymmetry honestly but reintroduce the two-lists-that-drift hazard this module was extracted to kill; allowlisting for both consumers weakens secret-scan posture and would need a security sign-off that is not obtainable from an agent seat today (WIC-2018). The revisit trigger recorded in the file is **frequency data, not a date**.
+- **⚠️ WIC-1271's "14 commits behind, zero runtime paths" acceptance figure does not reproduce, and the detector is not being tuned to it.** Re-measured this run at `origin/main` `bde665db`: the 2026-08-19 → 2026-08-25 window is **17 commits behind, 4 runtime-bearing, 7 undeployed runtime paths, ALARM** (T1 only — T2 needs 5). The count is never 14 under any framing: excluding the commit that closed the gap gives 16, not 14.
+- **No allowlist change makes that window quiet**, measured as a counterfactual rather than asserted. `332856f9` (WIC-1069) changes four `packages/web/src/**` files and is genuinely runtime code. Allowlisting all of `.github/**`, `.gitattributes` and `.gitleaks*` still alarms (4 → 1 runtime-bearing); it goes quiet only if that allowlist is combined with excluding the closing commit — i.e. only under the exact policy change this ruling rejects. A detector that alarms on that window is behaving correctly.
+- Guard clause confirmed rather than assumed: the predicate is untouched (`ALLOWED.length` 2, comment-only diff, identical classification on eight probe paths), PR #394's skip-ci-guard verdict harness rebuilt and re-run **8/8** (4 PASS, 4 BLOCK, shared module resolving), and `deploy-drift.mjs --selftest` **14/14**.
+
+
 
 ### Accessibility — the `jsx-a11y` ratchet is finished: `A11Y_BASELINE` is empty and `--max-warnings` is 0 (2026-09-05)
 

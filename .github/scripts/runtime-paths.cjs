@@ -19,6 +19,29 @@
 //     docs/workflow-only gap is reported quietly (WIC-1271 point 3: a monitor
 //     that pages for a docs commit gets muted, and is then worse than nothing).
 
+// ── DECISION (WIC-2101, ruled WIC-2113) — LEAVE `ALLOWED` AS IT IS ───────────
+// It was raised as a real question, not an oversight: `.gitleaks.toml`,
+// `.gitleaks-baseline.json`, `.gitattributes`, `.github/secret-scan-allowlist.json`
+// and `.github/scripts/**` all classify as runtime-bearing here, and none of them
+// can reach the Worker. Two alternatives were considered and BOTH REJECTED —
+// (2) per-consumer allowlists, a shared base plus a drift-only extension, which
+// models the asymmetry honestly but reintroduces the two-lists-that-drift hazard
+// this module was extracted to kill; and (3) allowlisting them for both
+// consumers, which weakens secret-scan posture and would need a security
+// sign-off that is not obtainable from an agent seat today (WIC-2018).
+// The deciding point is that the two consumers' errors are NOT symmetric in
+// cost. A wrong answer costs `deploy-drift` a page with no remedy; it costs
+// `skip-ci-guard` a PR that adds a gitleaks allowlist entry — one that
+// SUPPRESSES A LEAKED SECRET — merging under a CI-skip marker with zero check
+// runs. A nuisance page is recoverable; a suppressed secret scan is not. So the
+// shared predicate is tuned to the stricter consumer on purpose, and the
+// over-alerting is the price, knowingly paid.
+// ⛔ REVISIT TRIGGER IS FREQUENCY DATA, NOT A DATE. If `deploy-drift.yml`
+// actually pages on a CI-only path in practice, reopen with the real count. Do
+// not reopen on the hypothetical — and do not reopen it to make WIC-1271's
+// replay window quiet, which is a wrong premise (see deploy-drift.mjs's header
+// and the correction filed on WIC-1271 itself).
+
 // Paths with no runtime surface, so there is nothing for CI to have proven and
 // nothing for a deploy to have shipped.
 //
