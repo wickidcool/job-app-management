@@ -42,6 +42,18 @@ A stacked-child close detector was scoped for `.github/workflows/evil-merge-swee
 
 
 
+
+### Documentation — One runbook for the two production data operations that have been parked waiting on a human (2026-09-05)
+
+`docs/runbooks/prod-data-operations.md` collects the exact commands, safety properties and decision trees for **WIC-1464 AC-a** (`audit-foreign-star-text.mjs`) and **WIC-1929** (`migrate-project-storage-keys.mjs`). Both scripts have been merged and green on `main` for days; neither card is waiting on code. Both are waiting on the same scarce resource — a human holding production credentials — and each previously required its own investigation to act on. Documentation only: no code, no tests, no schema change.
+
+- **The read-only half can be run immediately, by anyone with `DATABASE_URL`.** The WIC-1464 audit executes entirely inside a `BEGIN READ ONLY` transaction, so Postgres itself rejects a write. That is *enforced* read-only rather than *documented* read-only, which is what makes it safe to run while the AC-b disposition is still open — it needs no approval, and there is a real chance it returns zero and closes the card's remaining scope outright.
+- **The exit code is the decision point for WIC-1929, and it is documented as such.** `0` = all artefacts attributable, safe to `--apply`; `2` = commingled slugs and/or occupied destinations, which is precisely the data-attribution judgement the card's pending ask is asking for; `1` = environment error. The script refuses to guess and exits non-zero rather than let a deploy read "partially migrated" as "done".
+- **Two safety rails are called out because getting them wrong is expensive and silent.** `--samples N` on the audit prints the leaked STAR text itself and must never reach a ticket (it writes to stderr so a `> file.json` redirect cannot capture it by accident). And the audit's `indeterminate` verdict — one side's owner `NULL` or the 0017 placeholder — is **not** a leak; `NULL <> NULL` is not a mismatch, which is the exact case WIC-1464 predicted would be got wrong.
+- **The migration touches no rows.** Its only statement is a `SELECT`; all mutation is against object storage, which bounds a bad run to stored objects rather than data. It is idempotent — a second run finds nothing and exits 0.
+- Verified against `origin/main` `6ebf1a2b`: both scripts and both test suites present (predicate 20/20, migration 41/41 as re-validated 2026-09-04). Recorded separately: WIC-1464's *"Also flagged"* tail — `generateInterviewPrep`'s unscoped `applications` read — is **closed**; all three reads now carry `ownerScope(applications, userId)`. Do not re-file it.
+
+
 ### Documentation — `CREDENTIAL_REGISTRY.md` misstated `CLOUDFLARE_API_TOKEN`'s scopes: `Pages: Edit` was claimed but is absent, DNS was unclaimed but reads fine (2026-09-05)
 
 The registry row claimed *Pages: Edit; Workers Scripts: Edit; Account: Read*. Measured against the live credential by run `33989995418` (`cf-marketing-token-drop-in-probe.yml`, read-only, 20:24:11Z), that was **inverted on both counts it spoke to** — the capability it named is absent, and one it did not name reads fine. Aliveness corroborated by run `33989113004`.
