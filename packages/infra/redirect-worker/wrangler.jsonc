@@ -10,18 +10,37 @@
 //     not a redirect surface.)
 //   * `:156` "Add redirect custom domains to Pages project" — `add_domain` for the same
 //     three hostnames at `:178-180`.
-//   * The redirect itself is `packages/infra/redirect-pages/_redirects`:
-//     `/* https://careerpin.app/:splat 301` — the same 301 this Worker performs.
+//   * The redirect itself is `packages/marketing/_worker.js`, a Pages advanced-mode
+//     worker: it serves assets for the `careerpin.app` apex and 301s every other
+//     hostname to it. `packages/marketing/_redirects` carries the same three rules as
+//     a belt-and-braces fallback. `deploy-marketing.yml:136` publishes
+//     `packages/marketing`, so both ship on every marketing deploy.
+//
+// ⚠️ CORRECTION (WIC-2111). The previous revision of this block cited
+// `packages/infra/redirect-pages/_redirects` as the mechanism. That is WRONG, and it is
+// worth knowing why: `packages/infra/redirect-pages/` IS DEPLOYED BY NOTHING. The only
+// `pages deploy` anywhere in this repo targets `packages/marketing` — grep for it. That
+// sibling directory is a second orphan sitting next to this one, not the live path.
 //
 // So DEPLOYING THIS WORKER WOULD CONTEST ROUTES CI ASSIGNS TO A PAGES PROJECT. A Worker
 // route and a Pages custom domain on the same hostname are two systems claiming one name;
 // whichever ran last wins, and the next marketing deploy re-asserts the Pages side.
 //
-// Before running `wrangler deploy` here, confirm in the Cloudflare dashboard (a) whether
-// the `careerpin-redirects` Worker exists at all, and (b) whether the Pages custom domains
-// should be removed first. NEITHER IS KNOWN: no agent seat holds a Cloudflare credential,
-// so nobody has verified whether this Worker was ever deployed. Do not assume it was, and
-// do not assume it was not.
+// ⛔ DO NOT TRY TO SETTLE THIS WITH `curl`. The redirect expression in
+// `packages/marketing/_worker.js` is BYTE-IDENTICAL to `worker.js` in this directory —
+// both build `https://careerpin.app${url.pathname}${url.search}` and hand it to
+// `Response.redirect(…, 301)`. Measured live 2026-09-05: all three hostnames 301 to the
+// apex with path and query preserved, and `careerpin.app` itself serves the site (200).
+// That is exactly what BOTH implementations predict, so the HTTP surface cannot tell you
+// which one served it. No external probe ever will.
+//
+// Before running `wrangler deploy` here, confirm (a) whether the `careerpin-redirects`
+// Worker exists at all, and (b) whether it holds routes on those three hostnames. No
+// agent seat holds a Cloudflare credential — but CI does. Dispatch
+// `.github/workflows/careerpin-redirect-ownership-probe.yml`, which answers both from
+// the Cloudflare control plane with read-only GETs, rather than opening the dashboard.
+// Until that has been run, do not assume this Worker was deployed, and do not assume it
+// was not.
 //
 // WHY THIS FILE IS `.jsonc` AND NOT `.toml` (WIC-2107 / WIC-2109). Wrangler resolves its
 // config with three independent find-up walks, one per filename, in the order

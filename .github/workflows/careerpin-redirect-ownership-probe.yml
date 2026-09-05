@@ -1,0 +1,265 @@
+# WIC-2111: answer "is the `careerpin-redirects` Worker superseded by the Pages
+# path?" with a measurement instead of a Cloudflare console session.
+#
+# WIC-2111 was filed saying the question "cannot be measured from an agent seat"
+# because no agent seat holds a Cloudflare credential. That is true of the *agent
+# seat* and false of *CI*: `CLOUDFLARE_CAREERPIN_API` is a repo-level secret that
+# `.github/workflows/deploy-marketing.yml` already uses against these very zones.
+# So the dashboard steps become three GETs.
+#
+# WHAT IS ALREADY SETTLED IN-REPO, and is NOT what this probe is for:
+#   * The three hostnames DO redirect correctly today, measured live 2026-09-05:
+#     www.careerpin.app, careerpin.io, www.careerpin.io all return `301` to
+#     `https://careerpin.app<path><query>`, path and query preserved.
+#   * The Pages path is what performs it. `packages/marketing/_worker.js` serves
+#     assets for the `careerpin.app` apex and 301s every other hostname to it.
+#     CI redeploys that on every marketing deploy, so the Pages side is
+#     self-healing.
+#   * That `_worker.js` expression is BYTE-IDENTICAL to the standalone Worker's
+#     (`packages/infra/redirect-worker/worker.js`). Both build
+#     `https://careerpin.app${url.pathname}${url.search}` and `Response.redirect(…, 301)`.
+#
+# THAT LAST POINT IS WHY THIS WORKFLOW EXISTS. Because the two implementations
+# are behaviourally identical, NO HTTP PROBE FROM OUTSIDE CAN EVER TELL WHICH ONE
+# SERVED THE REDIRECT. Do not spend another run curling those hostnames hoping to
+# discriminate — the response is the same either way, by construction. The
+# ownership question is only answerable from the Cloudflare control plane, which
+# is what this reads.
+#
+# Safety fence, inherited from `cf-token-capability-probe.yml` (WIC-2097):
+#   * the token is never printed, not even a prefix — it reaches curl through a
+#     0600 config file, so it is absent from `ps` argv as well as from the logs;
+#   * no `set -x` anywhere the token is in scope;
+#   * EVERY request is a GET. There is no POST/PUT/PATCH/DELETE in this file, so
+#     unlike the WIC-2097 probe it cannot create anything even in principle. It
+#     does not deploy, does not touch DNS, and does not alter the Pages project.
+name: Careerpin Redirect Ownership Probe
+
+# Manual only. This must never fire on push/PR — it spends a production-scoped
+# credential to answer a one-off ownership question.
+on:
+  workflow_dispatch:
+
+# The probe only ever reads. It needs no write scope on the repo.
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe Cloudflare for careerpin-redirects Worker ownership
+    runs-on: ubuntu-latest
+    # WIC-1095 house rule: every job is bounded, or GitHub's 6h default turns a
+    # wedged network call into a runner slot held all day.
+    timeout-minutes: 10
+    # `CLOUDFLARE_CAREERPIN_API` is a REPO-level secret (verified 2026-09-05), so
+    # strictly this line is not load-bearing the way it is in the WIC-2097 probe.
+    # It is here to mirror `deploy-marketing.yml`, which declares the same
+    # environment while using the same secret against the same zones — if that
+    # secret is ever moved to the `production` environment, this job keeps
+    # working instead of silently interpolating to the empty string (WIC-2099).
+    # The `production` environment has `protection_rules: []`, so this adds no
+    # human gate.
+    environment: production
+    steps:
+      # One step, on purpose: the token is in scope for exactly this block and
+      # nowhere else in the job.
+      - name: Probe Worker existence and route ownership
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+        run: |
+          set -euo pipefail
+          # NOTE: deliberately no `set -x` — the token is in scope here.
+
+          API="https://api.cloudflare.com/client/v4"
+
+          # Zone ids are already in the repo in cleartext (wrangler.jsonc,
+          # deploy-marketing.yml:64-65). They are identifiers, not credentials.
+          APP_ZONE="ace9c419c6a5129cf7b8d104528a29e1"   # careerpin.app
+          IO_ZONE="e31283e2f9ddc738087daaf4698fb88c"    # careerpin.io
+          WORKER_NAME="careerpin-redirects"
+          PAGES_PROJECT="careerpin-marketing"
+
+          if [ -z "${CF_API_TOKEN:-}" ]; then
+            echo "FATAL: CLOUDFLARE_CAREERPIN_API is empty."
+            echo "Refusing to report a verdict from an empty credential — an empty token"
+            echo "fails every call below in a way that is indistinguishable from a"
+            echo "revoked one (WIC-2097)."
+            exit 1
+          fi
+
+          CFG="$RUNNER_TEMP/cf-probe.conf"
+          BODY="$RUNNER_TEMP/cf-probe-body.json"
+          ( umask 077; printf 'header = "Authorization: Bearer %s"\nsilent\n' "$CF_API_TOKEN" > "$CFG" )
+          trap 'rm -f "$CFG" "$BODY"' EXIT
+
+          HTTP=""
+          # get <url> -> sets $HTTP, writes response body to $BODY. GET only.
+          get() { HTTP="$(curl --config "$CFG" -o "$BODY" -w '%{http_code}' "$1")"; }
+
+          cf_codes()   { jq -r '[.errors[]?.code]    | join(",")'  "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+          cf_msgs()    { jq -r '[.errors[]?.message] | join(" | ")' "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+          cf_success() { jq -r '.success // "n/a"'                  "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+
+          echo "=============================================================="
+          echo "STEP 0 - POSITIVE CONTROL: is this credential alive at all?"
+          echo "=============================================================="
+          # Without this, a 403 in step 1 is ambiguous between "token is dead" and
+          # "token is fine but lacks Workers scope" — the exact misread WIC-2097
+          # was filed over. deploy-marketing.yml resolves the account the same way,
+          # so a healthy careerpin token MUST be able to do this.
+          get "$API/accounts"
+          CTRL_HTTP="$HTTP"
+          echo "  HTTP           : $CTRL_HTTP"
+          echo "  success        : $(cf_success)"
+          if [ "$CTRL_HTTP" != "200" ]; then
+            echo "  CF error codes : $(cf_codes)"
+            echo "  CF messages    : $(cf_msgs)"
+            echo
+            echo "FATAL: the control call failed, so NOTHING below is interpretable."
+            echo "The credential is dead, revoked, or malformed — this is NOT evidence"
+            echo "about the Worker. Fix the token, then re-dispatch."
+            exit 1
+          fi
+
+          ACCT_COUNT="$(jq -r '[.result[]?] | length' "$BODY")"
+          if [ "$ACCT_COUNT" != "1" ]; then
+            echo "FATAL: expected exactly 1 Cloudflare account, found $ACCT_COUNT."
+            echo "deploy-marketing.yml makes the same assumption (:52-56). Resolve by hand."
+            exit 1
+          fi
+          ACCT="$(jq -r '.result[0].id' "$BODY")"
+          echo "  account id     : ${ACCT:0:8}... (1 account, as deploy-marketing.yml expects)"
+          echo "  -> control PASSED. A 403 below now means MISSING SCOPE, not a dead token."
+
+          echo
+          echo "=============================================================="
+          echo "STEP 1 - does a Worker named '$WORKER_NAME' exist?"
+          echo "=============================================================="
+          get "$API/accounts/$ACCT/workers/scripts"
+          SCRIPTS_HTTP="$HTTP"
+          echo "  HTTP           : $SCRIPTS_HTTP"
+
+          WORKER_EXISTS="undetermined"
+          if [ "$SCRIPTS_HTTP" = "200" ]; then
+            echo "  worker scripts on the account:"
+            jq -r '.result[]? | "    - \(.id)"' "$BODY" 2>/dev/null || echo "    (none parseable)"
+            if jq -e --arg n "$WORKER_NAME" '[.result[]?.id] | index($n)' "$BODY" >/dev/null 2>&1; then
+              WORKER_EXISTS="yes"
+            else
+              WORKER_EXISTS="no"
+            fi
+            echo "  -> WORKER_EXISTS=$WORKER_EXISTS"
+          else
+            echo "  CF error codes : $(cf_codes)"
+            echo "  CF messages    : $(cf_msgs)"
+            echo "  -> cannot list Workers. The control passed, so this is a MISSING"
+            echo "     'Workers Scripts:Read' SCOPE on CLOUDFLARE_CAREERPIN_API."
+            echo "     ABSENCE OF THE WORKER IS **NOT** PROVEN BY THIS. Do not read a"
+            echo "     non-200 here as 'the Worker does not exist'."
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 2 - are there Worker ROUTES on the three redirect hostnames?"
+          echo "=============================================================="
+          # A Worker can exist with no routes (harmless) or hold routes that
+          # contest the Pages custom domains (the actual risk). These are
+          # different answers and step 1 cannot distinguish them.
+          ROUTES_READ="yes"
+          MATCHED_ROUTES=""
+          probe_zone() {
+            local zone="$1" label="$2"
+            get "$API/zones/$zone/workers/routes"
+            echo "  [$label] HTTP   : $HTTP"
+            if [ "$HTTP" != "200" ]; then
+              ROUTES_READ="no"
+              echo "  [$label] codes  : $(cf_codes)"
+              echo "  [$label] msgs   : $(cf_msgs)"
+              return 0
+            fi
+            local n
+            n="$(jq -r '[.result[]?] | length' "$BODY")"
+            echo "  [$label] routes : $n"
+            jq -r '.result[]? | "    - \(.pattern)  ->  \(.script // "(no script)")"' "$BODY" 2>/dev/null || true
+            # Only routes on the three redirect surfaces matter. The careerpin.app
+            # APEX is the redirect TARGET, not a redirect surface, so it is not listed.
+            local hits
+            hits="$(jq -r '[.result[]? | select(.pattern | test("^(www\\.careerpin\\.app|careerpin\\.io|www\\.careerpin\\.io)/"))
+                           | "\(.pattern)=>\(.script // "none")"] | join(" ")' "$BODY" 2>/dev/null || echo "")"
+            if [ -n "$hits" ]; then
+              MATCHED_ROUTES="$MATCHED_ROUTES $hits"
+            fi
+          }
+          probe_zone "$APP_ZONE" "careerpin.app"
+          probe_zone "$IO_ZONE"  "careerpin.io"
+
+          MATCHED_ROUTES="$(echo "$MATCHED_ROUTES" | xargs || true)"
+          if [ "$ROUTES_READ" = "yes" ]; then
+            if [ -n "$MATCHED_ROUTES" ]; then
+              echo "  -> ROUTES ON REDIRECT HOSTNAMES: $MATCHED_ROUTES"
+            else
+              echo "  -> no Worker routes on any of the three redirect hostnames."
+            fi
+          else
+            echo "  -> at least one zone was unreadable ('Workers Routes:Read' scope)."
+            echo "     Route ownership is UNDETERMINED; a partial read cannot prove absence."
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 3 - CORROBORATION: does Pages hold them as custom domains?"
+          echo "=============================================================="
+          # deploy-marketing.yml POSTs to this exact path (:160-166), so the token
+          # is expected to read it. This does not by itself decide ownership — a
+          # Pages custom domain and a Worker route can both exist on one hostname,
+          # which is the contested state step 2 looks for.
+          get "$API/accounts/$ACCT/pages/projects/$PAGES_PROJECT/domains"
+          PAGES_HTTP="$HTTP"
+          echo "  HTTP           : $PAGES_HTTP"
+          PAGES_DOMAINS="(unread)"
+          if [ "$PAGES_HTTP" = "200" ]; then
+            jq -r '.result[]? | "    - \(.name)  status=\(.status // "?")"' "$BODY" 2>/dev/null || true
+            PAGES_DOMAINS="$(jq -r '[.result[]?.name] | sort | join(", ")' "$BODY" 2>/dev/null || echo "(unreadable)")"
+          else
+            echo "  CF error codes : $(cf_codes)"
+            echo "  CF messages    : $(cf_msgs)"
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "VERDICT"
+          echo "=============================================================="
+          if [ "$WORKER_EXISTS" = "no" ]; then
+            VERDICT="WORKER_EXISTS=no"
+            NOTE="The \`$WORKER_NAME\` Worker DOES NOT EXIST in Cloudflare. \`packages/infra/redirect-worker/\` is dead code: it describes a deployment that was never made. Delete the directory, drop the ARCHITECTURE.md entry to a line of history, and close WIC-2111 with this run as the evidence. No Cloudflare-side action is needed."
+          elif [ "$WORKER_EXISTS" = "yes" ] && [ "$ROUTES_READ" = "yes" ] && [ -z "$MATCHED_ROUTES" ]; then
+            VERDICT="WORKER_EXISTS=yes, ROUTES=none"
+            NOTE="The Worker exists but holds NO routes on the three redirect hostnames, so it serves no traffic and does not contest the Pages custom domains. Pages owns the redirect. Safe to retire: delete \`packages/infra/redirect-worker/\` in-repo, and delete the unused Worker script in the Cloudflare dashboard at leisure."
+          elif [ "$WORKER_EXISTS" = "yes" ] && [ -n "$MATCHED_ROUTES" ]; then
+            VERDICT="CONTESTED - WORKER_EXISTS=yes, ROUTES=$MATCHED_ROUTES"
+            NOTE="TWO SYSTEMS CLAIM THE SAME HOSTNAMES. The Worker holds live routes on surfaces \`deploy-marketing.yml\` also assigns to the \`$PAGES_PROJECT\` Pages project. User-visible behaviour is currently identical (both 301 to the apex with path and query preserved), so this is drift, not an outage. Decide ONE owner: the Pages path is CI-maintained and self-healing, the Worker has no CI path at all and is hand-run — that asymmetry argues for removing the Worker routes in the dashboard, then deleting \`packages/infra/redirect-worker/\`."
+          else
+            VERDICT="UNDETERMINED"
+            NOTE="The control passed, so the credential is healthy — but \`CLOUDFLARE_CAREERPIN_API\` lacks the Workers read scope(s) needed to answer this. EITHER add 'Workers Scripts:Read' (+ 'Workers Routes:Read' on both zones) to that token and re-dispatch, OR fall back to the Cloudflare dashboard. Do NOT read this as evidence that the Worker is absent."
+          fi
+          echo "$VERDICT"
+          echo
+          echo "$NOTE"
+
+          {
+            echo "## Careerpin redirect ownership probe (WIC-2111)"
+            echo
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| control: list accounts | HTTP $CTRL_HTTP |"
+            echo "| Worker \`$WORKER_NAME\` exists | \`WORKER_EXISTS=$WORKER_EXISTS\` (HTTP $SCRIPTS_HTTP) |"
+            echo "| Worker routes readable | \`ROUTES_READ=$ROUTES_READ\` |"
+            echo "| routes on redirect hostnames | ${MATCHED_ROUTES:-none} |"
+            echo "| Pages custom domains | ${PAGES_DOMAINS} (HTTP $PAGES_HTTP) |"
+            echo
+            echo "**Verdict: \`$VERDICT\`**"
+            echo
+            echo "$NOTE"
+            echo
+            echo "_Read-only: every request in this workflow is a GET. Nothing was deployed, created, or modified._"
+          } >> "$GITHUB_STEP_SUMMARY"
