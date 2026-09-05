@@ -727,8 +727,26 @@ control. Prefer the second — it does not require the two authors to be awake a
 **Whoever merges the second of two siblings owns running that check,** in the merge commit, before
 pushing. That is the first moment the two blocks are adjacent, so it is the first moment the weld
 either exists or does not, and it is the last moment before it becomes a committed weld in a merge
-base other branches will inherit. Neither PR page shows it, both branch tips report clean, and
-nothing in CI runs the check today (WIC-1792).
+base other branches will inherit. Neither PR page shows it, and both branch tips report clean.
+
+**CI now runs this check — but the pre-push discipline above still stands.** All four checks in this
+section are enforced by `.github/workflows/changelog-union-guard.yml`, which runs
+`scripts/changelog-union-check.py` on every PR (`pull_request_target`, so a CONFLICTING PR is still
+reached — a `pull_request` trigger would go quiet on exactly the population that matters), hourly
+across every open PR, and on every push to `main` (WIC-2103, closing WIC-1792 / WIC-2087). Run it
+yourself before you push:
+
+```bash
+python3 scripts/changelog-union-check.py pr <n>       # against the PR's own base
+python3 scripts/changelog-union-check.py refs --ours <your-branch> --theirs <its base>
+python3 scripts/changelog-union-check.py selftest     # the fixtures, offline, ~2s
+```
+
+The script is the executable form of everything in this section — the same orientation, the same
+content-addressed keys, the same three-input subtraction — so if the two ever disagree, one of them
+is a bug. **CI catching it is not as good as not committing it**: by the time the guard is red on
+your PR, a weld you merged has already entered a merge base your children inherit, and this section
+records why that is no longer yours to undo.
 
 **Do not try to predict the weld from the anchor tally — sharing an anchor does not imply welding.**
 Resolved to content anchors, the 9 welds sit on four seams: three onto

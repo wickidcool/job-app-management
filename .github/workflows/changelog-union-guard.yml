@@ -1,0 +1,124 @@
+name: Changelog Union Guard
+
+# WIC-2103, carrying WIC-2087; the detector itself is WIC-1792's spec, written down in
+# root CLAUDE.md since WIC-1778 and never run by anything. Before this file,
+# `grep -li changelog .github/workflows/` returned ZERO across all 16 workflows.
+#
+# WHAT IT GUARDS
+#
+# `.gitattributes` marks `CHANGELOG.md merge=union`. The driver is load-bearing and must
+# stay -- this repo merges `main` into each branch locally before a PR lands, and local
+# git honours it. But it resolves by CONCATENATING both sides at each differing hunk, and
+# it reports success while doing so. Four corruptions ride through silently, none visible
+# in `git diff` and none raising a conflict: a `### ` heading welded to the previous
+# entry's last bullet, a bullet kept twice, a whole entry kept twice, and -- the worst --
+# a bullet filed under an entry NEITHER parent filed it under, where a correction ends up
+# reading as a claim about an unrelated change. All four have reached `main` or an open PR.
+#
+# `scripts/changelog-union-check.py` carries the detector, the constraints, and the
+# fixtures. Read its module docstring before changing anything here.
+#
+# WHY `pull_request_target` AND NOT `pull_request`
+#
+# Same reason as evil-merge-sweeper.yml and docs-audit.yml, and it bites harder here than
+# anywhere else in this repo: a CONFLICTING PR runs NO `pull_request` workflows at all,
+# because they build the merge ref and there isn't one. Every PR that touches
+# `[Unreleased]` flips to CONFLICTING as soon as another such PR merges ahead of it --
+# that is measured, not incidental (WIC-1904, recorded in the `.gitattributes` header).
+# So the population this check exists for is exactly the population `pull_request` cannot
+# reach. A `pull_request` trigger would have gone quiet precisely when it mattered.
+#
+# `branches: ['**']` filters the BASE branch, so stacked PRs are covered (WIC-1138), and
+# `edited` is included because a retarget emits no push/synchronize.
+#
+# SECURITY. `pull_request_target` grants a base-repo token. This job downgrades to
+# `contents: read` + `pull-requests: read`, references no secrets, and -- critically --
+# NEVER CHECKS OUT OR EXECUTES PR HEAD CODE. It checks out the DEFAULT branch, fetches
+# `refs/pull/N/head` as a ref, and only ever reads blobs out of it with `git show` and
+# `git merge-tree`. Blob content is data here, never anything that runs. That is also why
+# fork PRs need no special case.
+#
+# Checking out the default branch rather than the PR's base branch is deliberate: a PR
+# whose base predates this commit has no detector script on its base, and would fail with
+# "file not found" rather than reporting a verdict.
+#
+# NOT A REQUIRED CHECK (yet). This publishes no commit status, so it cannot be named in
+# the `skip-ci-sweep-required` ruleset. Promoting it is a follow-up that needs a ruleset
+# edit; do that only after this has run green on `main` for a while, and prove a status
+# posts before touching the ruleset.
+
+on:
+  pull_request_target:
+    branches: ['**']
+    types: [opened, synchronize, reopened, edited]
+  push:
+    # The AC's green-on-`main` evidence, and the only trigger that runs the self-test
+    # against a freshly merged detector.
+    branches: [main]
+  schedule:
+    # Backstop for the two cases the edge trigger cannot reach: PRs already open when this
+    # merged (edge triggers do not retro-fire), and base-branch drift -- which matters
+    # more here than for most checks, because the corruption is a property of the MERGE,
+    # so a PR that was clean this morning can start welding when its base moves under it
+    # without the head changing at all.
+    #
+    # Hourly, offset off :00 where GitHub throttles crons hardest. The sweep costs one
+    # `gh pr list` plus two fetches and one merge-tree per PR -- cheap, but not free.
+    - cron: '41 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  # Per-PR on the edge trigger, one shared slot for every full sweep. A newer sweep wholly
+  # subsumes an older one -- both read live state -- so coalescing loses nothing.
+  group: changelog-union-guard-${{ github.event.pull_request.number || 'sweep' }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Changelog union-corruption detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the default branch (never PR head code)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          # Full history: the detector needs a real merge base for each PR against its own
+          # base branch, and a shallow clone silently has none.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Self-test the detector against synthetic fixtures
+        # This runs on EVERY trigger, including the ones that will find no PRs, and it is
+        # the load-bearing evidence that this workflow does anything at all. There are 0
+        # open PRs on this repo as often as not, and a sweep that reports 0/0 is
+        # byte-indistinguishable from a detector that is silently broken.
+        #
+        # The fixtures build real commits and run the same
+        # `git --attr-source=<ours> merge-tree` path the PR checks use, reproducing one
+        # known weld, one duplicate bullet, one duplicated entry and one misfiled bullet,
+        # with two clean controls that must NOT be flagged. They also assert all three
+        # placements of `--attr-source`: global (works), after the subcommand (git exits
+        # 129), and pointed at a head that deleted the driver (must be refused, not
+        # silently unioned off the working tree).
+        run: python3 scripts/changelog-union-check.py selftest
+
+      - name: Check this PR against its own base
+        if: github.event_name == 'pull_request_target'
+        env:
+          # `--base-ref` is passed explicitly from the event payload so this step needs no
+          # `gh` call and no token at all. It is also constraint 2 in practice: the PR's
+          # OWN base, never `main`, which matters for the stacked PRs this repo is full of.
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python3 scripts/changelog-union-check.py pr "$PR_NUMBER" --base-ref "$BASE_REF"
+
+      - name: Sweep every open PR
+        if: github.event_name != 'pull_request_target'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/changelog-union-check.py sweep
