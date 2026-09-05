@@ -20,6 +20,15 @@ The scheduled Layer 0 audit (`.github/workflows/secret-history-audit.yml`) went 
 
 Verified three ways, not one: the audit's own flags now report **0**; dropping `--redact` brings **all 41 back**, confirming the load-bearing redaction coupling the baseline header documents; and a throwaway commit carrying a synthetic credential is **still detected** against the enlarged baseline, so the ratchet mutes nothing it should catch (WIC-2116).
 
+
+### Added — A read-only probe for whether the live `CLOUDFLARE_API_TOKEN` can replace the revoked `CLOUDFLARE_CAREERPIN_API` in the marketing deploy (2026-09-05)
+
+`.github/workflows/cf-marketing-token-drop-in-probe.yml` measures, against the live credential, each capability `deploy-marketing.yml` depends on: `GET /accounts`, zone reads and DNS record lists on `careerpin.app` + `careerpin.io`, and a Pages project read for `careerpin-marketing`. It is `workflow_dispatch`-only, `environment: production`, and issues **GETs exclusively** — no POST/PUT/PATCH/DELETE and no `wrangler`, so unlike the WIC-2097 probe it has no write call at all.
+
+`CLOUDFLARE_CAREERPIN_API` is **revoked** (403 / code 9109) and has exactly two consumers, of which `deploy-marketing.yml` is the only production one. That workflow fires on `push: main` touching `packages/marketing/**`, so the next marketing content change auto-fails at "Resolve Cloudflare account ID"; it last ran green 2026-06-12, which is why nothing has surfaced. The probe decides whether repointing removes the human rotation gate outright, or names the exact missing scopes so the ask pending on WIC-2100 becomes specific.
+
+Two design points are load-bearing. It carries a **positive control** — the account-scoped `tokens/verify` — because `403/9109` (revoked) and `403/10000` (live-but-unscoped) are otherwise indistinguishable in a table of bare 403s, and conflating them is what confounded the board record on approval `d61d200b` clause (i). And because a GET-only probe proves *Read* but never *Write*, the verdict rests on a **token self-policy read** that enumerates permission groups by name; without it `DROP_IN=yes` would be a success condition the probe could never return, which reads as a clean negative. Scope inference is otherwise one-directional and stated as such: Cloudflare's write permission groups grant read, so a denied read is decisive against write, while a successful read is not evidence for it (WIC-2118).
+
 ### Decided — No automated detector for stacked-child auto-close: an hourly sweep would be slower than the humans already are (2026-09-05)
 
 A stacked-child close detector was scoped for `.github/workflows/evil-merge-sweeper.yml` and **deliberately not built**. Root `CLAUDE.md`'s **Merging a PR** section gains the verdict so the question is not re-scoped a fourth time (WIC-2106, closing WIC-2095 / WIC-2089 item 2). No workflow, no code, no permission change.
