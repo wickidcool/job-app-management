@@ -441,3 +441,75 @@ export async function bump(userId: string) {
     expect(checksAt(r, 'SIG')).toHaveLength(0);
   });
 });
+
+/**
+ * [LAUNDER] — the route-layer choke point (ADR-010 D1.3, WIC-1600).
+ *
+ * These cases matter more than their size suggests, because [LAUNDER] is the one
+ * check with no compiler backstop behind it. `tsc` accepts
+ * `c.get('userId') ?? undefined` even with `HonoVariables.userId` narrowed to
+ * `string` — a redundant `??` is legal, not an error — so if this check stops
+ * biting, the 66-site burndown silently reopens with nothing else to catch it.
+ *
+ * Writes a *route* fixture rather than a service one, and removes it afterwards
+ * so the file cannot leak findings into the service-scoped counts above.
+ */
+describe('[LAUNDER] route-layer owner laundering', () => {
+  const ROUTE = 'src/routes/subject.routes.ts';
+
+  /** Write one route file into the fixture tree and return the guard's findings. */
+  function auditRoute(source: string) {
+    writeFileSync(join(root, ROUTE), source);
+    try {
+      return JSON.parse(
+        execFileSync('node', [SCRIPT, `--root=${root}`, '--json'], { encoding: 'utf8' })
+      ) as ReturnType<typeof audit>;
+    } finally {
+      rmSync(join(root, ROUTE), { force: true });
+    }
+  }
+
+  const HANDLER = `declare const c: any;\ndeclare function serve(owner?: string): void;\n`;
+
+  it('fires on the exact shape the burndown deleted', () => {
+    const r = auditRoute(
+      `${HANDLER}\nexport const h = () => serve(c.get('userId') ?? undefined);\n`
+    );
+    expect(checksAt(r, 'LAUNDER')).toHaveLength(1);
+    expect(checksAt(r, 'LAUNDER')[0].detail).toContain('requireOwner(c)');
+  });
+
+  // Any fallback restores a representable absence, which is the precondition
+  // [SIG] measures downstream — so the check keys on the fallback, not on the
+  // literal `undefined` that happened to be used at all 66 original sites.
+  it.each([
+    ['?? null', `serve(c.get('userId') ?? null)`],
+    ["|| ''", `serve(c.get('userId') || '')`],
+    ['?? a default', `serve(c.get('userId') ?? 'anonymous')`],
+  ])('fires on a %s fallback too', (_label, expr) => {
+    const r = auditRoute(`${HANDLER}\nexport const h = () => ${expr};\n`);
+    expect(checksAt(r, 'LAUNDER')).toHaveLength(1);
+  });
+
+  it('is silent on requireOwner, the target posture', () => {
+    const r = auditRoute(
+      `${HANDLER}\ndeclare function requireOwner(c: any): string;\n` +
+        `export const h = () => serve(requireOwner(c));\n`
+    );
+    expect(checksAt(r, 'LAUNDER')).toHaveLength(0);
+  });
+
+  // `requireOwner` reads the context bare and throws; a bare read is not a
+  // laundering and must not be flagged, or the helper would report itself.
+  it('is silent on a bare context read with no fallback', () => {
+    const r = auditRoute(`${HANDLER}\nexport const h = () => serve(c.get('userId'));\n`);
+    expect(checksAt(r, 'LAUNDER')).toHaveLength(0);
+  });
+
+  it('ignores a fallback on a non-owner context key', () => {
+    const r = auditRoute(
+      `${HANDLER}\nexport const h = () => serve(c.get('requestId') ?? undefined);\n`
+    );
+    expect(checksAt(r, 'LAUNDER')).toHaveLength(0);
+  });
+});

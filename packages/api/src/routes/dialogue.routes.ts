@@ -9,6 +9,7 @@ import {
 import { AppError } from '../types/index.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
+import { requireOwner } from './require-owner.js';
 
 export const dialogueRoutes = new Hono<AppEnv>()
   .post('/projects/:projectId/capture', async (c) => {
@@ -20,7 +21,7 @@ export const dialogueRoutes = new Hono<AppEnv>()
       c.req.param('projectId'),
       parsed.data,
       undefined,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json(result, 201);
   })
@@ -45,7 +46,7 @@ export const dialogueRoutes = new Hono<AppEnv>()
       c.req.param('projectId'),
       fileName,
       parsed.data,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json(result);
   })
@@ -62,7 +63,7 @@ export const dialogueRoutes = new Hono<AppEnv>()
       c.req.param('projectId'),
       fileName,
       parsed.data,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json(result);
   });

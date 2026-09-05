@@ -72,7 +72,24 @@ export interface Env {
 }
 
 export interface HonoVariables {
-  userId: string | null;
+  /**
+   * The authenticated caller's id (ADR-010 D1.2).
+   *
+   * Declared `string`, not `string | null`: after D1.1 (`requireSubject`) and D3
+   * (the local-dev bypass supplies a real owner), no path through
+   * `middleware/auth.ts` reaches a guarded route with an absent owner. Narrowing
+   * it is what makes the compiler reject a reintroduced
+   * `c.get('userId') ?? undefined` — the laundering D1.3 deleted at 66 sites.
+   *
+   * One caveat this type cannot express: the three `PUBLIC_PATHS` routes run
+   * *before* an owner exists, so `authMiddleware` leaves the variable unset and
+   * `c.get('userId')` is `undefined` there at runtime despite this declaration.
+   * That is why `requireOwner` re-checks at runtime rather than trusting the
+   * type, and why `routes/auth.ts` and `routes/onboarding.ts` keep their
+   * `if (!userId)` guards (AC-5) — a truthiness test stays legal and stays
+   * correct under this narrowing.
+   */
+  userId: string;
 }
 
 export type AppEnv = { Bindings: Env; Variables: HonoVariables };

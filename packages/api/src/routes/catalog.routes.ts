@@ -175,7 +175,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listDiffsSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    return c.json(await listDiffs(parsed.data, c.get('userId') ?? undefined));
+    return c.json(await listDiffs(parsed.data, requireOwner(c)));
   })
   .get('/catalog/diffs/:id', async (c) => {
     const diff = await getDiff(c.req.param('id'), requireOwner(c));
@@ -211,7 +211,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listCompaniesSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    return c.json(await listCompanies(parsed.data, c.get('userId') ?? undefined));
+    return c.json(await listCompanies(parsed.data, requireOwner(c)));
   })
   .post('/catalog/companies/merge', async (c) => {
     const parsed = mergeEntitiesSchema.safeParse(await readJsonBody(c));
@@ -248,7 +248,7 @@ export const catalogRoutes = new Hono<AppEnv>()
           400
         );
       }
-      return c.json(await listJobFitTags(parsed.data, c.get('userId') ?? undefined));
+      return c.json(await listJobFitTags(parsed.data, requireOwner(c)));
     } else if (type === 'tech-stack') {
       if (
         parsed.data.category &&
@@ -266,7 +266,7 @@ export const catalogRoutes = new Hono<AppEnv>()
           400
         );
       }
-      return c.json(await listTechStackTags(parsed.data, c.get('userId') ?? undefined));
+      return c.json(await listTechStackTags(parsed.data, requireOwner(c)));
     } else {
       return c.json(
         { error: { code: 'BAD_REQUEST', message: 'type must be job-fit or tech-stack' } },
@@ -323,17 +323,14 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listBulletsSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    return c.json(await listBullets(parsed.data, c.get('userId') ?? undefined));
+    return c.json(await listBullets(parsed.data, requireOwner(c)));
   })
   // ── STAR Catalog Entries ───────────────────────────────────────────────────
   .get('/star-entries', async (c) => {
     const parsed = listStarEntriesSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const entries = await listStarEntries(
-      c.get('userId') ?? undefined,
-      parsed.data.jobFitAnalysisId
-    );
+    const entries = await listStarEntries(requireOwner(c), parsed.data.jobFitAnalysisId);
     return c.json({ entries });
   })
   // ── Themes ─────────────────────────────────────────────────────────────────
@@ -341,7 +338,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = listThemesSchema.safeParse(c.req.query());
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    return c.json(await listThemes(parsed.data, c.get('userId') ?? undefined));
+    return c.json(await listThemes(parsed.data, requireOwner(c)));
   })
   // ── Job Fit Analysis ────────────────────────────────────────────────────────
   .post('/catalog/job-fit/analyze', async (c) => {
@@ -359,7 +356,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     const { response, rateLimitHeaders } = await analyzeJobFit(
       parsed.data,
       clientIp,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
 
     return new Response(JSON.stringify(response), {
@@ -379,10 +376,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
-    const result = await listJobFitAnalyses(
-      parsed.data,
-      jobFitAnalysesScope(c.get('userId') ?? undefined)
-    );
+    const result = await listJobFitAnalyses(parsed.data, jobFitAnalysesScope(requireOwner(c)));
     return c.json(result);
   })
   /**
@@ -402,10 +396,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
-    const analysis = await getJobFitAnalysis(
-      parsed.data.id,
-      jobFitAnalysesScope(c.get('userId') ?? undefined)
-    );
+    const analysis = await getJobFitAnalysis(parsed.data.id, jobFitAnalysesScope(requireOwner(c)));
 
     if (!analysis)
       return c.json(

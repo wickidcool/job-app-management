@@ -20,7 +20,15 @@ export class OwnerRequiredError extends AppError {
  * service signatures can take `userId: string` and carry no owner-absent branch
  * (ADR-010 D2, AC-T0). Routes previously laundered the absence with
  * `c.get('userId') ?? undefined`, which pushed the decision down into every
- * predicate — the shape WIC-1638 is burning down.
+ * predicate — the shape WIC-1638 was burning down.
+ *
+ * That burndown is complete: ADR-010 D1.3 (WIC-1600) converted the last 66 sites
+ * across 11 route files, so `packages/api/src/routes` now holds zero of them and
+ * this helper is the only way a route reads the owner. The `[LAUNDER]` check in
+ * `scripts/audit-owner-predicates.mjs` holds it at zero — which is load-bearing,
+ * because the compiler does not: `c.get('userId') ?? undefined` still typechecks
+ * clean even with `HonoVariables.userId` narrowed to `string` (D1.2), a redundant
+ * `??` being legal rather than an error.
  *
  * One caller reaches here with no owner, and it should be rejected:
  *
@@ -41,7 +49,18 @@ export class OwnerRequiredError extends AppError {
  * the signature was tightened (ADR-010 D4).
  */
 export function requireOwner(c: Context<AppEnv>): string {
-  const owner = c.get('userId');
+  // Read through the wider type on purpose (ADR-010 D1.2). `HonoVariables.userId`
+  // is declared `string`, but this function is the one place that must not trust
+  // that declaration: it is a claim about what `authMiddleware` guarantees, and
+  // this is the guard that makes the claim true. Two ways the runtime value is
+  // not a `string` even though the type says it is — a `PUBLIC_PATHS` request,
+  // where the middleware never sets the variable, and any future middleware
+  // change that reintroduces an absent owner. Both must 401, not fall through.
+  //
+  // Without the widening the three comparisons below are `TS2367` "no overlap"
+  // errors, and the tempting fix — deleting them because the type says they
+  // cannot fire — would delete the only runtime check in the system.
+  const owner = c.get('userId') as string | null | undefined;
   if (owner === null || owner === undefined || owner === '') {
     throw new OwnerRequiredError();
   }

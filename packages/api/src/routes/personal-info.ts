@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../types/env.js';
 import * as personalInfoService from '../services/personal-info.service.js';
 import { readJsonBody } from '../lib/request.js';
+import { requireOwner } from './require-owner.js';
 
 const urlSchema = z.string().url().max(500).nullable().optional();
 
@@ -28,7 +29,7 @@ const updatePersonalInfoSchema = z.object({
 
 export const personalInfoRoutes = new Hono<AppEnv>()
   .get('/personal-info', async (c) => {
-    const result = await personalInfoService.getPersonalInfo(c.get('userId') ?? undefined);
+    const result = await personalInfoService.getPersonalInfo(requireOwner(c));
     return c.json(result);
   })
   .patch('/personal-info', async (c) => {
@@ -74,9 +75,6 @@ export const personalInfoRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await personalInfoService.upsertPersonalInfo(
-      body.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await personalInfoService.upsertPersonalInfo(body.data, requireOwner(c));
     return c.json(result);
   });

@@ -14,10 +14,11 @@ import {
 import { AppError } from '../types/index.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
+import { requireOwner } from './require-owner.js';
 
 export const projectsRoutes = new Hono<AppEnv>()
   .get('/projects', async (c) => {
-    const projects = await listProjects(c.get('userId') ?? undefined);
+    const projects = await listProjects(requireOwner(c));
     return c.json({ projects });
   })
   .post('/projects', async (c) => {
@@ -29,27 +30,27 @@ export const projectsRoutes = new Hono<AppEnv>()
     if (!name || typeof name !== 'string') {
       throw new AppError('BAD_REQUEST', 'name is required', undefined, 400);
     }
-    const project = await createProject({ name, slug, description }, c.get('userId') ?? undefined);
+    const project = await createProject({ name, slug, description }, requireOwner(c));
     return c.json(project, 201);
   })
   .get('/projects/:projectId', async (c) => {
-    const project = await getProjectBySlug(c.req.param('projectId'), c.get('userId') ?? undefined);
+    const project = await getProjectBySlug(c.req.param('projectId'), requireOwner(c));
     return c.json(project);
   })
   .delete('/projects/:projectId', async (c) => {
-    const project = await getProjectBySlug(c.req.param('projectId'), c.get('userId') ?? undefined);
-    await deleteProject(project.id, c.get('userId') ?? undefined);
+    const project = await getProjectBySlug(c.req.param('projectId'), requireOwner(c));
+    await deleteProject(project.id, requireOwner(c));
     return c.body(null, 204);
   })
   .get('/projects/:projectId/files', async (c) => {
-    const files = await listProjectFiles(c.req.param('projectId'), c.get('userId') ?? undefined);
+    const files = await listProjectFiles(c.req.param('projectId'), requireOwner(c));
     return c.json({ files });
   })
   .get('/projects/:projectId/files/:fileName', async (c) => {
     const content = await getProjectFile(
       c.req.param('projectId'),
       c.req.param('fileName'),
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json({ content });
   })
@@ -62,7 +63,7 @@ export const projectsRoutes = new Hono<AppEnv>()
       c.req.param('projectId'),
       c.req.param('fileName'),
       content,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.body(null, 204);
   })
@@ -77,23 +78,14 @@ export const projectsRoutes = new Hono<AppEnv>()
     if (typeof content !== 'string') {
       throw new AppError('BAD_REQUEST', 'content must be a string', undefined, 400);
     }
-    await createProjectFile(
-      c.req.param('projectId'),
-      fileName,
-      content,
-      c.get('userId') ?? undefined
-    );
+    await createProjectFile(c.req.param('projectId'), fileName, content, requireOwner(c));
     return c.json({ fileName }, 201);
   })
   .delete('/projects/:projectId/files/:fileName', async (c) => {
-    await deleteProjectFile(
-      c.req.param('projectId'),
-      c.req.param('fileName'),
-      c.get('userId') ?? undefined
-    );
+    await deleteProjectFile(c.req.param('projectId'), c.req.param('fileName'), requireOwner(c));
     return c.body(null, 204);
   })
   .post('/projects/generate-index', async (c) => {
-    const result = await generateProjectIndex(c.get('userId') ?? undefined);
+    const result = await generateProjectIndex(requireOwner(c));
     return c.json(result, 201);
   });

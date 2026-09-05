@@ -79,7 +79,16 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
   const path = new URL(c.req.url).pathname;
   if (PUBLIC_PATHS.includes(path)) {
-    c.set('userId', null);
+    // Deliberately leaves `userId` unset rather than setting it to `null`
+    // (ADR-010 D1.2). These three routes run before an owner exists — logging in
+    // is how you get one — so there is no owner to record, and `HonoVariables`
+    // no longer admits `null` as a way to say so.
+    //
+    // Downstream this is the same absence it always was: `c.get('userId')`
+    // returns `undefined` instead of `null`, and every consumer tests it with
+    // `!userId` or through `requireOwner`, both of which treat the two
+    // identically. No guarded route is reachable here — `PUBLIC_PATHS` is
+    // exactly `/api/auth/{login,register,logout}`, and `/auth/me` is not in it.
     return next();
   }
 

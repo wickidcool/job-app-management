@@ -13,33 +13,51 @@ Analysis of record: WIC-1430 document `tenancy-absent-caller-audit`.
 
 ## Implementation status
 
-Measured on `main` at `2143bb60`, 2026-09-05. Recorded here so the next reader does not
-re-derive it — three separate cards have already re-measured this independently.
+Re-measured on this branch after merging `main` at `c661d36` (WIC-2065 / PR #376, which closed
+the reports vertical while this change was in flight). Recorded here so the next reader does
+not re-derive it — three separate cards have already re-measured this independently.
 
 | decision | state | evidence |
 |---|---|---|
 | **D1.1** reject a token that verifies with no `sub` | ✅ landed | `middleware/auth.ts` `requireSubject` throws → 401 on both the ES256/RS256 and HS256 paths |
-| **D1.2** narrow `HonoVariables.userId` to `string` | ❌ outstanding | `src/types/env.ts:75` is still `userId: string \| null` |
-| **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ❌ outstanding — **61 sites** | 61 live sites across 10 route files; 66 total `c.get('userId')` sites; 16 `requireOwner(c)` adoptions in 4 files (WIC-2065 closed `reports.ts`: −5 laundering, +5 adoptions) |
-| **D2** service signatures take `userId: string` | ⚠️ partial | the guard reports `[SIG] 76` (was 81; WIC-2065 narrowed the 5 `reports.service.ts` signatures) |
+| **D1.2** narrow `HonoVariables.userId` to `string` | ✅ landed | `src/types/env.ts` is `userId: string`; `PUBLIC_PATHS` now leaves the variable unset rather than setting `null` |
+| **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ✅ landed — **0 sites** | was 66 across 11 route files; `requireOwner(c)` adoptions **77**, in all 11 route files |
+| **D2** service signatures take `userId: string` | ⚠️ partial | the guard reports `[SIG] 71`, `[COND] 29` (was 81/42; WIC-2065 narrowed the 5 `reports.service.ts` signatures, WIC-2067 the catalog ones) |
 | **D3** local dev gets a real owner | ✅ landed | `middleware/auth.ts` supplies `LOCAL_DEV_USER_ID` (WIC-1964) |
-| **D4** CI guard is the mechanism | ✅ landed | `scripts/audit-owner-predicates.mjs`, wired into `Lint & Test` |
-| **D5** `[NOWNER]` checks owner-absent writes | ⚠️ landed, unsound | see the caveat below |
+| **D4** CI guard is the mechanism | ✅ landed | `scripts/audit-owner-predicates.mjs`, wired into `Lint & Test`; now four checks, `[LAUNDER]` added for the route layer |
+| **D5** `[NOWNER]` checks owner-absent writes | ✅ landed, soundness fixed | was blind to a ternary's fallback arm; WIC-2067 classifies arm by arm and rewrote the 4 `catalog.service.ts` sites. One `or(...)` blind spot remains, 0 sites — see the caveat below |
 
-Reproduce D1.3:
+Reproduce D1.2 + D1.3 (both must print `0`, and the second must print `string`):
 
 ```sh
 grep -rn "c.get('userId') ?? undefined" packages/api/src/routes --exclude=require-owner.ts | wc -l
+grep -n 'userId:' packages/api/src/types/env.ts
+node packages/api/scripts/audit-owner-predicates.mjs --stats | grep LAUNDER
 ```
 
-### Caveat on D5 — `[NOWNER] = 0` does not mean the write class is closed
+### Why D1.2 alone was not the mechanism for D1.3
 
-`[NOWNER]` treats a `where` predicate as owner-scoped when an owner column appears
-*anywhere* in it (`audit-owner-predicates.mjs`, the `v.some((r) => r.owner)` gate). For a
-ternary it therefore reads the consequent, sees the owner term, and passes the site —
-never examining the alternate branch that drops the owner. Two UPDATEs with identical
-absent-owner behaviour are graded differently: the inline `where(eq(t.slug, slug))` is
-flagged, while
+The obvious expectation is that narrowing the type makes the laundering a compile error, so
+that D1.2 gates D1.3 for free. **It does not, and this was measured rather than assumed.**
+With `HonoVariables.userId` narrowed to `string`, reintroducing
+`getDashboardStats(c.get('userId') ?? undefined)` in `routes/dashboard.ts` still gives
+`tsc --noEmit` **exit 0**: a redundant `??` is legal TypeScript, not an error, and passing
+`string | undefined` into a service that still accepts `userId?: string` (71 such signatures
+remain — D2 is partial) is well typed at every one of those call sites.
+
+So D1.2 makes the laundering *pointless* without making it *detectable*, and `[SIG]`/`[COND]`
+cannot see it either — they key on service signatures and on predicates, and a route call
+argument is neither. That is precisely the AC-2 failure mode this ADR was written about: a
+criterion nothing executes. The `[LAUNDER]` check closes it, keyed on the fallback rather
+than on the literal `undefined`, so `?? null`, `|| ''` and `?? 'anonymous'` are caught too.
+Both controls are exercised in `test/audit-owner-predicates.test.ts`.
+
+### Caveat on D5 — resolved by WIC-2067, and worth keeping for what it teaches
+
+**This section described a live defect until 2026-09-05; it is now history. Do not re-file
+it.** `[NOWNER]` used to treat a `where` predicate as owner-scoped whenever an owner column
+appeared *anywhere* in it, so for a ternary it read the consequent, saw the owner term, and
+passed the site without ever examining the arm that dropped the owner:
 
 ```ts
 const whereClause = userId
@@ -47,14 +65,32 @@ const whereClause = userId
   : eq(t.slug, slug);
 ```
 
-is not — even though both match one row *per tenant* when the owner is absent, because
-every catalog unique here is composite `(user_id, slug)` and the UPDATE carries no `LIMIT`.
-Four such sites are live in `catalog.service.ts` (`:831`, `:863`, `:893`, `:944`), reachable
-in principle through `catalog.routes.ts` → `applyDiff` → `applyChange`. They are not
-exploitable today — D1.1 plus a three-entry `PUBLIC_PATHS` guarantees a concrete owner on
-every non-auth route — but they are held shut by an invariant three layers away from the
-predicate rather than by the predicate itself. Finishing D1.2 + D1.3 is what makes that
-structural. Tracked on WIC-1672 (Finding 2) and WIC-2067.
+That scored clean while the same defect written inline one line away was flagged — the
+severity was inverted, with the site that *looks* scoped getting the milder grade. Against a
+composite `(user_id, slug)` unique the fallback arm carries no `LIMIT`, so it rewrites one
+row per tenant. Four such sites sat in `catalog.service.ts` `applyChange`.
+
+**Both halves are now closed.** WIC-2067 (PR #378) classifies a conditional in predicate
+position arm by arm — owner-scoped only if *every* arm carries the owner term — and rewrote
+the four sites to an unconditional `and(...)`. Standing positive controls live in
+`test/audit-owner-predicates.test.ts` under "[NOWNER] ternary fallbacks". D1.2 + D1.3
+(this change) independently removed the route-level absence that would have had to reach
+them, so the class is closed at both ends rather than at one.
+
+Two things worth carrying forward, since the episode cost months:
+
+- **A check is blind to any shape nobody wrote a failing fixture for**, and the prose
+  describing it will overstate its reach in the meantime. The previous revision of this note
+  claimed `[NOWNER]` "cannot be evaded", full stop; it was entitled only to a claim about
+  *renames*. Prefer adding a fixture over widening a claim.
+- **One disjunction blindness remains, in the other spelling.** `or(eq(t.userId, u),
+  eq(t.slug, s))` still scores clean, because a conjunct anywhere in an `and(...)` chain
+  soundly proves scoping and `scan` sets `owner` from any one operand — but under `or` the
+  other operand still matches foreign rows. There are **zero** such write predicates in the
+  tree today, which is the only reason this is a note and not a finding. It needs `or`
+  classified operand-by-operand the way `?:` now is.
+
+History: WIC-1672 (Finding 2) → WIC-2067.
 
 ## Context
 

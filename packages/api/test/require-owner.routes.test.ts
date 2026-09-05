@@ -25,7 +25,18 @@ vi.mock('../src/middleware/auth.js', async (importOriginal) => {
     ...actual,
     authMiddleware: createMiddleware(async (c, next) => {
       if (!inject.ownerless) return actual.authMiddleware(c, next);
-      c.set('userId', null);
+      // The cast is deliberate and load-bearing (ADR-010 D1.2). `HonoVariables.userId`
+      // is now declared `string`, so this assignment is exactly the state the type
+      // system says cannot happen — which is the state this suite exists to test.
+      // `requireOwner` is defence in depth precisely because a type is a claim about
+      // the middleware, not an enforcement of it; a regressed or replaced middleware
+      // can still put an absence on the context at runtime.
+      //
+      // Do not "fix" this by deleting the injection or narrowing it to a string:
+      // that would delete the only coverage of the guard's failure path. `test/` is
+      // outside `tsconfig.json`'s `include`, so this does not break the build today;
+      // the cast keeps it honest if that ever changes.
+      c.set('userId', null as unknown as string);
       await next();
     }),
   };
@@ -122,6 +133,38 @@ vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
   analyzeJobFit: vi.fn(),
 }));
 
+// ADR-010 D1.3 (WIC-1600) — the seven route files whose laundering was deleted in
+// that pass. The three files above were already migrated when this suite was
+// written; these are the remainder, so that every route file carrying a
+// `requireOwner` call now has at least one entry point pinned here.
+vi.mock('../src/services/dashboard.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/dashboard.service.js')>()),
+  getDashboardStats: vi.fn(),
+}));
+
+vi.mock('../src/services/project.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/project.service.js')>()),
+  listProjects: vi.fn(),
+}));
+
+vi.mock('../src/services/cover-letter.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/cover-letter.service.js')>()),
+  listCoverLetters: vi.fn(),
+}));
+
+vi.mock('../src/services/resume.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/resume.service.js')>()),
+  listResumes: vi.fn(),
+}));
+
+vi.mock('../src/services/application.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/application.service.js')>()),
+  listApplications: vi.fn(),
+}));
+
+// All five reports entry points, from WIC-2065 — that card closed `reports.ts`
+// independently and covered the whole vertical, so its mock is kept whole rather
+// than reduced to the single endpoint this pass would otherwise have added.
 vi.mock('../src/services/reports.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/reports.service.js')>()),
   getPipelineReport: vi.fn(),
@@ -131,10 +174,21 @@ vi.mock('../src/services/reports.service.js', async (importOriginal) => ({
   getByFitTierReport: vi.fn(),
 }));
 
+vi.mock('../src/services/personal-info.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/personal-info.service.js')>()),
+  getPersonalInfo: vi.fn(),
+}));
+
 import * as catalogService from '../src/services/catalog.service.js';
 import * as resumeVariantService from '../src/services/resume-variant.service.js';
 import * as interviewPrepService from '../src/services/interviewPrep.service.js';
+import * as dashboardService from '../src/services/dashboard.service.js';
+import * as projectService from '../src/services/project.service.js';
+import * as coverLetterService from '../src/services/cover-letter.service.js';
+import * as resumeService from '../src/services/resume.service.js';
+import * as applicationService from '../src/services/application.service.js';
 import * as reportsService from '../src/services/reports.service.js';
+import * as personalInfoService from '../src/services/personal-info.service.js';
 
 const JWT_SECRET = 'super-secret-jwt-key-for-testing-only-32-chars!!';
 
@@ -227,6 +281,55 @@ const GUARDED = [
     method: 'POST',
     body: { applicationId: '01HZ_APP_001' },
     service: () => interviewPrepService.generateInterviewPrep,
+  },
+
+  // ADR-010 D1.3 (WIC-1600) — one entry point per route file migrated in that
+  // pass, so each file's `requireOwner` adoption has a running assertion behind
+  // it rather than only a grep. All are GETs with no body and all-optional query
+  // schemas: Zod validation runs before `requireOwner` on several of these, and a
+  // 400 would mask the 401 being pinned. `requireOwner(c)` is the last argument
+  // at each of these call sites, which is what the positive control asserts.
+  {
+    name: 'getDashboardStats',
+    path: '/api/dashboard',
+    method: 'GET',
+    body: undefined,
+    service: () => dashboardService.getDashboardStats,
+  },
+  {
+    name: 'listProjects',
+    path: '/api/projects',
+    method: 'GET',
+    body: undefined,
+    service: () => projectService.listProjects,
+  },
+  {
+    name: 'listCoverLetters',
+    path: '/api/cover-letters',
+    method: 'GET',
+    body: undefined,
+    service: () => coverLetterService.listCoverLetters,
+  },
+  {
+    name: 'listResumes',
+    path: '/api/resumes',
+    method: 'GET',
+    body: undefined,
+    service: () => resumeService.listResumes,
+  },
+  {
+    name: 'listApplications',
+    path: '/api/applications',
+    method: 'GET',
+    body: undefined,
+    service: () => applicationService.listApplications,
+  },
+  {
+    name: 'getPersonalInfo',
+    path: '/api/personal-info',
+    method: 'GET',
+    body: undefined,
+    service: () => personalInfoService.getPersonalInfo,
   },
 
   // ── The reports vertical (WIC-2065) ────────────────────────────────────────
