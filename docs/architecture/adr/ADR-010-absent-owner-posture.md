@@ -13,24 +13,44 @@ Analysis of record: WIC-1430 document `tenancy-absent-caller-audit`.
 
 ## Implementation status
 
-Measured on `main` at `2143bb60`, 2026-09-05. Recorded here so the next reader does not
-re-derive it — three separate cards have already re-measured this independently.
+Measured on `main` at `4aa160c`, 2026-09-05, and re-measured after the D1.2 + D1.3 change
+below. Recorded here so the next reader does not re-derive it — three separate cards have
+already re-measured this independently.
 
 | decision | state | evidence |
 |---|---|---|
 | **D1.1** reject a token that verifies with no `sub` | ✅ landed | `middleware/auth.ts` `requireSubject` throws → 401 on both the ES256/RS256 and HS256 paths |
-| **D1.2** narrow `HonoVariables.userId` to `string` | ❌ outstanding | `src/types/env.ts:75` is still `userId: string \| null` |
-| **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ❌ outstanding — **66 sites** | 66 live sites across 11 route files; 73 total `c.get('userId')` sites; only 11 `requireOwner(c)` adoptions in 3 files |
+| **D1.2** narrow `HonoVariables.userId` to `string` | ✅ landed | `src/types/env.ts` is `userId: string`; `PUBLIC_PATHS` now leaves the variable unset rather than setting `null` |
+| **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ✅ landed — **0 sites** | was 66 across 11 route files; `requireOwner(c)` adoptions 11 → **77**, in every route file |
 | **D2** service signatures take `userId: string` | ⚠️ partial | the guard still reports `[SIG] 81` |
 | **D3** local dev gets a real owner | ✅ landed | `middleware/auth.ts` supplies `LOCAL_DEV_USER_ID` (WIC-1964) |
-| **D4** CI guard is the mechanism | ✅ landed | `scripts/audit-owner-predicates.mjs`, wired into `Lint & Test` |
+| **D4** CI guard is the mechanism | ✅ landed | `scripts/audit-owner-predicates.mjs`, wired into `Lint & Test`; now four checks, `[LAUNDER]` added for the route layer |
 | **D5** `[NOWNER]` checks owner-absent writes | ⚠️ landed, unsound | see the caveat below |
 
-Reproduce D1.3:
+Reproduce D1.2 + D1.3 (both must print `0`, and the second must print `string`):
 
 ```sh
 grep -rn "c.get('userId') ?? undefined" packages/api/src/routes --exclude=require-owner.ts | wc -l
+grep -n 'userId:' packages/api/src/types/env.ts
+node packages/api/scripts/audit-owner-predicates.mjs --stats | grep LAUNDER
 ```
+
+### Why D1.2 alone was not the mechanism for D1.3
+
+The obvious expectation is that narrowing the type makes the laundering a compile error, so
+that D1.2 gates D1.3 for free. **It does not, and this was measured rather than assumed.**
+With `HonoVariables.userId` narrowed to `string`, reintroducing
+`getDashboardStats(c.get('userId') ?? undefined)` in `routes/dashboard.ts` still gives
+`tsc --noEmit` **exit 0**: a redundant `??` is legal TypeScript, not an error, and passing
+`string | undefined` into a service that still accepts `userId?: string` (81 such signatures
+remain — D2 is partial) is well typed at every one of those call sites.
+
+So D1.2 makes the laundering *pointless* without making it *detectable*, and `[SIG]`/`[COND]`
+cannot see it either — they key on service signatures and on predicates, and a route call
+argument is neither. That is precisely the AC-2 failure mode this ADR was written about: a
+criterion nothing executes. The `[LAUNDER]` check closes it, keyed on the fallback rather
+than on the literal `undefined`, so `?? null`, `|| ''` and `?? 'anonymous'` are caught too.
+Both controls are exercised in `test/audit-owner-predicates.test.ts`.
 
 ### Caveat on D5 — `[NOWNER] = 0` does not mean the write class is closed
 
@@ -53,8 +73,16 @@ Four such sites are live in `catalog.service.ts` (`:831`, `:863`, `:893`, `:944`
 in principle through `catalog.routes.ts` → `applyDiff` → `applyChange`. They are not
 exploitable today — D1.1 plus a three-entry `PUBLIC_PATHS` guarantees a concrete owner on
 every non-auth route — but they are held shut by an invariant three layers away from the
-predicate rather than by the predicate itself. Finishing D1.2 + D1.3 is what makes that
-structural. Tracked on WIC-1672 (Finding 2) and WIC-2067.
+predicate rather than by the predicate itself.
+
+D1.2 + D1.3 have now landed, which shortens that distance without closing it. The route
+entry point `catalog.routes.ts` → `applyDiff` calls `requireOwner(c)`, so the absent owner
+can no longer *originate* at the route: reaching those four predicates with `userId`
+undefined now requires a caller inside the service layer that passes one, not merely a
+request without a `sub`. **The four ternaries themselves are unchanged and still fail open
+if ever reached**, so this is a narrowed reachability argument, not a fix — the remaining
+work is D2 on `catalog.service.ts`, which makes absence unrepresentable at the signature.
+Tracked on WIC-1672 (Finding 2) and WIC-2067.
 
 ## Context
 

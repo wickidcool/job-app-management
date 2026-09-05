@@ -139,7 +139,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await listResumeVariants(parsed.data, c.get('userId') ?? undefined);
+    const result = await listResumeVariants(parsed.data, requireOwner(c));
     return c.json(result);
   })
   .get('/resume-variants/:id', async (c) => {
@@ -151,15 +151,11 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const variant = await updateResumeVariant(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const variant = await updateResumeVariant(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json({ variant });
   })
   .delete('/resume-variants/:id', async (c) => {
-    await deleteResumeVariant(c.req.param('id'), c.get('userId') ?? undefined);
+    await deleteResumeVariant(c.req.param('id'), requireOwner(c));
     return c.body(null, 204);
   })
   .post('/resume-variants/:id/revise', async (c) => {
@@ -177,11 +173,7 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     }
 
     const acceptJson = (c.req.header('accept') ?? '').includes('application/json');
-    const result = await exportResumeVariant(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await exportResumeVariant(c.req.param('id'), parsed.data, requireOwner(c));
 
     if (acceptJson) {
       return c.json({

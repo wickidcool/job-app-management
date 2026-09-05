@@ -10,6 +10,7 @@ import {
 } from '../services/application.service.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
+import { requireOwner } from './require-owner.js';
 
 const applicationStatusEnum = z.enum([
   'saved',
@@ -148,11 +149,11 @@ export const applicationsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await listApplications(query.data, c.get('userId') ?? undefined);
+    const result = await listApplications(query.data, requireOwner(c));
     return c.json(result);
   })
   .get('/applications/:id', async (c) => {
-    const result = await getApplication(c.req.param('id'), c.get('userId') ?? undefined);
+    const result = await getApplication(c.req.param('id'), requireOwner(c));
     return c.json(result);
   })
   .post('/applications', async (c) => {
@@ -169,7 +170,7 @@ export const applicationsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await createApplication(body.data, c.get('userId') ?? undefined);
+    const result = await createApplication(body.data, requireOwner(c));
     return c.json(result, 201);
   })
   .patch('/applications/:id', async (c) => {
@@ -186,15 +187,11 @@ export const applicationsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await updateApplication(
-      c.req.param('id'),
-      body.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await updateApplication(c.req.param('id'), body.data, requireOwner(c));
     return c.json(result);
   })
   .delete('/applications/:id', async (c) => {
-    await deleteApplication(c.req.param('id'), c.get('userId') ?? undefined);
+    await deleteApplication(c.req.param('id'), requireOwner(c));
     return c.body(null, 204);
   })
   .post('/applications/:id/status', async (c) => {
@@ -211,10 +208,6 @@ export const applicationsRoutes = new Hono<AppEnv>()
         400
       );
     }
-    const result = await updateApplicationStatus(
-      c.req.param('id'),
-      body.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await updateApplicationStatus(c.req.param('id'), body.data, requireOwner(c));
     return c.json(result);
   });

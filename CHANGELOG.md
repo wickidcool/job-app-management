@@ -23,6 +23,18 @@ All notable changes to the Job Application Manager are documented here.
 
 
 
+### Security — An authenticated request with no owner is now rejected at the route, not laundered into "no owner filter" (2026-09-05)
+
+ADR-010 D1.2 + D1.3 (WIC-1600). Every authenticated route read its caller as `c.get('userId') ?? undefined`, which turned *absent owner* into *absent owner filter* and pushed the decision down into each service predicate. 66 such sites across 11 route files now call `requireOwner(c)`, which 401s instead; adoptions go 11 -> 77, and `packages/api/src/routes` holds zero of the old shape.
+
+- **`HonoVariables.userId` narrows from `string | null` to `string`.** The two places that relied on the wider type are handled rather than deleted: the three `PUBLIC_PATHS` routes now leave the variable unset instead of setting it to `null` — they run before an owner exists, and `undefined` and `null` are already treated identically by every consumer — and `requireOwner` reads through the wider type on purpose, since it is the guard that *makes* the narrowed type true rather than a consumer that may assume it.
+- **The type is not the mechanism, and that was measured, not assumed.** With `userId` narrowed to `string`, reintroducing the laundering in `routes/dashboard.ts` still gives `tsc --noEmit` exit 0 — a redundant `??` is legal, and 81 service signatures still accept `userId?: string`, so the argument typechecks at every call site. `[SIG]` and `[COND]` cannot see it either; they key on signatures and predicates, and a route call argument is neither.
+- **So the guard gained a fourth check, `[LAUNDER]`**, keyed on the *fallback* rather than on the literal `undefined`, so `?? null`, `|| ''` and `?? 'anonymous'` are caught too. A bare `c.get('userId')` with no fallback is not flagged — that is what `requireOwner` itself does. Baseline holds it at 0; `[SIG] 81` and `[COND] 42` are unchanged, since this pass touched routes and not predicates.
+- **Behaviour is unchanged for real callers.** No route reachable here could already produce an absent owner: D1.1 rejects a token that verifies without a `sub`, and D3 gives local dev a real owner. This makes that guarantee structural instead of an invariant three layers from the predicate — the request now stops at the edge rather than relying on every downstream predicate to be written correctly.
+- **Verified with both controls.** `test/require-owner.routes.test.ts` grows to 18 entry points, one per migrated route file, asserting 401 `OWNER_REQUIRED` *and* that the service was never called — a response code alone cannot separate a not-found guard from an ownership guard. Reverting a single migrated site flips that test from pass to a 200, and the four `[LAUNDER]` cases in `test/audit-owner-predicates.test.ts` pin the guard's own detection.
+- **The four `catalog.service.ts` fail-open UPDATEs (`:831`, `:863`, `:893`, `:944`) are NOT fixed by this** and still fail open if reached; their route entry point can no longer originate the absence, which narrows reachability rather than closing the hole. Closing it is D2 on that service — WIC-1672 (Finding 2), WIC-2067.
+
+
 ### Fixed — Completing a Job Fit Analysis removed the only way to look at it (2026-09-04)
 
 `WorkflowChecklist`'s "Job Fit Analysis" row read `link: hasFitAnalysis ? undefined : …`, so

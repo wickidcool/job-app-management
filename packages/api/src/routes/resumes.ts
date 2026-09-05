@@ -10,6 +10,7 @@ import {
 import { AppError } from '../types/index.js';
 import { isR2Configured } from '../services/storage.service.js';
 import type { AppEnv } from '../types/env.js';
+import { requireOwner } from './require-owner.js';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -20,7 +21,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 export const resumesRoutes = new Hono<AppEnv>()
   .get('/resumes', async (c) => {
-    const resumes = await listResumes(c.get('userId') ?? undefined);
+    const resumes = await listResumes(requireOwner(c));
     return c.json({ resumes });
   })
   .post('/resumes/upload', async (c) => {
@@ -50,13 +51,7 @@ export const resumesRoutes = new Hono<AppEnv>()
     // Session id is propagated from the client for analytics correlation
     // (baseline §5 — session IDs span client and API). Optional; null when absent.
     const sessionId = c.req.header('x-session-id') ?? null;
-    const result = await uploadResume(
-      buffer,
-      file.name,
-      mimeType,
-      c.get('userId') ?? undefined,
-      sessionId
-    );
+    const result = await uploadResume(buffer, file.name, mimeType, requireOwner(c), sessionId);
     return c.json(result, 201);
   })
   .get('/resumes/:id/download-url', async (c) => {
@@ -68,22 +63,18 @@ export const resumesRoutes = new Hono<AppEnv>()
         501
       );
     }
-    const result = await getResumeDownloadUrl(c.req.param('id'), c.get('userId') ?? undefined);
+    const result = await getResumeDownloadUrl(c.req.param('id'), requireOwner(c));
     return c.json(result);
   })
   .get('/resumes/:id/exports', async (c) => {
-    const exports = await listResumeExports(c.req.param('id'), c.get('userId') ?? undefined);
+    const exports = await listResumeExports(c.req.param('id'), requireOwner(c));
     return c.json({ exports });
   })
   .get('/resumes/:id/exports/:exportId', async (c) => {
-    const exp = await getResumeExport(
-      c.req.param('id'),
-      c.req.param('exportId'),
-      c.get('userId') ?? undefined
-    );
+    const exp = await getResumeExport(c.req.param('id'), c.req.param('exportId'), requireOwner(c));
     return c.json(exp);
   })
   .delete('/resumes/:id', async (c) => {
-    await deleteResume(c.req.param('id'), c.get('userId') ?? undefined);
+    await deleteResume(c.req.param('id'), requireOwner(c));
     return c.body(null, 204);
   });

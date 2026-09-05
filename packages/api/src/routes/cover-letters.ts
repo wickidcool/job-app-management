@@ -12,6 +12,7 @@ import {
 } from '../services/cover-letter.service.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
+import { requireOwner } from './require-owner.js';
 
 const toneValues = ['professional', 'conversational', 'enthusiastic', 'technical'] as const;
 const lengthValues = ['concise', 'standard', 'detailed'] as const;
@@ -106,7 +107,7 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateCoverLetter(parsed.data, c.get('userId') ?? undefined);
+    const result = await generateCoverLetter(parsed.data, requireOwner(c));
     return c.json(result, 201);
   })
   .post('/cover-letters/outreach', async (c) => {
@@ -114,7 +115,7 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateOutreach(parsed.data, c.get('userId') ?? undefined);
+    const result = await generateOutreach(parsed.data, requireOwner(c));
     return c.json(result, 201);
   })
   .get('/cover-letters', async (c) => {
@@ -122,11 +123,11 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await listCoverLetters(parsed.data, c.get('userId') ?? undefined);
+    const result = await listCoverLetters(parsed.data, requireOwner(c));
     return c.json(result);
   })
   .get('/cover-letters/:id', async (c) => {
-    const result = await getCoverLetter(c.req.param('id'), c.get('userId') ?? undefined);
+    const result = await getCoverLetter(c.req.param('id'), requireOwner(c));
     return c.json(result);
   })
   .patch('/cover-letters/:id', async (c) => {
@@ -134,15 +135,11 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const coverLetter = await updateCoverLetter(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const coverLetter = await updateCoverLetter(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json({ coverLetter });
   })
   .delete('/cover-letters/:id', async (c) => {
-    await deleteCoverLetter(c.req.param('id'), c.get('userId') ?? undefined);
+    await deleteCoverLetter(c.req.param('id'), requireOwner(c));
     return c.body(null, 204);
   })
   .post('/cover-letters/:id/revise', async (c) => {
@@ -150,11 +147,7 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await reviseCoverLetter(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await reviseCoverLetter(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json(result);
   })
   .post('/cover-letters/:id/export', async (c) => {
@@ -162,11 +155,7 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await exportCoverLetter(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await exportCoverLetter(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json({
       exportId: c.req.param('id'),
       format: parsed.data.format,

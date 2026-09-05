@@ -2,7 +2,7 @@
 /**
  * AC-T0 guard: an authenticated request with no resolved owner must match zero rows.
  *
- * Three checks, run over `packages/api/src/services` and `packages/api/src/routes`:
+ * Four checks, run over `packages/api/src/services` and `packages/api/src/routes`:
  *
  *   [SIG]    an exported service function whose owner parameter is optional or
  *            nullable.  This is the *precondition* for a fail-open predicate --
@@ -15,6 +15,15 @@
  *
  *   [NOWNER] an UPDATE or DELETE against an owner-bearing table whose `where`
  *            predicate contains no owner column at all.  See the scope note.
+ *
+ *   [LAUNDER] a route reading the owner off the request context with a fallback
+ *            (`c.get('userId') ?? undefined`).  This is the *route-layer* choke
+ *            point ADR-010 D1.3 burned down: it is what supplies the absent
+ *            owner that [SIG] and [COND] then measure downstream.  Nothing else
+ *            rejects it -- `tsc` accepts the expression even with
+ *            `HonoVariables.userId` narrowed to `string` (D1.2), because a
+ *            redundant `??` is legal.  Measured, not assumed: see the comment at
+ *            the check itself.  Zero sites remain; the baseline holds it at zero.
  *
  * SCOPE NOTE -- what a green run does and does not assert.
  *
@@ -661,6 +670,50 @@ for (const scanDir of SCAN_DIRS) {
         flagIfOwner(node.left, `a ${node.operatorToken.getText(src)} guard`);
       }
 
+      // [LAUNDER] a route turning an absent owner into an optional argument.
+      //
+      // ADR-010 D1.3 (WIC-1600). The route layer is the choke point: a service
+      // predicate can only branch on an absent owner if a route handed it one,
+      // and `c.get('userId') ?? undefined` is how all 66 of them did it. It reads
+      // like a null-safety idiom and is the opposite -- it converts "no owner"
+      // into "no owner filter" and pushes the decision down into every predicate.
+      //
+      // This check exists because NOTHING ELSE REJECTS THE SHAPE. Measured on
+      // this branch: with `HonoVariables.userId` narrowed to `string` (D1.2),
+      // reintroducing the expression in `routes/dashboard.ts` still compiles
+      // clean -- `tsc --noEmit` exits 0. `string ?? undefined` is redundant, not
+      // an error, and passing `string | undefined` to a service that still
+      // accepts `userId?: string` is legal. So D1.2 makes the laundering
+      // pointless without making it detectable, and [SIG]/[COND] never see it:
+      // they key on service signatures and predicates, and this site is neither.
+      // That combination -- unnecessary, invisible, and one keystroke from
+      // returning -- is exactly the gap AC-2 was written about.
+      //
+      // Any fallback is flagged, not just `?? undefined`. `?? null`, `|| ''` and
+      // `?? someDefault` all restore a representable absence, which is the
+      // precondition [SIG] measures. The narrow read is `.get('userId')` with a
+      // fallback; `requireOwner` itself is not flagged because it takes no
+      // fallback -- it throws instead, which is the whole point.
+      if (
+        ts.isBinaryExpression(node) &&
+        (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+          node.operatorToken.kind === ts.SyntaxKind.BarBarToken) &&
+        ts.isCallExpression(node.left) &&
+        ts.isPropertyAccessExpression(node.left.expression) &&
+        node.left.expression.name.text === 'get' &&
+        node.left.arguments.length === 1 &&
+        ts.isStringLiteralLike(node.left.arguments[0]) &&
+        OWNER_NAMES.has(node.left.arguments[0].text)
+      ) {
+        const owner = node.left.arguments[0].text;
+        report(
+          node,
+          'LAUNDER',
+          `'${owner}' read with a ${node.operatorToken.getText(src)} fallback, ` +
+            `laundering an absent owner into an optional argument; use requireOwner(c)`
+        );
+      }
+
       // [NOWNER] update/delete on an owner-bearing table with no owner term
       if (
         ts.isCallExpression(node) &&
@@ -727,7 +780,7 @@ if (process.argv.includes('--stats')) {
   const byCheck = findings.reduce((m, f) => m.set(f.check, (m.get(f.check) ?? 0) + 1), new Map());
   console.log(`owner-bearing tables in schema : ${stats.ownerTables}`);
   console.log(`update/delete sites against them: ${stats.writeSites}`);
-  for (const check of ['SIG', 'COND', 'NOWNER']) {
+  for (const check of ['SIG', 'COND', 'NOWNER', 'LAUNDER']) {
     console.log(`findings [${check.padEnd(6)}]            : ${byCheck.get(check) ?? 0}`);
   }
   console.log(`\nNOT gated on -- unique/pk-scoped writes (${stats.uniqueScopedWrites.length}):`);

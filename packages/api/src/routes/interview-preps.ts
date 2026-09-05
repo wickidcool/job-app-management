@@ -138,7 +138,7 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
     return c.json(result, 201);
   })
   .get('/interview-preps/:id', async (c) => {
-    const result = await getInterviewPrep(c.req.param('id'), c.get('userId') ?? undefined);
+    const result = await getInterviewPrep(c.req.param('id'), requireOwner(c));
     return c.json(result);
   })
   .patch('/interview-preps/:id', async (c) => {
@@ -146,11 +146,7 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await updateInterviewPrep(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await updateInterviewPrep(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json(result);
   })
   .get('/interview-preps/:id/export', async (c) => {
@@ -166,7 +162,7 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
       c.req.param('id'),
       parsed.data.format,
       sections,
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
 
     const acceptJson = (c.req.header('accept') ?? '').includes('application/json');
@@ -196,21 +192,17 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await logPracticeSession(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await logPracticeSession(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json(result);
   })
   .delete('/interview-preps/:id', async (c) => {
-    await deleteInterviewPrep(c.req.param('id'), c.get('userId') ?? undefined);
+    await deleteInterviewPrep(c.req.param('id'), requireOwner(c));
     return c.body(null, 204);
   })
   .get('/applications/:applicationId/interview-prep', async (c) => {
     const result = await getInterviewPrepByApplication(
       c.req.param('applicationId'),
-      c.get('userId') ?? undefined
+      requireOwner(c)
     );
     return c.json(result);
   });
