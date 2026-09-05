@@ -213,22 +213,71 @@ The dispatch's three-shape model did not have this group; it is the second claus
 **Under a ratify ruling all ten become correct on their own** and need no edit. Under a
 withdraw ruling all ten need hedging. That is precisely why none was touched.
 
-### Group E — dangling section references. **Broken independent of the ruling.**
+### Group E — ambiguous section references. ~~**Dangling.**~~ **Corrected — they resolve; they just read as though they don't.** *(WIC-2117, fixed 2026-09-05)*
 
-| site | cites | problem |
-|---|---|---|
-| `JOBFIT_CAPS_DECISION_WIC1122.md:292` | "the casing rule §1.3 applies" | `CONTENT_STYLE.md` has no numbered sections; there is no §1.3 |
-| `ROUTE_TITLE_CONVENTION.md:325` | "casing of the underlying strings (§4)" | likewise, no §4 |
+> **⚠️ This group's original diagnosis was wrong, and the correction is the useful part.** It read
+> both `§`s as pointing *into* `CONTENT_STYLE.md`, where they would indeed dangle. They point at
+> **their own documents**, where both targets exist. Nothing was broken; the references were
+> merely placed where a careful reader — this one, on the first pass — misreads them.
 
-`CONTENT_STYLE.md`'s headings are named, not numbered (`## The rule`, `## Exceptions`,
-`## Casing by slot`, `## ALL CAPS is a typographic treatment, not casing`, …). These two
-references resolve to nothing today and will resolve to nothing under either ruling.
-`doc-reference-audit.py` does not catch them: it validates cited *filenames*, not section
-anchors, which is why they have survived.
+| site | cites | original diagnosis | measured |
+|---|---|---|---|
+| `JOBFIT_CAPS_DECISION_WIC1122.md:292` | "the casing rule §1.3 applies" | "`CONTENT_STYLE.md` has no §1.3" | **§1.3 is *this* document's** `### 1.3 Consistency check`, which exists and whose closing line is *"This decision is that rule applied"* — the clause the bullet compresses |
+| `ROUTE_TITLE_CONVENTION.md:325` | "casing of the underlying strings (§4)" | "likewise, no §4" | **§4 is *this* document's** `## 4. Why this does not wait on the casing standard` — the section about exactly that |
 
-**These are the only two citation sites fixable now without pre-empting the board** — and
-they are still not fixed here, because this card's fence is "produce the classified list,
-do not edit the docs". They are the cheapest item on whichever card follows.
+**The convention that decides it is measurable, and both files hold it without exception**
+(31 and 71 `§` uses respectively):
+
+- **`§N` bare, in prose** → a section of *the document you are reading*.
+- **`FILE.md §N` / `FILE.md § Name`, attached to the filename** → a section of *that* file.
+
+The two sites sit in a `## Related` list, so each bullet's *subject* is a filename while its
+trailing bare `§N` is internal — which is what makes them misread. Both lists prove the
+distinction is deliberate rather than accidental. `JOBFIT:287–288` uses both forms in one
+bullet: `DESIGN_SYSTEM.md § Gap Severity Scale` (outbound) *"…which cites §3 of this document"*
+(internal, and spelled out). `ROUTE_TITLE:324–327` does the same across three adjacent bullets:
+`…every string in §5` (internal), `(§4)` (internal), `COMPONENT_SPECS.md §10` (outbound).
+
+**Fix applied:** each reference now names its own document explicitly, using the idiom that file
+already uses elsewhere — `§1.3 of this document` (matching `:288`) and `§4 above` (matching
+`:294`'s *"§3.1 above"*). **No `§` was repointed at `CONTENT_STYLE.md`**, because choosing a
+target section there would be the guess this card was fenced against; the defect was ambiguity,
+and disambiguation is the whole of the remedy.
+
+`doc-reference-audit.py` was **not** extended to validate `§` anchors — see the note below.
+
+### Why `doc-reference-audit.py` does not validate `§` anchors — measured, not assumed
+
+WIC-2115 offered this as an optional second half, with an explicit escape hatch: *if the `§`
+convention is too loose to validate mechanically, say so and do not contort the audit.* **Taking
+the escape hatch, on the following measurement.** The script stays as it is.
+
+Across `docs/design/*.md` there are **378** numeric `§N` references and **33** named `§ Name`
+ones. Classifying the numeric ones by the only signal available to a parser — whether the `§` is
+adjacent to a filename — gives 43 outbound and 335 internal, and **51 of those 335 "internal"
+refs do not resolve against their own file's numbered headings.** That is a **15% false-positive
+rate** on a script that is an enforcing gate in `deploy.yml` and `docs-audit.yml`.
+
+The 51 are overwhelmingly not defects. They are outbound references the adjacency heuristic
+cannot see, because **the referent is fixed by discourse, not by adjacency.**
+`COVER_LETTER_PANE_LABELLING.md` is the clearest case: it uses bare `§10` **eight times** meaning
+`COMPONENT_SPECS.md` §10, named once at its own `## 5.` heading and thereafter never repeated —
+and that file's own headings stop at `## 6.`, so every one of the eight would be reported as
+dangling. Establishing the referent requires reading a heading up to 150 lines away. The same
+shape recurs in `CASING_MIGRATION_INVENTORY.md:196` (`§0.3` = `ROUTE_TITLE_CONVENTION.md`'s) and
+`ACCESSIBILITY.md:47`.
+
+The named `§ Name` form is no better: it is prose-cased, sometimes italicised, and routinely
+**truncated** — `DESIGN_SYSTEM.md:518` cites *"`CONTENT_STYLE.md` § ALL CAPS is a typographic
+treatment"* against the real heading `## ALL CAPS is a typographic treatment, not casing`. That
+is fuzzy string matching, not validation, and a threshold loose enough to accept it is loose
+enough to accept a genuinely wrong anchor.
+
+So the convention is real and consistently *followed* — see the two rules above, which both
+Group E files obey without exception — but it is legible to a reader and not to a parser. A
+validator here would fail 51 correct references to catch two ambiguous ones, on a gate that
+blocks deploys. **The two sites were fixed by hand instead; that is the whole of the remedy, and
+it is the outcome WIC-2115's escape hatch anticipated.**
 
 ---
 

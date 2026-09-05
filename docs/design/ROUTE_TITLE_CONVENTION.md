@@ -322,7 +322,7 @@ it and this cannot bite you.
 ## 8. Related
 
 - [`ROUTE_HEADING_OUTLINE.md`](./ROUTE_HEADING_OUTLINE.md) — **the source of every string in §5.** That document decides which element names a route; this one copies the result into `document.title`. Change a route's `<h1>` there and §5 must follow.
-- [`CONTENT_STYLE.md`](./CONTENT_STYLE.md) — casing of the underlying strings (§4).
+- [`CONTENT_STYLE.md`](./CONTENT_STYLE.md) — casing of the underlying strings; why this work does not wait on it is §4 above.
 - [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) — WCAG 2.4.2 context, and the standing note that none of it is CI-enforced.
 - [`COMPONENT_SPECS.md`](./COMPONENT_SPECS.md) §10 → "Heading level" — *"The page `<h1>` names the route"*, the rule §3.1 leans on.
 

@@ -21,6 +21,18 @@ A stacked-child close detector was scoped for `.github/workflows/evil-merge-swee
 
 
 
+
+### Documentation — The two "dangling" `CONTENT_STYLE.md` section references were never dangling; they point at their own documents (2026-09-05)
+
+`JOBFIT_CAPS_DECISION_WIC1122.md:292` and `ROUTE_TITLE_CONVENTION.md:325` each name `CONTENT_STYLE.md` and then cite a bare `§1.3` / `§4`. WIC-2112 classified both as **Group E — dangling**, on the reading that the `§` pointed *into* `CONTENT_STYLE.md`, which has named headings and no numbered ones. That diagnosis was wrong. Both `§`s point at **their own** documents, where both targets exist (WIC-2117, delivering WIC-2115). Documentation only — no code, no tests, no UI copy.
+
+- **The convention is measurable and both files hold it without exception.** Across their 31 and 71 `§` uses: a bare `§N` in prose means *this document*; a `§` attached to a filename (`COMPONENT_SPECS.md §10`, `DESIGN_SYSTEM.md § Enforcement`) means *that* file. `JOBFIT:287–288` uses both forms in a single bullet — `DESIGN_SYSTEM.md § Gap Severity Scale` alongside *"which cites §3 of this document"*. The two sites sit in `## Related` lists, so the bullet's subject is a filename while its trailing `§N` is internal; that placement is what makes them misread, and it misread the author of the original classification.
+- **The targets are the ones the prose already implies.** `JOBFIT` §1.3 is `### 1.3 Consistency check`, whose closing line is *"This decision is that rule applied"* — exactly what the bullet compresses. `ROUTE_TITLE` §4 is `## 4. Why this does not wait on the casing standard`. **No `§` was repointed at `CONTENT_STYLE.md`**: the defect was ambiguity, so each reference now names its own document in the idiom that file already uses (`§1.3 of this document`, `§4 above`).
+- **⚠️ `doc-reference-audit.py` was deliberately not extended to validate `§` anchors**, taking WIC-2115's stated escape hatch on a measurement. Of 378 numeric `§N` refs in `docs/design/`, adjacency — the only signal a parser has — classifies 335 as internal, and **51 of those do not resolve against their own file's headings**: a 15% false-positive rate on a script that gates `deploy.yml` and `docs-audit.yml`. Nearly all 51 are outbound refs whose referent is fixed by *discourse*, not adjacency — `COVER_LETTER_PANE_LABELLING.md` uses bare `§10` **eight times** meaning `COMPONENT_SPECS.md` §10, named once at its own `## 5.` heading, and its own headings stop at `## 6.`. The named form is no better: `DESIGN_SYSTEM.md:518` cites a **truncated** heading. A validator would fail 51 correct references to catch two ambiguous ones.
+- Group E's entry in `CASING_MIGRATION_INVENTORY.md` is corrected in place rather than deleted, since the original wrong diagnosis is the reason the card existed. The 10 Group D citations, `CONTENT_STYLE.md`'s status and adoption sections, and the known `Back to dashboard` error are untouched — all await the WIC-1066 ruling. `doc-reference-audit.py` passes, 353/353.
+
+
+
 ### Decided — `runtime-paths.cjs` keeps its two-predicate allowlist: the shared predicate is tuned to the stricter consumer on purpose (2026-09-05)
 
 `.github/scripts/runtime-paths.cjs` gains the **decision** on top of the rationale it already carried, so the next reader meets a settled question rather than a puzzle (WIC-2113, ruling on WIC-2101). `ALLOWED` is unchanged — comment-only, zero behaviour change.
