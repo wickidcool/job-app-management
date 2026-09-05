@@ -282,15 +282,27 @@ export function ResumeUpload({
       />
 
       {uploadState === 'empty' && (
+        // The drop zone keeps the drag handlers and stays the drop target; it is no longer
+        // the CONTROL. It used to carry `onClick={handleClick}` as the only pointer path to
+        // the file picker, with the `<input type="file">` above `className="hidden"` and the
+        // copy below promising a "click to browse" affordance that existed as no control at
+        // all — so there was no keyboard path to uploading a resume. That is WCAG 2.1.1, not
+        // a lint artifact, and `jsx-a11y` recorded it as `click-events-have-key-events` +
+        // `no-noninteractive-element-interactions` (WIC-2077). Activation now hangs off the
+        // real button below.
+        //
+        // Pointer users lose the whole-zone click target and must press the button. The same
+        // trade was made and documented for `StarEntryPicker` (WIC-2073): the large target
+        // was keyboard-unreachable, so it was never part of the accessible contract, but it
+        // is a real change for pointer users.
         <div
           role="region"
           aria-label="Resume upload area"
-          onClick={handleClick}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           className={`
-            border-2 border-dashed rounded-lg p-12 text-center cursor-pointer
+            border-2 border-dashed rounded-lg p-12 text-center
             transition-all duration-200
             ${
               dragActive
@@ -303,7 +315,16 @@ export function ResumeUpload({
           <div className="text-lg font-medium text-neutral-700 mb-2">
             Drag & drop your resume here
           </div>
-          <div className="text-sm text-neutral-600 mb-2">or click to browse</div>
+          <div className="text-sm text-neutral-600 mb-2">
+            or{' '}
+            <button
+              type="button"
+              onClick={handleClick}
+              className="font-medium text-primary-600 underline cursor-pointer hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 rounded"
+            >
+              browse files
+            </button>
+          </div>
           <div className="text-xs text-neutral-500">
             {acceptedFormats.join(', ').toUpperCase()} (Max {maxFileSizeMB}MB)
           </div>
