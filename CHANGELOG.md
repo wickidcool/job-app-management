@@ -37,6 +37,20 @@ All notable changes to the Job Application Manager are documented here.
 
 
 
+
+### Security — The last two agent-dispatchable owner signatures are narrowed, closing the ADR-010 D2 burndown (2026-09-05)
+
+ADR-010 **D2**, fifth and final agent-dispatchable slice (WIC-2076, closing WIC-2068 after WIC-2070/2071/2072 and the catalog slice below). `[SIG]` **23 → 21**, `[COND]` unchanged at **3**, `[NOWNER]` 0, `[LAUNDER]` 0; the guard baseline is regenerated **downward**, 26 → 24 entries, by deletion only.
+
+- **Two signatures, both runtime no-ops by construction.** `dialogue.service.ts`'s `captureProjectFile` and `resume.service.ts`'s `addCompanyToCatalog` take `userId: string` instead of `userId?: string`. Both write tables whose `user_id` is `.notNull()` (`projects`, `company_catalog`), so an owner-absent predicate already selected the empty set — what changes is that an absent owner is no longer *representable* at the signature. No call site changed.
+- **Both runtime guards are retained, and that is a deliberate departure from the card.** The dispatching card asked for the `!userId` half of `addCompanyToCatalog`'s early return to be dropped once the type forbade absence. It is kept. The type is not a runtime guarantee — these are reachable from JS callers and from a JWT with no `sub` claim, where `userId` is `null` however the signature reads (the belt-and-braces rationale at `project.service.ts:752`). Dropping it would have sent `eq(companyCatalog.userId, undefined)` into the read as an unscoped match, and would have failed the existing tenant-isolation test outright.
+- **`overrideFileName` moves from `?` to `string | undefined`.** A required parameter cannot follow an optional one (TS1016), so narrowing `userId` forces the preceding parameter's spelling. This is the same idiom as `getOrCreateProjectBySlug`, and the sole call site plus both tests already passed it positionally — so it is a spelling change, not a caller change.
+- **Both guards were mutation-checked rather than assumed.** Deleting `addCompanyToCatalog`'s `!userId` half reds exactly the test asserting the select and the insert are never reached; deleting `captureProjectFile`'s throw reds the AC-R5 case on its *message*, because `getOrCreateProjectBySlug` answers the same `BAD_REQUEST`/400 and a code-and-status assertion alone would have passed. Each mutant compiled and ran (`passed + failed` equal to the unmutated total), so neither graded a tree it had failed to change.
+- **The guard's positive control was run after the baseline regen, not before.** Reintroducing the fallback exits **1** naming the exact site; the unmutated tree exits **0**. Mutating before `--write-baseline` would have baked the fallback into the baseline and made a green run meaningless.
+- **The remaining 24 baselined findings are not deferred work.** 10 are forbidden by in-file headers (`interviewPrep.service.ts`, `resume-variant.service.ts`), 12 are on nullable tables and need a backfill plus `SET NOT NULL` behind a human-gated `DATABASE_URL`, 1 is a guard false positive (`analytics.service.ts`'s pre-auth telemetry, where an absent owner is the documented session-scoped case), and 1 is entangled with a nullable-table caller. None is actionable from an agent seat.
+
+
+
 ### Security — The six catalog list endpoints paged every tenant's rows when the owner was absent (2026-09-05)
 
 ADR-010 **D2**, first slice (WIC-2068, continuing WIC-2070/2071/2072). `catalog.service.ts` is now clear: `[SIG]` **29 → 23**, `[COND]` **10 → 3**, `[NOWNER]` and `[LAUNDER]` unchanged at 0. `scripts/owner-predicates.baseline.json` is regenerated downward — 12 deletions, zero additions.

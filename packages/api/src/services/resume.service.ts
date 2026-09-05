@@ -61,7 +61,19 @@ import { track } from './analytics.service.js';
 
 type ErrorStage = 'upload' | 'extraction' | 'parsing' | 'export_generation';
 
-export async function addCompanyToCatalog(companyName: string, userId?: string): Promise<void> {
+// ADR-010 D2 (WIC-2076) — `userId` narrowed to `string`. `company_catalog.user_id`
+// is `.notNull()`, so this is a runtime no-op; it removes the *representable*
+// absent owner from the signature. Both call sites (`:696`, `:745`) already sit
+// behind their own `if (!userId) throw AppError(...)`, so no caller changed.
+export async function addCompanyToCatalog(companyName: string, userId: string): Promise<void> {
+  // The `!userId` half is retained deliberately, against the card's suggestion to
+  // drop it. Belt and braces with the required type: this is reachable from JS
+  // callers and from a JWT whose `sub` claim is absent, where `userId` is `null`
+  // at runtime however the signature reads (`project.service.ts:752`). Dropping
+  // it would send `eq(companyCatalog.userId, undefined)` into the read below —
+  // an unscoped match — and would fail the tenant-isolation test at
+  // `test/resume.service.test.ts` ("skips insert when userId is not provided"),
+  // which asserts the select and the insert are both never reached.
   if (!companyName || !userId) return;
   const db = getDb();
   const normalized =

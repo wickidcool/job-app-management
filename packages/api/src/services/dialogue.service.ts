@@ -187,17 +187,30 @@ function mergeProjectData(
   };
 }
 
+// ADR-010 D2 (WIC-2076) — `userId` narrowed to `string`. `projects.user_id` is
+// `.notNull()`, so this is a runtime no-op; it removes the *representable*
+// absent owner from the signature. `overrideFileName` is spelled
+// `string | undefined` rather than `?` because a required parameter cannot
+// follow an optional one (TS1016); the sole call site and both tests already
+// pass it positionally, so no caller changed. Same idiom as
+// `getOrCreateProjectBySlug`. The WIC-1434 throw below is retained on purpose —
+// see the belt-and-braces rationale at `project.service.ts:752`.
 export async function captureProjectFile(
   slug: string,
   data: ProjectCaptureInput,
-  overrideFileName?: string,
-  userId?: string
+  overrideFileName: string | undefined,
+  userId: string
 ): Promise<CaptureResult> {
   // WIC-1434 — capture is a *create* path, and a project cannot be created
   // without an owner. Without this, the slug resolved globally and returned
   // another user's row; `createProjectFile` below then rejected the write on
   // its own ownership guard, so the caller got a 404 for a project the system
   // had just told itself existed. Fail here, where the reason is legible.
+  //
+  // Pinned by `test/project.owner-required.test.ts` AC-R5, which asserts on the
+  // *message* as well as the code: `getOrCreateProjectBySlug` also answers
+  // BAD_REQUEST/400, so a code-and-status assertion alone passes with this
+  // guard deleted.
   if (!userId) {
     throw new AppError(
       'BAD_REQUEST',
