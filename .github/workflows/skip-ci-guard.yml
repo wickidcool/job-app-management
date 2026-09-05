@@ -20,9 +20,25 @@ name: Skip-CI Guard
 #
 # SECURITY: `pull_request_target` runs in the context of the BASE branch with
 # access to secrets. This job therefore NEVER checks out or executes PR head
-# code — there is no actions/checkout step and no run: step touching the PR. It
-# reads only the changed-file list and the head commit message over the API, and
-# it downgrades its own token to read-only below.
+# code. It reads only the changed-file list and the head commit message over the
+# API, and it downgrades its own token to read-only below.
+#
+# WIC-2098 — there IS now an `actions/checkout` step, and the distinction that
+# makes it safe is the ref. It is pinned to `github.event.repository.default_branch`,
+# i.e. `main`: trusted code that has already been reviewed and merged. What must
+# never be checked out here is the PR HEAD (`pull_request.head.sha` / `head.ref`),
+# because that is attacker-controlled and this job holds secrets. Nothing below
+# reads any `head.*` ref, and `persist-credentials: false` keeps the token out of
+# the checked-out tree regardless.
+#
+# It exists so the runtime-path allowlist can be REQUIRED from
+# `.github/scripts/runtime-paths.cjs` instead of living inline here. The
+# deploy-drift detector (WIC-2098 / WIC-2088 / WIC-1271) needs the identical
+# classification, and WIC-1271 named the hazard: "a second copy will drift."
+# Pinning to `main` rather than the PR's base branch is also deliberate — the
+# allowlist is repo POLICY, so the current policy should apply, and a stacked PR
+# whose base branch predates this change would otherwise fail to find the module
+# at all.
 
 on:
   pull_request_target:
@@ -49,6 +65,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Trusted code only — see the SECURITY note at the top of this file. This
+      # brings in `.github/scripts/runtime-paths.cjs`, nothing else is used from
+      # the tree, and no step below executes anything from the PR.
+      - name: Checkout the allowlist module from the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
       - name: Check for a skip marker on a runtime-code change
         uses: actions/github-script@v7
         with:
@@ -72,26 +97,22 @@ jobs:
               /^\s*skip-checks:\s*true\s*$/im,
             ];
 
-            // Paths that may legitimately ship under a skip marker: they have no
-            // runtime surface, so there is nothing for CI to have proven.
-            // `.github/workflows/**` is here because a workflow-only change is
-            // exactly the no-deploy merge route this repo relies on.
+            // WIC-2098: the allowlist is NOT defined here. It lives in
+            // `.github/scripts/runtime-paths.cjs`, checked out from the default
+            // branch by the step above, and the deploy-drift detector
+            // (`.github/workflows/deploy-drift.yml`) requires the same module.
+            // WIC-1271 called this out by name: "reuse skip-ci-guard's allowlist
+            // logic rather than re-deriving it; a second copy will drift."
+            // Read that file for the rationale on each predicate — in particular
+            // why there is deliberately no `docs/` predicate (WIC-2084/WIC-2094
+            // fail-open) and no `.github/` one.
             //
-            // ⛔ There is deliberately NO `startsWith('docs/')` predicate (WIC-2084).
-            // It was here until WIC-2094 and it was a fail-open: `docs/` is not
-            // documentation-only. Four of the scripts that CONSTITUTE the
-            // `lint-and-test` gate live under it and are invoked by `deploy.yml`
-            // with no `continue-on-error` —
-            // `docs/design/{wireframe-casing,route-title-table,doc-reference,confirmation-modal-focus}-audit.py`.
-            // A `docs/`-wide predicate let a PR edit a gate script and merge under
-            // a skip marker without ever running the gate it just changed.
-            // Prose under `docs/` is still allowlisted, by `endsWith('.md')` below.
-            // Do not re-add a directory-shaped predicate here: allowlist by what a
-            // path CANNOT affect at runtime, not by where it happens to live.
-            const ALLOWED = [
-              (p) => p.endsWith('.md'),
-              (p) => p.startsWith('.github/workflows/'),
-            ];
+            // Absolute path via GITHUB_WORKSPACE: github-script evaluates this
+            // body with `__dirname` inside the action's own directory, so a
+            // relative require would not resolve to the repo.
+            const { runtimePaths } = require(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/runtime-paths.cjs`
+            );
 
             const { data: commit } = await github.rest.repos.getCommit({
               owner, repo, ref: pr.head.sha,
@@ -103,7 +124,7 @@ jobs:
               owner, repo, pull_number: pr.number, per_page: 100,
             });
             const paths = files.map((f) => f.filename);
-            const runtime = paths.filter((p) => !ALLOWED.some((ok) => ok(p)));
+            const runtime = runtimePaths(paths);
 
             const list = (xs) => xs.map((p) => `- \`${p}\``).join('\n');
             const summary = core.summary

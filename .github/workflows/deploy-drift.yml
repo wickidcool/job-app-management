@@ -1,0 +1,165 @@
+name: Deploy Drift
+
+# WIC-2098 (carries WIC-2088, spec WIC-1271). Does production still run `main`?
+#
+# WIC-1271 documented prod sitting 14 commits behind for six days: 14 consecutive
+# `[skip ci]` merges suppressed the `push` event, `deploy.yml` never fired, and
+# nothing in the repo noticed. This is the detector that notices.
+#
+# READ-ONLY (WIC-2098 AC-4). It never deploys, never writes to production, and
+# never writes to this repo. `permissions:` below is read-only on every scope,
+# which is narrower than the default token. The alert channel is the job going
+# red — GitHub emails the repo owner when a SCHEDULED workflow fails, so this
+# needs no `issues: write` and no credential of any kind beyond the automatic
+# GITHUB_TOKEN.
+#
+# ⚠️ NOT a health alarm (WIC-2098 scoping correction). It reports `/api/health`
+# for context — because "prod is 0 commits behind" while prod returns 503 is a
+# true and useless statement (WIC-2088) — but health can never turn this job red.
+# The 2026-09-05 outage was a CONNECTIVITY failure on current code, not drift;
+# it belongs to WIC-1386 / WIC-2092 / WIC-2097. If we want a health-regression
+# alarm, that is a different detector on its own card.
+#
+# ⚠️ TWO WAYS THIS SILENTLY STOPS WORKING, both called out in WIC-1271:
+#   1. GitHub disables `schedule` triggers after 60 days of repository
+#      inactivity. This repo merges daily, so it is not a live risk today — but
+#      if merges ever stop, this monitor stops with them, and it stops QUIETLY.
+#   2. A `schedule` trigger is only registered from the DEFAULT branch. This file
+#      does nothing until it is merged to `main`; do not read a green PR as
+#      evidence the schedule is armed.
+#
+# ⚠️ Deliberately does NOT authenticate to Paperclip (WIC-1252): a run-scoped
+# PAPERCLIP_API_KEY is a 1h JWT and would be expired on essentially every
+# scheduled firing. A GitHub-Actions-scheduled job needs no Paperclip auth.
+
+on:
+  schedule:
+    # Every 3 hours. The T1 grace window is 90 minutes, so the worst-case time to
+    # notice genuine drift is ~4.5h — well inside the 6-day gap WIC-1271 saw, and
+    # infrequent enough that a stuck deploy lane produces a handful of emails a
+    # day rather than a stream nobody reads.
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      # WIC-2098 AC-3: "a detector only ever verified in its quiet state is
+      # indistinguishable from a broken one." These inputs let anyone
+      # re-demonstrate the alarm against real history at any time, without
+      # merging bad code and without touching production. Set
+      # `deployed_sha_override` to any older commit on `main` and the job goes
+      # red exactly as it would for genuine drift.
+      deployed_sha_override:
+        description: 'Pretend production is on this SHA (synthetic drift test). Blank = resolve the real one.'
+        required: false
+        type: string
+      max_runtime_drift_minutes:
+        description: 'T1 threshold override, minutes.'
+        required: false
+        type: string
+      max_runtime_drift_commits:
+        description: 'T2 threshold override, commit count.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-drift
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Prod vs main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # fetch-depth: 0 is load-bearing. On a shallow clone `git rev-list
+      # deployed..HEAD` cannot see the range and would report a confident
+      # "0 commits behind" — the exact false-green this detector exists to
+      # prevent. deploy-drift.mjs also asserts the ancestry explicitly and exits
+      # 2 rather than reporting no-drift if the history is not there.
+      - name: Checkout main with full history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      # WIC-2098 AC-2 — how the deployed revision is identified, and why this
+      # source is real rather than assumed.
+      #
+      # The app CANNOT tell us. `/api/health` returns `{status, hyperdrive, db}`
+      # and nothing else — no version, no SHA (verified live 2026-09-05; see
+      # packages/api/src/app.ts:117-118). Adding a version endpoint would be a
+      # runtime change requiring a deploy, which this card is not allowed to make.
+      #
+      # So: the most recent `deploy.yml` run whose `Deploy Production` JOB
+      # concluded `success`. That job is the only route to production
+      # (deploy.yml: `environment: production`, `if: push || workflow_dispatch`),
+      # so its head_sha is the tree wrangler last pushed.
+      #
+      # Resolved at the JOB level, never the run level. A run's own conclusion is
+      # a different claim: `Deploy Production` is `skipped` on every
+      # `pull_request` run, so "latest successful run" would happily return a SHA
+      # that never went anywhere near production.
+      #
+      # Not filtered to `branch=main` on purpose: a `workflow_dispatch` rollback
+      # to some other ref genuinely IS what prod is running, and we would rather
+      # see it. deploy-drift.mjs then fails the ancestry check and exits 2 —
+      # "prod is on a ref that is not on main" is a real condition for a human to
+      # look at, not something to paper over as "no drift".
+      - name: Resolve the deployed revision from deploy.yml run history
+        id: deployed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          OVERRIDE: ${{ inputs.deployed_sha_override }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${OVERRIDE:-}" ]; then
+            echo "::warning::SYNTHETIC RUN — pretending production is on ${OVERRIDE} instead of resolving it."
+            echo "sha=${OVERRIDE}" >> "$GITHUB_OUTPUT"
+            echo "synthetic=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "synthetic=false" >> "$GITHUB_OUTPUT"
+
+          runs=$(gh api "repos/${REPO}/actions/workflows/deploy.yml/runs?status=completed&per_page=30" \
+                   --jq '.workflow_runs[] | "\(.id) \(.head_sha)"')
+          if [ -z "$runs" ]; then
+            echo "::error::No completed deploy.yml runs found. Cannot establish what production is running."
+            exit 2
+          fi
+
+          while read -r id sha; do
+            [ -z "$id" ] && continue
+            conclusion=$(gh api "repos/${REPO}/actions/runs/${id}/jobs" \
+                           --jq '[.jobs[] | select(.name == "Deploy Production") | .conclusion] | first // "absent"')
+            echo "run ${id} ${sha:0:8} -> Deploy Production: ${conclusion}"
+            if [ "$conclusion" = "success" ]; then
+              echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+              echo "run_id=${id}" >> "$GITHUB_OUTPUT"
+              echo "::notice::Deployed revision ${sha:0:8}, from deploy.yml run ${id}."
+              exit 0
+            fi
+          done <<< "$runs"
+
+          # Not "no drift". We looked at 30 completed runs and none of them
+          # actually deployed — which is itself the WIC-1271 failure mode, and
+          # must go red rather than quiet.
+          echo "::error::No deploy.yml run in the last 30 completed runs has a successful 'Deploy Production' job. Either the deploy lane has been suppressed for a long time (the WIC-1271 failure mode) or the job was renamed — check both."
+          exit 2
+
+      # Runs before the detector so a broken detector is distinguishable from a
+      # clean board. Cheap (~50ms) and needs no network.
+      - name: Detector self-test
+        run: node .github/scripts/deploy-drift.mjs --selftest
+
+      - name: Compare production against main
+        env:
+          DEPLOYED_SHA: ${{ steps.deployed.outputs.sha }}
+          MAX_RUNTIME_DRIFT_MINUTES: ${{ inputs.max_runtime_drift_minutes }}
+          MAX_RUNTIME_DRIFT_COMMITS: ${{ inputs.max_runtime_drift_commits }}
+        run: node .github/scripts/deploy-drift.mjs
