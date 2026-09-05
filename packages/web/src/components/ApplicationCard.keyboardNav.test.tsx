@@ -246,11 +246,22 @@ describe('ApplicationCard quick actions — keyboard reachability (WIC-2078)', (
     });
 
     // WIC-2079 AC-4, third bullet. The two cases above pin the KEYDOWN guard
-    // (`e.target !== e.currentTarget`). The `e.stopPropagation()` calls in `handleEdit` and
-    // `handleDelete` are a separate mechanism covering the POINTER path, and nothing pinned
-    // them: deleting either one left this suite green.
+    // (`e.target !== e.currentTarget`); the `e.stopPropagation()` calls in `handleEdit` and
+    // `handleDelete` are a separate mechanism covering the POINTER path.
     //
-    // Pinned here rather than at the page level because that is the only place the two
+    // ⚠️ The two are NOT independent, and measuring that corrected a claim this comment
+    // originally made. An earlier revision asserted that deleting either `stopPropagation`
+    // left the suite green. That is true of `handleDelete`'s and false of `handleEdit`'s:
+    // mutating `handleEdit` reds the two Enter/Space cases above as well as the click case
+    // below. The reason is that `user.keyboard('{Enter}')` on a focused button dispatches a
+    // synthetic CLICK, which bubbles to the card's `onClick` — so on the keyboard path the
+    // keydown guard and `stopPropagation` each block a different one of two routes to the
+    // same wrong outcome, and the keydown tests were unknowingly covering both.
+    //
+    // `handleDelete`'s was genuinely unpinned: mutating it reds only tests added by WIC-2079.
+    // That asymmetry is the reason to keep BOTH cases below rather than just the Edit one.
+    //
+    // Pinned here rather than at the page level because this is the only place the two
     // handlers are distinguishable. In production `onEdit` and `onCardClick` navigate to the
     // same route (the AC-3 decision, recorded in `ApplicationsList.tsx`), so a leaked
     // propagation navigates twice to one destination and looks identical to working. Separable

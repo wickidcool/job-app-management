@@ -30,6 +30,21 @@ import type { APIApplication } from '../services/api/types';
  * "the symptom is confirm-then-silence" was its one unmeasured prediction): against `main` at
  * `9cdccb0a` the first test below fails on `expect(deleteRequests).toHaveLength(1)` with
  * `[]` — the click and the confirm both happen and no DELETE is issued. The premise held.
+ *
+ * Mutation-checked with `ApplicationCard.keyboardNav.test.tsx`, all four mutants applied after
+ * COMMITTING the fix, each anchor asserted to occur exactly once before writing, and each
+ * run's `passed + failed` equal to the baseline 17 so none silently failed to apply or to
+ * compile (WIC-2068, WIC-2076, WIC-1610):
+ *
+ *   M1  drop `onDelete={handleDelete}` — revert the fix        -> 3 of 17 red
+ *   M2  drop `e.stopPropagation()` in the card's handleDelete  -> 3 of 17 red
+ *   M3  drop `e.stopPropagation()` in the card's handleEdit    -> 3 of 17 red
+ *   M4  drop the `alert(…)` on the delete error path           -> 1 of 17 red
+ *
+ * M4 reding exactly one test is the intended result, not thin coverage: it is the only mutant
+ * whose effect is confined to the error path. M2 and M3 are the interesting pair — see the
+ * asymmetry noted at the two click cases in the component suite, where M3 contradicted what
+ * this file's author had written about it.
  */
 
 const ROW: APIApplication = {
