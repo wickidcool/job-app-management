@@ -58,7 +58,7 @@ they interpolate to the empty string.
 
 | Secret (env-scoped)     | Purpose                       |
 | ----------------------- | ----------------------------- |
-| `CLOUDFLARE_API_TOKEN`  | Deploy to Cloudflare Pages    |
+| `CLOUDFLARE_API_TOKEN`  | Deploy the **Worker** (`wrangler deploy`) — **not** Pages; it has no Pages access (WIC-2121) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier |
 | `SUPABASE_DATABASE_URL` | Run migrations in CI          |
 

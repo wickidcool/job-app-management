@@ -42,6 +42,19 @@ A stacked-child close detector was scoped for `.github/workflows/evil-merge-swee
 
 
 
+### Documentation — `CREDENTIAL_REGISTRY.md` misstated `CLOUDFLARE_API_TOKEN`'s scopes: `Pages: Edit` was claimed but is absent, DNS was unclaimed but reads fine (2026-09-05)
+
+The registry row claimed *Pages: Edit; Workers Scripts: Edit; Account: Read*. Measured against the live credential by run `33989995418` (`cf-marketing-token-drop-in-probe.yml`, read-only, 20:24:11Z), that was **inverted on both counts it spoke to** — the capability it named is absent, and one it did not name reads fine. Aliveness corroborated by run `33989113004`.
+
+- **`Pages: Edit` is claimed but ABSENT.** The `careerpin-marketing` project read returns **403 / code `10000`** — an authorization error, not a `404`. Cloudflare's Pages *write* group grants read, so a **denied read is decisive against write**.
+- **DNS is not claimed but reads fine** — record lists return **200 / 200** on both zones (5 and 4 records). That proves **`DNS: Read` only**. **`DNS: Edit` is recorded as unverified in either direction, not as present**: the token cannot read its own policy (**403 / `9109`** on the API-tokens endpoint), so permission groups could not be enumerated, and a GET-only probe can never establish write.
+- The verdict rests on a **positive control** — account-scoped `tokens/verify` returned 200 `active` — so every 403 above is a scope gap rather than a dead credential, the distinction that confounded the `CLOUDFLARE_CAREERPIN_API` record.
+
+The row appears to have been inferred from a green production deploy, and the note now says why that does not follow: **`deploy.yml` runs `wrangler deploy` against Workers, a different Cloudflare product from Pages.** The string `pages` does not appear in `deploy.yml` at all — `wrangler pages deploy` and `/pages/projects` appear only in `deploy-marketing.yml`, under the *other* token. So the 19:19:59Z green run (`33986788859`) is strong evidence for `Workers Scripts: Edit` and none whatsoever about Pages. The same falsified claim is corrected in `CI_CD.md` and `CLOUD_ENV_SECRETS.md`; ADR-005's table is left as the historical record of what was decided.
+
+This also resolves the open question the `CLOUDFLARE_CAREERPIN_API` note left hanging: WIC-2118 asked whether this token could stand in for the revoked one, and the answer is **`DROP_IN=no`** — it clears accounts and DNS reads but is denied exactly the Pages capability `deploy-marketing.yml` exists to exercise. Documentation only; the remediation stays on WIC-2100 (WIC-2121).
+
+
 ### Documentation — The two "dangling" `CONTENT_STYLE.md` section references were never dangling; they point at their own documents (2026-09-05)
 
 `JOBFIT_CAPS_DECISION_WIC1122.md:292` and `ROUTE_TITLE_CONVENTION.md:325` each name `CONTENT_STYLE.md` and then cite a bare `§1.3` / `§4`. WIC-2112 classified both as **Group E — dangling**, on the reading that the `§` pointed *into* `CONTENT_STYLE.md`, which has named headings and no numbered ones. That diagnosis was wrong. Both `§`s point at **their own** documents, where both targets exist (WIC-2117, delivering WIC-2115). Documentation only — no code, no tests, no UI copy.
