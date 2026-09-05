@@ -295,6 +295,20 @@ export function ResumeUpload({
         // trade was made and documented for `StarEntryPicker` (WIC-2073): the large target
         // was keyboard-unreachable, so it was never part of the accessible contract, but it
         // is a real change for pointer users.
+        //
+        // WIC-2078, reviewed exception (site 2 of 3). What remains after slice 2 is
+        // `onDrop`/`onDragOver`/`onDragLeave` — the drop TARGET, not a control. A pointer
+        // drag gesture has no keyboard equivalent to give it, so the accessible pattern is
+        // not to make the zone operable but to provide an equivalent control beside it,
+        // which is exactly what slice 2 added: the real "browse files" `<button>` below,
+        // reachable by Tab and driving the same `handleClick` -> file picker.
+        //
+        // So this is the standard reviewed exception rather than a defect: the rule cannot
+        // see the alternative path, and the two spellings that would satisfy it are both
+        // wrong here — `tabIndex` on the zone adds a tab stop that does nothing when
+        // activated (a keyboard user cannot drop a file onto it), and an interactive role
+        // would be a lie about what the element does.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <div
           role="region"
           aria-label="Resume upload area"

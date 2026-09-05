@@ -29,10 +29,29 @@ function getUrgencyIndicators(application: Application): {
   return { isOverdue, isDueSoon, isStale: isApplicationStale(application) };
 }
 
+/**
+ * WIC-2078 removed this component's native HTML5 drag — the `draggable` prop, `onDragStart`,
+ * `onDragEnd` and the `isDragging` state they drove.
+ *
+ * It was write-only. `handleDragStart` called
+ * `e.dataTransfer.setData('application/json', …)` and NOTHING in the tree ever read it back:
+ * `dataTransfer.getData` appears zero times in `packages/web/src`, and the only other
+ * `dataTransfer` reads are `.files` in the two resume drop zones, which take OS file drops
+ * and have nothing to do with applications. The kanban columns are dnd-kit `useDroppable`
+ * targets, not native drop targets, so a native drop had no handler to land in.
+ *
+ * The real drag is dnd-kit's, one level up on `SortableApplicationCard` — `PointerSensor`
+ * for the mouse and `KeyboardSensor` for the keyboard, both wired in `KanbanBoard`. The
+ * `opacity-50` styling the removed `isDragging` state applied is also already provided
+ * there, by `useSortable`'s own `isDragging` on the wrapper, so nothing visual is lost.
+ *
+ * Stated as what was measured, not more: this deletes dead code that was also competing
+ * with dnd-kit's pointer handling. Whether it repairs any pointer-drag misbehaviour on
+ * desktop was NOT measured here and is not claimed.
+ */
 export interface ApplicationCardProps {
   application: Application;
   variant?: 'kanban' | 'list';
-  draggable?: boolean;
   showQuickActions?: boolean;
   onCardClick?: (id: string) => void;
   onStatusChange?: (id: string, newStatus: ApplicationStatus) => void;
@@ -43,14 +62,37 @@ export interface ApplicationCardProps {
 export function ApplicationCard({
   application,
   variant = 'kanban',
-  draggable = false,
   showQuickActions = true,
   onCardClick,
   onEdit,
   onDelete,
 }: ApplicationCardProps) {
   const [isHovered, setIsHovered] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+
+  /**
+   * WIC-2078: the quick-action bar used to be gated on `isHovered` alone, so its Edit and
+   * Delete buttons did not exist in the DOM unless a mouse was over the card — WCAG 2.1.1,
+   * and the only path to either action on the kanban board.
+   *
+   * Revealing on focus as well is what makes them reachable: the card itself is a tab stop
+   * (`tabIndex={0}` below), so focusing it renders the bar, and the next Tab lands on Edit.
+   * React's `onFocus`/`onBlur` are `focusin`/`focusout` underneath and therefore bubble, so
+   * one pair on the wrapper covers focus arriving anywhere inside it.
+   *
+   * The `relatedTarget` check is what stops the bar collapsing out from under the keyboard
+   * user at the moment they Tab INTO it: focus moving card -> Edit fires `blur` on the card,
+   * and without the containment test that would unmount the button receiving the focus.
+   *
+   * Deliberately still conditional rendering rather than a CSS-only `group-focus-within`
+   * reveal, for two reasons. It keeps the buttons out of the DOM at rest, which is what
+   * keeps `routeAxe.render.test.tsx` clean — a real `<button>` inside this card is nested
+   * inside dnd-kit's `div[role="button"]` wrapper on `SortableApplicationCard` and trips
+   * axe's `nested-interactive` (the finding that reverted WIC-2077's slice-2 attempt on this
+   * file). And it keeps the fix OBSERVABLE: jsdom applies no Tailwind, so a CSS-only reveal
+   * would leave the buttons queryable whether or not the fix were present, and the test
+   * pinning it would pass just as happily against the unfixed component.
+   */
+  const [isFocusWithin, setIsFocusWithin] = useState(false);
 
   const { isOverdue, isDueSoon, isStale } = useMemo(
     () => getUrgencyIndicators(application),
@@ -73,17 +115,31 @@ export function ApplicationCard({
     }
   };
 
-  const handleDragStart = (e: React.DragEvent) => {
-    setIsDragging(true);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('application/json', JSON.stringify(application));
+  const handleFocus = () => {
+    setIsFocusWithin(true);
   };
 
-  const handleDragEnd = () => {
-    setIsDragging(false);
+  const handleBlur = (e: React.FocusEvent) => {
+    // Only collapse when focus has actually left the card, not when it moves between the
+    // card and one of its own quick-action buttons. `relatedTarget` is null when focus goes
+    // to nothing (e.g. a click on the page background), which correctly collapses.
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsFocusWithin(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Only the CARD's own Enter/Space activates the card. `keydown` bubbles, so without this
+    // guard the handler also fires for every control inside the card — and because it calls
+    // `preventDefault()`, it CANCELS that control's activation: pressing Enter on the Edit
+    // button navigated to the application instead of editing it, and Space did nothing at all.
+    //
+    // Latent until WIC-2078. The quick actions were mouse-only, so no keyboard event could
+    // originate below this element and the bug had nowhere to show itself; making the buttons
+    // reachable is what exposed it. Caught by `ApplicationCard.keyboardNav.test.tsx`, which is
+    // why that suite asserts the handlers FIRE rather than only that focus arrives.
+    if (e.target !== e.currentTarget) return;
+
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       handleClick();
@@ -92,12 +148,12 @@ export function ApplicationCard({
 
   const relativeTime = formatDistanceToNow(application.createdAt, { addSuffix: true });
 
-  const showActionsBar = showQuickActions && isHovered;
+  const isActive = isHovered || isFocusWithin;
+  const showActionsBar = showQuickActions && isActive;
 
   const cardClasses = `
-    relative rounded-lg border p-4 transition-all cursor-pointer
-    ${isDragging ? 'opacity-50 rotate-2 shadow-lg' : 'shadow-sm'}
-    ${isHovered ? 'border-blue-300 shadow-md' : 'border-gray-200'}
+    relative rounded-lg border p-4 transition-all cursor-pointer shadow-sm
+    ${isActive ? 'border-blue-300 shadow-md' : 'border-gray-200'}
     ${variant === 'list' ? 'flex items-center gap-4' : 'flex flex-col gap-2'}
     ${showActionsBar ? 'pb-16' : ''}
     hover:border-blue-300 hover:shadow-md
@@ -107,14 +163,29 @@ export function ApplicationCard({
   const ariaLabel = `${application.jobTitle} at ${application.company}, status: ${application.status}`;
 
   return (
+    // WIC-2078, reviewed exception (site 1 of 3). The card is deliberately an `<article>`
+    // carrying its own activation rather than a real `<button>`, and that is a decision
+    // WIC-2077 reached by measurement and then had to reverse itself on: moving activation
+    // onto a `<button>` inside the `<h3>` — the ResumeVariantCard / Reports* precedent,
+    // correct at five previous sites — reds `routeAxe.render.test.tsx` with
+    // `nested-interactive`, because `SortableApplicationCard` wraps every card in a dnd-kit
+    // `div[role="button"][tabindex="0"]`. Adding `role="button"` here instead trips the same
+    // axe rule (WIC-1942). Both spellings the lint rule would accept are a WORSE defect than
+    // the one it is reporting, so the element keeps `tabIndex={0}` + `onKeyDown` (Enter and
+    // Space, handled below) + `aria-label`, which is the accessible-enough state.
+    //
+    // The rule fires on the presence of ANY of these handlers, one finding per element —
+    // measured, not assumed: on a bare `<article>`, `onClick` alone and `onKeyDown` alone
+    // each trip it independently. So this site could not have reached zero by deleting the
+    // drag and hover handlers below; only the directive retires it.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <article
       className={cardClasses}
-      draggable={draggable}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
       onClick={handleClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
       onKeyDown={handleKeyDown}
       tabIndex={0}
       aria-label={ariaLabel}
@@ -183,7 +254,7 @@ export function ApplicationCard({
         </div>
       </div>
 
-      {/* Quick Actions (shown on hover) - Touch-optimized */}
+      {/* Quick Actions (shown on hover OR keyboard focus, WIC-2078) - Touch-optimized */}
       {showActionsBar && (
         <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 rounded-b-lg p-2 flex items-center justify-between gap-2">
           <button

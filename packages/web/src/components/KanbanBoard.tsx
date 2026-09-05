@@ -174,7 +174,6 @@ export function KanbanBoard({
               <ApplicationCard
                 application={activeApplication}
                 variant="kanban"
-                draggable={false}
                 showQuickActions={false}
               />
             </div>
