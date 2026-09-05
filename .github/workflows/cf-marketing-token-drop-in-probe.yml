@@ -1,0 +1,413 @@
+# WIC-2118: can the live `CLOUDFLARE_API_TOKEN` drop in for the REVOKED
+# `CLOUDFLARE_CAREERPIN_API` in `deploy-marketing.yml`?
+#
+# There are two Cloudflare tokens in this repo and only one is alive:
+#
+#   * CLOUDFLARE_API_TOKEN     - ALIVE. Run 33989113004 (2026-09-05T20:06:40Z,
+#     the FIRST execution of cf-token-capability-probe.yml on `main`) got
+#     HTTP 200 / status `active` from the account-scoped verify endpoint.
+#   * CLOUDFLARE_CAREERPIN_API - REVOKED. Run 33983093085 got 403 / code 9109
+#     ("Invalid access token") on both `GET /accounts` and a control zone read.
+#
+# `403/9109` = revoked; `403/10000` on one resource = live-but-unscoped. That
+# code difference is the whole discriminator, and it is why this probe carries
+# a positive control (STEP 0) rather than reporting bare 403s.
+#
+# `CLOUDFLARE_CAREERPIN_API` has exactly two consumers: the redirect-ownership
+# probe and `deploy-marketing.yml` - the only PRODUCTION consumer. That workflow
+# fires on `push: main` touching `packages/marketing/**`, so the next marketing
+# content change auto-fails at "Resolve Cloudflare account ID". It last ran
+# green 2026-06-12, which is why nothing has surfaced yet.
+#
+# This probe answers whether repointing that workflow at the live token removes
+# the human rotation gate entirely, or - failing that - names the exact missing
+# scopes so the ask already pending on WIC-2100 becomes specific. Both outcomes
+# are worth having, which is why this is a MEASUREMENT and not a change.
+#
+# ---------------------------------------------------------------------------
+# READ-ONLY IS A REAL CONSTRAINT HERE, AND IT BOUNDS WHAT CAN BE CONCLUDED
+# ---------------------------------------------------------------------------
+# `deploy-marketing.yml` needs *write* capability (DNS record upserts, Pages
+# add_domain, `wrangler pages deploy`). This probe issues GETs only, so it
+# cannot directly exercise any of them. The inference it CAN make is
+# one-directional, and the direction matters:
+#
+#   * Cloudflare's "DNS Write" / "Pages Write" permission groups GRANT READ
+#     TOO. So a 403 on a record LIST is decisive: no read => no write either.
+#     That is how this probe reaches a sound `DROP_IN=no`.
+#   * A 200 on a record list proves only Read. It does NOT prove Write.
+#
+# So if the only evidence were capability GETs, `DROP_IN=yes` would be
+# structurally unreachable - the probe could never return its own success
+# condition, which is exactly the failure this fleet has paid for before
+# (a search whose success condition its subject cannot satisfy always looks
+# like a clean negative). STEP 2 is what makes `yes` reachable: reading the
+# token's OWN POLICY enumerates its permission groups by name, which answers
+# Write directly and is still a GET. It needs `API Tokens: Read`, which a
+# deploy-scoped token may well lack - so `yes` is reachable but not assured,
+# and `undetermined` is the honest verdict when reads pass and STEP 2 is denied.
+#
+# Safety fence, copied from `cf-token-capability-probe.yml` (non-negotiable):
+#   * the token is never printed, not even a prefix or a length - it reaches
+#     curl through a 0600 config file, so it is absent from `ps` argv as well
+#     as from the logs;
+#   * no `set -x` anywhere the token is in scope;
+#   * GETs ONLY. Unlike the WIC-2097 probe there is no deliberately-invalid
+#     POST here, because this probe has no reason to write at all. No POST, no
+#     PUT, no PATCH, no DELETE, no `wrangler`.
+#   * response bodies are never echoed wholesale - DNS answers carry infra
+#     hostnames, so only counts, HTTP codes and CF error codes are printed.
+name: CF Marketing Token Drop-In Probe
+
+# Manual only. This must never fire on push/PR - it spends a production-scoped
+# credential to answer a one-off question.
+on:
+  workflow_dispatch:
+
+# The probe only ever reads. It needs no write scope on the repo.
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe CLOUDFLARE_API_TOKEN against deploy-marketing.yml's call sites
+    runs-on: ubuntu-latest
+    # WIC-1095 house rule: every job is bounded, or GitHub's 6h default turns a
+    # wedged network call into a runner slot held all day.
+    timeout-minutes: 10
+    # REQUIRED, not decorative: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+    # exist ONLY as `production` environment secrets (the repo-level list holds
+    # just CLOUDFLARE_CAREERPIN_API). Without this line both interpolate to the
+    # empty string and every call below fails in a way that reads exactly like
+    # a dead token - the precise confound this card exists to remove.
+    #
+    # This adds no human gate: the `production` environment has
+    # `protection_rules: []`, so a dispatch reaches these secrets directly.
+    environment: production
+    steps:
+      # One step, on purpose: the token is in scope for exactly this block and
+      # nowhere else in the job.
+      - name: Probe marketing-deploy capabilities
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # NOTE: deliberately no `set -x` - the token is in scope here.
+
+          API="https://api.cloudflare.com/client/v4"
+
+          # The two zones `deploy-marketing.yml` upserts CNAMEs into (:63-64).
+          # Pure hex, so this cannot trip `npm run scan:secrets`, which
+          # entropy-scans every file under .github/workflows/ but exempts
+          # pure-hex literals. Both already appear on `main` in that workflow.
+          APP_ZONE="ace9c419c6a5129cf7b8d104528a29e1"   # careerpin.app
+          IO_ZONE="e31283e2f9ddc738087daaf4698fb88c"    # careerpin.io
+          PAGES_PROJECT="careerpin-marketing"
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "FATAL: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
+            echo "They are 'production' ENVIRONMENT secrets - check this job still"
+            echo "declares 'environment: production'. Refusing to report a verdict"
+            echo "from empty credentials: that is indistinguishable from a dead token."
+            exit 1
+          fi
+
+          # Pass the credential via a 0600 curl config file rather than -H, so
+          # it is absent from the process argv table as well as from the logs.
+          CFG="$RUNNER_TEMP/cf-marketing-probe.conf"
+          BODY="$RUNNER_TEMP/cf-marketing-probe-body.json"
+          ( umask 077; printf 'header = "Authorization: Bearer %s"\nsilent\n' "$CLOUDFLARE_API_TOKEN" > "$CFG" )
+          trap 'rm -f "$CFG" "$BODY"' EXIT
+
+          HTTP=""
+          # get <url> -> sets $HTTP, writes response body to $BODY.
+          # GET is hardcoded: there is no method parameter, so no caller in this
+          # script can turn this into a write.
+          get() {
+            HTTP="$(curl --config "$CFG" -o "$BODY" -w '%{http_code}' -X GET "$1")"
+          }
+
+          cf_codes()   { jq -r '[.errors[]?.code]    | join(",")'  "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+          cf_msgs()    { jq -r '[.errors[]?.message] | join(" | ")' "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+          cf_success() { jq -r '.success // "n/a"'                  "$BODY" 2>/dev/null || echo "(non-JSON)"; }
+
+          # Classify a 403 the way the WIC-2118 discriminator does. This is the
+          # single most important projection in the probe: it is what separates
+          # "this credential is dead" from "this credential is alive and simply
+          # lacks one scope", and conflating those is what confounded the board
+          # record on clause (i) in the first place.
+          verdict_for() {
+            local http="$1" codes="$2"
+            case "$http" in
+              2*) echo "OK" ;;
+              403)
+                case ",$codes," in
+                  *,9109,*) echo "TOKEN-DEAD (9109)" ;;
+                  *,10000,*) echo "UNSCOPED (10000)" ;;
+                  *) echo "DENIED (codes: ${codes:-none})" ;;
+                esac ;;
+              401) echo "UNAUTHENTICATED" ;;
+              404) echo "NOT-FOUND" ;;
+              *)  echo "HTTP $http" ;;
+            esac
+          }
+
+          echo "=============================================================="
+          echo "STEP 0 - POSITIVE CONTROL: is this token alive at all?"
+          echo "=============================================================="
+          # Account-scoped path is deliberate. An account-scoped token fails
+          # /user/tokens/verify BY DESIGN, and that 400 reads exactly like a
+          # dead token. That misread has happened on this fleet before.
+          #
+          # Without this control a mis-scoped token and a revoked one produce
+          # the same table of 403s. With it they are trivially separable, which
+          # is the entire lesson of the card that produced this file.
+          get "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify"
+          VERIFY_HTTP="$HTTP"
+          VERIFY_CODES="$(cf_codes)"
+          TOKEN_STATUS="$(jq -r '.result.status // "n/a"' "$BODY" 2>/dev/null || echo '(non-JSON)')"
+          # The token ID is read for STEP 2 but NEVER printed.
+          TOKEN_ID="$(jq -r '.result.id // empty' "$BODY" 2>/dev/null || echo '')"
+          echo "  HTTP           : $VERIFY_HTTP"
+          echo "  success        : $(cf_success)"
+          echo "  token status   : $TOKEN_STATUS"
+          echo "  CF error codes : $VERIFY_CODES"
+
+          ALIVE="no"
+          if [ "$VERIFY_HTTP" = "200" ] && [ "$TOKEN_STATUS" = "active" ]; then
+            ALIVE="yes"
+            echo "  -> control PASSES: token is alive and active."
+            echo "     Every 403 below is therefore a SCOPE gap, not a dead credential."
+          else
+            echo "  messages       : $(cf_msgs)"
+            echo "  -> control FAILS. This token is not usable, so nothing below"
+            echo "     can be read as evidence about SCOPES."
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 1 - GET /accounts  (deploy-marketing.yml:43-56)"
+          echo "=============================================================="
+          # The workflow lists accounts and hard-errors on 0 or on >1. An
+          # account-SCOPED token does not necessarily answer this
+          # account-AGNOSTIC endpoint, so this step may fail even on a
+          # perfectly healthy token. If it does, the remedy is NOT a new
+          # credential - it is to use the CLOUDFLARE_ACCOUNT_ID secret directly
+          # instead of list-and-require-exactly-one. The workflow's own error
+          # text already anticipates that ("Add CLOUDFLARE_ACCOUNT_ID secret").
+          get "$API/accounts"
+          ACCT_HTTP="$HTTP"
+          ACCT_CODES="$(cf_codes)"
+          ACCT_COUNT="$(jq -r '[.result[]?] | length' "$BODY" 2>/dev/null || echo '?')"
+          echo "  HTTP           : $ACCT_HTTP"
+          echo "  success        : $(cf_success)"
+          echo "  account count  : $ACCT_COUNT"
+          echo "  CF error codes : $ACCT_CODES"
+          [ "$ACCT_HTTP" = "200" ] || echo "  messages       : $(cf_msgs)"
+
+          # Account IDs are not printed. What the workflow needs is only whether
+          # the count is exactly 1.
+          ACCOUNT_STEP_OK="no"
+          ACCOUNT_STEP_NEEDS_EDIT="yes"
+          if [ "$ACCT_HTTP" = "200" ] && [ "$ACCT_COUNT" = "1" ]; then
+            ACCOUNT_STEP_OK="yes"
+            ACCOUNT_STEP_NEEDS_EDIT="no"
+            echo "  -> exactly one account: the step works unmodified."
+          elif [ "$ACCT_HTTP" = "200" ]; then
+            echo "  -> HTTP 200 but count=$ACCT_COUNT (the step requires exactly 1)."
+            echo "     Remedy is a workflow edit (use CLOUDFLARE_ACCOUNT_ID), not a new token."
+          else
+            echo "  -> endpoint denied. Remedy is a workflow edit (use"
+            echo "     CLOUDFLARE_ACCOUNT_ID directly), not a new token."
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 2 - read the token's OWN POLICY (makes DROP_IN=yes reachable)"
+          echo "=============================================================="
+          # This is the only read that can speak to WRITE capability, because it
+          # enumerates the token's permission groups BY NAME. It needs
+          # `API Tokens: Read`, which a deploy-scoped token may not carry - in
+          # which case Write stays unproven and the verdict is `undetermined`,
+          # not `no`.
+          #
+          # Only permission-group NAMES are printed. Not the token, not its id.
+          POLICY_READ="no"
+          POLICY_GROUPS=""
+          POLICY_HTTP="skipped"
+          if [ -n "$TOKEN_ID" ]; then
+            get "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/$TOKEN_ID"
+            POLICY_HTTP="$HTTP"
+            echo "  HTTP           : $POLICY_HTTP"
+            if [ "$POLICY_HTTP" = "200" ]; then
+              POLICY_READ="yes"
+              POLICY_GROUPS="$(jq -r '[.result.policies[]?.permission_groups[]?.name] | unique | join("; ")' "$BODY" 2>/dev/null || echo '')"
+              echo "  permission groups:"
+              jq -r '[.result.policies[]?.permission_groups[]?.name] | unique | .[] | "    - \(.)"' "$BODY" 2>/dev/null || echo "    (unparseable)"
+            else
+              echo "  CF error codes : $(cf_codes)"
+              echo "  -> token cannot read its own policy (no 'API Tokens: Read')."
+              echo "     WRITE capability therefore cannot be proven read-only;"
+              echo "     the best available positive verdict is 'undetermined'."
+            fi
+          else
+            echo "  skipped: STEP 0 did not return a token id."
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 3 - zone reads  (the two zones the CNAME upserts target)"
+          echo "=============================================================="
+          get "$API/zones/$APP_ZONE"
+          APPZONE_HTTP="$HTTP"; APPZONE_CODES="$(cf_codes)"
+          APPZONE_V="$(verdict_for "$APPZONE_HTTP" "$APPZONE_CODES")"
+          echo "  careerpin.app zone : HTTP $APPZONE_HTTP  [$APPZONE_V]  codes: ${APPZONE_CODES:-none}"
+
+          get "$API/zones/$IO_ZONE"
+          IOZONE_HTTP="$HTTP"; IOZONE_CODES="$(cf_codes)"
+          IOZONE_V="$(verdict_for "$IOZONE_HTTP" "$IOZONE_CODES")"
+          echo "  careerpin.io  zone : HTTP $IOZONE_HTTP  [$IOZONE_V]  codes: ${IOZONE_CODES:-none}"
+
+          echo
+          echo "=============================================================="
+          echo "STEP 4 - DNS record LIST on both zones (proxy for DNS write)"
+          echo "=============================================================="
+          # Cloudflare's "DNS Write" permission group grants read as well, so a
+          # 403 here is DECISIVE: no read implies no write. A 200 proves only
+          # read - see the header note on why that cannot be upgraded to `yes`
+          # without STEP 2.
+          #
+          # Record CONTENTS are never printed, only counts: the answers carry
+          # infrastructure hostnames.
+          get "$API/zones/$APP_ZONE/dns_records?per_page=1"
+          APPDNS_HTTP="$HTTP"; APPDNS_CODES="$(cf_codes)"
+          APPDNS_V="$(verdict_for "$APPDNS_HTTP" "$APPDNS_CODES")"
+          APPDNS_TOTAL="$(jq -r '.result_info.total_count // "n/a"' "$BODY" 2>/dev/null || echo 'n/a')"
+          echo "  careerpin.app DNS  : HTTP $APPDNS_HTTP  [$APPDNS_V]  codes: ${APPDNS_CODES:-none}  records: $APPDNS_TOTAL"
+
+          get "$API/zones/$IO_ZONE/dns_records?per_page=1"
+          IODNS_HTTP="$HTTP"; IODNS_CODES="$(cf_codes)"
+          IODNS_V="$(verdict_for "$IODNS_HTTP" "$IODNS_CODES")"
+          IODNS_TOTAL="$(jq -r '.result_info.total_count // "n/a"' "$BODY" 2>/dev/null || echo 'n/a')"
+          echo "  careerpin.io  DNS  : HTTP $IODNS_HTTP  [$IODNS_V]  codes: ${IODNS_CODES:-none}  records: $IODNS_TOTAL"
+
+          DNS_READ="no"
+          if [ "$APPDNS_HTTP" = "200" ] && [ "$IODNS_HTTP" = "200" ]; then
+            DNS_READ="yes"
+          fi
+
+          echo
+          echo "=============================================================="
+          echo "STEP 5 - Pages project read  ($PAGES_PROJECT)"
+          echo "=============================================================="
+          # `deploy-marketing.yml` needs Pages project read + add_domain, and
+          # `wrangler pages deploy` needs Pages write. Same one-directional
+          # inference as DNS: 403 here is decisive against write.
+          get "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAGES_PROJECT"
+          PAGES_HTTP="$HTTP"; PAGES_CODES="$(cf_codes)"
+          PAGES_V="$(verdict_for "$PAGES_HTTP" "$PAGES_CODES")"
+          echo "  HTTP           : $PAGES_HTTP  [$PAGES_V]"
+          echo "  CF error codes : ${PAGES_CODES:-none}"
+          if [ "$PAGES_HTTP" = "200" ]; then
+            echo "  domains on project: $(jq -r '[.result.domains[]?] | length' "$BODY" 2>/dev/null || echo '?')"
+          elif [ "$PAGES_HTTP" = "404" ]; then
+            echo "  -> 404. Ambiguous: either the project does not exist, or the"
+            echo "     token cannot see it. Not counted as a scope denial."
+          else
+            echo "  messages       : $(cf_msgs)"
+          fi
+
+          PAGES_READ="no"
+          if [ "$PAGES_HTTP" = "200" ]; then PAGES_READ="yes"; fi
+
+          echo
+          echo "=============================================================="
+          echo "VERDICT"
+          echo "=============================================================="
+
+          # Scope names, when STEP 2 could read them.
+          HAS_DNS_WRITE="unknown"
+          HAS_PAGES_WRITE="unknown"
+          if [ "$POLICY_READ" = "yes" ]; then
+            HAS_DNS_WRITE="no"; HAS_PAGES_WRITE="no"
+            case "$POLICY_GROUPS" in *"DNS Write"*) HAS_DNS_WRITE="yes" ;; esac
+            case "$POLICY_GROUPS" in *"Pages Write"*) HAS_PAGES_WRITE="yes" ;; esac
+          fi
+
+          MISSING=""
+          DROP_IN="undetermined"
+          if [ "$ALIVE" != "yes" ]; then
+            DROP_IN="undetermined"
+            NOTE="The positive control FAILED, so this token is not usable and no scope conclusion is available. Do NOT read the 403s above as missing scopes."
+          elif [ "$DNS_READ" = "no" ] || [ "$PAGES_READ" = "no" ]; then
+            # Decisive negative: Cloudflare's write groups grant read, so a
+            # denied read rules write out.
+            DROP_IN="no"
+            # Written as `if` blocks rather than `[ ... ] && MISSING=...`.
+            # (`set -e` tolerates the AND-list form here - bash exempts a
+            # failing left-hand side - but the AND-list form IS unsafe as the
+            # final command of a step, where its non-zero status fails the job.
+            # `if` is immune to that whatever order these end up in.)
+            if [ "$DNS_READ" = "no" ]; then
+              MISSING="${MISSING}DNS:Edit (zone DNS write on careerpin.app + careerpin.io); "
+            fi
+            if [ "$PAGES_READ" = "no" ]; then
+              MISSING="${MISSING}Cloudflare Pages:Edit (account-level); "
+            fi
+            NOTE="CLOUDFLARE_API_TOKEN is ALIVE but CANNOT stand in for CLOUDFLARE_CAREERPIN_API. Missing: ${MISSING}A read was denied, and Cloudflare's write permission groups grant read as well, so a denied read rules out write."
+          elif [ "$POLICY_READ" = "yes" ] && [ "$HAS_DNS_WRITE" = "yes" ] && [ "$HAS_PAGES_WRITE" = "yes" ]; then
+            DROP_IN="yes"
+            NOTE="CLOUDFLARE_API_TOKEN carries DNS Write and Pages Write by its own policy, and every read deploy-marketing.yml depends on succeeded. The repoint is safe to land."
+          elif [ "$POLICY_READ" = "yes" ]; then
+            DROP_IN="no"
+            if [ "$HAS_DNS_WRITE" = "no" ]; then
+              MISSING="${MISSING}DNS Write; "
+            fi
+            if [ "$HAS_PAGES_WRITE" = "no" ]; then
+              MISSING="${MISSING}Pages Write; "
+            fi
+            NOTE="The token's own policy is readable and does NOT list the required groups. Missing: ${MISSING}"
+          else
+            DROP_IN="undetermined"
+            NOTE="Every READ that deploy-marketing.yml depends on succeeded, but the token could not read its own policy (STEP 2 denied), so WRITE capability is unproven. Reads passing is NOT sufficient to land the repoint: escalate for a scope confirmation rather than assuming."
+          fi
+
+          echo "TOKEN_ALIVE=$ALIVE"
+          echo "ACCOUNT_LIST_OK=$ACCOUNT_STEP_OK  (workflow edit needed: $ACCOUNT_STEP_NEEDS_EDIT)"
+          echo "DNS_READ=$DNS_READ"
+          echo "PAGES_READ=$PAGES_READ"
+          echo "POLICY_READ=$POLICY_READ  DNS_WRITE=$HAS_DNS_WRITE  PAGES_WRITE=$HAS_PAGES_WRITE"
+          echo "DROP_IN=$DROP_IN"
+          echo
+          echo "$NOTE"
+
+          {
+            echo "## CF marketing token drop-in probe (WIC-2118)"
+            echo
+            echo "Can the live \`CLOUDFLARE_API_TOKEN\` replace the revoked \`CLOUDFLARE_CAREERPIN_API\` in \`deploy-marketing.yml\`?"
+            echo
+            echo "| # | capability (deploy-marketing.yml call site) | HTTP | CF codes | reading |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "| 0 | **positive control** — account-scoped \`tokens/verify\` | $VERIFY_HTTP | ${VERIFY_CODES:-none} | alive=\`$ALIVE\`, status \`$TOKEN_STATUS\` |"
+            echo "| 1 | \`GET /accounts\` (\`:43-56\`) | $ACCT_HTTP | ${ACCT_CODES:-none} | count=$ACCT_COUNT, ok=\`$ACCOUNT_STEP_OK\` |"
+            echo "| 2 | token self-policy read | $POLICY_HTTP | — | readable=\`$POLICY_READ\` |"
+            echo "| 3 | zone read \`careerpin.app\` | $APPZONE_HTTP | ${APPZONE_CODES:-none} | $APPZONE_V |"
+            echo "| 3 | zone read \`careerpin.io\` | $IOZONE_HTTP | ${IOZONE_CODES:-none} | $IOZONE_V |"
+            echo "| 4 | DNS list \`careerpin.app\` (\`:109-113\`) | $APPDNS_HTTP | ${APPDNS_CODES:-none} | $APPDNS_V |"
+            echo "| 4 | DNS list \`careerpin.io\` (\`:109-113\`) | $IODNS_HTTP | ${IODNS_CODES:-none} | $IODNS_V |"
+            echo "| 5 | Pages project read \`$PAGES_PROJECT\` (\`:156+\`) | $PAGES_HTTP | ${PAGES_CODES:-none} | $PAGES_V |"
+            echo
+            echo "**Verdict: \`DROP_IN=$DROP_IN\`**"
+            echo
+            echo "$NOTE"
+            echo
+            echo "Account-list step needs a workflow edit: \`$ACCOUNT_STEP_NEEDS_EDIT\`."
+            if [ "$ACCOUNT_STEP_NEEDS_EDIT" = "yes" ]; then
+              echo "Use the \`CLOUDFLARE_ACCOUNT_ID\` secret directly instead of list-and-require-exactly-one; the workflow's own error text already anticipates this."
+            fi
+            echo
+            echo "_Read-only: GETs only, no POST/PUT/PATCH/DELETE, no \`wrangler\`. Nothing was created, changed or deployed. The token is never printed._"
+            echo
+            echo "_Scope inference is one-directional: Cloudflare's write permission groups grant read, so a **denied read is decisive against write**, while a **successful read proves only read**. \`DROP_IN=yes\` therefore rests on the step-2 policy read, never on the capability GETs alone._"
+          } >> "$GITHUB_STEP_SUMMARY"
