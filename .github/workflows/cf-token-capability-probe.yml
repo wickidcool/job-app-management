@@ -1,12 +1,20 @@
-# WIC-2097: answer board question (i) on approval `d61d200b` with a measurement
-# instead of a lookup.
+# WIC-2092 branch-only variant of the WIC-2097 probe. DO NOT MERGE — this file
+# exists to be dispatched on its own branch, never to land on `main`.
 #
-# Production's API has been 503 for logged-in users since 2026-08-26. The agreed
-# remedy (ADR-007 opt 1) is to give prod a Hyperdrive binding, and the approval
-# has sat pending for 4 days on one unanswered question: does the CI
-# `CLOUDFLARE_API_TOKEN` carry `Hyperdrive:Edit`, so DevOps can provision the
-# config from a workflow (clause i) — or must a human create it in the console
-# (clause ii)?
+# WIC-2097 measured the `production` environment secret `CLOUDFLARE_API_TOKEN`
+# and got `HYPERDRIVE_READ=no`, refuting clause (i) of approval `d61d200b`.
+# But that probe tested ONE of the two Cloudflare credentials this repo holds.
+# The other — repo-level secret `CLOUDFLARE_CAREERPIN_API` — was noted in that
+# workflow's own comments and never measured.
+#
+# Before escalating to the board a second time, measure the second token: if it
+# carries `Hyperdrive:Edit` on this account, the P1 needs no human credential
+# work at all and the remaining gate is only the (already pending) deploy
+# approval. If it does not, the board ask is confirmed necessary on evidence
+# rather than on the absence of a check.
+#
+# Identical safety fence and identical five steps as the merged probe; the ONLY
+# change is which secret is bound to CLOUDFLARE_API_TOKEN.
 #
 # That is a measurable fact, so this workflow measures it. It is READ-ONLY and
 # it DOES NOT FIX PRODUCTION: no Hyperdrive config is created, `wrangler.jsonc`
@@ -21,7 +29,7 @@
 #     point of the probe. No PUT/PATCH/DELETE, no `wrangler deploy`;
 #   * the config list is re-read afterwards and the job FAILS LOUDLY if the set
 #     of config ids moved.
-name: CF Token Capability Probe
+name: CF Token Capability Probe (CAREERPIN token, WIC-2092)
 
 # Manual only. This must never fire on push/PR — it spends a production-scoped
 # credential to answer a one-off board question.
@@ -34,7 +42,7 @@ permissions:
 
 jobs:
   probe:
-    name: Probe CLOUDFLARE_API_TOKEN for Hyperdrive scope
+    name: Probe CLOUDFLARE_CAREERPIN_API for Hyperdrive scope
     runs-on: ubuntu-latest
     # WIC-1095 house rule: every job is bounded, or GitHub's 6h default turns a
     # wedged network call into a runner slot held all day. Four curls; 10m is
@@ -54,7 +62,12 @@ jobs:
       # nowhere else in the job.
       - name: Probe Hyperdrive scope
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # THE ONE SUBSTANTIVE CHANGE vs the merged probe: bind the OTHER
+          # Cloudflare credential. `CLOUDFLARE_CAREERPIN_API` is a REPO-level
+          # secret (so it is in scope regardless of `environment:`), while
+          # CLOUDFLARE_ACCOUNT_ID remains a `production` environment secret,
+          # which is why this job still declares `environment: production`.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
@@ -63,8 +76,9 @@ jobs:
           API="https://api.cloudflare.com/client/v4"
 
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            echo "FATAL: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
-            echo "They are 'production' ENVIRONMENT secrets — check this job still declares"
+            echo "FATAL: CLOUDFLARE_CAREERPIN_API / CLOUDFLARE_ACCOUNT_ID are empty."
+            echo "CLOUDFLARE_CAREERPIN_API is a REPO secret; CLOUDFLARE_ACCOUNT_ID is a"
+            echo "'production' ENVIRONMENT secret — check this job still declares"
             echo "'environment: production'. Refusing to report a verdict from empty creds."
             exit 1
           fi
