@@ -127,6 +127,35 @@ jobs:
 
           echo
           echo "=============================================================="
+          echo "STEP 1b - IS THE TOKEN ALIVE AT ALL? (account-agnostic)"
+          echo "=============================================================="
+          # Step 1 asks a token-vs-THIS-account question, so a 401 there is
+          # ambiguous: revoked token, or a live token scoped to a DIFFERENT
+          # account. That distinction matters a great deal here, because
+          # `deploy-marketing.yml` uses this same secret and resolves its
+          # account by listing /accounts with the token rather than by using
+          # CLOUDFLARE_ACCOUNT_ID. So this step makes exactly the call that
+          # workflow makes. Account NAMES are not printed; only the count and
+          # a truncated id, mirroring deploy-marketing's own `${ACCOUNT_ID:0:8}`.
+          req GET "$API/accounts"
+          ACCT_HTTP="$HTTP"
+          echo "  HTTP           : $ACCT_HTTP"
+          echo "  success        : $(cf_success)"
+          echo "  CF error codes : $(cf_codes)"
+          if [ "$ACCT_HTTP" = "200" ]; then
+            echo "  visible accts  : $(jq -r '[.result[]?] | length' "$BODY" 2>/dev/null || echo '?')"
+            echo "  first acct id  : $(jq -r '.result[0].id // "n/a"' "$BODY" 2>/dev/null | cut -c1-8)..."
+            echo "  matches CLOUDFLARE_ACCOUNT_ID? : $(jq -r --arg a "$CLOUDFLARE_ACCOUNT_ID" '[.result[]?.id] | index($a) | if . == null then "NO - different account" else "yes" end' "$BODY" 2>/dev/null || echo '?')"
+            echo "  -> TOKEN IS ALIVE. A 401 at step 1 means wrong-account, NOT revoked."
+            echo "     deploy-marketing.yml can still authenticate with it."
+          else
+            echo "  messages       : $(cf_msgs)"
+            echo "  -> token cannot list ANY account: it is revoked/expired, not merely"
+            echo "     mis-scoped. deploy-marketing.yml would fail at its resolve step."
+          fi
+
+          echo
+          echo "=============================================================="
           echo "STEP 2 - can the token READ Hyperdrive?"
           echo "=============================================================="
           req GET "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs"
