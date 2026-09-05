@@ -69,6 +69,18 @@ export interface Env {
    * `DEFAULT_CONNECT_DEADLINE_MS`; an unparseable value falls back to it.
    */
   DB_CONNECT_DEADLINE_MS?: string;
+  /**
+   * WIC-2127 prod-canary Cron Trigger config. All optional: with none set the
+   * scheduled handler still probes and logs, but files no incident (mode "none").
+   * `CANARY_GITHUB_TOKEN` is a human-provisioned secret; the rest are non-secret
+   * vars with sane defaults (see `canary.ts`).
+   */
+  CANARY_PROD_BASE_URL?: string;
+  CANARY_ALERT_MODE?: string;
+  CANARY_GITHUB_TOKEN?: string;
+  CANARY_GITHUB_REPO?: string;
+  CANARY_WORKFLOW_FILE?: string;
+  CANARY_WORKFLOW_REF?: string;
 }
 
 export interface HonoVariables {

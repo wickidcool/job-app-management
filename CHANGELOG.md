@@ -52,6 +52,15 @@ A stacked-child close detector was scoped for `.github/workflows/evil-merge-swee
 
 
 
+### Added — A Cloudflare Cron Trigger for the prod canary, so "every 15 minutes" is a real cadence and not a ~5%-delivered GitHub Actions schedule (2026-09-05)
+
+The production canary's `scheduled()` handler now lives in the `jobtrail` Worker (`packages/api/src/canary.ts`, wired into `packages/api/src/worker.ts`), fired by a `triggers.crons` `*/15 * * * *` entry in `wrangler.jsonc`. Cloudflare Cron Triggers are not subject to the GitHub Actions `schedule` throttling that delivered only ~5% of the workflow canary's ticks (WIC-2125: median gap 191 min, one 67h blind window), so the "every 15 minutes" claim finally matches reality. Code banked; the production deploy is board-gated and the alert credential is human-gated (WIC-2127).
+
+- **Same two probes, byte-faithful assertions.** It runs the identical auth-plane (`POST /api/auth/login` → PASS iff `.error.message === "Invalid login credentials"`, the WIC-1281/WIC-1296 live-Supabase signature) and data-plane (`GET /api/health` → PASS iff HTTP 200 AND `.status === "ok"`, the WIC-2123/WIC-2092 check) probes as `supabase-keepalive.yml`, and fails if either regresses without one masking the other. Fourteen unit tests pin every branch so the cadence cutover can never silently change what "healthy" means.
+- **Probes go out over the public edge URL**, so a red data plane (the live WIC-2092 Hyperdrive outage) does not stop the canary from reporting it — the isolate runs regardless of the app's own DB health.
+- **Alert route is configurable and human-gated.** `CANARY_ALERT_MODE` selects `github_issue` (Option A: the Worker opens/dedups the same incident issue the Actions canary files, converging on one thread) or `workflow_dispatch` (Option B). Both need an outbound `CANARY_GITHUB_TOKEN` secret no agent can mint; until a human provisions it the handler still probes and logs but files nothing (mode `none`).
+- **No preview double-fire.** `env.preview` explicitly overrides `triggers.crons` to empty, so per-PR preview Workers never inherit the cron and probe prod.
+
 ### Documentation — One runbook for the two production data operations that have been parked waiting on a human (2026-09-05)
 
 `docs/runbooks/prod-data-operations.md` collects the exact commands, safety properties and decision trees for **WIC-1464 AC-a** (`audit-foreign-star-text.mjs`) and **WIC-1929** (`migrate-project-storage-keys.mjs`). Both scripts have been merged and green on `main` for days; neither card is waiting on code. Both are waiting on the same scarce resource — a human holding production credentials — and each previously required its own investigation to act on. Documentation only: no code, no tests, no schema change.

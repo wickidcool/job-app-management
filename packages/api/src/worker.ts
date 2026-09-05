@@ -3,6 +3,7 @@ import { buildApp } from './app.js';
 import { runWithEnv } from './db/context.js';
 import { isDatabaseUnreachable } from './db/connect-bound.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
+import { runCanary } from './canary.js';
 import type { Env } from './types/env.js';
 
 const app = buildApp();
@@ -65,5 +66,25 @@ export default {
     }
     // unreachable
     return new Response('Internal Server Error', { status: 500 });
+  },
+
+  // WIC-2127 — Cloudflare Cron Trigger entry point. Fires on the `triggers.crons`
+  // schedule in wrangler.jsonc, on a real cadence that the GitHub Actions
+  // `schedule` throttling (WIC-2125) does not honour. Runs the production canary
+  // (auth + data plane) and files/dedups an incident issue on a failure. It does
+  // NOT touch the app's own DB path — the probes go out over the public edge URL,
+  // so a red data plane (WIC-2092) cannot stop the canary from reporting it.
+  //
+  // `ctx.waitUntil` keeps the isolate alive for the async probe+alert work after
+  // the handler returns, per the Workers scheduled-handler contract.
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      runCanary(env).catch((err) => {
+        // Never let an alert-channel failure crash the scheduled invocation; it
+        // is already logged inside runCanary. The Workers dashboard records the
+        // rejection for triage without retry-storming the cron.
+        console.error(`[canary] scheduled run error: ${(err as Error).message}`);
+      })
+    );
   },
 };

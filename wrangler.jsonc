@@ -37,6 +37,18 @@
 		"ANALYTICS_SINK": "posthog",
 		"POSTHOG_HOST": "https://us.i.posthog.com"
 	},
+	// WIC-2127 — Cron Trigger for the production canary (auth + data plane).
+	// GitHub Actions `schedule` delivers only ~5% of `*/15` ticks (WIC-2125), so
+	// the "every 15 minutes" monitor actually ran every ~3.2h. Cloudflare Cron
+	// Triggers are NOT subject to that throttling — this fires the Worker's
+	// `scheduled()` handler (packages/api/src/worker.ts -> canary.ts) reliably
+	// every 15 minutes. The probes go out over the public edge URL, so a red data
+	// plane (WIC-2092) does not stop the canary from reporting it.
+	"triggers": {
+		"crons": [
+			"*/15 * * * *"
+		]
+	},
 	"observability": {
 		"enabled": true
 	},
@@ -44,6 +56,14 @@
 	"env": {
 		"preview": {
 			"name": "jobtrail-preview",
+			// WIC-2127 — explicitly NO cron on preview. Every PR gets its own
+			// preview Worker; without this, each would inherit the top-level canary
+			// cron and probe prod every 15 min, double-filing incidents. The prod
+			// canary must run from exactly one place. (Empty overrides the inherited
+			// top-level `triggers`.)
+			"triggers": {
+				"crons": []
+			},
 			"vars": {
 				"NODE_ENV": "development"
 			},
