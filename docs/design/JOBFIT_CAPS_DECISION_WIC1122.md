@@ -289,4 +289,4 @@ three ramps got there.
 - `packages/web/src/constants/gapSeverity.ts` — the canonical `GapSeverity` rendering (WIC-1146).
 - `packages/web/src/constants/fitLevel.ts` — fit labels plus the reserved-vocabulary typecheck guard
   (WIC-1288).
-- `docs/design/CONTENT_STYLE.md` — the casing rule §1.3 applies.
+- `docs/design/CONTENT_STYLE.md` — the casing rule that §1.3 of this document applies.
