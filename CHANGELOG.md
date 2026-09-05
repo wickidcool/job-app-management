@@ -23,6 +23,17 @@ Production's API has answered `503 {"status":"degraded","hyperdrive":false}` for
 - **Verified against a mock Cloudflare before shipping**, driving the workflow's own extracted script through all six paths — Edit yes/no, no read scope, the schema-first undetermined case, and both failure fences (a `2xx` create and a changed config list, which exit non-zero). A run seeded with a token id, an account id and a database host confirmed none reach the log or the step summary.
 
 
+
+### Fixed — `set-worker-secrets.yml` offered two Worker targets nothing dispatches, one of which does not exist (2026-09-05)
+
+`.github/workflows/set-worker-secrets.yml` let a dispatcher pick `preview`, `dev` or `staging` and passed the choice straight to `npx wrangler secret put --env`. Only `preview` is reachable work; the list is now `preview` alone (WIC-2105, carrying WIC-2102).
+
+- **`dev` and `staging` have zero consumers.** Every `--env` occurrence under `.github` at `a9d7186` is the literal `preview` — three in `deploy.yml`, four in `remediate-worker-secret-leak.yml` — except the parameterized one in this workflow. The sweep was run with a positive control (`--env preview`), so the zero is a measured zero and not an anchored-regex artifact. Nothing schedules, dispatches or documents a `dev` or `staging` secret push.
+- **The two load-bearing details from WIC-2099 are untouched, and a comment now says why.** The input is still named `target_env` rather than `environment`, so `grep 'environment:'` still means the job key and nothing else; the job-level `environment: dev` — which is what GitHub resolves `secrets.*` against, and without which all three credentials interpolate to empty — is unchanged. One is a *Cloudflare Workers* environment, the other a *GitHub* environment; narrowing the first must not touch the second.
+- **The premise that `dev`/`staging` were "undeclared" was wrong, and the fix stands without it.** WIC-2102 reasoned from the root `wrangler.jsonc`, which declares only `env.preview`. But the secret-put step runs `working-directory: packages/api`, so wrangler resolves `packages/api/wrangler.toml` — which declares `[env.dev]`, `[env.preview]` **and** `[env.staging]`. The options were removed for having no consumer, which is the measurement that was actually taken, not for being undeclared. A comment at the input records this so the next reader does not re-derive the claim from the wrong file.
+- **That same `working-directory` points this workflow at a different Worker than every other caller, which is filed separately as WIC-2107 and is not fixed here.** `packages/api/wrangler.toml` names its preview env `jobtrail`, while the root config names it `jobtrail-preview` and reserves `jobtrail` for production. `deploy.yml` and `remediate-worker-secret-leak.yml` declare no `working-directory`, so their `--env preview` resolves the root config. Narrowing the options list neither causes nor cures that; it is called out here so the two are not conflated.
+
+
 ### Added — A scheduled detector that notices when production stops running `main`, and a single shared definition of "runtime path" (2026-09-05)
 
 WIC-1271 documented production sitting **14 commits behind `main` for six days**: 14 consecutive `[skip ci]` merges suppressed the `push` event, `deploy.yml` never fired, and nothing in the repo compared what prod serves against what `main` says it should serve. `.github/workflows/deploy-drift.yml` is that comparison (WIC-2098, carrying WIC-2088).
