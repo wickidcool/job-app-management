@@ -104,10 +104,35 @@ const ONBOARDING_COMPLETED = {
   personalInfoStepCompleted: true,
 };
 
+type OnboardingFixture = typeof ONBOARDING_AT_PERSONAL_INFO;
+
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
+/**
+ * Match a request by its **pathname**, never by a URL glob (WIC-2124).
+ *
+ * ⛔ Do not go back to `page.route('**\/api/dashboard*', …)`. Playwright's `*` does
+ * not cross `/`, but it happily matches the rest of a filename — so that glob also
+ * intercepts the Vite dev server's request for `/src/services/api/dashboardService.ts`
+ * and answers the module with `application/json`. `services/api/index.ts` then fails
+ * to import, the barrel throws, and **the whole SPA renders a blank page** with no
+ * error surfaced to the test. That is the entire "e2e test infrastructure issue
+ * causing component render failures" this file sat skipped behind for four months:
+ * every block here calls `setupDashboardMocks`, so all 17 specs failed from one glob.
+ *
+ * The same trap is wider in `setupFallbackApiMocks` below — `**\/api/**` intercepts
+ * six source modules. A pathname predicate cannot reach `/src/...` at all.
+ */
+const apiPath =
+  (path: string) =>
+  (url: URL): boolean =>
+    url.pathname === `/api${path}`;
+
+/** Matches any `/api/*` request — the safe form of the `**\/api/**` glob. */
+const anyApiPath = (url: URL): boolean => url.pathname.startsWith('/api/');
+
 async function setupMockAuth(page: Page) {
-  await page.route('**/api/auth/me', (route) =>
+  await page.route(apiPath('/auth/me'), (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -120,32 +145,32 @@ async function setupMockAuth(page: Page) {
   });
 }
 
-async function setupOnboardingMocks(page: Page, onboardingStatus: object) {
-  await page.route('**/api/users/me/onboarding/**', (route) => {
-    const url = route.request().url();
-    if (url.includes('/status')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(onboardingStatus),
-      });
-    }
-    if (url.includes('/progress')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ...onboardingStatus, version: 2 }),
-      });
-    }
-    if (url.includes('/complete')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(ONBOARDING_COMPLETED),
-      });
-    }
-    return route.fallback();
+async function setupOnboardingMocks(page: Page, onboardingStatus: OnboardingFixture) {
+  const json = (body: unknown) => ({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(body),
   });
+
+  await page.route(apiPath('/users/me/onboarding/status'), (route) =>
+    route.fulfill(json(onboardingStatus))
+  );
+  await page.route(apiPath('/users/me/onboarding/progress'), (route) =>
+    route.fulfill(json({ ...onboardingStatus, version: 2 }))
+  );
+  await page.route(apiPath('/users/me/onboarding/complete'), (route) =>
+    route.fulfill(json(ONBOARDING_COMPLETED))
+  );
+
+  // `should-show` is not optional (WIC-1359). `OnboardingContext.loadOnboarding`
+  // awaits `Promise.all([getStatus(), shouldShow()])`, so leaving this unmocked
+  // rejects the pair, the catch sets `showOnboarding` to false, and the modal
+  // these tests assert on never mounts — a second, independent cause of the same
+  // blank-screen symptom. Derived from the fixture so it stays consistent with
+  // the status row rather than being pinned twice.
+  await page.route(apiPath('/users/me/onboarding/should-show'), (route) =>
+    route.fulfill(json({ shouldShow: onboardingStatus.currentStep !== 'completed' }))
+  );
 }
 
 type PersonalInfoFixture = typeof MOCK_PERSONAL_INFO_NULL | typeof MOCK_PERSONAL_INFO_POPULATED;
@@ -155,7 +180,7 @@ async function setupPersonalInfoMocks(
   getFixture: PersonalInfoFixture,
   { saveSuccess = true }: { saveSuccess?: boolean } = {}
 ) {
-  await page.route('**/api/personal-info*', async (route) => {
+  await page.route(apiPath('/personal-info'), async (route) => {
     const method = route.request().method();
 
     if (method === 'GET') {
@@ -208,7 +233,7 @@ async function setupPersonalInfoMocks(
 }
 
 async function setupDashboardMocks(page: Page) {
-  await page.route('**/api/dashboard*', (route) =>
+  await page.route(apiPath('/dashboard'), (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -227,14 +252,14 @@ async function setupDashboardMocks(page: Page) {
       }),
     })
   );
-  await page.route('**/api/applications*', (route) =>
+  await page.route(apiPath('/applications'), (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ applications: [], nextPage: null }),
     })
   );
-  await page.route('**/api/resumes*', (route) =>
+  await page.route(apiPath('/resumes'), (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -252,16 +277,75 @@ function field(page: Page, fieldName: string) {
 
 /** Catches unmocked API requests and returns empty responses */
 async function setupFallbackApiMocks(page: Page) {
-  await page.route('**/api/**', (route) => {
-    console.log(
-      `[FALLBACK MOCK] Intercepted unmocked request: ${route.request().method()} ${route.request().url()}`
-    );
+  await page.route(anyApiPath, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({}),
-    });
+    })
+  );
+}
+
+/**
+ * Records every `PATCH /api/personal-info` the page issues from this point on.
+ *
+ * Call it *before* the interaction; the returned array is appended to as requests
+ * fire. Pair with `expectNoSave` — asserting "the save did not happen" is the
+ * durable half of a validation test, because it holds whichever layer does the
+ * rejecting.
+ */
+function capturePersonalInfoPatches(page: Page): Array<Record<string, unknown>> {
+  const patches: Array<Record<string, unknown>> = [];
+  page.on('request', (req) => {
+    if (new URL(req.url()).pathname === '/api/personal-info' && req.method() === 'PATCH') {
+      patches.push((req.postDataJSON() as Record<string, unknown>) ?? {});
+    }
   });
+  return patches;
+}
+
+/**
+ * Asserts the field is reported invalid to the user.
+ *
+ * ⚠️ These tests used to assert the *Zod* message (`Must be a valid URL`,
+ * `Must be a valid email address`). Those strings are **unreachable** for these
+ * particular fields, and no amount of waiting produces them: `PersonalInfoForm`
+ * renders the URL/email inputs as `type="url"` / `type="email"` on a form with no
+ * `noValidate`, so the browser's own constraint validation fails the field and
+ * **the submit event never fires**. React Hook Form is therefore never invoked and
+ * its `<p>` never mounts. Verified directly — with `not-a-url` in a `type="url"`
+ * input, the form's `submit` handler runs 0 times.
+ *
+ * So we assert the layer that actually rejects. `validity.valid === false` is true
+ * under the current native-validation behaviour and stays true if the form later
+ * adopts `noValidate` plus `aria-invalid`, because RHF sets neither — hence the
+ * `aria-invalid` arm as well. Whether the Zod messages *should* be the ones users
+ * see is a product question, filed separately rather than decided here (WIC-2124).
+ */
+async function expectFieldRejected(page: Page, fieldName: string) {
+  const locator = field(page, fieldName);
+  await expect(locator).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        locator.evaluate(
+          (el) =>
+            !(el as HTMLInputElement).validity.valid ||
+            el.getAttribute('aria-invalid') === 'true' ||
+            // the Zod `<p>`, if the form ever stops relying on native validation
+            el.parentElement?.querySelector('p.text-error-600') !== null
+        ),
+      { timeout: 3_000, message: `expected ${fieldName} to be reported invalid` }
+    )
+    .toBe(true);
+}
+
+/** Asserts the rejected submit produced no write. */
+async function expectNoSave(page: Page, patches: Array<Record<string, unknown>>) {
+  // Give a would-be PATCH time to leave the page, so this cannot pass vacuously
+  // by racing ahead of the request it is meant to rule out.
+  await page.waitForTimeout(500);
+  expect(patches).toEqual([]);
 }
 
 /** Clicks the profile trigger if it's behind a card/link in Settings. */
@@ -276,23 +360,8 @@ async function openProfileFormIfNeeded(page: Page) {
 
 // ─── Onboarding flow ──────────────────────────────────────────────────────────
 
-// TODO(WIC-XXX): Fix e2e test infrastructure issue causing component render failures
-// These tests are skipped pending investigation of why React components don't render content
-// despite proper mock setup. Backend API tests (297/297 passing) provide comprehensive coverage.
-test.describe.skip('Personal Information — Onboarding flow', () => {
+test.describe('Personal Information — Onboarding flow', () => {
   test.beforeEach(async ({ page }) => {
-    // Log network requests to diagnose auth flow
-    page.on('request', (request) => {
-      if (request.url().includes('/api/')) {
-        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
-      }
-    });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/')) {
-        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
-      }
-    });
-
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
@@ -387,10 +456,12 @@ test.describe.skip('Personal Information — Onboarding flow', () => {
     }
   });
 
-  test('URL fields show a validation error for non-URL input', async ({ page }) => {
+  test('a non-URL in a URL field is rejected and no save is issued', async ({ page }) => {
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
+
+    const patches = capturePersonalInfoPatches(page);
 
     // Wait for form to render, then fill required fields
     await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
@@ -402,14 +473,17 @@ test.describe.skip('Personal Information — Onboarding flow', () => {
     await field(page, 'githubUrl').fill('not-a-valid-url');
     await page.getByRole('button', { name: /next|continue|save/i }).click();
 
-    const linkedinErr = page.locator('text=/must be a valid url/i').first();
-    await expect(linkedinErr).toBeVisible({ timeout: 3_000 });
+    await expectFieldRejected(page, 'linkedinUrl');
+    await expectFieldRejected(page, 'githubUrl');
+    await expectNoSave(page, patches);
   });
 
-  test('email field rejects an obviously invalid address', async ({ page }) => {
+  test('an invalid email address is rejected and no save is issued', async ({ page }) => {
     await expect(
       page.getByRole('heading', { name: /personal information|tell us about yourself/i })
     ).toBeVisible();
+
+    const patches = capturePersonalInfoPatches(page);
 
     // Wait for form to render
     await expect(field(page, 'firstName')).toBeVisible({ timeout: 5_000 });
@@ -418,28 +492,15 @@ test.describe.skip('Personal Information — Onboarding flow', () => {
     await field(page, 'email').fill('not-an-email');
     await page.getByRole('button', { name: /next|continue|save/i }).click();
 
-    const emailErr = page.locator('text=/must be a valid email/i').first();
-    await expect(emailErr).toBeVisible({ timeout: 3_000 });
+    await expectFieldRejected(page, 'email');
+    await expectNoSave(page, patches);
   });
 });
 
 // ─── Onboarding — pre-populated data ─────────────────────────────────────────
 
-// TODO(WIC-XXX): Fix e2e test infrastructure issue
-test.describe.skip('Personal Information — Onboarding with existing data', () => {
+test.describe('Personal Information — Onboarding with existing data', () => {
   test.beforeEach(async ({ page }) => {
-    // Log network requests to diagnose auth flow
-    page.on('request', (request) => {
-      if (request.url().includes('/api/')) {
-        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
-      }
-    });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/')) {
-        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
-      }
-    });
-
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_AT_PERSONAL_INFO);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
@@ -492,21 +553,8 @@ test.describe.skip('Personal Information — Onboarding with existing data', () 
 
 // ─── Settings page ────────────────────────────────────────────────────────────
 
-// TODO(WIC-XXX): Fix e2e test infrastructure issue
-test.describe.skip('Personal Information — Settings page (empty form)', () => {
+test.describe('Personal Information — Settings page (empty form)', () => {
   test.beforeEach(async ({ page }) => {
-    // Log network requests to diagnose auth flow
-    page.on('request', (request) => {
-      if (request.url().includes('/api/')) {
-        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
-      }
-    });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/')) {
-        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
-      }
-    });
-
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_NULL);
@@ -541,21 +589,8 @@ test.describe.skip('Personal Information — Settings page (empty form)', () => 
   });
 });
 
-// TODO(WIC-XXX): Fix e2e test infrastructure issue
-test.describe.skip('Personal Information — Settings page (populated form)', () => {
+test.describe('Personal Information — Settings page (populated form)', () => {
   test.beforeEach(async ({ page }) => {
-    // Log network requests to diagnose auth flow
-    page.on('request', (request) => {
-      if (request.url().includes('/api/')) {
-        console.log(`>>> REQUEST: ${request.method()} ${request.url()}`);
-      }
-    });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/')) {
-        console.log(`<<< RESPONSE: ${response.status()} ${response.url()}`);
-      }
-    });
-
     await setupMockAuth(page);
     await setupOnboardingMocks(page, ONBOARDING_COMPLETED);
     await setupPersonalInfoMocks(page, MOCK_PERSONAL_INFO_POPULATED);
@@ -591,21 +626,61 @@ test.describe.skip('Personal Information — Settings page (populated form)', ()
     });
   });
 
-  test('URL fields show validation error in settings', async ({ page }) => {
+  test('a non-URL in the settings URL field is rejected and no save is issued', async ({
+    page,
+  }) => {
     await openProfileFormIfNeeded(page);
+    const patches = capturePersonalInfoPatches(page);
 
     await expect(field(page, 'linkedinUrl')).toBeVisible({ timeout: 5_000 });
     await field(page, 'linkedinUrl').clear();
     await field(page, 'linkedinUrl').fill('not-a-url');
-    // PersonalInfoForm renders Zod errors as plain <p> elements — match by text content
     await page.getByRole('button', { name: /save changes/i }).click();
 
-    await expect(page.getByText('Must be a valid URL').first()).toBeVisible({ timeout: 3_000 });
+    await expectFieldRejected(page, 'linkedinUrl');
+    await expectNoSave(page, patches);
+  });
+
+  // ⚠️ DOCUMENTS A BUG, does not assert the desired behaviour. See WIC-2126.
+  //
+  // This is the one case where the Zod message *should* be reachable: an empty
+  // `linkedinUrl` passes native validation (the input carries no `required`
+  // attribute), so the submit event fires and React Hook Form runs the resolver.
+  // `min(1, 'LinkedIn URL is required')` ought to render.
+  //
+  // It does not. `packages/web` resolves `zod@4.3.6` (nested, and invalid against
+  // its own declared `^3.23.8`) against `@hookform/resolvers@3.10.0`, which only
+  // understands zod 3's `ZodError`. The resolver rethrows instead of mapping, so
+  // `formState.errors` stays empty and the page throws an uncaught `ZodError`:
+  // no message, no save, no feedback of any kind. Confirmed in isolation — see
+  // WIC-2126 for the four-line repro. Both `zodResolver` call sites are affected.
+  //
+  // So this pins what genuinely holds today — the invalid value is not saved —
+  // and records the gap. When WIC-2126 lands, replace the `expect(...).toHaveCount(0)`
+  // below with the commented assertion above it; the rest of the test is already right.
+  test('clearing a required field blocks the save (Zod message missing — WIC-2126)', async ({
+    page,
+  }) => {
+    await openProfileFormIfNeeded(page);
+    const patches = capturePersonalInfoPatches(page);
+
+    await expect(field(page, 'linkedinUrl')).toBeVisible({ timeout: 5_000 });
+    await field(page, 'linkedinUrl').clear();
+    // Touch another field so the form is dirty — the submit button is disabled
+    // until it is, which would otherwise make this pass for the wrong reason.
+    await field(page, 'phone').fill('+1 (555) 222-3333');
+    await page.getByRole('button', { name: /save changes/i }).click();
+
+    // WIC-2126 target state:
+    // await expect(page.getByText('LinkedIn URL is required').first()).toBeVisible();
+    await expect(page.getByText('LinkedIn URL is required')).toHaveCount(0);
+
+    // What does hold: the bad value never reaches the API.
+    await expectNoSave(page, patches);
   });
 });
 
-// TODO(WIC-XXX): Fix e2e test infrastructure issue
-test.describe.skip('Personal Information — Settings page (save failure)', () => {
+test.describe('Personal Information — Settings page (save failure)', () => {
   test.beforeEach(async ({ page }) => {
     await setupFallbackApiMocks(page);
     await setupMockAuth(page);
