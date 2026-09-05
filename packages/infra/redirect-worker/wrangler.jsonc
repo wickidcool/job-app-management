@@ -1,0 +1,50 @@
+// ⛔ DO NOT DEPLOY THIS WORKER WITHOUT READING THIS BLOCK FIRST (WIC-2109 / WIC-2108).
+//
+// SUPERSEDED BY THE PAGES PATH. The three hostnames below are already served by the
+// `careerpin-marketing` Cloudflare Pages project, re-asserted by CI on every marketing
+// deploy (`.github/workflows/deploy-marketing.yml`):
+//
+//   * `:112-114` — CNAME upserts pointing `www.careerpin.app`, `careerpin.io` and
+//     `www.careerpin.io` at `careerpin-marketing.pages.dev`, all `proxied: true`.
+//     (`:110` does the same for the `careerpin.app` apex, which is the redirect target,
+//     not a redirect surface.)
+//   * `:156` "Add redirect custom domains to Pages project" — `add_domain` for the same
+//     three hostnames at `:178-180`.
+//   * The redirect itself is `packages/infra/redirect-pages/_redirects`:
+//     `/* https://careerpin.app/:splat 301` — the same 301 this Worker performs.
+//
+// So DEPLOYING THIS WORKER WOULD CONTEST ROUTES CI ASSIGNS TO A PAGES PROJECT. A Worker
+// route and a Pages custom domain on the same hostname are two systems claiming one name;
+// whichever ran last wins, and the next marketing deploy re-asserts the Pages side.
+//
+// Before running `wrangler deploy` here, confirm in the Cloudflare dashboard (a) whether
+// the `careerpin-redirects` Worker exists at all, and (b) whether the Pages custom domains
+// should be removed first. NEITHER IS KNOWN: no agent seat holds a Cloudflare credential,
+// so nobody has verified whether this Worker was ever deployed. Do not assume it was, and
+// do not assume it was not.
+//
+// WHY THIS FILE IS `.jsonc` AND NOT `.toml` (WIC-2107 / WIC-2109). Wrangler resolves its
+// config with three independent find-up walks, one per filename, in the order
+// `wrangler.json` -> `wrangler.jsonc` -> `wrangler.toml`. FILENAME PRECEDENCE IS EVALUATED
+// BEFORE DIRECTORY PROXIMITY, so while this file was `wrangler.toml` the repo-root
+// `wrangler.jsonc` won the `.jsonc` pass before the `.toml` pass ever started:
+// `cd packages/infra/redirect-worker && npx wrangler deploy` silently deployed the
+// PRODUCTION `jobtrail` app instead of this Worker. As `.jsonc` it wins its own directory
+// by proximity. `scripts/wrangler-config-resolution-check.py` (Check B) guards this.
+// Renaming it back to `.toml` re-arms that footgun.
+{
+	"name": "careerpin-redirects",
+	"main": "worker.js",
+	"compatibility_date": "2026-06-09",
+
+	// Routes: bind this worker to www.careerpin.app, careerpin.io, and www.careerpin.io.
+	// All three 301 → https://careerpin.app (apex).
+	// careerpin.com is intentionally NOT a route — it is held by a 2018 squatter and is not owned.
+	// Domains registered 2026-06-11 (WIC-506 done). Each hostname needs a proxied DNS record in its
+	// Cloudflare zone before this worker route activates (see WIC-522 DNS plan document).
+	"routes": [
+		{ "pattern": "www.careerpin.app/*", "zone_id": "ace9c419c6a5129cf7b8d104528a29e1" },
+		{ "pattern": "careerpin.io/*", "zone_id": "e31283e2f9ddc738087daaf4698fb88c" },
+		{ "pattern": "www.careerpin.io/*", "zone_id": "e31283e2f9ddc738087daaf4698fb88c" }
+	]
+}

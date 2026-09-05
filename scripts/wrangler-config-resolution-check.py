@@ -66,9 +66,10 @@ Check B -- shadowed configs.
     from ITS OWN directory resolves THAT file. A config that loses to an
     ancestor is a trap: a human who cd's into that directory and runs `wrangler
     deploy`, which is the obvious thing to do, silently deploys something else
-    entirely. `SHADOWED_ALLOWLIST` carries the one known instance, and the
-    allowlist is a RATCHET -- an entry that stops being shadowed is a failure,
-    so a fix forces the entry out rather than leaving it to rot.
+    entirely. `SHADOWED_ALLOWLIST` is a RATCHET -- an entry that stops being
+    shadowed, or whose file no longer exists, is a failure, so a fix forces the
+    entry out rather than leaving it to rot. It is EMPTY as of WIC-2109, which
+    renamed the one entry it carried; the ratchet is what forced that removal.
 
 ANTI-VACUITY
 ============
@@ -130,17 +131,17 @@ MIN_EXPECTED_SITES = 8
 # Configs that lose to an ancestor and are knowingly left that way. RATCHET: an
 # entry here that is NOT shadowed is a failure, so fixing one forces its removal.
 #   path -> why it is tolerated
-SHADOWED_ALLOWLIST = {
-    "packages/infra/redirect-worker/wrangler.toml": (
-        "Shadowed by the root wrangler.jsonc (filename precedence). Nothing in "
-        "CI deploys this Worker -- it is a hand-run hostname redirect shim -- so "
-        "no automated path is affected. It IS a live footgun for a human: "
-        "`cd packages/infra/redirect-worker && npx wrangler deploy` deploys the "
-        "root config (the production `jobtrail` app), not `careerpin-redirects`. "
-        "Fix is to rename it to wrangler.jsonc, which wins by proximity within "
-        "the .jsonc pass. Tracked separately from WIC-2107."
-    ),
-}
+#
+# EMPTY IS THE CORRECT STATE, AND IT IS THE RATCHET WORKING. The single entry this
+# started with -- `packages/infra/redirect-worker/wrangler.toml` -- was retired by
+# WIC-2109, which renamed that file to `wrangler.jsonc` so it wins its own directory
+# by proximity. The ratchet below forced the removal in the same commit: with the
+# file renamed and the entry still present, this check exits 1 on the `no longer
+# exists` branch. That was run as a positive control before the entry was deleted.
+#
+# Do not add an entry here to make a red run green. Renaming the config so it wins
+# its own directory is nearly always cheaper than tolerating a shadowed one.
+SHADOWED_ALLOWLIST: dict[str, str] = {}
 
 # A wrangler invocation: at a command boundary, or introduced by npx (with any
 # number of npx flags), optionally version-pinned, followed by a subcommand.
