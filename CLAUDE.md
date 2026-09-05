@@ -138,6 +138,37 @@ For accessible-name assertions use jest-dom's `toHaveAccessibleName`, which is d
 
 GitHub Actions (`.github/workflows/deploy.yml`): PRs get a preview Worker deploy; merges to `main` run DB migrations over the Supabase pooler, validate secrets, and `wrangler deploy` to production. See `docs/architecture/CI_CD.md`.
 
+## Merging a PR
+
+### ⛔ Never pass `--delete-branch` to a PR that has children stacked on it
+
+`gh pr merge --delete-branch` deletes the head branch **regardless of the repository setting**. The repo has `delete_branch_on_merge: false` (verified 2026-09-05), so a plain `gh pr merge` leaves the branch alone — but the flag is a per-invocation override, not a request the setting can veto. Do not reason "the setting is off, so the flag is harmless."
+
+When the deleted branch is some other PR's **base**, GitHub does not retarget that child onto the merged parent's base. It **closes the child**, unmerged, and does it as an automatic side effect with no prompt and no undo.
+
+Measured, not hypothetical: **PR #34** (`docs/wic-808-refresh-api-readme-authentication` → base `docs/wic-807-refresh-architecture-docs`) was closed unmerged at `2026-08-04T18:43:06Z`, **2 seconds** after its parent **PR #33** merged at `18:43:04Z`. Nothing was wrong with the child — the close was purely the base branch vanishing underneath it. The work was not lost, but recovering it cost re-landing the whole change as a fresh **PR #35** (`85f8be48`).
+
+*(Correcting a claim that circulated on the board: this was **#34**, not #126 — #126 merged normally from a `main` base. #34 carried one `COMMENTED` review and no checks, not "two approving reviews and green CI". The 2-second timing is the part that reproduces. Note also that agents cannot approve PRs here: every agent authenticates as `alwick`, who is the PR author, and GitHub 422s a self-approval — so any recipe that waits for an approving review will wait forever.)*
+
+**The recipe for merging a stacked parent:**
+
+1. **Retarget the children first**, while the parent's branch still exists — `gh pr edit <child> --base <parent's own base>`. Do this even if you intend to merge the children momentarily; it is what makes their close-on-delete impossible.
+2. **Merge the parent with the flag omitted** — `gh pr merge <parent> --squash` (add `--admin` if a required check is blocking; see below).
+3. Delete the branch by hand afterwards if you actually want it gone, once no open PR still names it as a base.
+
+Check for children before merging anything:
+
+```bash
+gh pr list --state open --json number,baseRefName \
+  -q ".[] | select(.baseRefName == \"$(gh pr view <parent> --json headRefName -q .headRefName)\") | .number"
+```
+
+Empty output means the flag is safe. Any number means it is not.
+
+### Required checks live in a ruleset, not in branch protection
+
+Classic `required_status_checks` on `main` is **absent** — `gh api repos/:owner/:repo/branches/main/protection/required_status_checks` returns 404, which reads like "no gate at all" and is misleading. Enforcement is the ruleset **`skip-ci-sweep-required`** (id `21489705`, `enforcement: active`, `include: ["~ALL"]`), which requires **two** contexts: `skip-ci-sweep` and `evil-merge-sweep`. Read `gh api repos/:owner/:repo/rulesets`, not the branch-protection API.
+
 ## Changelog conventions
 
 Every change gets an entry under `## [Unreleased]` in `CHANGELOG.md`.

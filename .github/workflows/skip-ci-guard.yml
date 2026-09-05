@@ -76,8 +76,19 @@ jobs:
             // runtime surface, so there is nothing for CI to have proven.
             // `.github/workflows/**` is here because a workflow-only change is
             // exactly the no-deploy merge route this repo relies on.
+            //
+            // ⛔ There is deliberately NO `startsWith('docs/')` predicate (WIC-2084).
+            // It was here until WIC-2094 and it was a fail-open: `docs/` is not
+            // documentation-only. Four of the scripts that CONSTITUTE the
+            // `lint-and-test` gate live under it and are invoked by `deploy.yml`
+            // with no `continue-on-error` —
+            // `docs/design/{wireframe-casing,route-title-table,doc-reference,confirmation-modal-focus}-audit.py`.
+            // A `docs/`-wide predicate let a PR edit a gate script and merge under
+            // a skip marker without ever running the gate it just changed.
+            // Prose under `docs/` is still allowlisted, by `endsWith('.md')` below.
+            // Do not re-add a directory-shaped predicate here: allowlist by what a
+            // path CANNOT affect at runtime, not by where it happens to live.
             const ALLOWED = [
-              (p) => p.startsWith('docs/'),
               (p) => p.endsWith('.md'),
               (p) => p.startsWith('.github/workflows/'),
             ];
