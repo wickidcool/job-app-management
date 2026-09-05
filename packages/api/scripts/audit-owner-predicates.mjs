@@ -26,9 +26,34 @@
  *   numerator nor the denominator of the burndown count printed below.
  *
  *   That hole is why [NOWNER] exists (WIC-1672).  It keys on the *schema column*
- *   rather than on a parameter name, so unlike [SIG]/[COND] it cannot be evaded
- *   by renaming the owner parameter (`userId` -> `callerId`) or by hiding its
+ *   rather than on a parameter name, so unlike [SIG]/[COND] it is not evaded by
+ *   renaming the owner parameter (`userId` -> `callerId`) or by hiding its
  *   optionality behind a type alias.
+ *
+ *   That is a claim about RENAMES, and it is the only thing it was ever entitled
+ *   to claim.  A previous revision of this note said [NOWNER] "cannot be evaded",
+ *   full stop, which was false and expensive: the check was blind to the single
+ *   most common real spelling of the defect for its whole first life.  A ternary
+ *   whose fallback arm drops the owner --
+ *
+ *     const whereClause = userId ? and(eq(t.slug, s), eq(t.userId, userId))
+ *                                : eq(t.slug, s);
+ *
+ *   -- scored CLEAN, because `classifyPredicate` scanned both arms into one flat
+ *   result and let the owner-scoped arm answer for the whole predicate.  Against
+ *   a COMPOSITE `(userId, slug)` unique that fallback carries no LIMIT and
+ *   rewrites one row per tenant.  Four such sites sat in `catalog.service.ts`
+ *   `applyChange` and this check reported zero findings, while grading the same
+ *   defect written inline one line away.  The severity was inverted: the site
+ *   that looks scoped, and degrades silently, got the milder grade.
+ *
+ *   Fixed in WIC-2067 -- a conditional in predicate position is now classified
+ *   arm by arm, and is owner-scoped only if EVERY arm carries the owner term.
+ *   The standing positive controls are in `test/audit-owner-predicates.test.ts`
+ *   under "[NOWNER] ternary fallbacks".  Note what the episode actually teaches,
+ *   which is not "ternaries": a check is blind to any shape nobody wrote a
+ *   failing fixture for, and the note describing it will happily overstate its
+ *   reach for months.  Prefer adding a fixture over widening a claim here.
  *
  *   Still out of scope, and so still NOT asserted by a green run.  Each is
  *   counted on every run and listed by `--stats`, never silently dropped:
@@ -41,6 +66,15 @@
  *     - SELECTs with no owner term (read-side cross-tenant leaks).  Real, but a
  *       far larger population; measure before gating.
  *     - anything outside SCAN_DIRS, and any owner column not in OWNER_COLUMNS.
+ *     - `or(eq(t.userId, u), eq(t.slug, s))`.  This is the SAME disjunction
+ *       blindness the ternary had, in the other spelling: a conjunct anywhere in
+ *       an `and(...)` chain soundly proves owner scoping, so `scan` sets `owner`
+ *       from any one operand -- but under `or` the other operand still matches
+ *       other tenants' rows, and the site scores clean.  NOT fixed by WIC-2067,
+ *       which handled `?:` only.  There are zero such write predicates in the
+ *       tree today (checked while fixing the ternary), which is the only reason
+ *       it is a note here rather than a finding; it needs `or` to be classified
+ *       operand-by-operand the way a conditional now is.
  *
  * Uses the TypeScript compiler's own parser, so it sees every syntactic shape
  * (ternary, `if (userId) conditions.push(...)`, `...(userId ? [x] : [])`)
@@ -283,7 +317,7 @@ function moduleScopeReturns(name, src) {
 /** Combinators whose arguments are themselves predicates, not column/value operands. */
 const PREDICATE_COMBINATORS = new Set(['and', 'or', 'not']);
 
-function classifyPredicate(expr, src, uniqueColumns) {
+function classifyPredicate(expr, src, uniqueColumns, depth = 0) {
   const out = { owner: false, unique: false, opaque: false };
   const seen = new Set();
 
@@ -368,10 +402,43 @@ function classifyPredicate(expr, src, uniqueColumns) {
       for (const el of n.elements) scan(el, predPos);
       return;
     }
+    /**
+     * A ternary in predicate position is a CHOICE of predicates, and the write
+     * runs exactly one of them. Scanning both arms into this one flat `out` --
+     * which is what this did until WIC-2067 -- lets the owner-scoped arm answer
+     * for the whole site: `userId ? and(eq(t.slug, s), eq(t.userId, userId))
+     * : eq(t.slug, s)` scored `owner` off the consequent and the owner-LESS
+     * alternate was never weighed. That is the exact shape of the four
+     * `catalog.service.ts` `applyChange` fallbacks, so the check was blind to
+     * the defect it was written for.
+     *
+     * Classify each arm on its own and combine conservatively: the site is
+     * owner-scoped only if EVERY arm carries the owner term, and unique-scoped
+     * only if every arm is (so a `userId ? and(id, owner) : id` fallback still
+     * lands in `uniqueScopedWrites` -- one row at most, not cross-tenant).
+     *
+     * `opaque` is the union, not the intersection: one unreadable arm makes the
+     * whole predicate unreadable.
+     *
+     * This is deliberately NOT a top-level-only expansion of the `where`
+     * argument. Recursing here means a ternary nested inside a combinator --
+     * `and(eq(t.slug, s), userId ? eq(t.userId, userId) : sql`true`)` -- is
+     * weighed too, and the identifier hop above already resolves the
+     * `const whereClause = ... ; .where(whereClause)` idiom into this branch.
+     */
     if (ts.isConditionalExpression(n)) {
       scan(n.condition, false);
-      scan(n.whenTrue, predPos);
-      scan(n.whenFalse, predPos);
+      if (!predPos || depth > 6) {
+        scan(n.whenTrue, predPos);
+        scan(n.whenFalse, predPos);
+        return;
+      }
+      const arms = [n.whenTrue, n.whenFalse].map((a) =>
+        classifyPredicate(a, src, uniqueColumns, depth + 1)
+      );
+      if (arms.every((a) => a.owner)) out.owner = true;
+      if (arms.every((a) => a.unique)) out.unique = true;
+      if (arms.some((a) => a.opaque)) out.opaque = true;
       return;
     }
 

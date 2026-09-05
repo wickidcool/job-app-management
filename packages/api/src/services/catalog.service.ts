@@ -683,11 +683,9 @@ export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
   };
 }
 
-export async function getDiff(id: string, userId?: string) {
+export async function getDiff(id: string, userId: string) {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
-    : eq(catalogDiffs.id, id);
+  const whereClause = and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId));
   const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
 
@@ -717,11 +715,9 @@ export interface ApplyDiffInput {
   }>;
 }
 
-export async function applyDiff(id: string, input: ApplyDiffInput, userId?: string) {
+export async function applyDiff(id: string, input: ApplyDiffInput, userId: string) {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
-    : eq(catalogDiffs.id, id);
+  const whereClause = and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId));
   const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
 
@@ -743,7 +739,7 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
     await db
       .update(catalogDiffs)
       .set({ status: 'rejected', resolvedAt: now, userDecisions: input, openReviewCount: 0 })
-      .where(eq(catalogDiffs.id, id));
+      .where(whereClause);
     return { applied: 0, rejected: changes.length, pendingReview: 0, status: 'rejected' };
   }
 
@@ -789,7 +785,7 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
     await tx
       .update(catalogDiffs)
       .set({ status: finalStatus, resolvedAt: now, userDecisions: input, openReviewCount: 0 })
-      .where(eq(catalogDiffs.id, id));
+      .where(whereClause);
   });
 
   const pendingReviewCount = (diff.pendingReview as ReviewItem[]).length;
@@ -803,7 +799,24 @@ export async function applyDiff(id: string, input: ApplyDiffInput, userId?: stri
   };
 }
 
-async function applyChange(tx: any, change: DiffChange, userId?: string): Promise<void> {
+/**
+ * Apply one approved diff change under a required owner.
+ *
+ * `userId` is `string`, not `string | undefined`, and that is the whole fix for
+ * WIC-2067. Each of the four `update` branches below used to read
+ *
+ *   const whereClause = userId ? and(eq(t.slug, s), eq(t.userId, userId)) : eq(t.slug, s);
+ *
+ * and every one of those uniques is COMPOSITE `(userId, slug)` (`schema.ts:225`,
+ * `:250`, `:274`, `:315`) -- there is no single-column unique on the slug. So the
+ * fallback carried no LIMIT and rewrote one row PER TENANT. Requiring the owner
+ * deletes the fallback rather than repairing it, which is ADR-010's fail-closed
+ * posture (D2) and leaves no branch for the next reader to reintroduce.
+ *
+ * The `[NOWNER]` check was blind to this shape until WIC-2067 taught it to weigh
+ * every arm of a conditional; see `scripts/audit-owner-predicates.mjs`.
+ */
+async function applyChange(tx: any, change: DiffChange, userId: string): Promise<void> {
   const data = change.data as Record<string, any>;
 
   switch (change.entity) {
@@ -813,7 +826,7 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           .insert(companyCatalog)
           .values({
             id: data.id,
-            userId: userId!,
+            userId,
             name: data.name,
             normalizedName: data.normalizedName,
             firstSeenAt: new Date(data.firstSeenAt),
@@ -823,12 +836,10 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           })
           .onConflictDoNothing();
       } else if (change.action === 'update') {
-        const whereClause = userId
-          ? and(
-              eq(companyCatalog.normalizedName, data.normalizedName),
-              eq(companyCatalog.userId, userId)
-            )
-          : eq(companyCatalog.normalizedName, data.normalizedName);
+        const whereClause = and(
+          eq(companyCatalog.normalizedName, data.normalizedName),
+          eq(companyCatalog.userId, userId)
+        );
         await tx
           .update(companyCatalog)
           .set({
@@ -848,7 +859,7 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           .insert(techStackTags)
           .values({
             id: data.id,
-            userId: userId!,
+            userId,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateTechStackCategory(data.category),
@@ -858,9 +869,10 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           })
           .onConflictDoNothing();
       } else if (change.action === 'update') {
-        const whereClause = userId
-          ? and(eq(techStackTags.tagSlug, data.tagSlug), eq(techStackTags.userId, userId))
-          : eq(techStackTags.tagSlug, data.tagSlug);
+        const whereClause = and(
+          eq(techStackTags.tagSlug, data.tagSlug),
+          eq(techStackTags.userId, userId)
+        );
         await tx
           .update(techStackTags)
           .set({
@@ -879,7 +891,7 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           .insert(jobFitTags)
           .values({
             id: data.id,
-            userId: userId!,
+            userId,
             tagSlug: data.tagSlug,
             displayName: data.displayName,
             category: validateJobFitCategory(data.category),
@@ -888,9 +900,10 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           })
           .onConflictDoNothing();
       } else if (change.action === 'update') {
-        const whereClause = userId
-          ? and(eq(jobFitTags.tagSlug, data.tagSlug), eq(jobFitTags.userId, userId))
-          : eq(jobFitTags.tagSlug, data.tagSlug);
+        const whereClause = and(
+          eq(jobFitTags.tagSlug, data.tagSlug),
+          eq(jobFitTags.userId, userId)
+        );
         await tx
           .update(jobFitTags)
           .set({
@@ -907,7 +920,10 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
       if (change.action === 'create') {
         await tx.insert(quantifiedBullets).values({
           id: data.id,
-          userId: userId ?? null,
+          // `quantified_bullets.user_id` is nullable, so this used to be
+          // `userId ?? null` and could mint an ownerless row. With a required
+          // owner that branch is dead; every bullet this path creates is owned.
+          userId,
           sourceType: data.sourceType,
           sourceId: data.sourceId,
           rawText: data.rawText,
@@ -930,7 +946,7 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           .insert(recurringThemes)
           .values({
             id: data.id,
-            userId: userId!,
+            userId,
             themeSlug: data.themeSlug,
             displayName: data.displayName,
             occurrenceCount: data.occurrenceCount ?? 1,
@@ -939,9 +955,10 @@ async function applyChange(tx: any, change: DiffChange, userId?: string): Promis
           })
           .onConflictDoNothing();
       } else if (change.action === 'update') {
-        const whereClause = userId
-          ? and(eq(recurringThemes.themeSlug, data.themeSlug), eq(recurringThemes.userId, userId))
-          : eq(recurringThemes.themeSlug, data.themeSlug);
+        const whereClause = and(
+          eq(recurringThemes.themeSlug, data.themeSlug),
+          eq(recurringThemes.userId, userId)
+        );
         await tx
           .update(recurringThemes)
           .set({
@@ -1042,11 +1059,9 @@ export async function generateDiff(
   };
 }
 
-export async function discardDiff(id: string, userId?: string): Promise<void> {
+export async function discardDiff(id: string, userId: string): Promise<void> {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
-    : eq(catalogDiffs.id, id);
+  const whereClause = and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId));
   const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
   await db.delete(catalogDiffs).where(whereClause);
@@ -1060,12 +1075,10 @@ export async function resolveDiffItem(
     decision: 'approve' | 'reject';
     selectedOption?: string;
   },
-  userId?: string
+  userId: string
 ) {
   const db = getDb();
-  const whereClause = userId
-    ? and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId))
-    : eq(catalogDiffs.id, id);
+  const whereClause = and(eq(catalogDiffs.id, id), eq(catalogDiffs.userId, userId));
   const [diff] = await db.select().from(catalogDiffs).where(whereClause);
   if (!diff) throw new NotFoundError('CatalogDiff');
 
@@ -1103,7 +1116,7 @@ export async function resolveDiffItem(
   await db
     .update(catalogDiffs)
     .set({ userDecisions: decisions, openReviewCount })
-    .where(eq(catalogDiffs.id, id));
+    .where(whereClause);
 
   return { id, updated: true, openReviewCount };
 }
