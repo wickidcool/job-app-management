@@ -6,7 +6,11 @@ import { KanbanBoard } from '../components/KanbanBoard';
 import { FilterPanel, type FilterOptions } from '../components/FilterPanel';
 import { SavedFilterShortcuts } from '../components/SavedFilterShortcuts';
 import { FloatingActionButton } from '../components/FloatingActionButton';
-import { useApplicationCollection, useUpdateApplicationStatus } from '../hooks/useApplications';
+import {
+  useApplicationCollection,
+  useDeleteApplication,
+  useUpdateApplicationStatus,
+} from '../hooks/useApplications';
 import { useDebounce } from '../hooks/useDebounce';
 import { filterByDateRange } from '../utils/dateRangeFilter';
 import { parseStatusParam } from '../constants/applicationStatus';
@@ -133,6 +137,35 @@ export function ApplicationsList() {
     );
   };
 
+  /**
+   * WIC-2079. This page mounts the only `<KanbanBoard>` in the app, and it used to pass no
+   * `onDelete` at all — so `ApplicationCard.handleDelete` asked "Are you sure you want to
+   * delete this application?", the user confirmed, and `onDelete?.(id)` resolved to undefined.
+   * No request, no error, no feedback: the user was walked through confirming a destructive
+   * action that could not happen. `useDeleteApplication` had existed and been unused since it
+   * was written.
+   *
+   * The confirm itself stays in the card (there is no `ConfirmDialog` component in this repo;
+   * native `confirm()` is the house style), so by the time this runs the user has already
+   * agreed. This function's only job is the mutation and the failure path.
+   *
+   * Alerting on error follows `ResumeVariantsList.handleDelete` verbatim rather than the
+   * `console.error`-only shape of `handleStatusChange` above. The difference is deliberate:
+   * a failed status change leaves the board visibly unchanged, so the user can see nothing
+   * happened, whereas a failed delete is indistinguishable from the bug being fixed here.
+   * Silence on failure would reintroduce the exact defect through the error path.
+   */
+  const deleteApplication = useDeleteApplication();
+
+  const handleDelete = (id: string) => {
+    deleteApplication.mutate(id, {
+      onError: (error) => {
+        console.error('Failed to delete application:', error);
+        alert('Failed to delete application. Please try again.');
+      },
+    });
+  };
+
   const breadcrumbTrail = [
     { label: 'Dashboard', href: '/', icon: '🏠' },
     { label: 'Applications' },
@@ -226,11 +259,31 @@ export function ApplicationsList() {
         )}
       </div>
 
+      {/*
+        WIC-2079 AC-3, the Edit decision, recorded because it is deliberately NOT obvious:
+        `onEdit` and `onCardClick` navigate to the same route, so the Edit button is a second
+        tab stop that does exactly what the first one already does. That is a real (if small)
+        cost, and dropping the button was the live alternative. It is kept, for two reasons.
+
+        It is the only LABELLED affordance in the pair. The card's own activation is implicit —
+        a pointer user has no way to know the card is clickable, and a screen-reader user hears
+        an `<article>` with a summary label; "Edit Staff Engineer" is what actually announces
+        the action. Removing it would make the destination discoverable only by guessing.
+
+        And it puts a non-destructive control first in the bar. Tab order through the revealed
+        bar is Edit then Delete; with Edit gone, tabbing off the card lands immediately on the
+        only remaining control, which is the destructive one. Keeping a benign first stop is
+        worth the duplicate destination.
+
+        If the detail route ever grows a distinct edit mode (`/applications/:id/edit`), this
+        prop is where it goes and the duplication disappears on its own.
+      */}
       <KanbanBoard
         applications={applications}
         onStatusChange={handleStatusChange}
         onCardClick={(id) => navigate(`/applications/${id}`)}
         onEdit={(id) => navigate(`/applications/${id}`)}
+        onDelete={handleDelete}
         loading={isLoading}
       />
 

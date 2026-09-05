@@ -244,6 +244,52 @@ describe('ApplicationCard quick actions — keyboard reachability (WIC-2078)', (
       expect(onEdit).toHaveBeenCalledExactlyOnceWith(APPLICATION.id);
       expect(onCardClick).not.toHaveBeenCalled();
     });
+
+    // WIC-2079 AC-4, third bullet. The two cases above pin the KEYDOWN guard
+    // (`e.target !== e.currentTarget`). The `e.stopPropagation()` calls in `handleEdit` and
+    // `handleDelete` are a separate mechanism covering the POINTER path, and nothing pinned
+    // them: deleting either one left this suite green.
+    //
+    // Pinned here rather than at the page level because that is the only place the two
+    // handlers are distinguishable. In production `onEdit` and `onCardClick` navigate to the
+    // same route (the AC-3 decision, recorded in `ApplicationsList.tsx`), so a leaked
+    // propagation navigates twice to one destination and looks identical to working. Separable
+    // spies are what make the leak observable at all.
+    // The bar is revealed by FOCUS here, not by `user.hover`, and then clicked. Both halves
+    // are deliberate. `user.hover` on the card followed by `user.click` on a button inside it
+    // does not work in this environment — the reveal happens, but the synthesised pointer
+    // sequence leaves the handler unfired and both spies at zero, which would read as a
+    // passing "card did not activate" for entirely the wrong reason. Focus-then-click reaches
+    // the same `onClick` path (`handleEdit` / `handleDelete` do not care how the bar appeared)
+    // and is the pattern the rest of this file already uses.
+    it('does not activate the card when Edit is CLICKED (stopPropagation)', async () => {
+      const user = userEvent.setup();
+      const onCardClick = vi.fn();
+      const onEdit = vi.fn();
+      renderCard({ onCardClick, onEdit });
+
+      await user.tab(); // card — reveals the bar
+      await user.click(editButton()!);
+
+      expect(onEdit).toHaveBeenCalledExactlyOnceWith(APPLICATION.id);
+      expect(onCardClick).not.toHaveBeenCalled();
+    });
+
+    it('does not activate the card when Delete is CLICKED (stopPropagation)', async () => {
+      const user = userEvent.setup();
+      const onCardClick = vi.fn();
+      const onDelete = vi.fn();
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderCard({ onCardClick, onDelete });
+
+      await user.tab(); // card — reveals the bar
+      await user.click(deleteButton()!);
+
+      expect(onDelete).toHaveBeenCalledExactlyOnceWith(APPLICATION.id);
+      expect(onCardClick).not.toHaveBeenCalled();
+
+      confirmSpy.mockRestore();
+    });
   });
 
   it('renders no quick actions at all when the host disables them (mobile swipe path)', async () => {

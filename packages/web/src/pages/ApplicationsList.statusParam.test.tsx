@@ -34,9 +34,15 @@ const useApplicationCollection = vi.fn((filters?: ApiFilters) => {
   return { data: { applications: [], totalCount: 0, truncated: false }, isLoading: false };
 });
 
+// This factory replaces the module wholesale, so every hook the page imports has to appear
+// here — a missing one is a hard "No X export is defined on the mock" error, not a silent
+// undefined. `useDeleteApplication` joined the list in WIC-2079, when the kanban card's Delete
+// was wired to a real mutation. These tests are about the `?status=` parameter and never
+// exercise it; the stub exists to keep the module surface complete.
 vi.mock('../hooks/useApplications', () => ({
   useApplicationCollection: (filters?: ApiFilters) => useApplicationCollection(filters),
   useUpdateApplicationStatus: () => ({ mutate: vi.fn() }),
+  useDeleteApplication: () => ({ mutate: vi.fn() }),
 }));
 
 function renderAt(path: string) {
