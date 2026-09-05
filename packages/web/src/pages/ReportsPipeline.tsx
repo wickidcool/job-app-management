@@ -69,11 +69,18 @@ function PipelineCard({
   const stale = isStale({ status, updatedAt: app.updatedAt }, { now: new Date(now) });
 
   return (
-    <div
-      className="cursor-pointer rounded-md border border-neutral-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md"
-      onClick={onClick}
-    >
-      <h4 className="text-sm font-semibold text-neutral-900 truncate">{app.jobTitle}</h4>
+    // Navigation hangs off a real <button> inside the heading, not off this <div>
+    // (WIC-2062) — see the note on `ClosedAppCard` in ReportsClosedLoop.tsx.
+    <div className="rounded-md border border-neutral-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md">
+      <h4 className="text-sm font-semibold text-neutral-900 truncate">
+        <button
+          type="button"
+          onClick={onClick}
+          className="w-full truncate rounded text-left hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+        >
+          {app.jobTitle}
+        </button>
+      </h4>
       <p className="mt-0.5 text-xs text-neutral-600 truncate">{app.company}</p>
       {app.location && <p className="mt-0.5 text-xs text-neutral-500 truncate">{app.location}</p>}
       <div className="mt-2 flex flex-wrap gap-1">

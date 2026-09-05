@@ -48,8 +48,8 @@ const localRules = {
  * it mounts. Adopting it does NOT cover WCAG SC 1.3.1. That is layer 2's job.
  */
 const BASELINED_RULES = {
-  'jsx-a11y/click-events-have-key-events': 'warn', // 9
-  'jsx-a11y/no-static-element-interactions': 'warn', // 6
+  'jsx-a11y/click-events-have-key-events': 'warn', // 5
+  'jsx-a11y/no-static-element-interactions': 'warn', // 2
   'jsx-a11y/no-noninteractive-element-interactions': 'warn', // 5
   'jsx-a11y/no-autofocus': 'warn', // 5
   'jsx-a11y/no-noninteractive-tabindex': 'warn', // 1

@@ -118,22 +118,17 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   'src/components/wizard/WizardContainer.tsx': { 'no-autofocus': 1 },
   'src/components/wizard/WizardStep.tsx': { 'no-noninteractive-element-interactions': 1 },
   'src/pages/ProjectsList.tsx': { 'no-autofocus': 1 },
-  'src/pages/ReportsClosedLoop.tsx': {
-    'click-events-have-key-events': 1,
-    'no-static-element-interactions': 1,
-  },
-  'src/pages/ReportsNeedsAction.tsx': {
-    'click-events-have-key-events': 1,
-    'no-static-element-interactions': 1,
-  },
-  'src/pages/ReportsPipeline.tsx': {
-    'click-events-have-key-events': 1,
-    'no-static-element-interactions': 1,
-  },
-  'src/pages/ReportsStale.tsx': {
-    'click-events-have-key-events': 1,
-    'no-static-element-interactions': 1,
-  },
+  // The four `src/pages/Reports*.tsx` entries used to sit here, one
+  // `click-events-have-key-events` + one `no-static-element-interactions` each — the
+  // application card rendered as a bare `<div onClick={…} className="cursor-pointer">`,
+  // unreachable by keyboard and invisible to assistive tech (WCAG 2.1.1). WIC-2062 moved
+  // each card's navigation onto a real `<button>` inside its existing heading, following
+  // the `ResumeVariantCard` precedent above rather than putting a role on the wrapper, so
+  // all four files now have no jsx-a11y finding at all and the entries are deleted rather
+  // than zeroed. That drops BASELINE_TOTAL 26 -> 18; both `--max-warnings` ceilings in
+  // package.json move with it, and the trailing counts on `BASELINED_RULES` in
+  // eslint.config.js go 9 -> 5 and 6 -> 2. Neither rule reaches zero, so both stay `warn`.
+  // Keyboard reachability is pinned per page by `src/pages/Reports*.keyboardNav.test.tsx`.
   'src/pages/ResumeVariantDetail.tsx': { 'no-autofocus': 1 },
 };
 
