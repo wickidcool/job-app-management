@@ -62,6 +62,40 @@ nowhere to repoint to (WIC-2058, dispatching WIC-1860).
 
 
 
+### Fixed — Four report pages navigated on a bare `<div>`, so their cards were mouse-only (2026-09-05)
+
+`ReportsClosedLoop`, `ReportsNeedsAction`, `ReportsPipeline` and `ReportsStale` each rendered an
+application card as a `<div>` whose only affordance was `onClick={() => navigate(…)}`, styled
+`cursor-pointer`, with no `tabIndex`, no `role` and no key handler. The card was unreachable by
+keyboard and absent from the accessibility tree — a WCAG 2.1.1 (Keyboard) failure, recorded by
+`jsx-a11y` as one `click-events-have-key-events` + one `no-static-element-interactions` per file
+(WIC-2062, under WIC-1589).
+
+- **Navigation moved onto a real `<button>` inside each card's existing heading**, following the
+  `ResumeVariantCard` precedent (WIC-1942). A `role="button"` on the wrapper is *not* the fix and
+  was not attempted: that shape tripped axe's `aria-allowed-role` and `nested-interactive` when it
+  was tried there. A heading may contain a button where the heading itself may not become one.
+- **`ReportsStale` got smaller, not larger.** It was the only file with nested interactives — a
+  "View job posting" `<a>` and a "Set Next Action" `<button>` — and both carried
+  `onClick={(e) => e.stopPropagation()}` purely to escape the wrapper's handler. With the wrapper
+  inert both are dead code and are deleted. Removing the workaround rather than adding one is the
+  tell that the shape is right.
+- **`A11Y_BASELINE` 26 -> 18**, the four entries deleted outright rather than zeroed; both
+  `--max-warnings` ceilings move to 18, and `BASELINED_RULES`' trailing counts go
+  `click-events-have-key-events` 9 -> 5 and `no-static-element-interactions` 6 -> 2. Neither rule
+  reaches zero, so both stay `warn`. `AXE_BASELINE` is unchanged at 8/8.
+- **These four pages had no tests at all**; `ReportsByFitTier.test.tsx` was the only test on any
+  report page and covers empty-state copy on a different route. 18 new tests across four files pin
+  role, Tab reachability, Enter activation, the preserved mouse path, and that the card body is
+  inert. Every file reds on the pre-fix tree (4/4 each).
+- **One guard was caught being vacuous and rewritten.** "Navigates exactly once" cannot be checked
+  by observing the location: React batches a duplicated `navigate()` to the same URL into one
+  render, so a recorder sees a single entry either way. Verified against a mutant restoring the
+  wrapper's `onClick` — the recorder-based assertion stayed green. The check is now on the history
+  *stack* (one Back must return to the report), which reds on that mutant, as do the inert-body and
+  outbound-link guards.
+
+
 ### Tests — The onboarding panel's own focus restore was deletable with a green suite; it is now pinned (2026-09-05)
 
 `OnboardingModal.tsx:311` spreads `{...outerFocusRestore}` onto the panel's `Dialog.Content`. Deleting that

@@ -124,10 +124,18 @@ export function ReportsStale() {
       ) : (
         <div className="space-y-4">
           {applications.map((app) => (
+            // Navigation hangs off a real <button> inside the heading below, not off
+            // this <div> (WIC-2062) — see the note on `ClosedAppCard` in
+            // ReportsClosedLoop.tsx for why `role="button"` here is not the fix.
+            //
+            // This card is the one that had nested interactives: the "View job posting"
+            // link and the "Set Next Action" button both carried `stopPropagation` for
+            // the sole purpose of escaping the wrapper's handler. With the wrapper inert
+            // there is nothing to escape, so both are deleted. Removing the workaround
+            // rather than adding one is the tell that this shape is right.
             <div
               key={app.id}
-              className="cursor-pointer rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
-              onClick={() => navigate(`/applications/${app.id}`)}
+              className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -138,7 +146,13 @@ export function ReportsStale() {
                     <StatusBadge status={app.status as ApplicationStatus} />
                   </div>
                   <h2 className="text-lg font-semibold text-neutral-900">
-                    {app.jobTitle} @ {app.company}
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/applications/${app.id}`)}
+                      className="w-full rounded text-left hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    >
+                      {app.jobTitle} @ {app.company}
+                    </button>
                   </h2>
                   {app.contact && (
                     <p className="mt-1 text-sm text-neutral-600">
@@ -151,7 +165,6 @@ export function ReportsStale() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="mt-2 inline-flex items-center text-sm text-primary-600 hover:text-primary-700"
-                      onClick={(e) => e.stopPropagation()}
                     >
                       View job posting
                       <svg
@@ -176,11 +189,9 @@ export function ReportsStale() {
                   </div>
                   <div className="mt-2 flex flex-col gap-2">
                     <button
+                      type="button"
                       className="rounded-md bg-primary-600 px-3 py-1 text-sm font-medium text-white hover:bg-primary-700"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/applications/${app.id}`);
-                      }}
+                      onClick={() => navigate(`/applications/${app.id}`)}
                     >
                       Set Next Action
                     </button>

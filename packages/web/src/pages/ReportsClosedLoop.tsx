@@ -21,14 +21,23 @@ function ClosedAppCard({ app, onClick }: { app: ClosedLoopApplication; onClick: 
         : 'border-neutral-200 bg-white';
 
   return (
-    <div
-      className={`cursor-pointer rounded-lg border p-4 transition-shadow hover:shadow-md ${borderColor}`}
-      onClick={onClick}
-    >
+    // Navigation hangs off a real <button> inside the heading, not off this <div>
+    // (WIC-2062). The card used to be a bare div with `onClick` and `cursor-pointer`,
+    // which is unreachable by keyboard and invisible to assistive tech — WCAG 2.1.1.
+    // `role="button"` on the wrapper is NOT the fix: WIC-1942 tried exactly that on
+    // `ResumeVariantCard` and tripped axe's `aria-allowed-role` and `nested-interactive`.
+    // A heading may contain a button where the heading itself may not become one.
+    <div className={`rounded-lg border p-4 transition-shadow hover:shadow-md ${borderColor}`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <h3 className="text-lg font-semibold text-neutral-900">
-            {app.jobTitle} @ {app.company}
+            <button
+              type="button"
+              onClick={onClick}
+              className="w-full rounded text-left hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              {app.jobTitle} @ {app.company}
+            </button>
           </h3>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-neutral-600">
             <span>{app.daysInPipeline} days in pipeline</span>

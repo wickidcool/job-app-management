@@ -156,10 +156,12 @@ export function ReportsNeedsAction() {
       ) : (
         <div className="space-y-4">
           {applications.map((item) => (
+            // Navigation hangs off a real <button> inside the heading below, not off
+            // this <div> (WIC-2062) — see the note on `ClosedAppCard` in
+            // ReportsClosedLoop.tsx for why `role="button"` here is not the fix.
             <div
               key={item.id}
-              className="cursor-pointer rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
-              onClick={() => navigate(`/applications/${item.id}`)}
+              className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -174,7 +176,13 @@ export function ReportsNeedsAction() {
                     />
                   </div>
                   <h2 className="text-lg font-semibold text-neutral-900">
-                    {item.jobTitle} @ {item.company}
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/applications/${item.id}`)}
+                      className="w-full rounded text-left hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    >
+                      {item.jobTitle} @ {item.company}
+                    </button>
                   </h2>
                   <p className="mt-1 text-sm text-neutral-700">
                     <span className="font-medium">Next Action:</span> {item.nextAction}
