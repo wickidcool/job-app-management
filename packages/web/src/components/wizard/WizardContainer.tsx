@@ -285,6 +285,7 @@ export function WizardContainer({ variant, onComplete, onCancel }: WizardContain
               onChange={(e) => updateData({ company: e.target.value })}
               placeholder="e.g., Acme Corporation"
               className="w-full px-4 py-3 border border-neutral-300 rounded-lg text-body focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all duration-base"
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- Reviewed exception (WIC-2077): step 1 of the wizard renders inside `Dialog.Content` (:481, via `renderStepContent()` at :527). WCAG 2.4.3 requires focus to enter the dialog on open, and this is its first field.
               autoFocus
               maxLength={100}
             />

@@ -18,7 +18,12 @@ const localRules = {
 
 /**
  * The `jsx-a11y` rules that this tree still violates (WIC-1483 recorded them, WIC-1589
- * is retiring them). 8 rules / 47 findings at adoption; **5 rules / 26 findings today.**
+ * is retiring them). 8 rules / 47 findings at adoption; **3 rules / 5 findings today.**
+ *
+ * ⚠️ That figure is prose and nothing asserts it — it read `5 rules / 26 findings` until
+ * WIC-2077, having gone stale through WIC-2062 (26 -> 18) and WIC-2073 (18 -> 10, 5 rules
+ * -> 4) without anything able to contradict it. The trailing counts on the entries below
+ * ARE cross-checked, via `A11Y_BASELINE`; this sentence is not. Prefer the entries.
  *
  * These are `warn` ONLY so that adopting the plugin did not require fixing 47
  * pre-existing defects in the same change. They are not exempt: the total is pinned
@@ -30,13 +35,30 @@ const localRules = {
  * because the test asserts exact equality in both directions and cross-checks the two
  * numbers against each other. When a rule reaches zero, delete its line here.
  *
- * Four rules have reached zero and are gone from this list, back at `error`:
+ * Five rules have reached zero and are gone from this list, back at `error`:
  * `label-has-associated-control` (19 -> 0), `no-redundant-roles` (1 -> 0),
  * `no-noninteractive-element-to-interactive-role` (1 -> 0, WIC-1942 — the
  * `<article role="button">` in `ResumeVariantCard.tsx`, which also tripped axe's
- * `aria-allowed-role` and `nested-interactive`), and `no-static-element-interactions`
+ * `aria-allowed-role` and `nested-interactive`), `no-static-element-interactions`
  * (2 -> 0, WIC-2073 — the last two bare `<div onClick>` wrappers, in
- * `CatalogBrowseView.tsx` and `StarEntryPicker.tsx`).
+ * `CatalogBrowseView.tsx` and `StarEntryPicker.tsx`), and `no-autofocus`
+ * (5 -> 0, WIC-2077).
+ *
+ * ⛔ `no-autofocus` reached zero WITHOUT any focus behaviour changing, and that is the
+ * one entry here whose history you must not misread. All five sites were inspected
+ * individually and all five are correct as written: four are inside a Radix dialog,
+ * where WCAG 2.4.3 requires focus to enter the dialog, and the fifth is an inline panel
+ * revealed by a button press. They are now recorded as `eslint-disable-next-line`
+ * directives with a per-site rationale, not fixed. `ProjectsList.tsx:234` is the one to
+ * be careful with: its `autoFocus` is what suppresses Radix's `onOpenAutoFocus`, which is
+ * what makes `useDialogFocusRestore`'s `focusin` fallback capture the trigger — deleting
+ * it silently changes the focus-restore path pinned by WIC-1931. See the comment at
+ * `ProjectsList.tsx:52-54`.
+ *
+ * Moving them from a baselined `warn` to a justified per-site disable is a STRENGTHENING:
+ * before, any new `autoFocus` anywhere in the tree was a warning absorbed by the
+ * `--max-warnings` ceiling; now it fails `npm run lint` outright, and the five exempt
+ * sites each carry the reason they are exempt at the line that needs it.
  *
  * That last promotion is a genuine ratchet tightening and it is not optional: the
  * `warn` set is asserted to equal exactly the rules `A11Y_BASELINE` records findings
@@ -58,7 +80,6 @@ const localRules = {
 const BASELINED_RULES = {
   'jsx-a11y/click-events-have-key-events': 'warn', // 1
   'jsx-a11y/no-noninteractive-element-interactions': 'warn', // 3
-  'jsx-a11y/no-autofocus': 'warn', // 5
   'jsx-a11y/no-noninteractive-tabindex': 'warn', // 1
 };
 

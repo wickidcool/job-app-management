@@ -176,6 +176,7 @@ export function ResumeVariantDetail() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="text-3xl font-bold text-neutral-900 border-b-2 border-blue-500 focus:outline-none"
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- Reviewed exception (WIC-2077): this input replaces the heading only after the user presses "Edit" (:197-201). The focus move is user-initiated and lands on the field they asked to edit; leaving focus on the now-unmounted Edit button would be the defect.
                 autoFocus
               />
               <button

@@ -231,6 +231,7 @@ export function ProjectsList() {
                   onChange={(e) => setNewProjectName(e.target.value)}
                   className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
                   placeholder="e.g., Acme Corp"
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- Reviewed exception (WIC-2077), and LOAD-BEARING: this input is inside `Dialog.Content` (:212), so WCAG 2.4.3 wants focus here on open — but see :52-54. Radix suppresses `onOpenAutoFocus` precisely BECAUSE this attribute is present, which is what makes `useDialogFocusRestore`'s `focusin` fallback capture the trigger. Removing it changes the focus-restore path pinned by WIC-1931.
                   autoFocus
                 />
               </div>
