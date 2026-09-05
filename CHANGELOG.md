@@ -61,6 +61,31 @@ nowhere to repoint to (WIC-2058, dispatching WIC-1860).
   8/8 and `MISSING_H1` stays empty.
 
 
+
+### Tests — The onboarding panel's own focus restore was deletable with a green suite; it is now pinned (2026-09-05)
+
+`OnboardingModal.tsx:311` spreads `{...outerFocusRestore}` onto the panel's `Dialog.Content`. Deleting that
+spread left `npx vitest run src/components/onboarding/` fully green — 36 passed (36) — so the binding was held
+in place by nothing (WIC-2060, split out of WIC-1868 when that card closed for its `aria-hidden` fix).
+
+- **The two existing focus-restore tests structurally cannot reach it.** `OnboardingModal.step-actions.test.tsx:187`
+  and `:300` pin `resumeSkipFocusRestore` and `dismissFocusRestore`, and both open and close a *nested*
+  confirmation while the panel stays mounted. The panel's own `Dialog.Content` never unmounts under either, so
+  its `onCloseAutoFocus` — the half of the binding that does the restoring — never fires.
+- **The new test opens and closes the panel itself**, driving `showOnboarding` on the mocked context across two
+  rerenders, and asserts focus returns to the control that opened onboarding. The opener is captured by the
+  hook's `focusin` mechanism rather than `onOpenAutoFocus`, which works because `OnboardingModal.tsx:89`'s
+  `!showOnboarding` early return sits *below* the hooks: the component stays mounted while the panel is closed,
+  so focusing a control then is exactly the "last element focused while no dialog was open" case.
+- **The deliverable is the mutant dying, not the test existing.** Baseline 36 passed (36) → **37 passed (37)**
+  with the test added; with `{...outerFocusRestore}` deleted, **1 failed | 36 passed**, total still 37 — so the
+  mutant compiled, which is the gate WIC-1610 exists for (a mutant that fails to compile reports green and makes
+  the kill count meaningless). Restoring the line returns 37 passed (37).
+- Under the mutant focus lands on `<body>`, exactly as `useDialogFocusRestore`'s header predicts: dropping the
+  spread does not leave the panel unhandled, it leaves Radix's own `onCloseAutoFocus`, which `preventDefault()`s
+  and focuses `context.triggerRef` — populated only by a rendered `Dialog.Trigger`, of which there is none.
+- Test-only. No component, route, schema or wire change; `outerFocusRestore` itself was already correct.
+
 ### Added — A sweeper-shaped companion makes the evil-merge gate requirable, which `pull_request` structurally cannot be (2026-09-04)
 
 The WIC-1979 detector is sound and unchanged. What this adds is a gate around it that a repository
