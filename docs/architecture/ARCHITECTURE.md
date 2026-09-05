@@ -71,7 +71,7 @@ An npm-workspaces monorepo (`"workspaces": ["packages/*"]`):
 | `packages/api` | `@wic/api` | Hono API, Worker entry, Drizzle schema + migrations, services |
 | `packages/web` | `@wic/web` | React 19 + Vite SPA; `dist/` is the Worker's `assets.directory`, exposed as the `ASSETS` binding |
 | `packages/marketing` | — | Static marketing site for the apex/`www` hosts (plain HTML/CSS/JS + `_worker.js`) |
-| `packages/infra` | — | `redirect-worker/` and `redirect-pages/` — hostname redirect shims |
+| `packages/infra` | — | `redirect-worker/` and `redirect-pages/` — hostname redirect shims. **Neither is deployed by any CI path**: the only `pages deploy` in the repo targets `packages/marketing`, and no workflow deploys the Worker. The live redirect is `packages/marketing/_worker.js` (WIC-2111). |
 
 `packages/marketing` and `packages/infra` have no `package.json`; they are deployed as static assets, not built as workspaces.
 
@@ -172,7 +172,11 @@ So `cd packages/api && npx wrangler ...` reads the repo-root `wrangler.jsonc`. M
 
 > ✅ `packages/infra/redirect-worker` used to be shadowed by the same rule and was allowlisted rather than fixed. **WIC-2109 renamed it to `wrangler.jsonc`**, which wins its own directory by proximity within the `.jsonc` pass, so `SHADOWED_ALLOWLIST` is now empty and no `--config` workaround is needed. Measured before/after with `deploy --dry-run --env=""` from that directory under wrangler 4.129.0: `8084.57 KiB` with the `jobtrail` bindings, then `0.29 KiB` and `No bindings found.`
 >
-> ⛔ **That fix arms a different footgun, and the config's own header comment is the source of record for it.** `wrangler deploy` from that directory now really does deploy `careerpin-redirects` — installing Worker routes on `www.careerpin.app`, `careerpin.io` and `www.careerpin.io`, the three hostnames `deploy-marketing.yml` assigns to the `careerpin-marketing` Pages project on every marketing deploy. Treat the Worker as **superseded by the Pages path**, and do not deploy it without first checking the Cloudflare dashboard. Whether `careerpin-redirects` exists there at all is **unverified** — no agent seat holds a Cloudflare credential — which is why the config was renamed rather than deleted.
+> ⛔ **That fix arms a different footgun, and the config's own header comment is the source of record for it.** `wrangler deploy` from that directory now really does deploy `careerpin-redirects` — installing Worker routes on `www.careerpin.app`, `careerpin.io` and `www.careerpin.io`, the three hostnames `deploy-marketing.yml` assigns to the `careerpin-marketing` Pages project on every marketing deploy. Treat the Worker as **superseded by the Pages path**, and do not deploy it without first establishing what is actually deployed. Whether `careerpin-redirects` exists in Cloudflare at all is **unverified** — which is why the config was renamed rather than deleted.
+>
+> ✅ **That check no longer needs a dashboard session.** No agent seat holds a Cloudflare credential, but CI does: `CLOUDFLARE_CAREERPIN_API` is a repo-level secret `deploy-marketing.yml` already spends against these zones. Dispatch `.github/workflows/careerpin-redirect-ownership-probe.yml` (read-only, GETs only), which reports whether the Worker exists and whether it holds routes on the three hostnames (WIC-2111).
+>
+> ⛔ **Do not try to settle it with `curl` instead.** `packages/marketing/_worker.js` — the live Pages redirect, and *not* `packages/infra/redirect-pages/_redirects`, which nothing deploys — builds the byte-identical `https://careerpin.app${url.pathname}${url.search}` that the standalone Worker does. All three hostnames 301 correctly today, which is what both implementations predict, so the HTTP surface can confirm the redirect works and can never say which system performed it.
 
 Non-secret config lives in `vars` — `NODE_ENV`, and the analytics sink `ANALYTICS_SINK: "posthog"` with `POSTHOG_HOST` (WIC-821). Workers observability is enabled.
 
