@@ -51,14 +51,19 @@ All frontend env vars must be prefixed with `VITE_` to be exposed to the client 
 
 ### CI/CD (GitHub Actions)
 
-| Secret                  | Purpose                       |
+These are **environment** secrets and variables, set on both `dev` and `production` — not
+repository-level. Measured 2026-09-05 against `main` (`9cf938b3`). A job reads them only when it
+declares `environment: dev` or `environment: production`; from a job with no `environment:` key
+they interpolate to the empty string.
+
+| Secret (env-scoped)     | Purpose                       |
 | ----------------------- | ----------------------------- |
 | `CLOUDFLARE_API_TOKEN`  | Deploy to Cloudflare Pages    |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier |
 | `SUPABASE_DATABASE_URL` | Run migrations in CI          |
 
-| Variable (non-secret) | Purpose                                                                                                                                                                                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable (non-secret, env-scoped) | Purpose                                                                                                                                                                                                                                                                                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SUPABASE_URL`        | Build-time Supabase URL                                                                                                                                                                                                                                                                 |
 | `SUPABASE_ANON_KEY`   | Build-time anon key — **must be the `sb_publishable_…` / anon key**. This var is read by `deploy.yml` and passed to the build as `VITE_SUPABASE_ANON_KEY`, so its value is baked into the public SPA bundle. A `sb_secret_…` value here exposes the RLS-bypassing key to every visitor. |
 
@@ -187,26 +192,33 @@ bucket_name = "jobapp-files"
 
 ## GitHub Actions Configuration
 
-### Repository Secrets
+### Environment Secrets
 
-Set via GitHub UI or CLI:
+These live on the `dev` and `production` environments, so every command needs `--env`. Omitting it
+writes a **second, repository-level copy** of a credential whose authoritative copy is on the
+environment — the drift `CREDENTIAL_PRECEDENCE.md` exists to prevent. Set each on both
+environments:
 
 ```bash
 # Cloudflare deployment
-gh secret set CLOUDFLARE_API_TOKEN
-gh secret set CLOUDFLARE_ACCOUNT_ID
+gh secret set CLOUDFLARE_API_TOKEN --env production
+gh secret set CLOUDFLARE_ACCOUNT_ID --env production
 
 # Database migrations
-gh secret set SUPABASE_DATABASE_URL
+gh secret set SUPABASE_DATABASE_URL --env production
 ```
 
-### Repository Variables
+Repeat with `--env dev` for the `dev` environment. Read the current placement with
+`gh api repos/:owner/:repo/environments/production/secrets`; plain `gh secret list` shows only the
+repository level, which holds none of the above.
 
-Non-sensitive values for build-time:
+### Environment Variables
+
+Non-sensitive values for build-time — also environment-scoped:
 
 ```bash
-gh variable set SUPABASE_URL --body "https://xxx.supabase.co"
-gh variable set SUPABASE_ANON_KEY --body "eyJ..."
+gh variable set SUPABASE_URL --env production --body "https://xxx.supabase.co"
+gh variable set SUPABASE_ANON_KEY --env production --body "sb_publishable_..."
 ```
 
 ### Environment Protection (Production)
