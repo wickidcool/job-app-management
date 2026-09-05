@@ -416,9 +416,16 @@ function exportToDTO(e: typeof resumeExports.$inferSelect): ResumeExportDTO {
  *
  * The `config` parameter went with the inlined path — `localProjectsDir` reads
  * `dataDir` off `getConfig()` itself.
+ *
+ * ADR-010 D2 (WIC-2070) — `userId` narrowed to `string`, a forced consequence of
+ * `projectFileKey`/`localProjectsDir` requiring an owner. No caller changed:
+ * both call sites in `uploadResume` sit after the explicit `if (!userId) throw`
+ * that precedes `getOrCreateProjectBySlug`, so `userId` is already narrowed to
+ * `string` there. The rest of this file's owner signatures are still optional
+ * and belong to a later D2 slice under WIC-2068.
  */
 async function writeProjectFile(
-  userId: string | undefined,
+  userId: string,
   slug: string,
   fileName: string,
   content: string
