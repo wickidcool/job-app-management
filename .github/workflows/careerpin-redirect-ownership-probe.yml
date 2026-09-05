@@ -115,9 +115,35 @@ jobs:
             echo "  CF error codes : $(cf_codes)"
             echo "  CF messages    : $(cf_msgs)"
             echo
-            echo "FATAL: the control call failed, so NOTHING below is interpretable."
-            echo "The credential is dead, revoked, or malformed — this is NOT evidence"
-            echo "about the Worker. Fix the token, then re-dispatch."
+            # "The account list failed" has TWO causes that present identically, and
+            # they have different owners and different remedies. Separate them with a
+            # second control rather than reporting the ambiguous union (WIC-2097).
+            #
+            # A ZONE read needs no account-level permission, so:
+            #   * zone read works => the token is ALIVE and merely lacks account scope
+            #     (someone narrowed it) => re-grant the scope;
+            #   * zone read fails too => the token is REVOKED/EXPIRED outright
+            #     => rotate it, and note deploy-marketing.yml is broken until you do.
+            echo "  SECONDARY CONTROL: can the token read a zone it is scoped to?"
+            get "$API/zones/$APP_ZONE"
+            ZONE_HTTP="$HTTP"
+            echo "    zone read HTTP : $ZONE_HTTP"
+            echo "    CF error codes : $(cf_codes)"
+            if [ "$ZONE_HTTP" = "200" ]; then
+              echo
+              echo "FATAL: token is ALIVE (zone read succeeded) but has NO ACCOUNT SCOPE."
+              echo "Someone narrowed this token. Re-grant account-level access; do NOT"
+              echo "rotate it blindly. Nothing below is interpretable."
+            else
+              echo
+              echo "FATAL: token is REVOKED or EXPIRED — it cannot read its own zone either."
+              echo "⚠️ This ALSO breaks .github/workflows/deploy-marketing.yml, which resolves"
+              echo "   the account with this identical call (:47-51, curl -sf). Marketing"
+              echo "   deploys will fail at that step until the secret is rotated, so the"
+              echo "   Pages redirect path is NOT self-healing while this is true."
+            fi
+            echo
+            echo "Either way this is NOT evidence about the Worker. Fix the token, re-dispatch."
             exit 1
           fi
 
