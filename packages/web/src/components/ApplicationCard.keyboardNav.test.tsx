@@ -244,6 +244,63 @@ describe('ApplicationCard quick actions — keyboard reachability (WIC-2078)', (
       expect(onEdit).toHaveBeenCalledExactlyOnceWith(APPLICATION.id);
       expect(onCardClick).not.toHaveBeenCalled();
     });
+
+    // WIC-2079 AC-4, third bullet. The two cases above pin the KEYDOWN guard
+    // (`e.target !== e.currentTarget`); the `e.stopPropagation()` calls in `handleEdit` and
+    // `handleDelete` are a separate mechanism covering the POINTER path.
+    //
+    // ⚠️ The two are NOT independent, and measuring that corrected a claim this comment
+    // originally made. An earlier revision asserted that deleting either `stopPropagation`
+    // left the suite green. That is true of `handleDelete`'s and false of `handleEdit`'s:
+    // mutating `handleEdit` reds the two Enter/Space cases above as well as the click case
+    // below. The reason is that `user.keyboard('{Enter}')` on a focused button dispatches a
+    // synthetic CLICK, which bubbles to the card's `onClick` — so on the keyboard path the
+    // keydown guard and `stopPropagation` each block a different one of two routes to the
+    // same wrong outcome, and the keydown tests were unknowingly covering both.
+    //
+    // `handleDelete`'s was genuinely unpinned: mutating it reds only tests added by WIC-2079.
+    // That asymmetry is the reason to keep BOTH cases below rather than just the Edit one.
+    //
+    // Pinned here rather than at the page level because this is the only place the two
+    // handlers are distinguishable. In production `onEdit` and `onCardClick` navigate to the
+    // same route (the AC-3 decision, recorded in `ApplicationsList.tsx`), so a leaked
+    // propagation navigates twice to one destination and looks identical to working. Separable
+    // spies are what make the leak observable at all.
+    // The bar is revealed by FOCUS here, not by `user.hover`, and then clicked. Both halves
+    // are deliberate. `user.hover` on the card followed by `user.click` on a button inside it
+    // does not work in this environment — the reveal happens, but the synthesised pointer
+    // sequence leaves the handler unfired and both spies at zero, which would read as a
+    // passing "card did not activate" for entirely the wrong reason. Focus-then-click reaches
+    // the same `onClick` path (`handleEdit` / `handleDelete` do not care how the bar appeared)
+    // and is the pattern the rest of this file already uses.
+    it('does not activate the card when Edit is CLICKED (stopPropagation)', async () => {
+      const user = userEvent.setup();
+      const onCardClick = vi.fn();
+      const onEdit = vi.fn();
+      renderCard({ onCardClick, onEdit });
+
+      await user.tab(); // card — reveals the bar
+      await user.click(editButton()!);
+
+      expect(onEdit).toHaveBeenCalledExactlyOnceWith(APPLICATION.id);
+      expect(onCardClick).not.toHaveBeenCalled();
+    });
+
+    it('does not activate the card when Delete is CLICKED (stopPropagation)', async () => {
+      const user = userEvent.setup();
+      const onCardClick = vi.fn();
+      const onDelete = vi.fn();
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderCard({ onCardClick, onDelete });
+
+      await user.tab(); // card — reveals the bar
+      await user.click(deleteButton()!);
+
+      expect(onDelete).toHaveBeenCalledExactlyOnceWith(APPLICATION.id);
+      expect(onCardClick).not.toHaveBeenCalled();
+
+      confirmSpy.mockRestore();
+    });
   });
 
   it('renders no quick actions at all when the host disables them (mobile swipe path)', async () => {
