@@ -9,14 +9,14 @@ import packageJsonRaw from '../../package.json?raw';
  * nothing in the repo enforcing it. Layer 1 is the plugin; this file is the part that
  * makes adopting it *enforcement* rather than a gesture.
  *
- * 28 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
- * CI on a new violation of any of them. 4 are `warn` (see `BASELINED_RULES` in
+ * 29 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
+ * CI on a new violation of any of them. 3 are `warn` (see `BASELINED_RULES` in
  * `eslint.config.js`) purely so that adopting the plugin did not require fixing 47
- * pre-existing defects in the same change (WIC-1483) — 37 of those 47 have since been
- * retired (WIC-1589, WIC-1942, WIC-2062, WIC-2073) — and 2 are deliberately `off` (see
+ * pre-existing defects in the same change (WIC-1483) — 42 of those 47 have since been
+ * retired (WIC-1589, WIC-1942, WIC-2062, WIC-2073, WIC-2077) — and 2 are deliberately `off` (see
  * `PROMOTED_RULES` for the measured cost of each).
  *
- * That 28 is asserted below against the RESOLVED config rather than restated in prose.
+ * That 29 is asserted below against the RESOLVED config rather than restated in prose.
  * The first revision of this suite hand-computed it as `34 - 8 = 26`, which was wrong for
  * a different reason at the time: `recommended` ships 3 of its 34 entries `off`, so the
  * surface was 23, and the wrong figure sat in four files at once with nothing able to
@@ -24,9 +24,9 @@ import packageJsonRaw from '../../package.json?raw';
  * this card was filed about.
  *
  * The config extends `flatConfigs.strict`, and NONE of those counts can tell you so —
- * `strict` and `recommended` resolve to the same 34 entries and the same 28/4/2 histogram
+ * `strict` and `recommended` resolve to the same 34 entries and the same 29/3/2 histogram
  * once `PROMOTED_RULES` restores `anchor-ambiguous-text`, which `strict` drops entirely.
- * They also produce identical findings on this tree (10, over the same files, rules, lines
+ * They also produce identical findings on this tree (5, over the same files, rules, lines
  * and columns). The whole difference is in rule OPTIONS, so that is what the last test
  * asserts; without it, a silent revert to `recommended` passes every assertion here.
  *
@@ -37,7 +37,7 @@ import packageJsonRaw from '../../package.json?raw';
  *   - a FIXED violation also fails, forcing the baseline down instead of letting it
  *     rot upward. `toEqual` on the whole map, not `toBeLessThanOrEqual` on a total;
  *   - it is keyed by file+rule, so fixing one file and breaking another — which leaves
- *     the total at 10 — is still a failure.
+ *     the total at 5 — is still a failure.
  *
  * The `--max-warnings` ceiling in `package.json` is cross-checked against the same
  * measurement, so the two numbers cannot silently disagree.
@@ -75,12 +75,32 @@ const webRoot = decodeURIComponent(import.meta.url.replace(/^file:\/\//, '')).re
 type RuleCounts = Record<string, number>;
 
 /**
- * Measured on this tree after WIC-2073. 10 findings, 8 files, 4 distinct rules — down
+ * Measured on this tree after WIC-2077. 5 findings, 3 files, 3 distinct rules — down
  * from the 47/22/8 at WIC-1483 adoption, now that `label-has-associated-control`
  * (19 -> 0), `no-redundant-roles` (1 -> 0),
- * `no-noninteractive-element-to-interactive-role` (1 -> 0) and
- * `no-static-element-interactions` (2 -> 0) are fully retired. Owned by
- * WIC-1589 — every entry here is a real defect, not an accepted exception.
+ * `no-noninteractive-element-to-interactive-role` (1 -> 0),
+ * `no-static-element-interactions` (2 -> 0) and `no-autofocus` (5 -> 0) are fully
+ * retired. Owned by WIC-1589.
+ *
+ * ⚠️ This header used to end "every entry here is a real defect, not an accepted
+ * exception." WIC-2077 retired that sentence rather than let it stay false, and the
+ * reason is worth keeping: at 10 findings it was untrue of HALF the map. The five
+ * `no-autofocus` entries were not defects — every one was a user-initiated focus move
+ * into a newly-revealed input, four of them inside a Radix dialog where WCAG 2.4.3
+ * *requires* focus to enter. They are now `eslint-disable-next-line` directives carrying
+ * a per-site rationale, and the rule is back at `error`.
+ *
+ * The sentence mattered because it is what makes the ratchet trustworthy: it is the
+ * claim that a number going down means a defect was fixed. So the invariant is now
+ * stated as something this file can actually keep, and it is narrower —
+ *
+ *   an entry here is a finding NOBODY HAS ADJUDICATED YET.
+ *
+ * A finding that has been reviewed leaves this map in one of two directions: fixed, or
+ * exempted at the site with a stated reason. It does not sit here. "Reviewed and
+ * accepted" has a spelling — a disable directive — and it is deliberately the one that
+ * costs a line of justification at the point of use, where the next reader needs it,
+ * rather than a row in a table nobody reads while editing a component.
  */
 const A11Y_BASELINE: Record<string, RuleCounts> = {
   'src/components/ApplicationCard.tsx': {
@@ -93,7 +113,11 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   // diff onto a real `<button>` inside the card's existing `<h2>`, per the precedents below,
   // and gave the nested "Review Changes" button its own handler (it had relied on bubbling to
   // the wrapper, which is now inert). Entry deleted rather than zeroed.
-  'src/components/CommandPalette.tsx': { 'no-autofocus': 1 },
+  // `src/components/CommandPalette.tsx` used to sit here with `no-autofocus: 1` — the
+  // Cmd+K search input at `:359`, inside `Dialog.Content` (`:308`). Not a defect: WCAG
+  // 2.4.3 requires focus to enter a dialog on open, and searching is the dialog's whole
+  // purpose. WIC-2077 recorded it as a disable directive with that rationale at the line.
+  // Entry deleted rather than zeroed. See the WIC-2077 block below.
   // `src/components/FilterPanel.tsx` used to sit here with `click-events-have-key-events: 1` +
   // `no-noninteractive-element-interactions: 1` — an `onClick` on the "Active Only" `<label>`.
   // This one was not a keyboard gap but a live functional bug, and WIC-2073 measured it rather
@@ -118,7 +142,11 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   // onClick={…}>` expand toggle, literally the shape WIC-2062 fixed. WIC-2073 moved the toggle
   // onto a real `<button>` inside that existing heading and added `aria-expanded`, which names
   // the state `cursor-pointer` could only hint at. Entry deleted rather than zeroed.
-  'src/components/SavedFilterShortcuts.tsx': { 'no-autofocus': 1 },
+  // `src/components/SavedFilterShortcuts.tsx` used to sit here with `no-autofocus: 1` —
+  // the "Save current filters as:" name field at `:150`. The only one of the five that is
+  // NOT in a dialog, and still not a defect: the panel does not exist until the user
+  // presses "+ Save Current" (`:129`), so the focus move is user-initiated and Escape
+  // dismisses it (`:153`). Entry deleted rather than zeroed.
   // `src/components/StarEntryPicker.tsx` used to sit here with `click-events-have-key-events: 1`
   // + `no-static-element-interactions: 1` — `<div onClick={onToggle} className="cursor-pointer">`
   // in `StarEntryCard`. Unlike the other three, no control had to be ADDED: the card already
@@ -130,9 +158,19 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   // Clicking the card BODY no longer toggles; that affordance was keyboard-unreachable, so it
   // was never part of the accessible contract, but it is a real change for pointer users.
   // Entry deleted rather than zeroed.
-  'src/components/wizard/WizardContainer.tsx': { 'no-autofocus': 1 },
+  // `src/components/wizard/WizardContainer.tsx` used to sit here with `no-autofocus: 1` —
+  // the step-1 company field at `:288`, which renders inside `Dialog.Content` (`:481`, via
+  // `renderStepContent()` at `:527`). Same WCAG 2.4.3 reading as CommandPalette. Entry
+  // deleted rather than zeroed.
   'src/components/wizard/WizardStep.tsx': { 'no-noninteractive-element-interactions': 1 },
-  'src/pages/ProjectsList.tsx': { 'no-autofocus': 1 },
+  // `src/pages/ProjectsList.tsx` used to sit here with `no-autofocus: 1` — the Project
+  // Name field at `:234`, inside the create-modal's `Dialog.Content` (`:212`). This is the
+  // one of the five that would have been actively DANGEROUS to "fix": per the comment at
+  // `ProjectsList.tsx:52-54`, the `autoFocus` is what stops Radix dispatching
+  // `onOpenAutoFocus`, which is what makes `useDialogFocusRestore`'s `focusin` fallback
+  // capture the trigger. Removing it changes the focus-restore path pinned by WIC-1931 —
+  // and it would do so silently, because the lint finding it retires says nothing about
+  // focus restore. Entry deleted rather than zeroed; behaviour untouched.
   // The four `src/pages/Reports*.tsx` entries used to sit here, one
   // `click-events-have-key-events` + one `no-static-element-interactions` each — the
   // application card rendered as a bare `<div onClick={…} className="cursor-pointer">`,
@@ -153,7 +191,25 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   // chosen — 'states its enforcement surface exactly' below asserts the `warn` set equals
   // exactly the rules this map records, so a zero-finding rule cannot remain baselined.
   // Keyboard reachability is pinned per component by `*.keyboardNav.test.tsx` alongside each.
-  'src/pages/ResumeVariantDetail.tsx': { 'no-autofocus': 1 },
+  //
+  // WIC-2077 then took all five `no-autofocus` entries — CommandPalette, SavedFilterShortcuts,
+  // WizardContainer, ProjectsList (all deleted in place above) and ResumeVariantDetail
+  // (`:179`, the inline title-edit field revealed by the "Edit" button at `:197`) — dropping
+  // BASELINE_TOTAL 10 -> 5 and both `--max-warnings` ceilings with it. `no-autofocus`
+  // (5 -> 0) leaves `BASELINED_RULES` and returns to `error`, taking the enforcement
+  // surface 28/4/2 -> 29/3/2.
+  //
+  // ⛔ Unlike every deletion above it, this one changed NO behaviour. All five sites were
+  // read individually and all five are correct as written; the entries left because each
+  // is now an `eslint-disable-next-line jsx-a11y/no-autofocus` carrying the reason it is
+  // exempt. Do not read "no-autofocus reached 0" as "five autofocus defects were fixed" —
+  // the rule is known to over-fire on exactly this case (a user-initiated focus move into
+  // a newly-revealed input), and the fleet has now spent a card establishing that. If a
+  // sixth site appears, the question to ask is which of the two spellings it deserves, not
+  // whether to delete the attribute.
+  //
+  // This is still a net tightening. Before, `autoFocus` anywhere in the tree was a warning
+  // absorbed by the ceiling; now it fails `npm run lint`, with five reviewed exemptions.
 };
 
 const BASELINE_TOTAL = Object.values(A11Y_BASELINE)
@@ -240,26 +296,33 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // `toEqual` pins *what* was found; nothing in it pins *how much was looked at*. Narrow
     // the glob and regenerate A11Y_BASELINE from the narrowed run — which is exactly the
     // shape of "regenerate the baseline until it goes green" — and the two agree with each
-    // other perfectly while most of the tree goes unchecked. Re-measured at WIC-2073: glob
+    // other perfectly while most of the tree goes unchecked. Re-measured at WIC-2077: glob
     // narrowed to `src/pages/**`, with A11Y_BASELINE and both `--max-warnings` ceilings
-    // regenerated to agree, reads **60 of 247** files and fails here.
+    // regenerated to agree, reads **60 of 249** files and fails here.
     //
-    // Three corrections to earlier versions of this note, every one from re-measuring it
+    // Four corrections to earlier versions of this note, every one from re-measuring it
     // rather than re-reading it — which is the habit this whole file argues for. It once
     // said "8 of 148", which was the wrong quantity as well as a stale total: 8 is how many
     // files had FINDINGS, and the number this line exists to pin is how many were READ. It
     // then said "32 of 151", correct in quantity and stale in both figures. And it said the
     // mutation was otherwise fully green, which stopped being true when 'states its
     // enforcement surface exactly' was added below — that test ties the `warn` set to the
-    // rules the baseline records, so a narrowed baseline reds it too. Today that is
-    // 4 configured vs **1** surviving (`no-autofocus` alone; ProjectsList and
-    // ResumeVariantDetail are the only `src/pages` files left with a finding at all, now
-    // that WIC-2062 cleared the four Reports pages). Deleting this line leaves that one
-    // red; also trimming BASELINED_RULES to the 1 survivor moves the failure to the `error`
-    // count (31, not 28). Getting this mutation green now means editing the assertions
-    // themselves, not just the baseline — which is the point of both guards.
+    // rules the baseline records, so a narrowed baseline reds it too.
     //
-    // 247 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
+    // The fourth correction is WIC-2077's, and it moved the figure to a corner: `src/pages`
+    // now yields **0** findings, not 1. `no-autofocus` was the only rule surviving the
+    // narrowing, and its two `src/pages` sites (ProjectsList, ResumeVariantDetail) are now
+    // disable directives. So the narrowed baseline is `{}` and the narrowed `warn` set is
+    // empty — measured, not derived. That makes the mutation MORE loudly red, not less,
+    // and it now fails whichever way it is patched up: leave `BASELINED_RULES` alone and
+    // the `warn` set (3) disagrees with the rules an empty baseline records (0); trim it to
+    // match and all three fall back to `error`, so the error count goes 29 -> **32**.
+    // Getting this mutation green means editing the assertions themselves, not just the
+    // baseline — which is the point of both guards. Verified by running it, not by reading:
+    // with this line deleted, the narrowed suite still reds on 'states its enforcement
+    // surface exactly'.
+    //
+    // 249 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);
 
     // Equality, deliberately. `toBeLessThanOrEqual` on a total would let a regression
@@ -291,13 +354,18 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     ).not.toBeNull();
     expect(Number(fixCeiling![1])).toBe(BASELINE_TOTAL);
 
-    // The baselined 5 are `warn`, so `--max-warnings` is what pins them. Any jsx-a11y
-    // finding at `error` severity would fail `npm run lint` outright — which is correct
-    // for the other 28 rules, but means the tree is currently red, so say so here.
+    // The baselined 5 findings are `warn`, so `--max-warnings` is what pins them. Any
+    // jsx-a11y finding at `error` severity would fail `npm run lint` outright — which is
+    // correct for the other 29 rules, but means the tree is currently red, so say so here.
+    //
+    // NOTE (WIC-2077): this is also what proves the five `no-autofocus` disable directives
+    // are actually taking effect. `no-autofocus` is now at `error`, so a directive that
+    // failed to suppress its site — a typo in the rule name, a comment that drifted off the
+    // line it guards — would land here as a non-zero `errors`, not as a quiet warning.
     expect(errors).toBe(0);
   }, 60_000);
 
-  it('states its enforcement surface exactly — 28 error, 4 warn, 2 deliberately off', async () => {
+  it('states its enforcement surface exactly — 29 error, 3 warn, 2 deliberately off', async () => {
     // The reason this test exists.
     //
     // Every other number in this PR is measured; the enforcement surface was not. It was
@@ -326,8 +394,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // Fails closed: if the config failed to resolve, `rules` is empty and every count is 0.
     expect(a11yRules).toHaveLength(34);
 
-    expect(named(2)).toHaveLength(28);
-    expect(named(1)).toHaveLength(4);
+    expect(named(2)).toHaveLength(29);
+    expect(named(1)).toHaveLength(3);
 
     // Pinned BY NAME, not just counted. `label-has-for` is deprecated upstream and
     // superseded by `label-has-associated-control`, now at `error` with 0 findings
@@ -338,7 +406,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // THIRD rule off, that is a silent loss of enforcement and this must fail.
     expect(named(0)).toEqual(['jsx-a11y/control-has-associated-label', 'jsx-a11y/label-has-for']);
 
-    // The 4 at `warn` must be exactly the rules the baseline records findings for. This
+    // The 3 at `warn` must be exactly the rules the baseline records findings for. This
     // ties the config to the evidence: baselining a rule that has no recorded violations,
     // or recording violations for a rule that is not baselined, both fail here.
     const baselinedRules = [
@@ -356,8 +424,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // and they differ on 7 rules — but 6 of those differences are in rule OPTIONS, and the
     // 7th is that `anchor-ambiguous-text` is absent from `strict` altogether while
     // `recommended` ships it `off`. PROMOTED_RULES restores it, so BOTH configs resolve to
-    // 34 entries at 28/4/2, over the same 2 `off` names. They also produce byte-identical
-    // findings on this tree: 10, matching on file + rule + line + column + severity.
+    // 34 entries at 29/3/2, over the same 2 `off` names. They also produce byte-identical
+    // findings on this tree: 5, matching on file + rule + line + column + severity.
     //
     // So every count in the test above is satisfied by either ruleset, and a revert of the
     // `extends` entry would pass the whole suite while quietly restoring the hole below.
@@ -391,7 +459,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // And the behaviour, not just the config that is supposed to produce it. Under
     // `recommended` this snippet emits NOTHING; a new instance of it would land in the tree
     // with no warning and no diff to argue with. Under `strict` it is a finding, which —
-    // because `no-noninteractive-tabindex` is baselined at `warn` — makes it a 28th warning
+    // because `no-noninteractive-tabindex` is baselined at `warn` — makes it a 6th warning
     // and fails `npm run lint` against the `--max-warnings` ceiling.
     const [result] = await eslint.lintText(
       "const role = 'button';\nexport const Bad = () => <div role={role} tabIndex={0} />;\n",

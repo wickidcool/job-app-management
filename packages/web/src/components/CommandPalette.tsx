@@ -356,6 +356,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- Reviewed exception (WIC-2077): this input is inside `Dialog.Content` (:308), opened by Cmd+K. WCAG 2.4.3 requires focus to enter the dialog when it opens, and the search field is the dialog's only purpose. Not focusing it would be the defect.
                 autoFocus
               />
               <kbd className="hidden rounded border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs text-neutral-500 sm:inline-block">

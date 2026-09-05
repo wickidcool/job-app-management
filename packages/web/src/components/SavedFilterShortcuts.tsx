@@ -147,6 +147,7 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
               onChange={(e) => setNewFilterName(e.target.value)}
               placeholder="My Filter"
               className="flex-1 px-3 py-1.5 text-sm border border-neutral-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- Reviewed exception (WIC-2077): this panel is not present on load — it is revealed by the "+ Save Current" button at :129, so the focus move is user-initiated and lands on the only field the user just asked for. Escape dismisses it (:153).
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSaveCurrentFilter();
