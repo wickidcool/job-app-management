@@ -178,7 +178,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     return c.json(await listDiffs(parsed.data, c.get('userId') ?? undefined));
   })
   .get('/catalog/diffs/:id', async (c) => {
-    const diff = await getDiff(c.req.param('id'), c.get('userId') ?? undefined);
+    const diff = await getDiff(c.req.param('id'), requireOwner(c));
     return c.json(diff);
   })
   .post('/catalog/generate-diff', async (c) => {
@@ -192,22 +192,18 @@ export const catalogRoutes = new Hono<AppEnv>()
     const parsed = applyDiffSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const result = await applyDiff(c.req.param('id'), parsed.data, c.get('userId') ?? undefined);
+    const result = await applyDiff(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json(result);
   })
   .delete('/catalog/diffs/:id', async (c) => {
-    await discardDiff(c.req.param('id'), c.get('userId') ?? undefined);
+    await discardDiff(c.req.param('id'), requireOwner(c));
     return c.body(null, 204);
   })
   .post('/catalog/diffs/:id/resolve', async (c) => {
     const parsed = resolveDiffItemSchema.safeParse(await readJsonBody(c));
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
-    const result = await resolveDiffItem(
-      c.req.param('id'),
-      parsed.data,
-      c.get('userId') ?? undefined
-    );
+    const result = await resolveDiffItem(c.req.param('id'), parsed.data, requireOwner(c));
     return c.json(result);
   })
   // ── Companies ──────────────────────────────────────────────────────────────

@@ -281,23 +281,31 @@ describe('WIC-1428: pending_review items raised on a resume upload are reachable
     expect(await defaultDiffList(app)).toHaveLength(1);
 
     for (let i = 0; i < items - 1; i++) {
-      await resolveDiffItem(row.id as string, {
-        itemType: 'review',
-        itemIndex: i,
-        decision: 'approve',
-        selectedOption: 'Product Manager',
-      });
+      await resolveDiffItem(
+        row.id as string,
+        {
+          itemType: 'review',
+          itemIndex: i,
+          decision: 'approve',
+          selectedOption: 'Product Manager',
+        },
+        OWNER
+      );
       expect(
         await defaultDiffList(app),
         'still listed while any raised item is undecided'
       ).toHaveLength(1);
     }
 
-    await resolveDiffItem(row.id as string, {
-      itemType: 'review',
-      itemIndex: items - 1,
-      decision: 'reject',
-    });
+    await resolveDiffItem(
+      row.id as string,
+      {
+        itemType: 'review',
+        itemIndex: items - 1,
+        decision: 'reject',
+      },
+      OWNER
+    );
 
     expect(row.openReviewCount).toBe(0);
     expect(await defaultDiffList(app), 'resolved ambiguities leave the list').toEqual([]);
@@ -309,12 +317,16 @@ describe('WIC-1428: pending_review items raised on a resume upload are reachable
     const items = (row.pendingReview as unknown[]).length;
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      await resolveDiffItem(row.id as string, {
-        itemType: 'review',
-        itemIndex: 0,
-        decision: 'approve',
-        selectedOption: 'Project Manager',
-      });
+      await resolveDiffItem(
+        row.id as string,
+        {
+          itemType: 'review',
+          itemIndex: 0,
+          decision: 'approve',
+          selectedOption: 'Project Manager',
+        },
+        OWNER
+      );
     }
 
     expect(row.openReviewCount).toBe(items - 1);
