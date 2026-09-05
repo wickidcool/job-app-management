@@ -78,7 +78,21 @@ const localRules = {
  * it mounts. Adopting it does NOT cover WCAG SC 1.3.1. That is layer 2's job.
  */
 const BASELINED_RULES = {
-  'jsx-a11y/no-noninteractive-element-interactions': 'warn', // 3
+  // WIC-2078 retired `no-noninteractive-element-interactions` (3 -> 0), so it is gone from
+  // here and back at `error`. Its three survivors were adjudicated individually and all
+  // three are reviewed exceptions carrying their rationale at the line — the application
+  // card's own activation (a real `<button>` or `role="button"` there trips axe's
+  // `nested-interactive` instead, WIC-2077/WIC-1942), the resume drop TARGET beside its
+  // equivalent "browse files" button, and the wizard's container-scoped Ctrl+Enter shortcut
+  // delegated from its focusable descendants.
+  //
+  // ⛔ Read that as three exemptions, not three fixes. Unlike the `no-static-element-
+  // interactions` promotion (WIC-2073), which followed real markup changes, nothing here
+  // became more operable — this rule cannot see an alternative keyboard path that lives on
+  // a sibling element, and at all three sites the spellings that would satisfy it are worse
+  // than the finding. The tightening is still real and is the point: any NEW handler on a
+  // non-interactive element now fails `npm run lint` rather than being absorbed by the
+  // ceiling, and the next site has to argue its case the same way.
   'jsx-a11y/no-noninteractive-tabindex': 'warn', // 1
 };
 

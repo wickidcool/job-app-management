@@ -9,14 +9,14 @@ import packageJsonRaw from '../../package.json?raw';
  * nothing in the repo enforcing it. Layer 1 is the plugin; this file is the part that
  * makes adopting it *enforcement* rather than a gesture.
  *
- * 30 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
- * CI on a new violation of any of them. 2 are `warn` (see `BASELINED_RULES` in
+ * 31 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
+ * CI on a new violation of any of them. 1 is `warn` (see `BASELINED_RULES` in
  * `eslint.config.js`) purely so that adopting the plugin did not require fixing 47
  * pre-existing defects in the same change (WIC-1483) — 43 of those 47 have since been
  * retired (WIC-1589, WIC-1942, WIC-2062, WIC-2073, WIC-2077) — and 2 are deliberately `off` (see
  * `PROMOTED_RULES` for the measured cost of each).
  *
- * That 30 is asserted below against the RESOLVED config rather than restated in prose.
+ * That 31 is asserted below against the RESOLVED config rather than restated in prose.
  * The first revision of this suite hand-computed it as `34 - 8 = 26`, which was wrong for
  * a different reason at the time: `recommended` ships 3 of its 34 entries `off`, so the
  * surface was 23, and the wrong figure sat in four files at once with nothing able to
@@ -24,9 +24,9 @@ import packageJsonRaw from '../../package.json?raw';
  * this card was filed about.
  *
  * The config extends `flatConfigs.strict`, and NONE of those counts can tell you so —
- * `strict` and `recommended` resolve to the same 34 entries and the same 30/2/2 histogram
+ * `strict` and `recommended` resolve to the same 34 entries and the same 31/1/2 histogram
  * once `PROMOTED_RULES` restores `anchor-ambiguous-text`, which `strict` drops entirely.
- * They also produce identical findings on this tree (4, over the same files, rules, lines
+ * They also produce identical findings on this tree (1, over the same file, rule, line
  * and columns). The whole difference is in rule OPTIONS, so that is what the last test
  * asserts; without it, a silent revert to `recommended` passes every assertion here.
  *
@@ -37,7 +37,7 @@ import packageJsonRaw from '../../package.json?raw';
  *   - a FIXED violation also fails, forcing the baseline down instead of letting it
  *     rot upward. `toEqual` on the whole map, not `toBeLessThanOrEqual` on a total;
  *   - it is keyed by file+rule, so fixing one file and breaking another — which leaves
- *     the total at 4 — is still a failure.
+ *     the total at 1 — is still a failure.
  *
  * The `--max-warnings` ceiling in `package.json` is cross-checked against the same
  * measurement, so the two numbers cannot silently disagree.
@@ -75,12 +75,21 @@ const webRoot = decodeURIComponent(import.meta.url.replace(/^file:\/\//, '')).re
 type RuleCounts = Record<string, number>;
 
 /**
- * Measured on this tree after WIC-2077. 4 findings, 3 files, 2 distinct rules — down
- * from the 47/22/8 at WIC-1483 adoption, now that `label-has-associated-control`
- * (19 -> 0), `no-redundant-roles` (1 -> 0),
- * `no-noninteractive-element-to-interactive-role` (1 -> 0),
- * `no-static-element-interactions` (2 -> 0) and `no-autofocus` (5 -> 0) are fully
- * retired. Owned by WIC-1589.
+ * Measured on this tree after WIC-2078. 1 finding, 1 file, 1 rule — down from the 47/22/8
+ * at WIC-1483 adoption, now that `label-has-associated-control` (19 -> 0),
+ * `no-redundant-roles` (1 -> 0), `no-noninteractive-element-to-interactive-role` (1 -> 0),
+ * `no-static-element-interactions` (2 -> 0), `no-autofocus` (5 -> 0),
+ * `click-events-have-key-events` (1 -> 0) and
+ * `no-noninteractive-element-interactions` (3 -> 0) are fully retired. Owned by WIC-1589.
+ *
+ * ⚠️ One rule left, one finding, and it is the one this ratchet CANNOT drive to zero.
+ * `no-noninteractive-tabindex` on `ApplicationCard`'s `<article>` is load-bearing: every
+ * spelling that satisfies the rule — a real `<button>`, or `role="button"` on the article —
+ * trips axe's `nested-interactive` instead, because `SortableApplicationCard` wraps each
+ * card in a dnd-kit `div[role="button"][tabindex="0"]`. WIC-2077 measured that in both
+ * directions and reverted its own fix over it. So do not read "1 remaining" as "nearly
+ * done" and reach for the obvious change; the next move on this entry is a dnd-kit
+ * wrapper question, not a jsx-a11y one, and the OTHER baseline is what would tell you.
  *
  * ⚠️ This header used to end "every entry here is a real defect, not an accepted
  * exception." WIC-2077 retired that sentence rather than let it stay false, and the
@@ -104,7 +113,6 @@ type RuleCounts = Record<string, number>;
  */
 const A11Y_BASELINE: Record<string, RuleCounts> = {
   'src/components/ApplicationCard.tsx': {
-    'no-noninteractive-element-interactions': 1,
     'no-noninteractive-tabindex': 1,
   },
   // `src/components/CatalogBrowse/CatalogBrowseView.tsx` used to sit here with
@@ -129,9 +137,6 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   // `click-events-have-key-events` retired here by WIC-2077 slice 2 (the dropzone's `onClick`
   // is now a real "browse files" `<button>`); `no-noninteractive-element-interactions` did NOT
   // retire — the `onDrop`/`onDragOver`/`onDragLeave` handlers trip it on their own.
-  'src/components/ResumeUpload.tsx': {
-    'no-noninteractive-element-interactions': 1,
-  },
   // `src/components/ResumeVariantCard.tsx` used to sit here with
   // `no-noninteractive-element-to-interactive-role: 1` — the `<article role="button">`.
   // WIC-1942 removed that role (it also tripped axe's `aria-allowed-role` and
@@ -164,7 +169,6 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   // the step-1 company field at `:288`, which renders inside `Dialog.Content` (`:481`, via
   // `renderStepContent()` at `:527`). Same WCAG 2.4.3 reading as CommandPalette. Entry
   // deleted rather than zeroed.
-  'src/components/wizard/WizardStep.tsx': { 'no-noninteractive-element-interactions': 1 },
   // `src/pages/ProjectsList.tsx` used to sit here with `no-autofocus: 1` — the Project
   // Name field at `:234`, inside the create-modal's `Dialog.Content` (`:212`). This is the
   // one of the five that would have been actively DANGEROUS to "fix": per the comment at
@@ -241,6 +245,38 @@ const A11Y_BASELINE: Record<string, RuleCounts> = {
   // gated on `isHovered`, so its Edit and Delete buttons are mouse-only. That is a larger
   // keyboard gap than the lint finding beside it, and `jsx-a11y` is structurally blind to it —
   // no baseline number moves when it is fixed. Both are tracked as WIC-2078.
+  //
+  // WIC-2078 then adjudicated all three `no-noninteractive-element-interactions` survivors —
+  // `ApplicationCard` (entry trimmed above), `ResumeUpload` and `wizard/WizardStep` (both
+  // deleted in place) — dropping BASELINE_TOTAL 4 -> 1 and both `--max-warnings` ceilings with
+  // it. The rule (3 -> 0) leaves `BASELINED_RULES` and returns to `error`, taking the
+  // enforcement surface 30/2/2 -> 31/1/2.
+  //
+  // ⛔ All three are EXEMPTIONS, not fixes — the same shape as WIC-2077's `no-autofocus` block
+  // above, and the distinction is again the thing worth carrying forward. No markup became
+  // more operable at any of the three. The rule fires once per ELEMENT on the presence of any
+  // handler, which was measured rather than assumed: on a bare `<article>`, `onClick` alone and
+  // `onKeyDown` alone each trip it independently. That is what makes it unreachable here —
+  // `ApplicationCard`'s finding could not have been retired by deleting the drag and hover
+  // handlers, because the activation handlers the card must keep trip it by themselves.
+  //
+  // Each carries its reason at the line: the card's own activation (axe forbids the
+  // alternatives, above); the resume drop TARGET, which cannot be given a keyboard equivalent
+  // and instead has one on the sibling "browse files" button; and the wizard's Ctrl+Enter,
+  // a container-scoped shortcut delegated from focusable descendants, where `tabIndex` would
+  // add a dead tab stop and a `document` listener would widen the shortcut's scope.
+  //
+  // ⭐ The real user-facing defect on this card moved NO number here, which is the point of
+  // recording it: `ApplicationCard`'s quick-action bar now reveals on focus as well as hover,
+  // so Edit and Delete are keyboard-reachable for the first time (WCAG 2.1.1). `jsx-a11y` is
+  // per-file and static and cannot see a control that is absent from the DOM, so this suite
+  // was green before the fix and is green after it. It is pinned by
+  // `ApplicationCard.keyboardNav.test.tsx` instead — which is where a reader who trusts the
+  // baseline as a coverage measure should be sent, because on this defect it measured nothing.
+  //
+  // WIC-2078 also deleted the card's native HTML5 drag, which was write-only: `setData` with
+  // no reader anywhere in `src`. That removed two more handlers from the same element and,
+  // exactly as the paragraph above predicts, changed this file not at all.
 };
 
 const BASELINE_TOTAL = Object.values(A11Y_BASELINE)
@@ -347,7 +383,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // empty — measured, not derived. That makes the mutation MORE loudly red, not less,
     // and it now fails whichever way it is patched up: leave `BASELINED_RULES` alone and
     // the `warn` set (2) disagrees with the rules an empty baseline records (0); trim it to
-    // match and both fall back to `error`, so the error count goes 30 -> **32**.
+    // match and both fall back to `error`, so the error count goes 31 -> **32**.
     // Getting this mutation green means editing the assertions themselves, not just the
     // baseline — which is the point of both guards. Verified by running it, not by reading:
     // with this line deleted, the narrowed suite still reds on 'states its enforcement
@@ -385,9 +421,9 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     ).not.toBeNull();
     expect(Number(fixCeiling![1])).toBe(BASELINE_TOTAL);
 
-    // The baselined 4 findings are `warn`, so `--max-warnings` is what pins them. Any
+    // The baselined 1 finding is `warn`, so `--max-warnings` is what pins them. Any
     // jsx-a11y finding at `error` severity would fail `npm run lint` outright — which is
-    // correct for the other 30 rules, but means the tree is currently red, so say so here.
+    // correct for the other 31 rules, but means the tree is currently red, so say so here.
     //
     // NOTE (WIC-2077): this is also what proves the five `no-autofocus` disable directives
     // are actually taking effect. `no-autofocus` is now at `error`, so a directive that
@@ -396,7 +432,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     expect(errors).toBe(0);
   }, 60_000);
 
-  it('states its enforcement surface exactly — 30 error, 2 warn, 2 deliberately off', async () => {
+  it('states its enforcement surface exactly — 31 error, 1 warn, 2 deliberately off', async () => {
     // The reason this test exists.
     //
     // Every other number in this PR is measured; the enforcement surface was not. It was
@@ -425,8 +461,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // Fails closed: if the config failed to resolve, `rules` is empty and every count is 0.
     expect(a11yRules).toHaveLength(34);
 
-    expect(named(2)).toHaveLength(30);
-    expect(named(1)).toHaveLength(2);
+    expect(named(2)).toHaveLength(31);
+    expect(named(1)).toHaveLength(1);
 
     // Pinned BY NAME, not just counted. `label-has-for` is deprecated upstream and
     // superseded by `label-has-associated-control`, now at `error` with 0 findings
@@ -437,7 +473,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // THIRD rule off, that is a silent loss of enforcement and this must fail.
     expect(named(0)).toEqual(['jsx-a11y/control-has-associated-label', 'jsx-a11y/label-has-for']);
 
-    // The 2 at `warn` must be exactly the rules the baseline records findings for. This
+    // The 1 at `warn` must be exactly the rule the baseline records findings for. This
     // ties the config to the evidence: baselining a rule that has no recorded violations,
     // or recording violations for a rule that is not baselined, both fail here.
     const baselinedRules = [
@@ -455,7 +491,7 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // and they differ on 7 rules — but 6 of those differences are in rule OPTIONS, and the
     // 7th is that `anchor-ambiguous-text` is absent from `strict` altogether while
     // `recommended` ships it `off`. PROMOTED_RULES restores it, so BOTH configs resolve to
-    // 34 entries at 30/2/2, over the same 2 `off` names. They also produce byte-identical
+    // 34 entries at 31/1/2, over the same 2 `off` names. They also produce byte-identical
     // findings on this tree: 4, matching on file + rule + line + column + severity.
     //
     // So every count in the test above is satisfied by either ruleset, and a revert of the

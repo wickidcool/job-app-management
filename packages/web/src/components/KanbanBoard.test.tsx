@@ -149,7 +149,6 @@ describe('Kanban heading outline (WIC-1563)', () => {
           <ApplicationCard
             application={APPLICATIONS[0]}
             variant="kanban"
-            draggable={false}
             showQuickActions={false}
           />
         </div>

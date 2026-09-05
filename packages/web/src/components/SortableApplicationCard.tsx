@@ -53,7 +53,6 @@ export function SortableApplicationCard({
     <ApplicationCard
       application={application}
       variant="kanban"
-      draggable={!isMobile}
       showQuickActions={!isMobile}
       onCardClick={onCardClick}
       onEdit={onEdit}

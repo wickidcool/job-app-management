@@ -46,6 +46,20 @@ export function WizardStep({
   };
 
   return (
+    // WIC-2078, reviewed exception (site 3 of 3). The `onKeyDown` here is not this element's
+    // own activation — it is a container-scoped shortcut for its focusable DESCENDANTS. The
+    // panel is never itself focused; `keydown` fires on whichever input or button inside the
+    // step has focus and bubbles up to here, which is precisely what scopes Ctrl+Enter to
+    // "while the user is working in this step" and is why it is advertised in the hint below.
+    //
+    // Both alternatives are worse, which is what makes this an exception rather than a fix
+    // deferred. Adding `tabIndex={0}` to satisfy the rule adds a tab stop that does nothing
+    // when activated, and it is not owed: ARIA APG asks for a focusable `tabpanel` only when
+    // the panel has no focusable children, and this one always renders the Back/Next buttons.
+    // Hoisting the listener to `document` would silence the rule by widening the shortcut's
+    // scope to the whole app — trading a lint finding for a real behaviour change, and for a
+    // global key handler that fires on steps and pages that never advertised it.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <div
       className="flex flex-col h-full"
       role="tabpanel"
