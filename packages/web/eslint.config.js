@@ -18,7 +18,7 @@ const localRules = {
 
 /**
  * The `jsx-a11y` rules that this tree still violates (WIC-1483 recorded them, WIC-1589
- * is retiring them). 8 rules / 47 findings at adoption; **3 rules / 5 findings today.**
+ * is retiring them). 8 rules / 47 findings at adoption; **2 rules / 4 findings today.**
  *
  * ⚠️ That figure is prose and nothing asserts it — it read `5 rules / 26 findings` until
  * WIC-2077, having gone stale through WIC-2062 (26 -> 18) and WIC-2073 (18 -> 10, 5 rules
@@ -35,14 +35,14 @@ const localRules = {
  * because the test asserts exact equality in both directions and cross-checks the two
  * numbers against each other. When a rule reaches zero, delete its line here.
  *
- * Five rules have reached zero and are gone from this list, back at `error`:
+ * Six rules have reached zero and are gone from this list, back at `error`:
  * `label-has-associated-control` (19 -> 0), `no-redundant-roles` (1 -> 0),
  * `no-noninteractive-element-to-interactive-role` (1 -> 0, WIC-1942 — the
  * `<article role="button">` in `ResumeVariantCard.tsx`, which also tripped axe's
  * `aria-allowed-role` and `nested-interactive`), `no-static-element-interactions`
  * (2 -> 0, WIC-2073 — the last two bare `<div onClick>` wrappers, in
  * `CatalogBrowseView.tsx` and `StarEntryPicker.tsx`), and `no-autofocus`
- * (5 -> 0, WIC-2077).
+ * (5 -> 0, WIC-2077) and `click-events-have-key-events` (1 -> 0, WIC-2077 slice 2).
  *
  * ⛔ `no-autofocus` reached zero WITHOUT any focus behaviour changing, and that is the
  * one entry here whose history you must not misread. All five sites were inspected
@@ -78,7 +78,6 @@ const localRules = {
  * it mounts. Adopting it does NOT cover WCAG SC 1.3.1. That is layer 2's job.
  */
 const BASELINED_RULES = {
-  'jsx-a11y/click-events-have-key-events': 'warn', // 1
   'jsx-a11y/no-noninteractive-element-interactions': 'warn', // 3
   'jsx-a11y/no-noninteractive-tabindex': 'warn', // 1
 };
