@@ -2,11 +2,59 @@
 
 ## Status
 
-Proposed — supersedes the owner-absent affordance in
+**Accepted** (2026-09-05) — supersedes the owner-absent affordance in
 [ADR-003: Multi-User Authentication with Supabase](./ADR-003-multi-user-auth.md).
 
-Tracking: WIC-1600. Per-site remediation: WIC-1549, WIC-1554, WIC-1596, WIC-1435.
+The posture is adopted and is being implemented; acceptance records the decision, not
+completion of the burndown. See **Implementation status** below for what has actually landed.
+
+Tracking: WIC-1600. Per-site remediation: WIC-1549, WIC-1554, WIC-1596, WIC-1435 — all merged.
 Analysis of record: WIC-1430 document `tenancy-absent-caller-audit`.
+
+## Implementation status
+
+Measured on `main` at `2143bb60`, 2026-09-05. Recorded here so the next reader does not
+re-derive it — three separate cards have already re-measured this independently.
+
+| decision | state | evidence |
+|---|---|---|
+| **D1.1** reject a token that verifies with no `sub` | ✅ landed | `middleware/auth.ts` `requireSubject` throws → 401 on both the ES256/RS256 and HS256 paths |
+| **D1.2** narrow `HonoVariables.userId` to `string` | ❌ outstanding | `src/types/env.ts:75` is still `userId: string \| null` |
+| **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ❌ outstanding — **66 sites** | 66 live sites across 11 route files; 73 total `c.get('userId')` sites; only 11 `requireOwner(c)` adoptions in 3 files |
+| **D2** service signatures take `userId: string` | ⚠️ partial | the guard still reports `[SIG] 81` |
+| **D3** local dev gets a real owner | ✅ landed | `middleware/auth.ts` supplies `LOCAL_DEV_USER_ID` (WIC-1964) |
+| **D4** CI guard is the mechanism | ✅ landed | `scripts/audit-owner-predicates.mjs`, wired into `Lint & Test` |
+| **D5** `[NOWNER]` checks owner-absent writes | ⚠️ landed, unsound | see the caveat below |
+
+Reproduce D1.3:
+
+```sh
+grep -rn "c.get('userId') ?? undefined" packages/api/src/routes --exclude=require-owner.ts | wc -l
+```
+
+### Caveat on D5 — `[NOWNER] = 0` does not mean the write class is closed
+
+`[NOWNER]` treats a `where` predicate as owner-scoped when an owner column appears
+*anywhere* in it (`audit-owner-predicates.mjs`, the `v.some((r) => r.owner)` gate). For a
+ternary it therefore reads the consequent, sees the owner term, and passes the site —
+never examining the alternate branch that drops the owner. Two UPDATEs with identical
+absent-owner behaviour are graded differently: the inline `where(eq(t.slug, slug))` is
+flagged, while
+
+```ts
+const whereClause = userId
+  ? and(eq(t.slug, slug), eq(t.userId, userId))
+  : eq(t.slug, slug);
+```
+
+is not — even though both match one row *per tenant* when the owner is absent, because
+every catalog unique here is composite `(user_id, slug)` and the UPDATE carries no `LIMIT`.
+Four such sites are live in `catalog.service.ts` (`:831`, `:863`, `:893`, `:944`), reachable
+in principle through `catalog.routes.ts` → `applyDiff` → `applyChange`. They are not
+exploitable today — D1.1 plus a three-entry `PUBLIC_PATHS` guarantees a concrete owner on
+every non-auth route — but they are held shut by an invariant three layers away from the
+predicate rather than by the predicate itself. Finishing D1.2 + D1.3 is what makes that
+structural. Tracked on WIC-1672 (Finding 2) and WIC-2067.
 
 ## Context
 
