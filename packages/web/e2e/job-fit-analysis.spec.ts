@@ -547,8 +547,7 @@ test.describe('Job Fit Analysis page', () => {
   });
 
   // TC-4: No matching catalog entries (empty catalog)
-  // FIXME: Test is flaky in CI - empty catalog message rendering may vary
-  test.skip('TC-4: displays empty catalog warning when catalogEmpty is true', async ({ page }) => {
+  test('TC-4: displays empty catalog warning when catalogEmpty is true', async ({ page }) => {
     await mockJobFitApi(page, MOCK_EMPTY_CATALOG_RESPONSE);
 
     await page.locator('#jobDescriptionText').fill(JD_TEXT_VALID);
@@ -560,15 +559,27 @@ test.describe('Job Fit Analysis page', () => {
       }
     );
 
-    await expect(page.getByText('No Catalog Data Yet')).toBeVisible();
+    // Scope every assertion to the warning panel (WIC-2124).
+    //
+    // This test was carried as `test.skip` with `FIXME: Test is flaky in CI` from
+    // 2026-04-25. It is not flaky — it failed 12 times out of 12 on a **strict mode
+    // violation**, deterministically. `JobFitAnalysis.tsx` renders `results.summary`
+    // both in the summary block and again as the panel's body copy, and this
+    // fixture's `summary` *is* the empty-catalog sentence, so the unscoped
+    // `getByText` matched two elements. Anchoring on the panel heading's parent
+    // resolves it and makes the assertion say what it means: the copy and the CTA
+    // are *inside the warning panel*, not merely present somewhere on the page.
+    const panel = page.getByRole('heading', { name: 'No Catalog Data Yet' }).locator('..');
+
+    await expect(page.getByRole('heading', { name: 'No Catalog Data Yet' })).toBeVisible();
     await expect(
-      page.getByText(
+      panel.getByText(
         'Your catalog is empty. Upload a resume or add application history to enable fit analysis.'
       )
     ).toBeVisible();
-    await expect(
-      page.getByRole('link', { name: 'Upload Resume →' }).or(page.getByText('Upload Resume →'))
-    ).toBeVisible();
+    // It is a <button> that navigates, not an <a> — the original `link`-or-text
+    // assertion passed on the text arm and never pinned the control's role.
+    await expect(panel.getByRole('button', { name: 'Upload Resume →' })).toBeVisible();
   });
 
   // TC-7: Error handling

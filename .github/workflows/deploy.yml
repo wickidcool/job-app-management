@@ -194,6 +194,28 @@ jobs:
       - name: Audit wrangler config resolution
         run: python3 scripts/wrangler-config-resolution-check.py
 
+      # WIC-2124: a hard-coded `test.describe.skip(...)` is invisible to every
+      # signal this pipeline already has. It is not a failure, so the E2E job stays
+      # green; the file still exists, so any filename-level audit reads it as
+      # covered; and the spec count goes *up*, not down. `personal-info.spec.ts`
+      # was dark for four months that way — 18 specs including the settings
+      # save-failure path — behind a commit message promising an "infrastructure
+      # fix" that no card tracked. This gates the hazard directly: a skip with no
+      # reason string, which is the one shape a gated `test.skip(cond, 'why')`
+      # cannot produce. It does NOT pin a skip *count* — the credential-gated band
+      # is expected to drain to zero when WIC-2122's `E2E_TEST_USER*` secrets land,
+      # and a pinned count would fight that.
+      #
+      # Lives here rather than in `e2e-tests` on purpose: this job runs
+      # unconditionally, while `e2e-tests` is skipped on a `[skip deploy]` push.
+      # `--list` parses spec files and launches nothing, so it needs no browser
+      # binaries and no credentials — verified with PLAYWRIGHT_BROWSERS_PATH
+      # pointed at an empty directory.
+      - name: Audit unconditionally-skipped e2e specs
+        run: |
+          python3 scripts/e2e-skip-floor-check.py --selftest
+          python3 scripts/e2e-skip-floor-check.py
+
       - name: Run tests
         run: npm run test
 
