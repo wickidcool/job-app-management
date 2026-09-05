@@ -44,9 +44,16 @@ name: Supabase keep-alive & prod auth canary
 # probe fold in here rather than spawn a second cron file):
 #   * keepalive     — read-only `SELECT 1` every 3rd day, keeps the free-tier projects
 #                     out of the auto-pause window (WIC-1293).
-#   * auth-canary   — POSTs invalid canary credentials to prod `/api/auth/login` every
-#                     15 min and asserts a STRUCTURED rejection, catching the WIC-1281
-#                     total-auth outage that every existing monitor stayed green through.
+#   * auth-canary   — every 15 min, runs TWO independent probes against prod and fails
+#                     the run if EITHER regresses, without one masking the other:
+#                       - auth plane: POSTs invalid canary credentials to `/api/auth/login`
+#                         and asserts a STRUCTURED rejection, catching the WIC-1281
+#                         total-auth outage every existing monitor stayed green through.
+#                       - data plane: GETs `/api/health` and asserts HTTP 200 + status:ok,
+#                         catching the WIC-2092 Hyperdrive/pooler egress outage the auth
+#                         probe is structurally blind to (it never dials Postgres). The
+#                         `/api/health` liveness check existed (WIC-1296) but nothing
+#                         polled it, so a ~10-day 503 went unseen by every monitor (WIC-2123).
 # Each job is gated on which schedule fired, so the 15-min cadence the canary needs does
 # NOT drag the keep-alive `SELECT 1` along with it.
 
@@ -187,7 +194,7 @@ jobs:
   #   and the password is deliberately wrong, so this can only ever be rejected. No
   #   secret is required — a real credential would defeat the purpose.
   auth-canary:
-    name: prod auth canary (invalid-credential login)
+    name: prod canary (auth + data plane)
     # Only the 15-min cron (and manual dispatch) — never the 3-day keep-alive schedule.
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -225,12 +232,16 @@ jobs:
           echo "body=${BODY}"
 
           if [ "$CURL_RC" -ne 0 ]; then
-            echo "::error::Prod auth canary could NOT reach ${URL} (curl rc=${CURL_RC}: $(cat /tmp/curl.err)). Production auth may be unreachable. See WIC-1281/WIC-1296."
+            VERDICT="🔴 AUTH PLANE: could NOT reach ${URL} (curl rc=${CURL_RC}: $(cat /tmp/curl.err)). Production auth may be unreachable."
+            echo "AUTH_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+            echo "::error::${VERDICT} See WIC-1281/WIC-1296."
             exit 1
           fi
 
           if [ "${CODE:-0}" -ge 500 ]; then
-            echo "::error::Prod auth canary got HTTP ${CODE} from ${URL} — a 5xx means the auth stack itself is failing server-side. See WIC-1281/WIC-1296."
+            VERDICT="🔴 AUTH PLANE: HTTP ${CODE} from ${URL} — a 5xx means the auth stack itself is failing server-side."
+            echo "AUTH_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+            echo "::error::${VERDICT} See WIC-1281/WIC-1296."
             exit 1
           fi
 
@@ -247,16 +258,111 @@ jobs:
           PARSE_RC=$?
 
           if [ "$PARSE_RC" -eq 3 ]; then
-            echo "::error::Prod auth canary got a NON-JSON / unparseable body from ${URL} (http ${CODE}). Production auth is degraded — this is the WIC-1281 outage signature."
+            VERDICT="🔴 AUTH PLANE: NON-JSON / unparseable body from ${URL} (http ${CODE}). Production auth is degraded — the WIC-1281 outage signature."
+            echo "AUTH_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+            echo "::error::${VERDICT} See WIC-1281/WIC-1296."
             exit 1
           fi
 
           if [ "$MSG" = "Invalid login credentials" ]; then
-            echo "✅ Production auth is LIVE — structured rejection 'Invalid login credentials' at HTTP ${CODE}. The login path reached Supabase and it validated."
+            VERDICT="✅ AUTH PLANE: LIVE — structured rejection 'Invalid login credentials' at HTTP ${CODE}. The login path reached Supabase and it validated."
+            echo "AUTH_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+            echo "$VERDICT"
             exit 0
           fi
 
-          echo "::error::Prod auth canary FAILED: expected HTTP 401 with message 'Invalid login credentials' but got http=${CODE} message='${MSG}'. An empty/'{}'/AUTH_ERROR-without-validation body is the exact WIC-1281 signature — production auth may be DOWN and no other monitor catches this. See WIC-1296."
+          VERDICT="🔴 AUTH PLANE FAILED: expected HTTP 401 with message 'Invalid login credentials' but got http=${CODE} message='${MSG}'. An empty/'{}'/AUTH_ERROR-without-validation body is the exact WIC-1281 signature — production auth may be DOWN and no other monitor catches this."
+          echo "AUTH_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+          echo "::error::${VERDICT} See WIC-1296."
+          exit 1
+
+      # WIC-2123 — Synthetic production DATA-PLANE probe.
+      #
+      # WHY THIS EXISTS
+      #   Production's data plane returned `503` for ~10 days (WIC-2092) and not one
+      #   monitor went red. The auth canary above is structurally blind to it: it
+      #   proves Supabase Auth REST is up, but it never dials Postgres, so a
+      #   Hyperdrive/pooler egress fault is invisible to it. Every other green signal
+      #   is blind too — `GET /api/*` returns 401 before Postgres is dialled, and the
+      #   keep-alive `SELECT 1` is gated to the 3-day schedule, not this 15-min one.
+      #   `/api/health` became a real, unauthenticated liveness check under WIC-1296,
+      #   but nothing polled it. This step is that missing consumer.
+      #
+      # WHAT IT ASSERTS  (read before editing)
+      #   A *healthy* data plane returns HTTP 200 with body `{"status":"ok",...}`. PASS
+      #   iff HTTP 200 AND `.status == "ok"`. FAIL on anything else — the live outage
+      #   signature is HTTP 503 with `{"status":"degraded","hyperdrive":false,
+      #   "db":"write CONNECTION_DESTROYED ..."}`. The failure names the observed
+      #   `hyperdrive` and `db` fields verbatim so the incident issue is self-diagnosing.
+      #
+      #   `if: always()` so a failing auth probe never masks the data-plane verdict, and
+      #   vice versa — both probes run every time and each records an independent verdict.
+      #
+      # SAFETY
+      #   Read-only, unauthenticated GET. No credentials, no state change.
+      - name: Probe prod data plane (GET /api/health)
+        id: data-plane
+        if: always()
+        env:
+          PROD_BASE_URL: ${{ vars.PROD_BASE_URL || 'https://app.careerpin.app' }}
+        run: |
+          set -uo pipefail
+          BASE="${PROD_BASE_URL:-https://app.careerpin.app}"
+          URL="${BASE%/}/api/health"
+
+          echo "Probing ${URL} for data-plane liveness"
+          RESP=$(curl -sS -m 25 -w $'\n%{http_code}' "$URL" 2>/tmp/health_curl.err)
+          CURL_RC=$?
+          CODE=$(printf '%s' "$RESP" | tail -n1)
+          BODY=$(printf '%s' "$RESP" | sed '$d')
+          echo "curl rc=${CURL_RC} http=${CODE}"
+          echo "body=${BODY}"
+
+          if [ "$CURL_RC" -ne 0 ]; then
+            VERDICT="🔴 DATA PLANE: could NOT reach ${URL} (curl rc=${CURL_RC}: $(cat /tmp/health_curl.err)). Production data plane is unreachable."
+            echo "DATAPLANE_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+            echo "::error::${VERDICT} See WIC-2123/WIC-2092."
+            exit 1
+          fi
+
+          # Extract status/hyperdrive/db (tab-separated). "__PARSE_ERROR__" on non-JSON.
+          cat > "${RUNNER_TEMP:-/tmp}/parse_health.py" <<'PY'
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+          except Exception:
+              print("__PARSE_ERROR__"); sys.exit(0)
+          def g(k):
+              if k not in d:
+                  return "<absent>"
+              v = d[k]
+              # Render booleans/null verbatim as JSON does (false/true/null), strings as-is.
+              return v if isinstance(v, str) else json.dumps(v)
+          print("\t".join([g("status"), g("hyperdrive"), g("db")]))
+          PY
+          PARSED=$(printf '%s' "$BODY" | python3 "${RUNNER_TEMP:-/tmp}/parse_health.py")
+
+          if [ "$PARSED" = "__PARSE_ERROR__" ]; then
+            VERDICT="🔴 DATA PLANE: /api/health returned http=${CODE} with a NON-JSON body: ${BODY}"
+            echo "DATAPLANE_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+            echo "::error::${VERDICT} See WIC-2123/WIC-2092."
+            exit 1
+          fi
+
+          STATUS=$(printf '%s' "$PARSED" | cut -f1)
+          HYPERDRIVE=$(printf '%s' "$PARSED" | cut -f2)
+          DB=$(printf '%s' "$PARSED" | cut -f3)
+
+          if [ "${CODE:-0}" = "200" ] && [ "$STATUS" = "ok" ]; then
+            VERDICT="✅ DATA PLANE: LIVE — /api/health http=200 status=ok (hyperdrive=${HYPERDRIVE}, db=${DB})."
+            echo "DATAPLANE_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+            echo "$VERDICT"
+            exit 0
+          fi
+
+          VERDICT="🔴 DATA PLANE DOWN: /api/health http=${CODE} status='${STATUS}' hyperdrive='${HYPERDRIVE}' db='${DB}'. Expected http=200 status=ok. This is the WIC-2092 Hyperdrive/pooler egress outage that the auth canary is structurally blind to."
+          echo "DATAPLANE_VERDICT=${VERDICT}" >> "$GITHUB_ENV"
+          echo "::error::${VERDICT} See WIC-2123/WIC-2092."
           exit 1
 
       - name: Surface a failure where a human will see it
@@ -266,11 +372,11 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
-          TITLE="🔴 Prod auth canary FAILED — production login may be down"
-          BODY=$(printf 'The scheduled production auth canary failed.\n\nIt POSTs invalid canary credentials to `/api/auth/login` and expects the structured rejection `Invalid login credentials`, which only a live Supabase produces. A failure is the WIC-1281 total-auth-outage signature — and no other monitor catches it, because `GET /api/*` returns 401 before it touches Postgres.\n\nFailing run: %s\n\nRunbook: WIC-1296 / WIC-1281. A paused Supabase project can only be restored by the account owner in the console.' "$RUN_URL")
+          TITLE="🔴 Prod canary FAILED — production auth or data plane may be down"
+          BODY=$(printf 'The scheduled production canary failed. It runs TWO independent probes every 15 minutes and reports both verdicts below; a failure in either plane fails the run without masking the other.\n\n- %s\n- %s\n\n**Auth plane** POSTs invalid canary credentials to `/api/auth/login` and expects the structured rejection `Invalid login credentials`, which only a live Supabase produces (WIC-1281/WIC-1296). It never dials Postgres.\n**Data plane** GETs `/api/health` and expects HTTP 200 with `status:ok`; HTTP 503 with `hyperdrive:false` / a destroyed `db` connection is the WIC-2092 Hyperdrive/pooler egress outage the auth probe is structurally blind to (WIC-2123). No other monitor catches this — `GET /api/*` returns 401 before Postgres is dialled, and the keep-alive `SELECT 1` runs only on the 3-day schedule.\n\nFailing run: %s\n\nRunbook: WIC-2092 (data plane — Hyperdrive provisioning is human-gated), WIC-1296 / WIC-1281 (auth plane). A paused Supabase project can only be restored by the account owner in the console.' "${AUTH_VERDICT:-⚠️ AUTH PLANE: no verdict recorded (probe did not run)}" "${DATAPLANE_VERDICT:-⚠️ DATA PLANE: no verdict recorded (probe did not run)}" "$RUN_URL")
           # Dedup: comment on the standing incident issue if one is already open,
           # else open a fresh one. Avoids a new issue every 15 minutes during an outage.
-          EXISTING=$(gh issue list --state open --search "in:title \"Prod auth canary FAILED\"" --json number --jq '.[0].number' 2>/dev/null || true)
+          EXISTING=$(gh issue list --state open --search "in:title \"Prod canary FAILED\"" --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "${EXISTING:-}" ]; then
             gh issue comment "$EXISTING" --body "$BODY" && echo "Commented on open incident issue #${EXISTING}"
           else

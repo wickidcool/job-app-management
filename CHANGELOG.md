@@ -21,6 +21,15 @@ The scheduled Layer 0 audit (`.github/workflows/secret-history-audit.yml`) went 
 Verified three ways, not one: the audit's own flags now report **0**; dropping `--redact` brings **all 41 back**, confirming the load-bearing redaction coupling the baseline header documents; and a throwaway commit carrying a synthetic credential is **still detected** against the enlarged baseline, so the ratchet mutes nothing it should catch (WIC-2116).
 
 
+### Added — The 15-min prod canary now asserts the data plane, not just auth: `/api/health` must be 200 with `status:ok` (2026-09-05)
+
+`.github/workflows/supabase-keepalive.yml`'s 15-min canary job gains a second, independent probe alongside the auth check: it GETs `${PROD_BASE_URL}/api/health` and fails the run unless HTTP `200` with body `status:ok`. Production's data plane returned `503` for ~10 days (WIC-2092) while every monitor stayed green — the auth canary proves only that Supabase Auth REST is up (it never dials Postgres), `GET /api/*` returns `401` before Postgres is reached, and the keep-alive `SELECT 1` runs only on the 3-day schedule. `/api/health` became a real liveness check under WIC-1296 but nothing polled it, so the outage was invisible to CI (WIC-2123).
+
+- Both probes run every fire via `if: always()`, so a data-plane failure never masks an auth-plane failure or vice versa; each records an independent verdict and the run goes red if either regresses.
+- The failure message names the observed `hyperdrive` and `db` fields verbatim, so the incident issue is self-diagnosing (e.g. `hyperdrive=false`, `db="write CONNECTION_DESTROYED ..."`).
+- Failure reuses the existing deduped incident reporter — one standing issue with comments across a multi-day outage, never one issue per 15 minutes.
+- This makes the outage *visible* only; fixing it (production Hyperdrive provisioning) is human-gated under WIC-2092 and out of scope here, so the alarm is expected to stay red until that lands.
+
 ### Added — A read-only probe for whether the live `CLOUDFLARE_API_TOKEN` can replace the revoked `CLOUDFLARE_CAREERPIN_API` in the marketing deploy (2026-09-05)
 
 `.github/workflows/cf-marketing-token-drop-in-probe.yml` measures, against the live credential, each capability `deploy-marketing.yml` depends on: `GET /accounts`, zone reads and DNS record lists on `careerpin.app` + `careerpin.io`, and a Pages project read for `careerpin-marketing`. It is `workflow_dispatch`-only, `environment: production`, and issues **GETs exclusively** — no POST/PUT/PATCH/DELETE and no `wrangler`, so unlike the WIC-2097 probe it has no write call at all.
