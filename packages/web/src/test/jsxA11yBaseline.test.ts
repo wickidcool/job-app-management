@@ -405,18 +405,29 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // enforcement surface exactly' was added below — that test ties the `warn` set to the
     // rules the baseline records, so a narrowed baseline reds it too.
     //
-    // The fourth correction is WIC-2077's, and it moved the figure to a corner: `src/pages`
-    // now yields **0** findings, not 1. `no-autofocus` was the only rule surviving the
-    // narrowing, and its two `src/pages` sites (ProjectsList, ResumeVariantDetail) are now
-    // disable directives. So the narrowed baseline is `{}` and the narrowed `warn` set is
-    // empty — measured, not derived. That makes the mutation MORE loudly red, not less,
-    // and it now fails whichever way it is patched up: leave `BASELINED_RULES` alone and
-    // the `warn` set (2) disagrees with the rules an empty baseline records (0); trim it to
-    // match and both fall back to `error`, so the error count goes 31 -> **32**.
-    // Getting this mutation green means editing the assertions themselves, not just the
-    // baseline — which is the point of both guards. Verified by running it, not by reading:
-    // with this line deleted, the narrowed suite still reds on 'states its enforcement
-    // surface exactly'.
+    // ⭐ The fifth correction is WIC-2110's, and it REVERSES the fourth — which claimed the
+    // narrowing mutation is caught twice over, so that "with this line deleted, the narrowed
+    // suite still reds on 'states its enforcement surface exactly'." That was true when the
+    // baseline held one entry. **It is false now, and this line is the ONLY thing left that
+    // catches the mutation.**
+    //
+    // The fourth correction's argument was that a narrowed baseline is inconsistent with the
+    // config: `src/pages` yields 0 findings, so the narrowed baseline is `{}` while the
+    // `warn` set still names a rule — and the surface test reds on the disagreement. But
+    // emptying `A11Y_BASELINE` for real (WIC-2110) removed exactly that disagreement. The
+    // narrowed measurement `{}` now EQUALS the recorded baseline, `total` and
+    // `BASELINE_TOTAL` are both 0, and the `warn` set is empty on both sides. Every
+    // assertion in this suite is satisfied by a run that reads a quarter of the tree.
+    //
+    // Measured, not reasoned: with the glob narrowed to `src/pages/**`, the suite fails on
+    // this line and this line alone — `expected 61 to be greater than 100`, 4 of 5 passing.
+    // Under the previous revision the same mutation failed two tests.
+    //
+    // ⛔ So do not delete this as redundant with the equality below, and do not weaken the
+    // floor. Reaching zero findings cost the ratchet its cross-check: a baseline of `{}`
+    // agrees with *any* narrowing, and `filesLinted` is the only assertion that still
+    // distinguishes "nothing is wrong" from "almost nothing was read". That is a general
+    // property of an empty baseline, not a quirk of this glob.
     //
     // 249 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);

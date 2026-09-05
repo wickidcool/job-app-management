@@ -17,17 +17,19 @@ const localRules = {
 };
 
 /**
- * The `jsx-a11y` rules that this tree still violates (WIC-1483 recorded them, WIC-1589
- * is retiring them). 8 rules / 47 findings at adoption; **2 rules / 4 findings today.**
+ * The `jsx-a11y` rules that this tree still violates (WIC-1483 recorded them, WIC-1589 and
+ * its successors retired them). 8 rules / 47 findings at adoption; **0 / 0 today.**
  *
  * ⚠️ That figure is prose and nothing asserts it — it read `5 rules / 26 findings` until
- * WIC-2077, having gone stale through WIC-2062 (26 -> 18) and WIC-2073 (18 -> 10, 5 rules
- * -> 4) without anything able to contradict it. The trailing counts on the entries below
- * ARE cross-checked, via `A11Y_BASELINE`; this sentence is not. Prefer the entries.
+ * WIC-2077 and `2 rules / 4 findings` until WIC-2110, going stale through WIC-2062
+ * (26 -> 18), WIC-2073 (18 -> 10) and WIC-2078 (4 -> 1) without anything able to
+ * contradict it. `A11Y_BASELINE` in `src/test/jsxA11yBaseline.test.ts` is the cross-checked
+ * copy; this sentence is not. Prefer that file.
  *
- * These are `warn` ONLY so that adopting the plugin did not require fixing 47
- * pre-existing defects in the same change. They are not exempt: the total is pinned
- * from both sides (see below), so the count can go down but never up.
+ * Entries here were `warn` ONLY so that adopting the plugin did not require fixing 47
+ * pre-existing defects in the same change. They were never exempt: the total is pinned
+ * from both sides (see below), so the count could go down but never up — and it has now
+ * gone all the way down.
  *
  * This is a ratchet with a deadline, not an allowlist. The findings are owned by
  * WIC-1589; as they are fixed, `A11Y_BASELINE` in `src/test/jsxA11yBaseline.test.ts`
