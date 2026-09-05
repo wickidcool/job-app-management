@@ -131,12 +131,22 @@ export function STARStoryBank({
                     </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3
-                          className="font-medium text-gray-900 cursor-pointer hover:text-blue-600"
-                          onClick={() => setExpandedStoryId(isExpanded ? null : story.id)}
-                        >
-                          {story.starEntryId.substring(0, 50)}
-                          {story.starEntryId.length > 50 ? '...' : ''}
+                        {/* The expand toggle is a real `<button>` inside the existing
+                            heading, following ResumeVariantCard (WIC-1942) and the four
+                            Reports pages (WIC-2062) rather than putting a role on the
+                            heading: a heading may CONTAIN a button, where the heading
+                            itself may not become one. `aria-expanded` names the state the
+                            `cursor-pointer` class used to only hint at (WIC-2073). */}
+                        <h3 className="font-medium text-gray-900">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedStoryId(isExpanded ? null : story.id)}
+                            aria-expanded={isExpanded}
+                            className="text-left rounded hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                          >
+                            {story.starEntryId.substring(0, 50)}
+                            {story.starEntryId.length > 50 ? '...' : ''}
+                          </button>
                         </h3>
                       </div>
                       <div className="flex flex-wrap gap-2 mb-2">

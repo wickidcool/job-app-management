@@ -246,17 +246,29 @@ export function CatalogBrowseView() {
           {diffs.map((diff) => (
             <div
               key={diff.id}
-              className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 hover:border-primary-300 cursor-pointer transition-colors"
-              onClick={() => handleDiffClick(diff)}
+              className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 hover:border-primary-300 transition-colors"
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                 <div>
                   {/* h2: these cards are direct children of the /catalog page h1, with
                       no intervening section heading (WIC-1675 AC-2). `text-h4` keeps the
-                      visual size — the tag carries the outline, the class the type. */}
+                      visual size — the tag carries the outline, the class the type.
+
+                      WIC-2073: the wrapper `<div>` used to carry `onClick` +
+                      `cursor-pointer`, which no keyboard could reach. Opening the diff now
+                      lives on a real `<button>` inside this heading, per the
+                      ResumeVariantCard (WIC-1942) / Reports* (WIC-2062) precedent — never
+                      a `role=` on the wrapper. The wrapper is inert, so "Review Changes"
+                      below needs its OWN handler; it used to rely on bubbling. */}
                   <h2 className="text-h4 font-bold text-neutral-900 mb-1">
-                    {diff.sourceType === 'resume' ? '📄' : '💼'}{' '}
-                    {diff.sourceType === 'resume' ? 'Resume' : 'Application'} Update
+                    <button
+                      type="button"
+                      onClick={() => handleDiffClick(diff)}
+                      className="text-left rounded hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                    >
+                      {diff.sourceType === 'resume' ? '📄' : '💼'}{' '}
+                      {diff.sourceType === 'resume' ? 'Resume' : 'Application'} Update
+                    </button>
                   </h2>
                   <p className="text-sm text-neutral-500">
                     {new Date(diff.createdAt).toLocaleDateString()} at{' '}
@@ -265,6 +277,7 @@ export function CatalogBrowseView() {
                 </div>
                 <button
                   type="button"
+                  onClick={() => handleDiffClick(diff)}
                   className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded hover:bg-primary-700"
                 >
                   Review Changes
