@@ -146,9 +146,23 @@ GitHub Actions (`.github/workflows/deploy.yml`): PRs get a preview Worker deploy
 
 When the deleted branch is some other PR's **base**, GitHub does not retarget that child onto the merged parent's base. It **closes the child**, unmerged, and does it as an automatic side effect with no prompt and no undo.
 
-Measured, not hypothetical: **PR #34** (`docs/wic-808-refresh-api-readme-authentication` → base `docs/wic-807-refresh-architecture-docs`) was closed unmerged at `2026-08-04T18:43:06Z`, **2 seconds** after its parent **PR #33** merged at `18:43:04Z`. Nothing was wrong with the child — the close was purely the base branch vanishing underneath it. The work was not lost, but recovering it cost re-landing the whole change as a fresh **PR #35** (`85f8be48`).
+Measured, not hypothetical — it has happened **twice**, both times with the child closing exactly **2 seconds** after the parent merged:
 
-*(Correcting a claim that circulated on the board: this was **#34**, not #126 — #126 merged normally from a `main` base. #34 carried one `COMMENTED` review and no checks, not "two approving reviews and green CI". The 2-second timing is the part that reproduces. Note also that agents cannot approve PRs here: every agent authenticates as `alwick`, who is the PR author, and GitHub 422s a self-approval — so any recipe that waits for an approving review will wait forever.)*
+| child | parent | parent merged | child closed | Δ | recovery |
+|---|---|---|---|---|---|
+| **#126** (WIC-1359) | #124 | `2026-08-27T04:55:08Z` | `04:55:10Z` | **2s** | reopened `05:12:18Z`, retargeted to `main` `05:12:20Z`, merged 08-29 |
+| **#34** (WIC-808) | #33 | `2026-08-04T18:43:04Z` | `18:43:06Z` | **2s** | never reopened; re-landed as a fresh **PR #35** 36 min later |
+
+Nothing was wrong with either child — the close was purely the base branch vanishing underneath it. #126 stranded the WIC-238 AC-10 returning-user bypass, so onboarding kept opening over established users' dashboards until someone noticed by hand.
+
+**⚠️ Do not check this with `gh pr view` — the current state hides it.** #126 today reports `MERGED` with base `main` and looks entirely healthy, because the recovery reopened and retargeted it. The close is only visible in the timeline:
+
+```bash
+gh api repos/:owner/:repo/issues/126/timeline --paginate \
+  -q '.[] | select(.event=="closed" or .event=="reopened" or .event=="base_ref_changed") | "\(.event)\t\(.created_at)"'
+```
+
+*(One board-side detail does not hold up: #126 was described as carrying "two `APPROVED` reviews". `GET /pulls/126/reviews` returns **empty** — it had none. That is expected rather than surprising, and it generalises: **agents cannot approve PRs here.** Every agent authenticates as `alwick`, who is the PR author, and GitHub 422s a self-approval. Any merge recipe that waits for an approving review will wait forever; use `--admin` instead, which is configured behaviour on this repo, not a bypass.)*
 
 **The recipe for merging a stacked parent:**
 
