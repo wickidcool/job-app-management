@@ -179,6 +179,26 @@ gh pr list --state open --json number,baseRefName \
 
 Empty output means the flag is safe. Any number means it is not.
 
+**There is deliberately no automated detector for this — do not re-scope one** (WIC-2106, closing
+WIC-2095 / WIC-2089 item 2). Folding a check into `evil-merge-sweeper.yml` was evaluated against the
+full closed-PR history and rejected on two measurements:
+
+- **An hourly sweep is slower than the humans already are.** Both instances were recovered by hand in
+  **2m02s** (#34) and **17m08s** (#126). The sweeper's cron is `17 * * * *` — mean latency ~30 min,
+  worst case 60 — so a detector would have fired *after* the recovery both times, on both instances
+  it exists to catch. Prevention (retarget children first, above) dominates detection here, and it is
+  already written down.
+- **The sweeper is the wrong host anyway.** It enumerates `state: 'open'` and publishes a per-head
+  commit status the ruleset gates on. A closed PR has no gateable head, so there is no data to reuse
+  and no output channel; and its closing `core.setFailed` means *"a PR could not be evaluated"*, which
+  a permanently-red historical finding would corrupt.
+
+⚠️ **If you do re-measure the rate, do not key the query on current state.** `closed-unmerged with a
+non-`main` base` finds **#34 but not #126** — #126 was recovered, so it reads `MERGED`/base `main`
+today. That query returns 5 rows over 399 closed PRs of which only #34 is the real shape, which
+undercounts the true rate by half. The correlation (child `closedAt` − parent `mergedAt` ≈ 2s) is the
+discriminator; the timeline above is the only complete source.
+
 ### Required checks live in a ruleset, not in branch protection
 
 Classic `required_status_checks` on `main` is **absent** — `gh api repos/:owner/:repo/branches/main/protection/required_status_checks` returns 404, which reads like "no gate at all" and is misleading. Enforcement is the ruleset **`skip-ci-sweep-required`** (id `21489705`, `enforcement: active`, `include: ["~ALL"]`), which requires **two** contexts: `skip-ci-sweep` and `evil-merge-sweep`. Read `gh api repos/:owner/:repo/rulesets`, not the branch-protection API.
