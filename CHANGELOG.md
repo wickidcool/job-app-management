@@ -23,6 +23,22 @@ All notable changes to the Job Application Manager are documented here.
 
 
 
+
+### Security — The five report endpoints returned every tenant's applications to a caller with no identity (2026-09-05)
+
+`routes/reports.ts` laundered the owner five times with `c.get('userId') ?? undefined`, and each of the five `reports.service.ts` predicates then spelled the owner term as something that absence could switch **off** — `...(userId ? [eq(applications.userId, userId)] : [])`, an `if (userId) conditions.push(...)`, and a `userId ? and(...) : statusTerm` ternary (WIC-2065, serving WIC-1901 / WIC-1600, ADR-010 AC-T0).
+
+- **The owner term was not weakened, it was absent.** Eight helpers elsewhere in this package use `userId ? eq(t.userId, userId) : isNull(t.userId)`, where an absent owner scopes to the orphan rows; `audit-owner-predicates.mjs` baselines those as fail-**closed** preconditions, not defects. These five instead dropped the term from the query, so the predicate reduced to the status filter and the read matched every row in `applications`. `getByFitTierReport` was worse again: its `conditions.length > 0 ? and(...) : undefined` meant `?includeTerminal=true` from an owner-less caller issued a bare `.where(undefined)`, which in drizzle is no predicate at all.
+- **The reachable caller is a token that verifies but carries no `sub`**, which `middleware/auth.ts` resolves to `null` (WIC-1554). Not the local-dev bypass — ADR-010 D3 (WIC-1964) gave that a real `LOCAL_DEV_USER_ID`, which is what made the fail-closed narrowing safe to do at all.
+- **Fixed at the edge, then at the predicate.** All five routes now resolve the owner with `requireOwner(c)` (401 `OWNER_REQUIRED`); the five service signatures narrow from `userId?: string` to `userId: string` and the owner-absent branches are deleted rather than reordered. Absence is now unrepresentable in this file.
+- **Red before green, on the hazard rather than on preserved behaviour.** A test supplying a concrete owner passes against the pre-fix tree — the predicate was already correct for an identified caller — so it is blind to the mutant that reverts this. Both new blocks therefore mutate the absent-owner arm: `reports.tenancy.test.ts` (10 tests) had all five AC-T0 cases returning **both tenants' rows** pre-fix, and the five new `require-owner.routes.test.ts` entries returned **200 with the service called** where they now assert 401 and, load-bearingly, that the service was never called at all — which is what "matches zero rows" means when the read is never issued.
+- **Fail-closed by SQL, not by a branch.** `eq(applications.userId, undefined)` binds `NULL`, and `= NULL` is `NULL`, so even a JS caller smuggling an absence past the type system matches nothing. That is why deleting the branch was safe rather than merely tidy.
+- **`owner-predicates.baseline.json` burned down 123 -> 113 findings** (SIG 5 + COND 5 removed, 25 entries -> 22), never `--write-baseline`. `audit-owner-predicates.mjs` still exits 0.
+- **Scope is the reports vertical only.** Six genuinely fail-open sites remain — `application.service.ts:155,269`, `cover-letter.service.ts:471`, and the three `.where(undefined)` sites in `catalog`, `dashboard` and `resume` — and are deliberately left for follow-on cards. The other 113 baselined findings are overwhelmingly the fail-closed `isNull` shape and must not be mass-converted.
+- **AC-N2b got stronger, not weaker.** `stale.definition.test.ts` compared the report's clause against a bare `staleWhere()`; both surfaces now emit `and(<stale>, user_id = $n)`, so it compares the composed predicate and the dashboard and report must agree on the owner scoping as well as on the stale definition. No schema, migration or wire change.
+
+
+
 ### Fixed — Completing a Job Fit Analysis removed the only way to look at it (2026-09-04)
 
 `WorkflowChecklist`'s "Job Fit Analysis" row read `link: hasFitAnalysis ? undefined : …`, so

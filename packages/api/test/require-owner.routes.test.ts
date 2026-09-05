@@ -122,9 +122,19 @@ vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
   analyzeJobFit: vi.fn(),
 }));
 
+vi.mock('../src/services/reports.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/reports.service.js')>()),
+  getPipelineReport: vi.fn(),
+  getNeedsActionReport: vi.fn(),
+  getStaleReport: vi.fn(),
+  getClosedLoopReport: vi.fn(),
+  getByFitTierReport: vi.fn(),
+}));
+
 import * as catalogService from '../src/services/catalog.service.js';
 import * as resumeVariantService from '../src/services/resume-variant.service.js';
 import * as interviewPrepService from '../src/services/interviewPrep.service.js';
+import * as reportsService from '../src/services/reports.service.js';
 
 const JWT_SECRET = 'super-secret-jwt-key-for-testing-only-32-chars!!';
 
@@ -217,6 +227,55 @@ const GUARDED = [
     method: 'POST',
     body: { applicationId: '01HZ_APP_001' },
     service: () => interviewPrepService.generateInterviewPrep,
+  },
+
+  // ── The reports vertical (WIC-2065) ────────────────────────────────────────
+  //
+  // These five are the AC-T0 case in its purest form. Every one of them reads
+  // `applications` — the table that holds every tenant's job search — and every
+  // one of them used to launder the owner with `c.get('userId') ?? undefined`
+  // into a service whose predicate then *omitted the owner term entirely*
+  // rather than weakening it. An owner-less request did not match fewer rows,
+  // it matched **every tenant's**, and the four Reports pages rendered them.
+  //
+  // So for these entries assertion (2) — `not.toHaveBeenCalled()` — is not
+  // merely "stopped early". It is literally AC-T0's "must match zero rows":
+  // the only read that could have matched a foreign row is the one the guard
+  // prevented from being issued.
+  {
+    name: 'getPipelineReport',
+    path: '/api/reports/pipeline',
+    method: 'GET',
+    body: undefined,
+    service: () => reportsService.getPipelineReport,
+  },
+  {
+    name: 'getNeedsActionReport',
+    path: '/api/reports/needs-action',
+    method: 'GET',
+    body: undefined,
+    service: () => reportsService.getNeedsActionReport,
+  },
+  {
+    name: 'getStaleReport',
+    path: '/api/reports/stale',
+    method: 'GET',
+    body: undefined,
+    service: () => reportsService.getStaleReport,
+  },
+  {
+    name: 'getClosedLoopReport',
+    path: '/api/reports/closed-loop',
+    method: 'GET',
+    body: undefined,
+    service: () => reportsService.getClosedLoopReport,
+  },
+  {
+    name: 'getByFitTierReport',
+    path: '/api/reports/by-fit-tier',
+    method: 'GET',
+    body: undefined,
+    service: () => reportsService.getByFitTierReport,
   },
 ] as const;
 
