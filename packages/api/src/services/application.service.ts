@@ -5,6 +5,7 @@ import { encodeCursor, parseCursor, PAGE_NAMES } from '../lib/pagination.js';
 import { applications, statusHistory } from '../db/schema.js';
 import { enqueueChange } from './change-queue.service.js';
 import {
+  AppError,
   ApplicationDTO,
   StatusHistoryDTO,
   CreateApplicationInput,
@@ -238,11 +239,44 @@ export async function listApplications(
   };
 }
 
+/**
+ * Update one application, under optimistic locking, for a required owner.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2071). Both where clauses below
+ * used to carry an owner ternary of the `userId ? and(idTerm, ownerTerm) : idTerm` shape that
+ * `resume-variant.service.ts:55` records as the WIC-1482 / WIC-1500 defect:
+ *
+ *   const whereClause = userId ? and(baseWhere, eq(applications.userId, userId)) : baseWhere;
+ *
+ * The fallback reads as scoped — `baseWhere` still pins `(id, version)` — but the term it drops
+ * is the *owner*, so an absent owner made this an IDOR **write**: any tenant's application,
+ * addressable by id plus a guessable small-integer `version`. The audit does not catch it
+ * (`--stats` lists `:271` under "unique/pk-scoped writes", one row at most, and says whether the
+ * id was owner-checked upstream is an IDOR question outside that guard), so this is exactly the
+ * class a signature has to close.
+ *
+ * `applications.user_id` is nullable (`schema.ts:38`) and the `userId ?? null` insert paths at
+ * `:73`/`:97`/`:345` are live, so this is deliberately *not* repaired to `isNull()` — the
+ * fail-closed reading would let an ownerless caller rewrite the anonymous rows. Absence is an
+ * error here, not a narrower query.
+ */
 export async function updateApplication(
   id: string,
   input: UpdateApplicationInput,
-  userId?: string
+  userId: string
 ): Promise<{ application: ApplicationDTO }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070). Narrowing
+  // the type is not the mechanism: `tsc` accepts a reintroduced `userId ?? undefined` at the call
+  // site, and the value comes from a JWT `sub` claim that can be absent at runtime.
+  if (!userId) {
+    throw new AppError(
+      'BAD_REQUEST',
+      'userId is required to update an application',
+      undefined,
+      400
+    );
+  }
+
   const db = getDb();
 
   const updates: Partial<typeof applications.$inferInsert> = {};
@@ -265,8 +299,11 @@ export async function updateApplication(
   }
   if ('jobDescription' in input) updates.jobDescription = input.jobDescription;
 
-  const baseWhere = and(eq(applications.id, id), eq(applications.version, input.version));
-  const whereClause = userId ? and(baseWhere, eq(applications.userId, userId)) : baseWhere;
+  const whereClause = and(
+    eq(applications.id, id),
+    eq(applications.version, input.version),
+    eq(applications.userId, userId)
+  );
 
   const [updated] = await db
     .update(applications)
@@ -275,16 +312,17 @@ export async function updateApplication(
     .returning();
 
   if (!updated) {
-    const existingWhere = userId
-      ? and(eq(applications.id, id), eq(applications.userId, userId))
-      : eq(applications.id, id);
+    // Owner-scoped too, and that is load-bearing rather than tidiness: this read is what decides
+    // 404-vs-409, so an unscoped version of it would answer `VersionConflictError` for another
+    // tenant's application — confirming the row exists, which is the distinction the owner term
+    // is supposed to erase.
+    const existingWhere = and(eq(applications.id, id), eq(applications.userId, userId));
     const [existing] = await db.select().from(applications).where(existingWhere);
     if (!existing) throw new NotFoundError('Application');
     throw new VersionConflictError();
   }
 
-  // Same as the create path above: without the owner this extraction is a no-op.
-  enqueueChange('application', id, 'updated', { userId: userId ?? null });
+  enqueueChange('application', id, 'updated', { userId });
   return { application: toDTO(updated) };
 }
 

@@ -1522,15 +1522,23 @@ describe('listStarEntries tenancy', () => {
     expect(params).toEqual([who()]);
   });
 
-  it('passes no predicate at all in single-user mode', async () => {
+  it('refuses an absent owner rather than passing no predicate at all', async () => {
     const { selectWhere } = stubStarEntriesDb([]);
 
-    await listStarEntries(undefined);
+    // INVERTED by WIC-2071 (ADR-010 D2). This previously asserted the opposite —
+    // `.where(undefined)`, literally no predicate — and described it as
+    // "single-user mode". Because tenancy was this query's *only* filter, that
+    // fallback did not narrow the read, it removed the read's only bound and
+    // returned every tenant's `quantified_bullets`. The signature is now
+    // `userId: string` and the branch is deleted.
+    await expect(listStarEntries(undefined as unknown as string)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      statusCode: 400,
+    });
 
-    // Not a narrowed clause — literally `.where(undefined)`, since tenancy is
-    // this query's only filter.
-    expect(selectWhere).toHaveBeenCalledTimes(1);
-    expect(selectWhere.mock.calls[0][0]).toBeUndefined();
+    // Stronger than "the clause was scoped": no query was built at all, so there
+    // is no predicate to get wrong. See `owner-required.fail-open.test.ts`.
+    expect(selectWhere).not.toHaveBeenCalled();
   });
 
   it("does not return another user's STAR entries", async () => {

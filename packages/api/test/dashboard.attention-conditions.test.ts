@@ -151,11 +151,24 @@ const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/;
 const signatureOf = (params: unknown[]): string =>
   JSON.stringify(params.filter((p) => !(typeof p === 'string' && ISO_INSTANT.test(p))));
 
+/**
+ * WIC-2071 narrowed `getDashboardStats(userId?: string)` to `userId: string`, so
+ * these calls now pass an owner and every predicate binds it as a trailing param.
+ *
+ * Carried in the signature keys rather than filtered back out. It costs nothing
+ * and it means each key now also asserts that the owner term reached *that*
+ * count — which is the thing the old fail-open `userId ? … : undefined` used to
+ * drop. Delete the owner from any one of the three `and(condition, userFilter)`
+ * calls and its signature stops matching, so the count falls to 0 and that
+ * field's assertion reds.
+ */
+const OWNER = '11111111-1111-4111-8111-111111111111';
+
 /** A distinct count per predicate, so a swapped wiring cannot report the right number. */
 const COUNT_BY_SIGNATURE: Record<string, number> = {
-  '["applied","phone_screen"]': 41, // staleCondition, i.e. staleWhere()
-  '["saved","applied","phone_screen","interview",""]': 17, // missingDescriptionCondition
-  '["saved"]': 9, // unsubmittedSavedCondition
+  [`["applied","phone_screen","${OWNER}"]`]: 41, // staleCondition, i.e. staleWhere()
+  [`["saved","applied","phone_screen","interview","","${OWNER}"]`]: 17, // missingDescriptionCondition
+  [`["saved","${OWNER}"]`]: 9, // unsubmittedSavedCondition
 };
 
 const STATUS_ROWS = [
@@ -228,7 +241,7 @@ describe('getDashboardStats attention counts', () => {
   });
 
   it('reports each count under the predicate that produced it', async () => {
-    const { attention } = await getDashboardStats();
+    const { attention } = await getDashboardStats(OWNER);
 
     // Each number is unique to one predicate, so swapping any two of the three
     // `countMatching` calls moves a number into the wrong field and reds this.
@@ -238,7 +251,7 @@ describe('getDashboardStats attention counts', () => {
   });
 
   it('derives the interviewing count from byStatus rather than a query of its own', async () => {
-    const { stats, attention } = await getDashboardStats();
+    const { stats, attention } = await getDashboardStats(OWNER);
 
     // The service comments that these two "can never disagree". `interviewing`
     // is the one attention count with no `countMatching` call behind it, so if
@@ -250,7 +263,7 @@ describe('getDashboardStats attention counts', () => {
   });
 
   it('sends the thresholds it actually used down the wire', async () => {
-    const { attention } = await getDashboardStats();
+    const { attention } = await getDashboardStats(OWNER);
 
     // The "> N days" copy on the card is rendered from these, so they must be
     // the same constants the SQL above was built from — and the stale one has

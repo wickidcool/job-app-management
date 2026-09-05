@@ -2,6 +2,7 @@ import { sql, and, or, gte, lt, eq, asc, desc, inArray, isNull } from 'drizzle-o
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
 import {
+  AppError,
   DashboardStats,
   ActivityItem,
   ApplicationStatus,
@@ -114,13 +115,35 @@ export function buildAttentionConditions(now: Date = new Date()) {
   };
 }
 
-export async function getDashboardStats(userId?: string): Promise<{
+/**
+ * The dashboard's counts, recent activity and attention cards, for one owner.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2071). `userFilter` used to be
+ * `userId ? eq(applications.userId, userId) : undefined`, and `undefined` reaches drizzle as *no*
+ * predicate rather than a narrow one — so on an absent owner all seven reads below widened to the
+ * whole `applications` table at once: every tenant's status counts, submission-window metrics,
+ * recent activity and attention aggregates, returned as if they were the caller's own. This is
+ * the fail-**open** shape; requiring the owner deletes the branch instead of repairing it, which
+ * is ADR-010's fail-closed posture and leaves nothing to reintroduce.
+ *
+ * `userFilter` stays a named `SQL` so the seven call sites are unchanged and each remains
+ * `and(condition, userFilter)`-shaped.
+ */
+export async function getDashboardStats(userId: string): Promise<{
   stats: DashboardStats;
   recentActivity: ActivityItem[];
   attention: DashboardAttention;
 }> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070). Narrowing
+  // the type is not the mechanism — `tsc` accepts a reintroduced `userId ?? undefined` at the
+  // call site, and the value comes from a JWT `sub` claim that can be absent at runtime however
+  // this signature reads.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to read dashboard stats', undefined, 400);
+  }
+
   const db = getDb();
-  const userFilter = userId ? eq(applications.userId, userId) : undefined;
+  const userFilter = eq(applications.userId, userId);
 
   // Count by status
   const statusCounts = await db

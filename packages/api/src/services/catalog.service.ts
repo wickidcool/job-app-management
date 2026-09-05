@@ -538,11 +538,30 @@ async function relevanceByStarEntryId(
  *
  * `jobFitAnalysisId` is what makes `StarEntryPicker`'s "Recommended" section reachable: without
  * it every entry carries `relevanceScore: undefined` and the section is filtered down to empty.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2071). The bullet read below
+ * used to be `.where(userId ? eq(quantifiedBullets.userId, userId) : undefined)`, and a drizzle
+ * `.where(undefined)` is not a narrow predicate — it is *no* predicate, so the fallback returned
+ * **every tenant's** `quantified_bullets`. That is the fail-**open** shape, and it is the
+ * opposite of the `ownerScope()` fail-closed ternaries elsewhere in this file, which resolve an
+ * absent owner to `isNull(table.userId)` on purpose. Requiring the owner deletes the branch
+ * rather than repairing it, so there is nothing left for the next reader to reintroduce.
+ *
+ * `quantified_bullets.userId` is `.notNull()` (`schema.ts:280`), so an `isNull()` repair would
+ * have selected the empty set anyway — the deletion is the honest expression of that.
  */
 export async function listStarEntries(
-  userId?: string,
+  userId: string,
   jobFitAnalysisId?: string
 ): Promise<CatalogEntryDTO[]> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070). The type
+  // is not the mechanism: `tsc` accepts a reintroduced `userId ?? undefined` at the call site,
+  // and the value originates in a JWT `sub` claim that can be absent at runtime however this
+  // signature reads.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to list STAR entries', undefined, 400);
+  }
+
   const db = getDb();
 
   // ⚠ Presence is `!== undefined`, not truthiness. `z.string().min(1)` at the route rejects the
@@ -556,7 +575,7 @@ export async function listStarEntries(
   const rows = await db
     .select()
     .from(quantifiedBullets)
-    .where(userId ? eq(quantifiedBullets.userId, userId) : undefined)
+    .where(eq(quantifiedBullets.userId, userId))
     .orderBy(desc(quantifiedBullets.extractedAt));
 
   return rows.map((r) => ({

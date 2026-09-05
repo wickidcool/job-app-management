@@ -533,21 +533,32 @@ describe('getDashboardStats — attention is scoped to the caller', () => {
   });
 
   /**
-   * Documents the unscoped call path — it is NOT an endorsement of it.
+   * INVERTED by WIC-2071, on this test's own instructions.
    *
-   * `getDashboardStats()` takes `userId?`, and `userId ? eq(...) : undefined`
-   * makes an absent caller read the whole table. That is the WIC-1554
-   * `sub`-less-JWT `userId: null` class, and `applications.user_id` is nullable
-   * (migration 0017 does not cover this table), so the row shape is reachable.
+   * The previous revision asserted `stats.total === 16` — 4 of A's rows plus 12
+   * of B's — and documented that as the WIC-1554 fail-open class rather than as
+   * correct behaviour, ending: *"When WIC-1554 lands, this expectation should
+   * INVERT — an absent identity should reach no rows rather than all of them.
+   * Failing here is the signal that the fix arrived, not that this test broke."*
+   * That is what happened: `getDashboardStats` now takes `userId: string` and
+   * `userFilter` is `eq(applications.userId, userId)` with no fallback branch.
    *
-   * When WIC-1554 lands, this expectation should INVERT — an absent identity
-   * should reach no rows rather than all of them. Failing here is the signal
-   * that the fix arrived, not that this test broke.
+   * The inverted assertion is deliberately *not* "reaches zero rows". Zero rows
+   * is what an `isNull()` repair would have produced, and a count of 0 is also
+   * what a query that silently matched nothing would produce (WIC-1518). The
+   * honest post-fix statement is that no query is issued at all, which is graded
+   * against `getDb` in `owner-required.fail-open.test.ts`; here we pin the
+   * outcome callers see.
    */
-  it('called with no userId, aggregates across every tenant (WIC-1554, fail-open)', async () => {
-    const { stats, attention } = await getDashboardStats();
+  it('called with no userId, is refused rather than aggregating across tenants', async () => {
+    await expect(getDashboardStats(undefined as unknown as string)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      statusCode: 400,
+    });
 
-    expect(stats.total).toBe(16); // 4 of A's + 12 of B's
-    expect(attention.counts.stale).toBe(4); // a-stale + 3 of B's applied rows
+    // Control against a blanket deny: A's own aggregate still resolves, and
+    // still sees only A's 4 rows — never the 16 the fail-open path returned.
+    const { stats } = await getDashboardStats(USER_A);
+    expect(stats.total).toBe(4);
   });
 });

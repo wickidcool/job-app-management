@@ -826,22 +826,63 @@ export async function uploadResume(
   }
 }
 
-export async function listResumes(userId?: string): Promise<ResumeDTO[]> {
+/**
+ * List the caller's resumes.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2071). The where clause used to
+ * be `userId ? eq(resumes.userId, userId) : undefined`, and drizzle reads `undefined` as *no*
+ * predicate rather than a narrow one — so an absent owner listed **every tenant's** resumes.
+ * That is the fail-**open** shape. Requiring the owner deletes the branch instead of repairing
+ * it, per ADR-010's fail-closed posture, leaving nothing to reintroduce.
+ *
+ * Deliberately *not* repaired to `isNull(resumes.userId)`. `resumes.user_id` is nullable
+ * (`schema.ts:77`) and the `userId ?? null` insert paths at `:574`/`:615` are live, so an
+ * `isNull()` fallback would be a real reading — of somebody else's anonymous rows. Anonymous
+ * resumes are not this endpoint's business; absence is an error, not a narrower query.
+ */
+export async function listResumes(userId: string): Promise<ResumeDTO[]> {
+  // Belt and braces with the required type, per `getOrCreateProjectBySlug` (WIC-2070). The type
+  // is not the mechanism: `tsc` accepts a reintroduced `userId ?? undefined` at the call site,
+  // and the value arrives from a JWT `sub` claim that can be absent at runtime.
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to list resumes', undefined, 400);
+  }
+
   const db = getDb();
-  const whereClause = userId ? eq(resumes.userId, userId) : undefined;
-  const allResumes = await db.select().from(resumes).where(whereClause).orderBy(resumes.uploadedAt);
+  const allResumes = await db
+    .select()
+    .from(resumes)
+    .where(eq(resumes.userId, userId))
+    .orderBy(resumes.uploadedAt);
   return allResumes.map(toDTO);
 }
 
+/**
+ * List one resume's exports, after proving the resume belongs to the caller.
+ *
+ * `userId` is `string`, not `string | undefined` (ADR-010 D2, WIC-2071). The ownership probe used
+ * to be `userId ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId)) : eq(resumes.id,
+ * resumeId)` — the `userId ? and(idTerm, ownerTerm) : idTerm` idiom that
+ * `resume-variant.service.ts:55` names as the WIC-1482 / WIC-1500 defect. Note the fallback still
+ * *looks* scoped, because the id term survives; what it drops is the owner term, so an absent
+ * owner turns a caller-supplied `resumeId` into an IDOR read of any tenant's exports. A
+ * `: undefined` grep does not find this shape — match on the fallback, not the literal.
+ *
+ * The exports read below is keyed on `resumeId` alone and is safe only because this probe threw
+ * first. That is the whole tenancy guarantee of this function, which is why the owner term is not
+ * optional.
+ */
 export async function listResumeExports(
   resumeId: string,
-  userId?: string
+  userId: string
 ): Promise<ResumeExportDTO[]> {
+  if (!userId) {
+    throw new AppError('BAD_REQUEST', 'userId is required to list resume exports', undefined, 400);
+  }
+
   const db = getDb();
 
-  const resumeWhere = userId
-    ? and(eq(resumes.id, resumeId), eq(resumes.userId, userId))
-    : eq(resumes.id, resumeId);
+  const resumeWhere = and(eq(resumes.id, resumeId), eq(resumes.userId, userId));
   const resume = await db.select().from(resumes).where(resumeWhere).limit(1);
   if (resume.length === 0) {
     throw new NotFoundError('Resume');
