@@ -34,25 +34,12 @@ function renderProjectDetail() {
   );
 }
 
-/**
- * Headroom for the first `findBy*` in each file.
- *
- * Testing Library's `asyncUtilTimeout` defaults to **1000ms**, and this repo configures
- * it nowhere. That is a different knob from vitest's `testTimeout`, which WIC-1889 (PR
- * #322) raises to 15s — so that change does not cover this failure mode and this constant
- * does not duplicate it. Measured here: under 12x CPU load on a cold cache the empty-branch
- * query failed at 2279ms with `TestingLibraryElementError: Unable to find role="heading"`,
- * i.e. it blew the 1000ms async-util budget while staying far inside the 5000ms test
- * budget. The cost is the first test in a file paying module transform and import.
- */
-const OUTLINE_QUERY_TIMEOUT = { timeout: 5_000 };
-
 describe('ProjectDetail heading outline', () => {
   it('has no level skip on the EMPTY branch', async () => {
     vi.spyOn(projectService, 'listProjectFiles').mockResolvedValue([]);
 
     const { container } = renderProjectDetail();
-    await screen.findByRole('heading', { name: 'No documents found' }, OUTLINE_QUERY_TIMEOUT);
+    await screen.findByRole('heading', { name: 'No documents found' });
 
     const outline = getOutline(container);
     expect(findOutlineSkips(outline), describeOutline(outline)).toEqual([]);
@@ -71,7 +58,7 @@ describe('ProjectDetail heading outline', () => {
     ]);
 
     const { container } = renderProjectDetail();
-    await screen.findByRole('heading', { name: 'resume.md' }, OUTLINE_QUERY_TIMEOUT);
+    await screen.findByRole('heading', { name: 'resume.md' });
 
     const outline = getOutline(container);
     expect(findOutlineSkips(outline), describeOutline(outline)).toEqual([]);

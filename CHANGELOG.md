@@ -24,6 +24,29 @@ All notable changes to the Job Application Manager are documented here.
 
 
 
+### Fixed — Testing Library's async-util budget is now configured repo-wide, so a slow query stops reading as a missing element (2026-09-05)
+
+`packages/web/src/test/setup.ts` never called `configure(...)`, so every `waitFor` and every `findBy*` in the suite ran against Testing Library's default **1000 ms** `asyncUtilTimeout`. Three files had grown per-site `{ timeout: 5_000 }` constants to work around it, each carrying a comment noting that the repo configured no default (WIC-1827 / PR #332). This sets the default those were standing in for and deletes all three (WIC-2086).
+
+- **This is a different timer from the one WIC-1889 raised, and that is the whole point.** `testTimeout` bounds a whole test; `asyncUtilTimeout` bounds a single query, and they nest. A query can blow the 1000 ms async-util budget while sitting far inside the 15 s `testTimeout` PR #322 set — and when it does it fails as `TestingLibraryElementError: Unable to find role="…"`, not as a timeout, so it does not even look like the WIC-1889 family. Raising `testTimeout` could never have covered it.
+- **Measured across the whole suite, not inferred from one query.** Testing Library routes every async util through `getConfig().asyncWrapper`, so wrapping it — delegating to RTL's existing act-aware wrapper rather than replacing it — times the entire population. The instrumented runs set the budget to 60 s so the measurement was **not censored by the limit being measured**, and the three per-site overrides were removed first so those call sites were uncensored too. 91 files, 831 tests, ~730 async-util calls per run, 4 cores:
+
+| condition | p50 | p99 | max | calls > 1000 ms |
+|---|---|---|---|---|
+| idle, cold cache, default pool | 27.8 ms | 831 ms | **1289 ms** | 4 / 733 (0.5%) |
+| cold cache, `--maxWorkers=8` (2x) | 51.8 ms | 1444 ms | **2928 ms** | 23 / 733 (3.1%) |
+| cold cache, `--maxWorkers=8`, load avg ~17 | 104.0 ms | 2941 ms | **5578 ms** | 69 / 728 (9.5%) |
+
+- **Individual waits breach 1000 ms even on an idle box** — 4 calls, worst 1289 ms, no contention and the default worker count. That is marginal rather than fatal, and the distinction is measured, not hedged: a full-suite run at the stock default, idle, is **831/831 green**, because those same calls land under 1000 ms on another run. Idle leaves no headroom; load is what converts it into a failure.
+- **8 s is the measured worst case plus stated headroom:** 1.43x over the 5578 ms observed under contention heavier than CI's, and ~6x the idle worst case — the same ratio WIC-1889 chose for `testTimeout`. It is deliberately well below that 15 s ceiling. A query that genuinely never resolves must still fail as a Testing Library error carrying the rendered DOM, and it only does that if the async-util budget expires *before* the test budget; at 15 s or above every such failure degrades to a bare vitest timeout that says nothing about why.
+- **Zero cost when green.** These utils poll and return as soon as the condition holds, so a larger ceiling only changes how long a genuine failure takes to report. The idle full-suite run at a 60 s budget took 145 s, in line with the runs at the stock default.
+- **The three workarounds are removed, not kept.** Their worst measured site — `ProjectDetail.outline.test.tsx`'s EMPTY branch at **2855 ms** under load avg ~17 — is covered by the default with 2.8x to spare, so none of the six call sites needs a local override.
+- **Paired negative control, full suite, identical load** (`--maxWorkers=8` + 8 CPU burners, cold cache): reverting the `configure(...)` line with the workarounds still gone produces **4** `TestingLibraryElementError: Unable to find role="…"` failures; restored, **0**. Both runs also carry the same 2 vitest `testTimeout` failures — those are the WIC-1889 family, appear identically at a 60 s async-util budget, and are an artifact of that deliberately extreme load rather than of CI or of this setting. No test depends on the old default either: both instrumented full-suite runs were 831/831 green at a 60 s budget.
+- **The hazard was never confined to the three files that had noticed it.** Two of those four failures — `CatalogBrowseView.keyboardNav.test.tsx` and `WizardContainer.discardGuard.test.tsx` — are in files that never carried a per-site workaround. The card predicted "a fourth author will hit it the same way"; two already had, and were being carried by luck.
+- **⛔ A narrow repro is not a valid control here.** Running just the three outline files under the same load is **6/6 green even at the stock default** — the cost is full-suite contention, not anything local to those files. Two full-suite runs are what separates the two states; a targeted re-run reports clean in both.
+- Test configuration only. No production code, no schema, no wire change.
+
+
 ### Accessibility — Four keyboard-unreachable click targets, and one toggle that silently did nothing (2026-09-05)
 
 `A11Y_BASELINE` drops **18 → 10** (WIC-2073, continuing WIC-2062's 26 → 18 under WIC-1589). Both `--max-warnings` ceilings in `packages/web/package.json` move with it. Four files reach zero findings and their baseline entries are deleted rather than zeroed, each with a comment recording the transition.
