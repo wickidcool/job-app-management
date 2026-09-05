@@ -195,10 +195,21 @@ describe('WIC-1820 — an unresolvable analysis id is refused, not ignored', () 
   });
 
   it('refuses an analysis id when the caller has no identity at all', async () => {
-    // Fail-closed: an absent owner scopes to `user_id IS NULL`, so an owned analysis is not
-    // reachable by an unauthenticated caller. Both seeded analyses are owned.
-    await expect(listStarEntries(undefined, ANALYSIS_A)).rejects.toBeInstanceOf(
-      JobFitAnalysisNotFoundError
+    // Still refused, but by a nearer guard than before — so the assertion moved
+    // rather than weakened.
+    //
+    // Previously this expected `JobFitAnalysisNotFoundError`: `ownerScope` sent
+    // an absent owner to `user_id IS NULL`, both seeded analyses are owned, so
+    // the relevance lookup matched nothing and threw. That reasoning was sound
+    // for the analysis join and said nothing about the *bullet* read below it,
+    // which on the same call had no predicate at all and returned every
+    // tenant's rows (WIC-2071). `listStarEntries` now takes `userId: string`
+    // and rejects before either query is built.
+    //
+    // `AppError`, not `JobFitAnalysisNotFoundError`, is the point: an identity
+    // failure should not be reported as a fact about which analyses exist.
+    await expect(listStarEntries(undefined as unknown as string, ANALYSIS_A)).rejects.toThrow(
+      /required to list STAR entries/i
     );
   });
 });
