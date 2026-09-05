@@ -17,17 +17,19 @@ const localRules = {
 };
 
 /**
- * The `jsx-a11y` rules that this tree still violates (WIC-1483 recorded them, WIC-1589
- * is retiring them). 8 rules / 47 findings at adoption; **2 rules / 4 findings today.**
+ * The `jsx-a11y` rules that this tree still violates (WIC-1483 recorded them, WIC-1589 and
+ * its successors retired them). 8 rules / 47 findings at adoption; **0 / 0 today.**
  *
  * ⚠️ That figure is prose and nothing asserts it — it read `5 rules / 26 findings` until
- * WIC-2077, having gone stale through WIC-2062 (26 -> 18) and WIC-2073 (18 -> 10, 5 rules
- * -> 4) without anything able to contradict it. The trailing counts on the entries below
- * ARE cross-checked, via `A11Y_BASELINE`; this sentence is not. Prefer the entries.
+ * WIC-2077 and `2 rules / 4 findings` until WIC-2110, going stale through WIC-2062
+ * (26 -> 18), WIC-2073 (18 -> 10) and WIC-2078 (4 -> 1) without anything able to
+ * contradict it. `A11Y_BASELINE` in `src/test/jsxA11yBaseline.test.ts` is the cross-checked
+ * copy; this sentence is not. Prefer that file.
  *
- * These are `warn` ONLY so that adopting the plugin did not require fixing 47
- * pre-existing defects in the same change. They are not exempt: the total is pinned
- * from both sides (see below), so the count can go down but never up.
+ * Entries here were `warn` ONLY so that adopting the plugin did not require fixing 47
+ * pre-existing defects in the same change. They were never exempt: the total is pinned
+ * from both sides (see below), so the count could go down but never up — and it has now
+ * gone all the way down.
  *
  * This is a ratchet with a deadline, not an allowlist. The findings are owned by
  * WIC-1589; as they are fixed, `A11Y_BASELINE` in `src/test/jsxA11yBaseline.test.ts`
@@ -35,14 +37,20 @@ const localRules = {
  * because the test asserts exact equality in both directions and cross-checks the two
  * numbers against each other. When a rule reaches zero, delete its line here.
  *
- * Six rules have reached zero and are gone from this list, back at `error`:
- * `label-has-associated-control` (19 -> 0), `no-redundant-roles` (1 -> 0),
- * `no-noninteractive-element-to-interactive-role` (1 -> 0, WIC-1942 — the
+ * ⭐ The ratchet is FINISHED. All eight baselined rules have reached zero and the list is
+ * empty (WIC-2110): `label-has-associated-control` (19 -> 0), `no-redundant-roles`
+ * (1 -> 0), `no-noninteractive-element-to-interactive-role` (1 -> 0, WIC-1942 — the
  * `<article role="button">` in `ResumeVariantCard.tsx`, which also tripped axe's
  * `aria-allowed-role` and `nested-interactive`), `no-static-element-interactions`
  * (2 -> 0, WIC-2073 — the last two bare `<div onClick>` wrappers, in
- * `CatalogBrowseView.tsx` and `StarEntryPicker.tsx`), and `no-autofocus`
- * (5 -> 0, WIC-2077) and `click-events-have-key-events` (1 -> 0, WIC-2077 slice 2).
+ * `CatalogBrowseView.tsx` and `StarEntryPicker.tsx`), `no-autofocus` (5 -> 0, WIC-2077),
+ * `click-events-have-key-events` (1 -> 0, WIC-2077 slice 2),
+ * `no-noninteractive-element-interactions` (3 -> 0, WIC-2078) and
+ * `no-noninteractive-tabindex` (1 -> 0, WIC-2110).
+ *
+ * So the deadline is met and `--max-warnings` is 0. The ratchet's remaining job is to stay
+ * finished: it now fails a NEW finding in any of the 32 resolved rules, in any file, with
+ * no ceiling to absorb it.
  *
  * ⛔ `no-autofocus` reached zero WITHOUT any focus behaviour changing, and that is the
  * one entry here whose history you must not misread. All five sites were inspected
@@ -66,34 +74,40 @@ const localRules = {
  * is deleted. Being free, it is also the `anchor-ambiguous-text` bargain below, taken
  * for the same reason.
  *
- * The resulting enforcement surface is 28 rules at `error` — but do not trust that
- * number here. It is asserted against the RESOLVED config in `jsxA11yBaseline.test.ts`
+ * The resulting enforcement surface is 32 rules at `error`, 0 at `warn` — but do not trust
+ * that number here. It is asserted against the RESOLVED config in `jsxA11yBaseline.test.ts`
  * ('states its enforcement surface exactly'), which is the only copy that cannot rot.
  * An earlier revision of this comment claimed 26 when the true figure was 24, by
- * arithmetic rather than measurement (see PROMOTED_RULES); it is 28 now because four
- * rules were fixed, and the test is what says so.
+ * arithmetic rather than measurement (see PROMOTED_RULES); it then sat at a stale 28 while
+ * the measured figure was 31. Both wrong numbers were prose. The test is what says so.
  *
  * NOTE (WIC-1483): `jsx-a11y` is per-file and therefore structurally blind to
  * heading-order defects that exist only in the composition of a page and the component
  * it mounts. Adopting it does NOT cover WCAG SC 1.3.1. That is layer 2's job.
  */
 const BASELINED_RULES = {
-  // WIC-2078 retired `no-noninteractive-element-interactions` (3 -> 0), so it is gone from
-  // here and back at `error`. Its three survivors were adjudicated individually and all
-  // three are reviewed exceptions carrying their rationale at the line — the application
-  // card's own activation (a real `<button>` or `role="button"` there trips axe's
-  // `nested-interactive` instead, WIC-2077/WIC-1942), the resume drop TARGET beside its
-  // equivalent "browse files" button, and the wizard's container-scoped Ctrl+Enter shortcut
-  // delegated from its focusable descendants.
+  // EMPTY, and that is the finished state of the WIC-1483 ratchet (WIC-2110, closing
+  // WIC-2085 and WIC-1589's AC-1/AC-2/AC-3). Every one of the 47 findings baselined at
+  // adoption has been adjudicated, so `--max-warnings` is now **0** on both `lint` and
+  // `lint:fix` and all 32 resolved rules are at `error`.
   //
-  // ⛔ Read that as three exemptions, not three fixes. Unlike the `no-static-element-
-  // interactions` promotion (WIC-2073), which followed real markup changes, nothing here
-  // became more operable — this rule cannot see an alternative keyboard path that lives on
-  // a sibling element, and at all three sites the spellings that would satisfy it are worse
-  // than the finding. The tightening is still real and is the point: any NEW handler on a
-  // non-interactive element now fails `npm run lint` rather than being absorbed by the
-  // ceiling, and the next site has to argue its case the same way.
-  'jsx-a11y/no-noninteractive-tabindex': 'warn', // 1
+  // WIC-2078 retired `no-noninteractive-element-interactions` (3 -> 0). WIC-2110 then
+  // retired the last entry, `no-noninteractive-tabindex` (1 -> 0) — `ApplicationCard`'s
+  // `<article tabIndex={0}>`, which is an EXEMPTION and not a fix, for exactly the reason
+  // recorded at `ApplicationCard.tsx` beside the directive: every spelling the rule accepts
+  // trips axe's `nested-interactive` under `SortableApplicationCard`'s dnd-kit wrapper.
+  // WIC-2077 shipped that fix, measured it, and reverted it; WIC-1942 measured the
+  // `role="button"` form and removed it.
+  //
+  // ⛔ Do not read an empty list as "the tree has no accessibility debt." It means no
+  // finding is UNADJUDICATED — the distinction `jsxA11yBaseline.test.ts`'s A11Y_BASELINE
+  // header defines. Several of the retirements above were per-site disable directives, not
+  // markup changes, and `jsx-a11y` is per-file and static: it was green both before and
+  // after WIC-2078 fixed `ApplicationCard`'s genuinely keyboard-unreachable quick actions.
+  //
+  // Keep it empty. Adding a line here re-opens a tree-wide hole in whichever rule it names,
+  // and the `--max-warnings` ceiling it would need is cross-checked by that same suite. A
+  // new finding belongs at the site, as a directive that argues its case, or fixed.
 };
 
 /**
@@ -121,7 +135,7 @@ const BASELINED_RULES = {
  *                                                  clean, would re-open 82 findings the tree
  *                                                  has already answered.
  *
- * So: 26 at `error`, 6 at `warn`, 2 deliberately `off`. The test pins all three figures
+ * So: 32 at `error`, 0 at `warn`, 2 deliberately `off`. The test pins all three figures
  * AND the identity of the 2, so promoting or dropping one cannot pass silently.
  *
  * WHY `flatConfigs.strict` AND NOT `flatConfigs.recommended` (ADR-011 §4.2).
@@ -151,19 +165,17 @@ const BASELINED_RULES = {
  *   `<div role={r} tabIndex={0} />`  recommended: NOTHING fires
  *                                    strict:      no-noninteractive-tabindex
  *
- * Since WIC-2073 those two rules are no longer both baselined, and the option tightening
- * now bites HARDER for it: `no-static-element-interactions` is back at `error`, so the
- * first probe above fails the build outright rather than as an 11th warning, while
- * `no-noninteractive-tabindex` stays `warn` and lands as an 11th warning against
- * `--max-warnings 10`. `recommended` would have shipped both silently.
+ * Since WIC-2110 emptied BASELINED_RULES, BOTH probes now fail the build outright: neither
+ * rule is overridden, so each fires at `error` with no ceiling to absorb it. `recommended`
+ * would have shipped both silently — the second one with no diagnostic at all.
  *
- * That `no-noninteractive-tabindex` is still in BASELINED_RULES is not a contradiction: a
- * severity-only override (`'warn'`) replaces the severity and RETAINS the extended
- * config's options, so the tightening reaches the baselined 4 as well.
- * `jsxA11yBaseline.test.ts` asserts the resolved options directly, because the entry
- * count, the 28/4/2 histogram and the two `off` names are all identical under both
- * configs — nothing in the numbers can tell you which ruleset is loaded, so a silent
- * revert to `recommended` needs its own assertion.
+ * ⭐ That is why the options assertion matters MORE now, not less, and why deleting it
+ * along with the baseline would be a mistake. `jsxA11yBaseline.test.ts` asserts the
+ * resolved options directly, because the entry count, the 32/0/2 histogram and the two
+ * `off` names are all identical under both configs — nothing in the numbers can tell you
+ * which ruleset is loaded, so a silent revert to `recommended` needs its own assertion.
+ * With no `warn` set left to disagree, that options test is the ONLY thing standing
+ * between this config and a silent downgrade to `recommended`.
  */
 const PROMOTED_RULES = {
   'jsx-a11y/anchor-ambiguous-text': 'error', // 0 findings — clean today, kept clean.

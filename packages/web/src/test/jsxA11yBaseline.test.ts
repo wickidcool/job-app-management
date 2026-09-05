@@ -9,14 +9,15 @@ import packageJsonRaw from '../../package.json?raw';
  * nothing in the repo enforcing it. Layer 1 is the plugin; this file is the part that
  * makes adopting it *enforcement* rather than a gesture.
  *
- * 31 of the 34 resolved rules are `error` on this tree, so `npm run lint` already fails
- * CI on a new violation of any of them. 1 is `warn` (see `BASELINED_RULES` in
- * `eslint.config.js`) purely so that adopting the plugin did not require fixing 47
- * pre-existing defects in the same change (WIC-1483) — 43 of those 47 have since been
- * retired (WIC-1589, WIC-1942, WIC-2062, WIC-2073, WIC-2077) — and 2 are deliberately `off` (see
- * `PROMOTED_RULES` for the measured cost of each).
+ * ⭐ 32 of the 34 resolved rules are `error` on this tree and **none is `warn`**, so
+ * `npm run lint` fails CI on a new violation of any of them with no ceiling to absorb it.
+ * `BASELINED_RULES` in `eslint.config.js` started at 8 rules — purely so that adopting the
+ * plugin did not require fixing 47 pre-existing defects in the same change (WIC-1483) — and
+ * is now EMPTY, all 47 retired (WIC-1589, WIC-1942, WIC-2062, WIC-2073, WIC-2077, WIC-2078,
+ * WIC-2110). The remaining 2 are deliberately `off` (see `PROMOTED_RULES` for the measured
+ * cost of each).
  *
- * That 31 is asserted below against the RESOLVED config rather than restated in prose.
+ * That 32 is asserted below against the RESOLVED config rather than restated in prose.
  * The first revision of this suite hand-computed it as `34 - 8 = 26`, which was wrong for
  * a different reason at the time: `recommended` ships 3 of its 34 entries `off`, so the
  * surface was 23, and the wrong figure sat in four files at once with nothing able to
@@ -24,11 +25,15 @@ import packageJsonRaw from '../../package.json?raw';
  * this card was filed about.
  *
  * The config extends `flatConfigs.strict`, and NONE of those counts can tell you so —
- * `strict` and `recommended` resolve to the same 34 entries and the same 31/1/2 histogram
+ * `strict` and `recommended` resolve to the same 34 entries and the same 32/0/2 histogram
  * once `PROMOTED_RULES` restores `anchor-ambiguous-text`, which `strict` drops entirely.
- * They also produce identical findings on this tree (1, over the same file, rule, line
- * and columns). The whole difference is in rule OPTIONS, so that is what the last test
+ * They also produce identical findings on this tree (0 under both, now that the last one
+ * is a directive). The whole difference is in rule OPTIONS, so that is what the last test
  * asserts; without it, a silent revert to `recommended` passes every assertion here.
+ *
+ * ⭐ WIC-2110 made that last test more load-bearing, not less. The findings the two configs
+ * produce are now identically EMPTY and the `warn` set is empty under both, so there is one
+ * fewer observable left to distinguish them. The options assertion is the only one that can.
  *
  * A downgrade-to-warn with no counter-pressure is how an allowlist becomes a permanent
  * tree-wide hole, so the baseline is pinned in BOTH directions and per file:
@@ -75,21 +80,28 @@ const webRoot = decodeURIComponent(import.meta.url.replace(/^file:\/\//, '')).re
 type RuleCounts = Record<string, number>;
 
 /**
- * Measured on this tree after WIC-2078. 1 finding, 1 file, 1 rule — down from the 47/22/8
- * at WIC-1483 adoption, now that `label-has-associated-control` (19 -> 0),
- * `no-redundant-roles` (1 -> 0), `no-noninteractive-element-to-interactive-role` (1 -> 0),
- * `no-static-element-interactions` (2 -> 0), `no-autofocus` (5 -> 0),
- * `click-events-have-key-events` (1 -> 0) and
- * `no-noninteractive-element-interactions` (3 -> 0) are fully retired. Owned by WIC-1589.
+ * ⭐ EMPTY, as of WIC-2110 — down from 47 findings over 22 files and 8 rules at WIC-1483
+ * adoption. `label-has-associated-control` (19 -> 0), `no-redundant-roles` (1 -> 0),
+ * `no-noninteractive-element-to-interactive-role` (1 -> 0), `no-static-element-interactions`
+ * (2 -> 0), `no-autofocus` (5 -> 0), `click-events-have-key-events` (1 -> 0),
+ * `no-noninteractive-element-interactions` (3 -> 0) and now `no-noninteractive-tabindex`
+ * (1 -> 0) are all fully retired. `BASELINED_RULES` is empty, both `--max-warnings`
+ * ceilings are **0**, and all 32 resolved rules are at `error`.
  *
- * ⚠️ One rule left, one finding, and it is the one this ratchet CANNOT drive to zero.
- * `no-noninteractive-tabindex` on `ApplicationCard`'s `<article>` is load-bearing: every
- * spelling that satisfies the rule — a real `<button>`, or `role="button"` on the article —
- * trips axe's `nested-interactive` instead, because `SortableApplicationCard` wraps each
- * card in a dnd-kit `div[role="button"][tabindex="0"]`. WIC-2077 measured that in both
- * directions and reverted its own fix over it. So do not read "1 remaining" as "nearly
- * done" and reach for the obvious change; the next move on this entry is a dnd-kit
- * wrapper question, not a jsx-a11y one, and the OTHER baseline is what would tell you.
+ * The last entry left as an EXEMPTION, not a fix, and that is the part to carry forward.
+ * `no-noninteractive-tabindex` on `ApplicationCard`'s `<article>` is the one finding this
+ * ratchet could never drive to zero by fixing it: every spelling that satisfies the rule —
+ * a real `<button>` in the `<h3>`, or `role="button"` on the article — trips axe's
+ * `nested-interactive` instead, because `SortableApplicationCard` wraps each card in a
+ * dnd-kit `div[role="button"][tabindex="0"]`. WIC-2077 shipped the button form, measured
+ * it, and reverted it; WIC-1942 measured the role form and removed it. Two ratchets pull
+ * against each other at that site and axe is measuring the more serious defect, so the
+ * `tabIndex` stays and carries its reason at the line (WIC-2110).
+ *
+ * ⛔ So do NOT read an empty baseline as "the tree is accessible." It means no finding is
+ * unadjudicated — see the invariant below — and the two are different claims. Restructuring
+ * the dnd-kit wrapper so the card can be a genuine interactive element is still open work;
+ * it needs an axe measurement in both directions and it is not this suite's to judge.
  *
  * ⚠️ This header used to end "every entry here is a real defect, not an accepted
  * exception." WIC-2077 retired that sentence rather than let it stay false, and the
@@ -110,11 +122,28 @@ type RuleCounts = Record<string, number>;
  * accepted" has a spelling — a disable directive — and it is deliberately the one that
  * costs a line of justification at the point of use, where the next reader needs it,
  * rather than a row in a table nobody reads while editing a component.
+ *
+ * ⭐ Empty is a STRONGER state than one entry, not a finished one — the map now has no
+ * slack at all. A new finding in ANY of the 32 rules, in any file, fails `npm run lint`
+ * outright rather than being absorbed by a ceiling. If you are here because a lint run
+ * went red: the fix is at the site, or a directive that argues its case. Do NOT add an
+ * entry back here and raise `--max-warnings` to match — that reopens a tree-wide hole in
+ * whichever rule it names, which is the exact failure this file was built to prevent.
  */
 const A11Y_BASELINE: Record<string, RuleCounts> = {
-  'src/components/ApplicationCard.tsx': {
-    'no-noninteractive-tabindex': 1,
-  },
+  // `src/components/ApplicationCard.tsx` used to sit here with `no-noninteractive-tabindex: 1`
+  // — the last entry in the map, and the last of the 47. WIC-2110 recorded it as an
+  // `eslint-disable-next-line` at the `tabIndex={0}` attribute carrying the reason it is
+  // exempt, on the adjudication WIC-2077 and WIC-1942 had already reached by measurement
+  // (see the ⛔ block below, which is where that history is written down). Entry deleted
+  // rather than zeroed; the rule (1 -> 0) leaves `BASELINED_RULES` and returns to `error`,
+  // taking the enforcement surface 31/1/2 -> 32/0/2 and both `--max-warnings` ceilings to 0.
+  //
+  // ⚠️ Note WHERE the directive sits: on the `tabIndex` attribute line, not on `<article>`.
+  // This rule reports at the attribute, whereas the `no-noninteractive-element-interactions`
+  // directive immediately above the element reports at the element. A directive on the
+  // element does not suppress it, and the failure is silent in the sense that matters —
+  // it looks right. Measured both placements rather than assumed.
   // `src/components/CatalogBrowse/CatalogBrowseView.tsx` used to sit here with
   // `click-events-have-key-events: 1` + `no-static-element-interactions: 1` — the pending-diff
   // card was a bare `<div onClick={…} className="cursor-pointer">`. WIC-2073 moved opening the
@@ -376,18 +405,29 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // enforcement surface exactly' was added below — that test ties the `warn` set to the
     // rules the baseline records, so a narrowed baseline reds it too.
     //
-    // The fourth correction is WIC-2077's, and it moved the figure to a corner: `src/pages`
-    // now yields **0** findings, not 1. `no-autofocus` was the only rule surviving the
-    // narrowing, and its two `src/pages` sites (ProjectsList, ResumeVariantDetail) are now
-    // disable directives. So the narrowed baseline is `{}` and the narrowed `warn` set is
-    // empty — measured, not derived. That makes the mutation MORE loudly red, not less,
-    // and it now fails whichever way it is patched up: leave `BASELINED_RULES` alone and
-    // the `warn` set (2) disagrees with the rules an empty baseline records (0); trim it to
-    // match and both fall back to `error`, so the error count goes 31 -> **32**.
-    // Getting this mutation green means editing the assertions themselves, not just the
-    // baseline — which is the point of both guards. Verified by running it, not by reading:
-    // with this line deleted, the narrowed suite still reds on 'states its enforcement
-    // surface exactly'.
+    // ⭐ The fifth correction is WIC-2110's, and it REVERSES the fourth — which claimed the
+    // narrowing mutation is caught twice over, so that "with this line deleted, the narrowed
+    // suite still reds on 'states its enforcement surface exactly'." That was true when the
+    // baseline held one entry. **It is false now, and this line is the ONLY thing left that
+    // catches the mutation.**
+    //
+    // The fourth correction's argument was that a narrowed baseline is inconsistent with the
+    // config: `src/pages` yields 0 findings, so the narrowed baseline is `{}` while the
+    // `warn` set still names a rule — and the surface test reds on the disagreement. But
+    // emptying `A11Y_BASELINE` for real (WIC-2110) removed exactly that disagreement. The
+    // narrowed measurement `{}` now EQUALS the recorded baseline, `total` and
+    // `BASELINE_TOTAL` are both 0, and the `warn` set is empty on both sides. Every
+    // assertion in this suite is satisfied by a run that reads a quarter of the tree.
+    //
+    // Measured, not reasoned: with the glob narrowed to `src/pages/**`, the suite fails on
+    // this line and this line alone — `expected 61 to be greater than 100`, 4 of 5 passing.
+    // Under the previous revision the same mutation failed two tests.
+    //
+    // ⛔ So do not delete this as redundant with the equality below, and do not weaken the
+    // floor. Reaching zero findings cost the ratchet its cross-check: a baseline of `{}`
+    // agrees with *any* narrowing, and `filesLinted` is the only assertion that still
+    // distinguishes "nothing is wrong" from "almost nothing was read". That is a general
+    // property of an empty baseline, not a quirk of this glob.
     //
     // 249 `.ts`/`.tsx` files under `src` today; a floor of 100 absorbs ordinary churn.
     expect(filesLinted).toBeGreaterThan(100);
@@ -421,18 +461,20 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     ).not.toBeNull();
     expect(Number(fixCeiling![1])).toBe(BASELINE_TOTAL);
 
-    // The baselined 1 finding is `warn`, so `--max-warnings` is what pins them. Any
-    // jsx-a11y finding at `error` severity would fail `npm run lint` outright — which is
-    // correct for the other 31 rules, but means the tree is currently red, so say so here.
+    // With `BASELINE_TOTAL` at 0 the two ceilings above are `--max-warnings 0`, so a
+    // warning and an error are equally fatal to `npm run lint` and this assertion no longer
+    // distinguishes "red" from "green" — `total` is already pinned to 0 above.
     //
-    // NOTE (WIC-2077): this is also what proves the five `no-autofocus` disable directives
-    // are actually taking effect. `no-autofocus` is now at `error`, so a directive that
-    // failed to suppress its site — a typo in the rule name, a comment that drifted off the
-    // line it guards — would land here as a non-zero `errors`, not as a quiet warning.
+    // Keep it anyway: it is what proves the DISABLE DIRECTIVES are actually taking effect,
+    // and that job survives the baseline reaching zero. All the retired rules are back at
+    // `error`, so a directive that failed to suppress its site — a typo in the rule name, a
+    // comment that drifted off the line it guards, a directive on the element when the rule
+    // reports at the attribute (WIC-2110's exact trap) — lands here as a non-zero `errors`.
+    // That is a different failure from a new violation, and worth naming separately.
     expect(errors).toBe(0);
   }, 60_000);
 
-  it('states its enforcement surface exactly — 31 error, 1 warn, 2 deliberately off', async () => {
+  it('states its enforcement surface exactly — 32 error, 0 warn, 2 deliberately off', async () => {
     // The reason this test exists.
     //
     // Every other number in this PR is measured; the enforcement surface was not. It was
@@ -461,8 +503,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // Fails closed: if the config failed to resolve, `rules` is empty and every count is 0.
     expect(a11yRules).toHaveLength(34);
 
-    expect(named(2)).toHaveLength(31);
-    expect(named(1)).toHaveLength(1);
+    expect(named(2)).toHaveLength(32);
+    expect(named(1)).toHaveLength(0);
 
     // Pinned BY NAME, not just counted. `label-has-for` is deprecated upstream and
     // superseded by `label-has-associated-control`, now at `error` with 0 findings
@@ -473,9 +515,18 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // THIRD rule off, that is a silent loss of enforcement and this must fail.
     expect(named(0)).toEqual(['jsx-a11y/control-has-associated-label', 'jsx-a11y/label-has-for']);
 
-    // The 1 at `warn` must be exactly the rule the baseline records findings for. This
+    // The `warn` set must be exactly the rules the baseline records findings for. This
     // ties the config to the evidence: baselining a rule that has no recorded violations,
     // or recording violations for a rule that is not baselined, both fail here.
+    //
+    // ⭐ Both sides are empty as of WIC-2110, and that is NOT a vacuous assertion — it is
+    // the load-bearing one. `[] === []` is exactly what forces the last promotion: leave
+    // `no-noninteractive-tabindex` in `BASELINED_RULES` after emptying the map and this
+    // reds with `['jsx-a11y/no-noninteractive-tabindex'] !== []`. That is what makes
+    // removing it from `eslint.config.js` mandatory rather than cosmetic tidying, and it
+    // is the same mechanism that forced the seven promotions before it. Note the guard
+    // runs in the other direction too, via `named(2)`/`named(1)` above: emptying the map
+    // without emptying the config also moves the error count off 32.
     const baselinedRules = [
       ...new Set(Object.values(A11Y_BASELINE).flatMap((counts) => Object.keys(counts))),
     ]
@@ -491,8 +542,8 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
     // and they differ on 7 rules — but 6 of those differences are in rule OPTIONS, and the
     // 7th is that `anchor-ambiguous-text` is absent from `strict` altogether while
     // `recommended` ships it `off`. PROMOTED_RULES restores it, so BOTH configs resolve to
-    // 34 entries at 31/1/2, over the same 2 `off` names. They also produce byte-identical
-    // findings on this tree: 4, matching on file + rule + line + column + severity.
+    // 34 entries at 32/0/2, over the same 2 `off` names. They also produce identical
+    // findings on this tree — since WIC-2110, zero under each.
     //
     // So every count in the test above is satisfied by either ruleset, and a revert of the
     // `extends` entry would pass the whole suite while quietly restoring the hole below.
@@ -525,9 +576,9 @@ describe('jsx-a11y baseline (WIC-1483)', () => {
 
     // And the behaviour, not just the config that is supposed to produce it. Under
     // `recommended` this snippet emits NOTHING; a new instance of it would land in the tree
-    // with no warning and no diff to argue with. Under `strict` it is a finding, which —
-    // because `no-noninteractive-tabindex` is baselined at `warn` — makes it a 5th warning
-    // and fails `npm run lint` against the `--max-warnings` ceiling.
+    // with no warning and no diff to argue with. Under `strict` it is a finding — and since
+    // WIC-2110 emptied `BASELINED_RULES`, an `error`, so it fails `npm run lint` outright
+    // rather than as a warning counted against a ceiling.
     const [result] = await eslint.lintText(
       "const role = 'button';\nexport const Bad = () => <div role={role} tabIndex={0} />;\n",
       { filePath: `${webRoot}/src/__strict_control__.tsx` }
