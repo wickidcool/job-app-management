@@ -203,6 +203,17 @@ jobs:
   e2e-tests:
     name: E2E Tests
     needs: lint-and-test
+    # WIC-1877: skip E2E on a `[skip deploy]` push to `main`. That marker means a
+    # no-deploy merge (docs/workflow-only), whose runtime behaviour the PR's own
+    # E2E run already covered, and which does not reach `deploy-production` — so
+    # re-running Playwright on the merge commit is pure duplication. `lint-and-test`
+    # (with the docs audits) still runs unconditionally; only this runtime-behaviour
+    # job is gated. On `pull_request` and `workflow_dispatch` E2E always runs
+    # (`head_commit` exists only on `push`; dispatch is a real production deploy and
+    # its E2E gates `deploy-production`).
+    if: >-
+      github.event_name != 'push' ||
+      !contains(github.event.head_commit.message, '[skip deploy]')
     runs-on: ubuntu-latest
     # WIC-1095: baseline for this job is ~2m45s. 15 minutes is ~5x headroom and
     # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
@@ -675,7 +686,21 @@ jobs:
     # same `environment: production` protection rules and the same
     # `production-deploy` concurrency group as a push, so a dispatch cannot race a
     # merge-triggered deploy.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    #
+    # WIC-1877: `[skip deploy]` is this repo's no-deploy merge marker. It is NOT a
+    # GitHub-native directive (unlike `[skip ci]`), so the workflow run still fires
+    # and `lint-and-test` — with its five docs/analytics audits — always runs on
+    # `main`; only this deploy job is gated off. That closes the hole where a
+    # `[skip ci]` docs commit was both permitted AND unverified: the marker that
+    # said "don't deploy" also silently suppressed the audits that gate `docs/`.
+    # A direct `[skip ci]` push to `main` had never run those audits (13 of 18
+    # measured on 2026-08-30). `head_commit` exists only on `push`, so the marker
+    # is read there; `workflow_dispatch` is the manual production lever and is
+    # never skip-gated.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       !contains(github.event.head_commit.message, '[skip deploy]'))
     runs-on: ubuntu-latest
     # WIC-1095: generous on purpose — this job runs DB migrations and a wrangler
     # deploy, and a timeout that fires mid-migration is worse than a slow run.

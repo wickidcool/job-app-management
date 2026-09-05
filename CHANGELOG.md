@@ -2315,6 +2315,15 @@ The last thing a new user is asked to do on the first-run flow was a no-op. Step
 - **Reversal-checked.** Three of the four new step-5 tests fail against the unfixed component. The two `it.todo`s parked on PR #82 are also written out, since that PR has landed and the helper they were waiting for is now what step 5 depends on.
 - **`ONBOARDING_FLOW.md` is corrected in the same change.** It documented the CTA as "Opens ApplicationForm modal" — a behaviour the build never had — so the doc would have certified the defect as intended design.
 
+### CI — the no-deploy merge marker is now `[skip deploy]`; `[skip ci]` no longer silently hides the docs audits (2026-08-30)
+
+`[skip ci]` was doing two unrelated jobs: "don't deploy" and, as a GitHub-native directive, "suppress the entire workflow run". The second job also suppressed the five audits in `Lint & Test` — three of which (`doc-reference-audit`, `route-title-table-audit`, `wireframe-casing-audit`) gate **only** `docs/`. So a docs commit was both the only change that could break those audits and exactly the change `[skip ci]` waved through. Measured on `main` 2026-08-30: of 18 `[skip ci]` commits touching `docs/`, 13 were direct pushes that never ran the audits; `f07b9f6` landed a dangling ADR citation that way and sat red ~2.5h, failing every branch rebased onto it (WIC-1877, routed from WIC-1874).
+
+- **`[skip deploy]` is the no-deploy route now** (`.github/workflows/deploy.yml`). It is not a GitHub directive, so the run still fires and `Lint & Test` always runs on `main`; the `deploy-production` `if:` reads `github.event.head_commit.message` and skips only the deploy. `workflow_dispatch` (the manual production lever) is never skip-gated.
+- **`E2E Tests` is also gated on `[skip deploy]` for pushes** — a no-deploy merge's runtime behaviour was already covered by the PR's own E2E run and no deploy follows, so re-running Playwright on the merge commit is pure duplication. It still runs on every `pull_request` and `workflow_dispatch`.
+- **`[skip deploy]` is complementary to, not a replacement for, the two skip-CI controls that already landed.** WIC-2094 removed the fail-open `docs/` predicate from the skip-CI allowlist (`.github/scripts/runtime-paths.cjs`), so a `[skip ci]` PR that edits a `docs/design/*.py` gate script is now blocked while `.md` prose and `.github/workflows/**` stay on the deliberate no-deploy `[skip ci]` route; WIC-1867 added the hourly scheduled `main` docs audit (`docs-audit.yml`) as the backstop. `[skip deploy]` adds immediacy — the run fires at merge/push time, so the audits validate the change then rather than after the fact. This change does **not** alter `skip-ci-guard.yml` / `skip-ci-sweeper.yml`.
+- **Documented** in `CI_CD.md`.
+
 ### Fixed — merging an older duplicate walked a company's first-seen date forward (2026-08-26)
 
 `mergeCompanies` reconciled `applicationCount` and `aliases` when folding duplicates together but never wrote `firstSeenAt`, so the survivor kept its own date unconditionally. Found by QA while writing the first tests for the UC-2 dedup endpoints (WIC-1360, from WIC-1354).

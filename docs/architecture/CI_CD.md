@@ -79,6 +79,48 @@ Deploys to production with safeguards:
 - Runs database migrations before deployment
 - Deploys to Cloudflare Pages production
 
+## Merge markers: `[skip deploy]` is the no-deploy route — not `[skip ci]` (WIC-1877)
+
+To land a change on `main` **without** firing a production deploy — a docs merge,
+a workflow-only change, a runbook update — put **`[skip deploy]`** in the head/merge
+commit message.
+
+- `[skip deploy]` is **not** a GitHub-native directive, so the workflow run still
+  fires: `Lint & Test` (and its five docs/analytics audits) runs on `main` as
+  usual, and only the `Deploy Production` job is gated off. `E2E Tests` is also
+  skipped on a `[skip deploy]` push, because the PR that produced the change
+  already ran it and no deploy follows.
+- The gate is wired on the `deploy-production` (and `e2e-tests`) `if:` in
+  `.github/workflows/deploy.yml`, reading `github.event.head_commit.message`.
+  `workflow_dispatch` is the manual production lever and is **never** skip-gated.
+
+**Prefer `[skip deploy]` over `[skip ci]` to avoid a deploy.** `[skip ci]` (and
+`[ci skip]`, `[no ci]`, `[skip actions]`, the `skip-checks:` trailer, `***NO_CI***`)
+is GitHub-native and suppresses the **entire** run — including the docs audits.
+Historically that made a `[skip ci]` docs commit both permitted and unverified: a
+dangling ADR citation reached `main` this way (`f07b9f6`) and sat red for ~2.5h,
+poisoning every branch that rebased onto it. `[skip deploy]` avoids the deploy
+*without* suppressing those audits, so it is the route to reach for.
+
+Two complementary controls already narrow the `[skip ci]` hole, and `[skip deploy]`
+sits alongside them rather than replacing them:
+
+- **The skip-CI allowlist no longer waves through `docs/` wholesale** (WIC-2094).
+  `skip-ci-guard.yml` / `skip-ci-sweeper.yml` classify runtime surface via the
+  shared `.github/scripts/runtime-paths.cjs` module: `.md` prose and
+  `.github/workflows/**` stay allowlisted (the deliberate no-deploy `[skip ci]`
+  merge route survives), but the `docs/design/*.py` audit *scripts* do not — so a
+  `[skip ci]` PR that edits a gate script is now blocked. Pure-`.md` content
+  changes are still allowed to carry `[skip ci]`.
+- **A scheduled `main` docs audit is the backstop** (WIC-1867, `docs-audit.yml`)
+  for the residual case the per-PR guards cannot see — a *direct push* to `main`,
+  or a pure-`.md` `[skip ci]` — running the docs audits on `main` hourly so a red
+  `main` is detected within the hour.
+
+`[skip deploy]`'s contribution is immediacy: because the run still fires at merge/
+push time, the audits validate the change *then*, instead of relying on the hourly
+backstop to catch it after the fact.
+
 ## Required Secrets
 
 Every credential below lives on a GitHub Actions **environment**, not at the repository level —
