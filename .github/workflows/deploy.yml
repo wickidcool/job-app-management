@@ -56,6 +56,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # WIC-2126: `packages/web` declared `zod@^3.23.8` while the committed lockfile
+      # installed a nested `zod@4.3.6` beside `@hookform/resolvers@3.10.0`, which only
+      # understands zod 3's `ZodError`. Every client-side form validation message in the
+      # app was dead for months: `zodResolver` rethrew instead of populating
+      # `formState.errors`, so an invalid submit threw an uncaught `ZodError` and the form
+      # silently did nothing. Native `type="url"` / `type="email"` constraint validation
+      # masked it for exactly the fields most likely to be typed wrong.
+      #
+      # `npm ls` is the check that saw it — the tree was invalid as committed, so this
+      # was a red gate available the whole time and never run. Scoped to `zod` on
+      # purpose: a whole-tree `npm ls --all` is red today on two unrelated pre-existing
+      # skews (`esbuild@0.19.12` vs vite's `^0.27.0 || ^0.28.0`, and
+      # `@vitest/coverage-v8@1.6.1` vs `vitest@4.1.11`), tracked separately. Widen this
+      # to the full tree once those are resolved — a general gate beats a named one.
+      - name: Check zod resolves to a single valid copy
+        run: npm ls zod
+
       - name: Run linter
         run: npm run lint
 
