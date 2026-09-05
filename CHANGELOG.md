@@ -9,6 +9,17 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — Layer 0 full-history secret audit is green again: 6 triaged-benign findings baselined, zero live credentials (2026-09-05)
+
+The scheduled Layer 0 audit (`.github/workflows/secret-history-audit.yml`) went **RED on 2026-08-31** and would have failed again on its next Monday fire. Re-scanned with the pinned gitleaks `8.28.0` and the workflow's exact flags: the live count was **6, not the 3 the failing run reported** — the 3 originals plus 3 more that landed in the five days since. **Every one is a false positive; no credential is exposed and nothing needs rotating.**
+
+- **5 × `pc-db-connection-string`** — two WIC-2043 fixture rows in `packages/api/test/db-connect-bound.test.ts` (hosts under the RFC 6761 reserved `.invalid` TLD, single-character passwords); one WIC-1916 DSN in `packages/api/test/connect-budget-breaker.test.ts` built at runtime against an ephemeral loopback test server; the stock local-dev default in `.dev.vars.example`; and a documentation example in this file's own WIC-1593 entry describing the detection gap.
+- **1 × `generic-api-key`** — a Python **comment** in `docs/analytics/organic_watch.py` enumerating example PostHog distinct-id identifiers for the adjacent `_SAFE_KEY` regex. Same class as the WIC-1161 `insight-payloads.json` entries.
+
+`.gitleaks-baseline.json` grows **35 → 41**, purely additive (the existing 35 entries are byte-identical), each new entry carrying `_rationale` / `_triaged` / `_resolved` per the WIC-1161 convention. `.gitleaks.toml` is **unchanged** — per its own Rev 6.2 §A.2.2 header and the WIC-2101 ruling, corpus-derived suppression belongs in the redacted baseline, never in the fleet-distributed config.
+
+Verified three ways, not one: the audit's own flags now report **0**; dropping `--redact` brings **all 41 back**, confirming the load-bearing redaction coupling the baseline header documents; and a throwaway commit carrying a synthetic credential is **still detected** against the enlarged baseline, so the ratchet mutes nothing it should catch (WIC-2116).
+
 ### Decided — No automated detector for stacked-child auto-close: an hourly sweep would be slower than the humans already are (2026-09-05)
 
 A stacked-child close detector was scoped for `.github/workflows/evil-merge-sweeper.yml` and **deliberately not built**. Root `CLAUDE.md`'s **Merging a PR** section gains the verdict so the question is not re-scoped a fourth time (WIC-2106, closing WIC-2095 / WIC-2089 item 2). No workflow, no code, no permission change.
