@@ -122,6 +122,9 @@ describe('every paginated list endpoint rejects a malformed cursor', () => {
     vi.clearAllMocks();
   });
 
+  /** Owner for the three reports call sites, which now require one (WIC-2065). */
+  const CURSOR_TEST_OWNER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
+
   // 'ZZZ~' decodes to a two-byte non-digit string; `parseInt` of it is `NaN`,
   // which Drizzle drops from the query entirely (silent page one).
   const MALFORMED = 'ZZZ~';
@@ -146,9 +149,23 @@ describe('every paginated list endpoint rejects a malformed cursor', () => {
     // The three WIC-1308 fixed in place, before the decoder moved to
     // `lib/pagination.ts`. They were never covered at call-site level — not by
     // PR #113 and not by the first draft of this table (WIC-1335).
-    ['reports.getNeedsActionReport', (cursor) => reportsService.getNeedsActionReport({ cursor })],
-    ['reports.getStaleReport', (cursor) => reportsService.getStaleReport({ cursor })],
-    ['reports.getClosedLoopReport', (cursor) => reportsService.getClosedLoopReport({ cursor })],
+    //
+    // These take a required `userId: string` since WIC-2065, so they are called
+    // with a concrete owner. It makes no difference to what this table measures
+    // — `parseCursor` throws before any predicate is built — but calling them
+    // owner-less would now be relying on a state the type forbids.
+    [
+      'reports.getNeedsActionReport',
+      (cursor) => reportsService.getNeedsActionReport({ cursor }, CURSOR_TEST_OWNER),
+    ],
+    [
+      'reports.getStaleReport',
+      (cursor) => reportsService.getStaleReport({ cursor }, CURSOR_TEST_OWNER),
+    ],
+    [
+      'reports.getClosedLoopReport',
+      (cursor) => reportsService.getClosedLoopReport({ cursor }, CURSOR_TEST_OWNER),
+    ],
   ];
 
   // The row-name prefix each service file is spelled with. The only

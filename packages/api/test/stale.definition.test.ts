@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { QueryBuilder } from 'drizzle-orm/pg-core';
-import { inArray, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, type SQL } from 'drizzle-orm';
 
 /**
  * WIC-1479. The product used to ship seven definitions of "stale" across
@@ -37,6 +37,18 @@ import {
 import { applications } from '../src/db/schema.js';
 import { getDashboardStats } from '../src/services/dashboard.service.js';
 import { getStaleReport } from '../src/services/reports.service.js';
+
+/**
+ * The caller both surfaces are measured for (WIC-2065).
+ *
+ * `getStaleReport` now takes `userId: string` and emits the owner term
+ * unconditionally (ADR-010 AC-T0), so these tests supply a concrete owner
+ * rather than relying on the owner-absent arm they used to take by default.
+ * Passing the *same* owner to `getDashboardStats` is what keeps AC-N2b an
+ * apples-to-apples comparison — and strengthens it, since the two surfaces must
+ * now agree on the owner scoping as well as on the stale definition.
+ */
+const OWNER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
 
 /**
  * The literal stale status pair, in either order, however it is spaced or
@@ -196,14 +208,19 @@ describe('AC-N2b: dashboard and report issue the same query', () => {
   });
 
   it('the dashboard stale count and the default stale report serialize identically', async () => {
-    await getDashboardStats();
+    await getDashboardStats(OWNER);
     const dashboardClauses = captured.map(serialize);
 
     captured = [];
-    await getStaleReport();
+    await getStaleReport({}, OWNER);
     const reportClauses = captured.map(serialize);
 
-    const expected = serialize(staleWhere());
+    // The owner term is part of the shared shape now, not an optional extra:
+    // both surfaces emit `and(<stale>, user_id = $n)`. Asserting the composed
+    // predicate rather than `staleWhere()` alone is what keeps this test
+    // sensitive after WIC-2065 — matching on the bare stale predicate would
+    // silently stop finding either clause instead of comparing them.
+    const expected = serialize(and(staleWhere(), eq(applications.userId, OWNER)));
     const normalise = (c: { sql: string; params: unknown[] }) => ({
       sql: c.sql,
       // The two services build their cutoff from `new Date()` microseconds
@@ -225,7 +242,7 @@ describe('AC-N2b: dashboard and report issue the same query', () => {
       'stale report issues no query matching the shared stale predicate'
     ).toBeDefined();
     expect(normalise(dashboardStale!)).toEqual(normalise(reportStale!));
-    expect(normalise(dashboardStale!).params).toEqual(['applied', 'phone_screen']);
+    expect(normalise(dashboardStale!).params).toEqual(['applied', 'phone_screen', OWNER]);
   });
 
   it('both cutoffs land on the same day', async () => {
@@ -234,11 +251,11 @@ describe('AC-N2b: dashboard and report issue the same query', () => {
         .filter((p): p is string => typeof p === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(p))
         .map((p) => p.slice(0, 10));
 
-    await getDashboardStats();
+    await getDashboardStats(OWNER);
     const dashboardDays = captured.flatMap((c) => day(serialize(c).params));
 
     captured = [];
-    await getStaleReport();
+    await getStaleReport({}, OWNER);
     const reportDays = captured.flatMap((c) => day(serialize(c).params));
 
     const expectedDay = staleCutoff().toISOString().slice(0, 10);
@@ -288,10 +305,19 @@ describe('?status= can narrow the definition but never widen it', () => {
   /** The status names bound into the report's WHERE clause. */
   async function statusesQueried(status?: string): Promise<string[]> {
     captured = [];
-    await getStaleReport(status === undefined ? {} : { status });
-    return captured
-      .flatMap((c) => serialize(c).params)
-      .filter((p): p is string => typeof p === 'string' && !/^\d{4}-\d{2}-\d{2}T/.test(p));
+    await getStaleReport(status === undefined ? {} : { status }, OWNER);
+    return (
+      captured
+        .flatMap((c) => serialize(c).params)
+        // Drop the cutoff timestamp and the owner binding (WIC-2065) — everything
+        // left is a status name. Excluding the owner by *value* rather than by
+        // "is this a known status" is deliberate: a filter that kept only
+        // recognised statuses would discard exactly the widening this suite
+        // exists to catch.
+        .filter(
+          (p): p is string => typeof p === 'string' && !/^\d{4}-\d{2}-\d{2}T/.test(p) && p !== OWNER
+        )
+    );
   }
 
   it('queries the full definition when no filter is given', async () => {
@@ -327,7 +353,7 @@ describe('?status= can narrow the definition but never widen it', () => {
     // `staleWhere` an empty set, and drizzle's `inArray` throws on one
     // ("inArray requires at least one value"). An empty report is the correct
     // answer to "which saved applications are stale"; a 500 is not.
-    await expect(getStaleReport({ status: 'saved' })).resolves.toMatchObject({
+    await expect(getStaleReport({ status: 'saved' }, OWNER)).resolves.toMatchObject({
       applications: [],
       summary: { total: 0, averageDaysStale: 0 },
     });

@@ -13,16 +13,16 @@ Analysis of record: WIC-1430 document `tenancy-absent-caller-audit`.
 
 ## Implementation status
 
-Measured on `main` at `4aa160c`, 2026-09-05, and re-measured after the D1.2 + D1.3 change
-below. Recorded here so the next reader does not re-derive it — three separate cards have
-already re-measured this independently.
+Re-measured on this branch after merging `main` at `c661d36` (WIC-2065 / PR #376, which closed
+the reports vertical while this change was in flight). Recorded here so the next reader does
+not re-derive it — three separate cards have already re-measured this independently.
 
 | decision | state | evidence |
 |---|---|---|
 | **D1.1** reject a token that verifies with no `sub` | ✅ landed | `middleware/auth.ts` `requireSubject` throws → 401 on both the ES256/RS256 and HS256 paths |
 | **D1.2** narrow `HonoVariables.userId` to `string` | ✅ landed | `src/types/env.ts` is `userId: string`; `PUBLIC_PATHS` now leaves the variable unset rather than setting `null` |
-| **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ✅ landed — **0 sites** | was 66 across 11 route files; `requireOwner(c)` adoptions 11 → **77**, in every route file |
-| **D2** service signatures take `userId: string` | ⚠️ partial | the guard still reports `[SIG] 81` |
+| **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ✅ landed — **0 sites** | was 66 across 11 route files; `requireOwner(c)` adoptions **77**, in all 11 route files |
+| **D2** service signatures take `userId: string` | ⚠️ partial | the guard reports `[SIG] 76` (was 81; WIC-2065 narrowed the 5 `reports.service.ts` signatures) |
 | **D3** local dev gets a real owner | ✅ landed | `middleware/auth.ts` supplies `LOCAL_DEV_USER_ID` (WIC-1964) |
 | **D4** CI guard is the mechanism | ✅ landed | `scripts/audit-owner-predicates.mjs`, wired into `Lint & Test`; now four checks, `[LAUNDER]` added for the route layer |
 | **D5** `[NOWNER]` checks owner-absent writes | ⚠️ landed, unsound | see the caveat below |
@@ -42,7 +42,7 @@ that D1.2 gates D1.3 for free. **It does not, and this was measured rather than 
 With `HonoVariables.userId` narrowed to `string`, reintroducing
 `getDashboardStats(c.get('userId') ?? undefined)` in `routes/dashboard.ts` still gives
 `tsc --noEmit` **exit 0**: a redundant `??` is legal TypeScript, not an error, and passing
-`string | undefined` into a service that still accepts `userId?: string` (81 such signatures
+`string | undefined` into a service that still accepts `userId?: string` (76 such signatures
 remain — D2 is partial) is well typed at every one of those call sites.
 
 So D1.2 makes the laundering *pointless* without making it *detectable*, and `[SIG]`/`[COND]`
@@ -127,8 +127,27 @@ choosing a mechanism:
 | shape                            | example                                                  | sites                                                                                                                  |
 | -------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | ternary                          | `userId ? and(...) : eq(t.id, id)`                       | `resume.service.ts:787`                                                                                                |
-| `if`-guard on a conditions array | `if (userId) { conditions.push(eq(t.userId, userId)); }` | `reports.service.ts:488`, `resume-variant.service.ts:569`, `cover-letter.service.ts:365`, `application.service.ts:141` |
-| spread                           | `...(userId ? [eq(t.userId, userId)] : [])`              | `reports.service.ts:162, 266, 358`                                                                                     |
+| `if`-guard on a conditions array | `if (userId) { conditions.push(eq(t.userId, userId)); }` | `resume-variant.service.ts:569`, `cover-letter.service.ts:365`, `application.service.ts:141` |
+| spread                           | `...(userId ? [eq(t.userId, userId)] : [])`              | *(the three cited sites were all in `reports.service.ts`; burned down — see below)*                                     |
+
+⚠️ **Every line number in this table is stale, and it is worth knowing why rather than repairing it
+in place.** The four `reports.service.ts` citations this table carried — `:488` (`if`-guard) and
+`:162, 266, 358` (spreads) — were burned down by **WIC-2065**, so those are gone for a good reason.
+But the *remaining* citations had already rotted independently of that change: measured on this tree,
+`application.service.ts:141` and `cover-letter.service.ts:365` are blank lines and
+`resume-variant.service.ts:569` is a comment. They were accurate against the tree the survey ran on
+and drifted with ordinary edits since.
+
+So do not read a line number here as a location. **Re-derive the inventory with the guard**
+(`node packages/api/scripts/audit-owner-predicates.mjs --stats`), which keys on the AST rather than
+on a position. Note the guard's `[COND]` buckets are `ternary test` and `if test`, and a spread
+`...(userId ? [x] : [])` counts as a *ternary test* — so the guard cannot separate rows 1 and 3 of
+this table for you either. The taxonomy is the durable part of this section; the citations are not.
+
+WIC-2065 also found a **fourth read-side shape this table does not list**: a `conditions` array
+whose `where` degrades to `undefined` when the array is empty (`conditions.length > 0 ? and(...) :
+undefined`). A bare `.where(undefined)` in drizzle is *no predicate at all* — strictly worse than
+the three above, since it drops the non-owner filters too.
 
 A fourth class exists that the card's table does not count at all — **write-side laundering**:
 `userId: userId ?? null` inside `.values({...})` (`application.service.ts:68, 91, 324`;
