@@ -64,6 +64,36 @@
  *   failing fixture for, and the note describing it will happily overstate its
  *   reach for months.  Prefer adding a fixture over widening a claim here.
  *
+ *   The same defect had two more spellings, and this note carried them as a
+ *   known hole rather than a finding for as long as WIC-2067 took to land.
+ *   Closed in WIC-2069: each member of PREDICATE_COMBINATORS now quantifies over
+ *   its operands the way the operator actually composes, and the operands are
+ *   classified independently rather than scanned into one flat result.
+ *
+ *     and(a, b)  -- narrows.  Owner-scoped if SOME operand is.  Unchanged.
+ *     or(a, b)   -- widens.   Owner-scoped only if EVERY operand is.
+ *     not(a)     -- inverts.  Never owner-scoped, and never unique-scoped
+ *                             either; the complement of one row is every
+ *                             other row.
+ *
+ *   Measured, not asserted -- the four-mutant matrix at
+ *   `extraction.service.ts:109`, run against `origin/main` a64554a before the
+ *   fix and again after.  Before: the ternary and the bare-`eq` controls both
+ *   exit 1, while `or(eq(t.userId, u), eq(t.tagSlug, s))` and
+ *   `and(eq(t.tagSlug, s), not(eq(t.userId, u)))` both exit 0 -- the second of
+ *   those writes to every tenant EXCEPT the caller.  After: all four exit 1
+ *   with a [NOWNER] finding at the mutated site, and the clean tree is
+ *   byte-for-byte unmoved (100 baselined sites, [SIG] 71 / [COND] 29 /
+ *   [NOWNER] 0, 19 unique/pk-scoped, 0 unresolved).
+ *
+ *   Live exposure was ZERO -- no write predicate in the tree used either shape
+ *   -- so this is prevention ahead of the ADR-010 D2 predicate rewrite, not
+ *   remediation.  Both shapes now have fixtures under "[NOWNER] combinators
+ *   quantify differently", including the negative controls: `or` with the owner
+ *   term on every disjunct, and a `not` beside a real owner conjunct, are both
+ *   clean.  A rule keyed on the spelling rather than on the hazard would pass
+ *   the positive cases and fail those two.
+ *
  *   Still out of scope, and so still NOT asserted by a green run.  Each is
  *   counted on every run and listed by `--stats`, never silently dropped:
  *     - writes scoped by a primary key or `.unique()` column.  Those match at
@@ -75,15 +105,11 @@
  *     - SELECTs with no owner term (read-side cross-tenant leaks).  Real, but a
  *       far larger population; measure before gating.
  *     - anything outside SCAN_DIRS, and any owner column not in OWNER_COLUMNS.
- *     - `or(eq(t.userId, u), eq(t.slug, s))`.  This is the SAME disjunction
- *       blindness the ternary had, in the other spelling: a conjunct anywhere in
- *       an `and(...)` chain soundly proves owner scoping, so `scan` sets `owner`
- *       from any one operand -- but under `or` the other operand still matches
- *       other tenants' rows, and the site scores clean.  NOT fixed by WIC-2067,
- *       which handled `?:` only.  There are zero such write predicates in the
- *       tree today (checked while fixing the ternary), which is the only reason
- *       it is a note here rather than a finding; it needs `or` to be classified
- *       operand-by-operand the way a conditional now is.
+ *     - a predicate assembled by a combinator this file does not know about.
+ *       PREDICATE_COMBINATORS is a fixed set of three; drizzle's `exists`,
+ *       `inArray` against a subquery, and any project-local helper that builds
+ *       a disjunction out of raw `sql` are all outside it.  The quantifier fix
+ *       below is only as wide as that set.
  *
  * Uses the TypeScript compiler's own parser, so it sees every syntactic shape
  * (ternary, `if (userId) conditions.push(...)`, `...(userId ? [x] : [])`)
@@ -377,6 +403,57 @@ function classifyPredicate(expr, src, uniqueColumns, depth = 0) {
           ? n.expression.name.text
           : null;
       const argsArePredicates = predPos && callee !== null && PREDICATE_COMBINATORS.has(callee);
+
+      /**
+       * The three combinators do NOT compose the same way, and scanning all of
+       * them into one flat `out` -- which is what this did until WIC-2069 -- is
+       * the disjunction blindness the ternary had, in the other two spellings.
+       * `and` narrows, so any one conjunct carrying the owner term soundly
+       * proves owner scoping. The other two do not:
+       *
+       *   or(eq(t.userId, u), eq(t.tagSlug, s))    -- WIDENS. Matches every
+       *   tenant's row whose slug matches, regardless of owner, yet the flat
+       *   scan saw `t.userId` and scored the site CLEAN.
+       *
+       *   and(eq(t.tagSlug, s), not(eq(t.userId, u)))  -- INVERTS. Writes to
+       *   every tenant EXCEPT the caller, which is strictly worse than dropping
+       *   the term, and it too scored CLEAN off the same `t.userId`.
+       *
+       * Same defect as WIC-2067: an owner term that is present but not
+       * load-bearing, answering for the whole predicate. So classify each
+       * operand on its own and apply the combinator's own quantifier --
+       * `some` for `and`, `every` for `or`, and nothing at all survives a
+       * `not`, since negating the owner column never scopes a write to its
+       * owner. `unique` follows the same shape (a disjunct of two unique keys
+       * is still bounded; the complement of one is not), and `opaque` is the
+       * union in every case: one unreadable operand makes the predicate
+       * unreadable.
+       *
+       * Monotone, like the conditional arm: this can only ever retire the
+       * `owner`/`unique` grade, i.e. add findings, never take one away.
+       *
+       * Zero write predicates in the tree use either shape today (measured on
+       * WIC-2067 and re-measured here: `[NOWNER] 0`, 100 baselined sites
+       * unchanged), so this is prevention ahead of the ADR-010 D2 burndown,
+       * not remediation. The standing positive controls are in
+       * `test/audit-owner-predicates.test.ts` under "[NOWNER] combinators".
+       */
+      if (argsArePredicates && callee !== 'and' && depth <= 6) {
+        const operands = n.arguments.map((a) =>
+          classifyPredicate(a, src, uniqueColumns, depth + 1)
+        );
+        if (callee === 'or') {
+          // `or()` with no operands constrains nothing; `every` on [] is
+          // vacuously true, so guard the empty case explicitly.
+          if (operands.length > 0 && operands.every((o) => o.owner)) out.owner = true;
+          if (operands.length > 0 && operands.every((o) => o.unique)) out.unique = true;
+        }
+        // `not(...)`: neither grade survives the negation -- fall through with
+        // both left false, so the site is reported unless something else in an
+        // enclosing `and` scopes it.
+        if (operands.some((o) => o.opaque)) out.opaque = true;
+        return;
+      }
 
       /**
        * A module-scope predicate helper -- `where(projectScope(slug, userId, ...))`

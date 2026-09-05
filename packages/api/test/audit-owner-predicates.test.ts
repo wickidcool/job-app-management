@@ -347,6 +347,150 @@ export async function bump(userId?: string) {
   });
 });
 
+/**
+ * The same defect as the ternary, in the two other spellings `PREDICATE_COMBINATORS`
+ * admits (WIC-2069). `and` narrows, so one conjunct carrying the owner term proves
+ * scoping; `or` widens and `not` inverts, and until this landed the flat scan let
+ * their owner term answer for the whole predicate anyway.
+ *
+ * Live exposure when these were written was ZERO -- no write predicate in the tree
+ * used either shape -- so every case below is a synthetic fixture and nothing here
+ * is evidence about the real tree. That is the point: these exist so the ADR-010 D2
+ * predicate rewrite cannot introduce the shape silently. The controls that matter
+ * are the negative ones: an over-eager fix that reported any `or`/`not` outright
+ * would pass the first two cases and fail the rest.
+ */
+describe('[NOWNER] combinators quantify differently (WIC-2069)', () => {
+  const OPS = `import { eq, and, or, not } from 'drizzle-orm';
+import { widgets, globals } from '../db/schema.js';
+declare const db: any;`;
+
+  it('flags or() whose other disjunct drops the owner term', () => {
+    // M-C. `or(owner, slug)` matches every tenant's row whose slug matches. The
+    // owner term is present and not load-bearing -- exactly the ternary shape.
+    const r = audit(`${OPS}
+export async function bump(slug: string, userId: string) {
+  await db
+    .update(widgets)
+    .set({ hits: 1 })
+    .where(or(eq(widgets.userId, userId), eq(widgets.slug, slug)));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(1);
+    expect(r.stats.uniqueScopedWrites).toHaveLength(0);
+  });
+
+  it('flags an owner term that survives only under not()', () => {
+    // M-D. This writes to every tenant EXCEPT the caller -- strictly worse than
+    // dropping the term, and it scored CLEAN off the same `widgets.userId`.
+    const r = audit(`${OPS}
+export async function bump(slug: string, userId: string) {
+  await db
+    .update(widgets)
+    .set({ hits: 1 })
+    .where(and(eq(widgets.slug, slug), not(eq(widgets.userId, userId))));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(1);
+  });
+
+  it('flags a bare not() on a unique column instead of counting it pk-scoped', () => {
+    // The masking hazard on the `unique` side: `eq(widgets.id, id)` alone is one
+    // row, so it files under pk-scoped and is never reported. Its COMPLEMENT is
+    // every row but that one. If `not` passed `unique` through, this whole class
+    // would leave the report through the stats door.
+    const r = audit(`${OPS}
+export async function bump(id: string) {
+  await db.update(widgets).set({ hits: 1 }).where(not(eq(widgets.id, id)));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(1);
+    expect(r.stats.uniqueScopedWrites).toHaveLength(0);
+  });
+
+  it('flags a disjunction of unique keys with one non-unique arm', () => {
+    // `unique` under `or` is the intersection for the same reason it is across
+    // ternary arms: the slug disjunct fans out across tenants on its own.
+    const r = audit(`${OPS}
+export async function bump(id: string, slug: string) {
+  await db.update(widgets).set({ hits: 1 }).where(or(eq(widgets.id, id), eq(widgets.slug, slug)));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(1);
+    expect(r.stats.uniqueScopedWrites).toHaveLength(0);
+  });
+
+  it('weighs an or() nested inside an and()', () => {
+    // A top-level-only expansion of the `where` argument sees `and(...)`, keeps
+    // the `some` quantifier, and goes blind again -- the WIC-2067 lesson.
+    const r = audit(`${OPS}
+export async function bump(slug: string, userId: string) {
+  await db
+    .update(widgets)
+    .set({ hits: 1 })
+    .where(and(eq(widgets.slug, slug), or(eq(widgets.userId, userId), eq(widgets.slug, slug))));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(1);
+  });
+
+  it('does NOT flag and(), where one owner conjunct still proves scoping', () => {
+    // NEGATIVE CONTROL, and the one that guards the whole tree: this is the shape
+    // of nearly every clean write predicate in `packages/api`. `and` keeps `some`.
+    const r = audit(`${OPS}
+export async function bump(slug: string, userId: string) {
+  await db
+    .update(widgets)
+    .set({ hits: 1 })
+    .where(and(eq(widgets.slug, slug), eq(widgets.userId, userId)));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(0);
+  });
+
+  it('does NOT flag an or() whose every disjunct carries the owner term', () => {
+    // NEGATIVE CONTROL. A disjunction is owner-scoped when it is owner-scoped on
+    // both sides; reporting `or` outright would be a rule keyed on the spelling
+    // rather than on the hazard.
+    const r = audit(`${OPS}
+export async function bump(slug: string, userId: string) {
+  await db
+    .update(widgets)
+    .set({ hits: 1 })
+    .where(or(eq(widgets.userId, userId), and(eq(widgets.userId, userId), eq(widgets.slug, slug))));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(0);
+  });
+
+  it('does NOT flag a not() sitting beside a real owner conjunct', () => {
+    // NEGATIVE CONTROL. `not` contributes nothing; it must not subtract either.
+    // `and(owner, not(slug))` is a legitimate exclusion inside the caller's rows.
+    const r = audit(`${OPS}
+export async function bump(slug: string, userId: string) {
+  await db
+    .update(widgets)
+    .set({ hits: 1 })
+    .where(and(eq(widgets.userId, userId), not(eq(widgets.slug, slug))));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(0);
+  });
+
+  it('treats an unreadable disjunct as unreadable, not as clean', () => {
+    // `opaque` is the union under every combinator: one unreadable operand makes
+    // the predicate unreadable, so it is counted rather than reported or dropped.
+    const r = audit(`${OPS}
+import { mysteryClause } from '../lib/elsewhere.js';
+export async function bump(userId: string) {
+  await db.update(widgets).set({ hits: 1 }).where(or(eq(widgets.userId, userId), mysteryClause));
+}
+`);
+    expect(checksAt(r, 'NOWNER')).toHaveLength(0);
+    expect(r.stats.opaquePredicates).toHaveLength(1);
+  });
+});
+
 describe('[COND] fail-open owner branches', () => {
   it('flags a bare owner ternary', () => {
     const r = audit(`${PRELUDE}
