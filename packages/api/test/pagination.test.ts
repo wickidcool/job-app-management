@@ -122,7 +122,16 @@ describe('every paginated list endpoint rejects a malformed cursor', () => {
     vi.clearAllMocks();
   });
 
-  /** Owner for the three reports call sites, which now require one (WIC-2065). */
+  /**
+   * Owner for the call sites that require one — the three reports functions
+   * (WIC-2065) and the six catalog `list*` functions (ADR-010 D2, WIC-2068).
+   *
+   * These calls used to omit it. `packages/api/tsconfig.json` excludes `test/`,
+   * so tightening a service signature never breaks this file at compile time and
+   * the omission would have sat here binding NULL into every tenancy term —
+   * still fail-closed, but measuring a call shape no route can produce. Pass a
+   * real owner so the cursor assertions run against the real predicate.
+   */
   const CURSOR_TEST_OWNER = '8f1d6b4a-0e2c-4a55-9b8e-3d7c1f2a5b60';
 
   // 'ZZZ~' decodes to a two-byte non-digit string; `parseInt` of it is `NaN`,
@@ -133,12 +142,21 @@ describe('every paginated list endpoint rejects a malformed cursor', () => {
   const NEGATIVE = encode('-5');
 
   const CALL_SITES: Array<[string, (cursor: string) => Promise<unknown>]> = [
-    ['catalog.listCompanies', (cursor) => catalogService.listCompanies({ cursor })],
-    ['catalog.listJobFitTags', (cursor) => catalogService.listJobFitTags({ cursor })],
-    ['catalog.listTechStackTags', (cursor) => catalogService.listTechStackTags({ cursor })],
-    ['catalog.listBullets', (cursor) => catalogService.listBullets({ cursor })],
-    ['catalog.listThemes', (cursor) => catalogService.listThemes({ cursor })],
-    ['catalog.listDiffs', (cursor) => catalogService.listDiffs({ cursor })],
+    [
+      'catalog.listCompanies',
+      (cursor) => catalogService.listCompanies({ cursor }, CURSOR_TEST_OWNER),
+    ],
+    [
+      'catalog.listJobFitTags',
+      (cursor) => catalogService.listJobFitTags({ cursor }, CURSOR_TEST_OWNER),
+    ],
+    [
+      'catalog.listTechStackTags',
+      (cursor) => catalogService.listTechStackTags({ cursor }, CURSOR_TEST_OWNER),
+    ],
+    ['catalog.listBullets', (cursor) => catalogService.listBullets({ cursor }, CURSOR_TEST_OWNER)],
+    ['catalog.listThemes', (cursor) => catalogService.listThemes({ cursor }, CURSOR_TEST_OWNER)],
+    ['catalog.listDiffs', (cursor) => catalogService.listDiffs({ cursor }, CURSOR_TEST_OWNER)],
     // The odd one out: the param is `page`, not `cursor`.
     ['application.listApplications', (page) => applicationService.listApplications({ page })],
     ['coverLetter.listCoverLetters', (cursor) => coverLetterService.listCoverLetters({ cursor })],

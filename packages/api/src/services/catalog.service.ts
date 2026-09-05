@@ -73,13 +73,32 @@ export interface ListCompaniesOptions {
   cursor?: string;
 }
 
-export async function listCompanies(opts: ListCompaniesOptions = {}, userId?: string) {
+/**
+ * ADR-010 D2 — why the owner is required here, and on the five list* siblings below.
+ *
+ * Every one of these built its predicate as `if (userId) conditions.push(...)`. With
+ * the owner absent that line simply does not run, and because the remaining conjuncts
+ * are all *filters* rather than *scopes*, `.where(and(...))` still renders a valid
+ * query — one that pages every tenant's catalog. The failure is silent and returns
+ * HTTP 200.
+ *
+ * D1.3 closed the only route-level source of an absent owner: `catalog.routes.ts`
+ * passes `requireOwner(c)`, which 401s rather than returning undefined. That made the
+ * fail-open arm unreachable, but only by reachability — a guarantee held one layer
+ * away, in the route, by a function these services never see. Requiring `userId` here
+ * makes the absent-owner case unrepresentable at the signature, so the compiler is
+ * what enforces it rather than a convention about who calls whom.
+ *
+ * The tenancy term is therefore unconditional. Deleting it, or restoring the `if`,
+ * is a cross-tenant read.
+ */
+export async function listCompanies(opts: ListCompaniesOptions = {}, userId: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = parseCursor(opts.cursor);
 
   const conditions = [];
-  if (userId) conditions.push(eq(companyCatalog.userId, userId));
+  conditions.push(eq(companyCatalog.userId, userId));
   if (!opts.includeDeleted) conditions.push(eq(companyCatalog.isDeleted, false));
   if (opts.search) conditions.push(ilike(companyCatalog.name, `%${opts.search}%`));
 
@@ -179,13 +198,14 @@ export interface ListTagsOptions {
   cursor?: string;
 }
 
-export async function listJobFitTags(opts: ListTagsOptions = {}, userId?: string) {
+export async function listJobFitTags(opts: ListTagsOptions = {}, userId: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = parseCursor(opts.cursor);
 
   const conditions = [];
-  if (userId) conditions.push(eq(jobFitTags.userId, userId));
+  // Unconditional: the owner is required (ADR-010 D2), so this term is always present.
+  conditions.push(eq(jobFitTags.userId, userId));
   if (opts.category && VALID_JOB_FIT_CATEGORIES.includes(opts.category as JobFitCategory)) {
     conditions.push(eq(jobFitTags.category, opts.category as JobFitCategory));
   }
@@ -307,13 +327,14 @@ export async function mergeJobFitTags(sourceIds: string[], targetId: string, use
   return { mergedTag: toJobFitTagDTO(updated!), mergedCount: sources.length };
 }
 
-export async function listTechStackTags(opts: ListTagsOptions = {}, userId?: string) {
+export async function listTechStackTags(opts: ListTagsOptions = {}, userId: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = parseCursor(opts.cursor);
 
   const conditions = [];
-  if (userId) conditions.push(eq(techStackTags.userId, userId));
+  // Unconditional: the owner is required (ADR-010 D2), so this term is always present.
+  conditions.push(eq(techStackTags.userId, userId));
   if (opts.category && VALID_TECH_STACK_CATEGORIES.includes(opts.category as TechStackCategory)) {
     conditions.push(eq(techStackTags.category, opts.category as TechStackCategory));
   }
@@ -440,13 +461,14 @@ export interface ListBulletsOptions {
   cursor?: string;
 }
 
-export async function listBullets(opts: ListBulletsOptions = {}, userId?: string) {
+export async function listBullets(opts: ListBulletsOptions = {}, userId: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = parseCursor(opts.cursor);
 
   const conditions = [];
-  if (userId) conditions.push(eq(quantifiedBullets.userId, userId));
+  // Unconditional: the owner is required (ADR-010 D2), so this term is always present.
+  conditions.push(eq(quantifiedBullets.userId, userId));
   if (opts.impactCategory)
     conditions.push(eq(quantifiedBullets.impactCategory, opts.impactCategory as any));
   if (opts.sourceId) conditions.push(eq(quantifiedBullets.sourceId, opts.sourceId));
@@ -607,13 +629,14 @@ export interface ListThemesOptions {
   cursor?: string;
 }
 
-export async function listThemes(opts: ListThemesOptions = {}, userId?: string) {
+export async function listThemes(opts: ListThemesOptions = {}, userId: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 50, 250);
   const offset = parseCursor(opts.cursor);
 
   const conditions = [];
-  if (userId) conditions.push(eq(recurringThemes.userId, userId));
+  // Unconditional: the owner is required (ADR-010 D2), so this term is always present.
+  conditions.push(eq(recurringThemes.userId, userId));
   if (opts.coreOnly) conditions.push(eq(recurringThemes.isCoreStrength, true));
   if (!opts.includeHistorical) conditions.push(eq(recurringThemes.isHistorical, false));
 
@@ -653,13 +676,14 @@ export interface ListDiffsOptions {
   cursor?: string;
 }
 
-export async function listDiffs(opts: ListDiffsOptions = {}, userId?: string) {
+export async function listDiffs(opts: ListDiffsOptions = {}, userId: string) {
   const db = getDb();
   const limit = Math.min(opts.limit ?? 20, 100);
   const offset = parseCursor(opts.cursor);
 
   const conditions = [];
-  if (userId) conditions.push(eq(catalogDiffs.userId, userId));
+  // Unconditional: the owner is required (ADR-010 D2), so this term is always present.
+  conditions.push(eq(catalogDiffs.userId, userId));
   if (opts.status) {
     // An explicit status means exactly that status, unchanged. Callers asking for
     // `approved` want the apply decision, not the review state.
@@ -1009,21 +1033,25 @@ export async function generateDiff(
   // is what makes the 404 a decision this boundary takes, rather than a side
   // effect of a predicate two layers down — so it holds even if the reader
   // beneath is later widened.
-  if (userId) {
-    const [owned] =
-      sourceType === 'resume'
-        ? await db
-            .select({ id: resumes.id })
-            .from(resumes)
-            .where(and(eq(resumes.id, sourceId), eq(resumes.userId, userId)))
-        : await db
-            .select({ id: applications.id })
-            .from(applications)
-            .where(and(eq(applications.id, sourceId), eq(applications.userId, userId)));
-    // Same 404 the owner's own missing document yields — a foreign id and an
-    // absent one must stay indistinguishable to the caller.
-    if (!owned) throw new NotFoundError(sourceType === 'resume' ? 'Resume' : 'Application');
-  }
+  //
+  // Unconditional: `userId` is already required here, so the `if (userId)` this
+  // replaces could never be false — it was a residual guard that made the probe
+  // look optional to a reader and to the ADR-010 audit alike. Same reasoning as
+  // the `conditions.push` at the foot of this function, which was made
+  // unconditional for the same reason.
+  const [owned] =
+    sourceType === 'resume'
+      ? await db
+          .select({ id: resumes.id })
+          .from(resumes)
+          .where(and(eq(resumes.id, sourceId), eq(resumes.userId, userId)))
+      : await db
+          .select({ id: applications.id })
+          .from(applications)
+          .where(and(eq(applications.id, sourceId), eq(applications.userId, userId)));
+  // Same 404 the owner's own missing document yields — a foreign id and an
+  // absent one must stay indistinguishable to the caller.
+  if (!owned) throw new NotFoundError(sourceType === 'resume' ? 'Resume' : 'Application');
   // processCatalogChange reads the owner off event.metadata.userId (the shape
   // resume.service.ts uses when it enqueues). Omitting it wrote the diff row —
   // and every catalog row auto-applied alongside it — with user_id null, which

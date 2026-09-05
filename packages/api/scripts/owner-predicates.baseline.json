@@ -18,18 +18,6 @@
     "count": 2
   },
   {
-    "file": "src/services/catalog.service.ts",
-    "check": "COND",
-    "detail": "'userId' branched on in an if test",
-    "count": 7
-  },
-  {
-    "file": "src/services/catalog.service.ts",
-    "check": "SIG",
-    "detail": "owner parameter 'userId' is optional or nullable",
-    "count": 6
-  },
-  {
     "file": "src/services/cover-letter.service.ts",
     "check": "COND",
     "detail": "'userId' branched on in an if test",

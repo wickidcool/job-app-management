@@ -1018,7 +1018,15 @@ describe('generateDiff tenancy', () => {
     // WIC-1638: the `if (userId)` guard around this term is gone, so the lookup
     // can no longer fall through to whichever diff is newest for the trigger id
     // regardless of owner.
-    expectDiffLookup(selectWhere.mock.calls[0][0], {
+    //
+    // ADR-010 D2 (WIC-2068) removed the `if (userId)` around the *ownership
+    // probe* above it too, so that read now happens on this path as well — which
+    // is why the lookup sits at DIFF_LOOKUP_CALL here, exactly where it does for
+    // a real caller, rather than shifting up to index 0. stubDiffDb answers every
+    // select with its canned rows, so the probe is satisfied and the call
+    // proceeds; the fail-closed behaviour against a stub that honours the clause
+    // is asserted in the ownership-probe block below.
+    expectDiffLookup(selectWhere.mock.calls[DIFF_LOOKUP_CALL][0], {
       userId: undefined,
       triggerId: '01HZ_RESUME_001',
     });
@@ -1128,21 +1136,34 @@ describe('generateDiff source ownership (WIC-1414)', () => {
     expect(result.id).toBe('01HZ_DIFF_OK');
   });
 
-  it('skips the probe in single-user mode rather than failing closed', async () => {
-    // authMiddleware sets userId null when Supabase is unconfigured, and the
-    // route passes that through as undefined. Requiring ownership there would
-    // 404 every local-dev call, so the guard is scoped to the case where an
-    // identity actually exists to compare against.
+  it('ADR-010 D2: an absent owner is refused at the probe, not waved past it', async () => {
+    // This replaces 'skips the probe in single-user mode rather than failing
+    // closed'. That test encoded a real constraint at the time — authMiddleware
+    // set userId null when Supabase was unconfigured and the route passed it
+    // through, so requiring ownership would have 404'd every local-dev call.
+    //
+    // Both halves of that premise are gone. D1.3 made catalog.routes.ts:188 pass
+    // `requireOwner(c)`, which 401s rather than yielding undefined, so the route
+    // can no longer produce this input; D2 (WIC-2068) made `userId` required
+    // here, so absence is unrepresentable at the signature. An absent owner
+    // reaching this function is now a defect, and the fixture below is what it
+    // would cost if the probe still skipped: a foreign resume, auto-applied into
+    // a catalog under a null owner.
     const stub = scopedReadStub({
       resumes: [{ id: RESUME, userId: OTHER_USER }],
       catalog_diffs: [{ ...diffRow(), triggerId: RESUME, userId: null, id: '01HZ_DIFF_SU' }],
     });
     vi.mocked(getDb).mockReturnValue(stub.db as unknown as ReturnType<typeof getDb>);
 
-    await generateDiff('resume', RESUME, undefined);
+    await expect(generateDiff('resume', RESUME, ABSENT_OWNER)).rejects.toThrow(NotFoundError);
 
-    expect(stub.opsOn('resumes')).toHaveLength(0);
-    expect(processCatalogChange).toHaveBeenCalledTimes(1);
+    // The probe ran — it is no longer conditional — and matched nothing, so the
+    // extraction that auto-applies into the caller's catalog never started.
+    // Asserting the write path and not just the error keeps this honest: a 404
+    // thrown for any other reason would still leave `processCatalogChange` unrun,
+    // so the `opsOn` count is what pins *which* guard produced it.
+    expect(stub.opsOn('resumes')).toHaveLength(1);
+    expect(processCatalogChange).not.toHaveBeenCalled();
   });
 });
 
@@ -1234,16 +1255,31 @@ describe('listDiffs tenancy', () => {
     expect(params).toEqual([OTHER_USER, 'pending', 0]);
   });
 
-  it('leaves the page unscoped in single-user mode', async () => {
+  // ADR-010 D2 / AC-3 — see the note on the shared `PAGED_TENANCY_CASES` block.
+  // `userId` is required now, so this call only compiles because `test/` is
+  // outside `packages/api/tsconfig.json`; that is deliberate, and it is what lets
+  // the assertion measure the predicate rather than the signature.
+  it('keeps the tenancy term when an absent owner reaches it, and pages nothing', async () => {
     const { selectWhere } = stubPagedListDb([]);
 
-    await listDiffs({}, undefined);
+    await listDiffs({}, undefined as unknown as string);
 
-    // No tenancy term — and both arms of the default filter survive its
-    // removal, which a bare `not.toContain('user_id')` would not have shown.
+    // The tenancy term survives and binds NULL, and both arms of the default
+    // filter are still there behind it — a bare `toContain('user_id')` would
+    // have missed the second half.
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe('("catalog_diffs"."status" = $1 or "catalog_diffs"."open_review_count" > $2)');
-    expect(params).toEqual(['pending', 0]);
+    expect(sql).toBe(SCOPED_DEFAULT_DIFF_CLAUSE);
+    expect(params).toEqual([undefined, 'pending', 0]);
+  });
+
+  it('reads zero diffs when an absent owner reaches it', async () => {
+    // The read itself, not its shape: stubPagedOwnedRow honours the clause, so a
+    // predicate that dropped the tenancy term would surface this row.
+    stubPagedOwnedRow(diffRow({ userId: CALLER, status: 'pending' }));
+
+    const { diffs } = await listDiffs({}, undefined as unknown as string);
+
+    expect(diffs).toEqual([]);
   });
 
   it("does not page another user's diffs", async () => {
@@ -1301,9 +1337,15 @@ describe('listDiffs tenancy', () => {
 //      matches the unqualified `"user_id"` substring and is cross-table-blind
 //      (a known WIC-1378 finding), so these assert exact SQL instead of reusing it.
 //
-// Both directions share one option set per case, so the only difference between
-// `scopedSql` and `unscopedSql` is the tenancy term itself — which also pins that
-// the *other* conjuncts survive its removal in single-user mode.
+// Every case shares one option set across all its directions, so the tenancy term
+// is the only thing that varies between them.
+//
+// ADR-010 D2 (WIC-2068) removed the unscoped direction these cases used to carry.
+// `userId` is now required, so there is no longer a "single-user mode" clause to
+// pin: an absent owner binds NULL into the *same* `scopedSql`, and the page comes
+// back empty rather than carrying every tenant's rows. `unscopedSql` /
+// `unscopedParams` are gone with it — do not reintroduce them, a case that renders
+// a clause without the tenancy term is the defect, not a mode.
 
 function bulletRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -1349,9 +1391,6 @@ interface PagedTenancyCase {
   scopedSql: string;
   /** Params after $1 — the surviving conjuncts, in bind order. */
   scopedTail: unknown[];
-  /** Whole rendered clause in single-user mode, and its params. */
-  unscopedSql: string;
-  unscopedParams: unknown[];
   /** A row owned by `userId`, shaped for this function's DTO mapper. */
   ownedRow: (userId: string) => { userId: string; id: string };
 }
@@ -1362,8 +1401,6 @@ const PAGED_TENANCY_CASES: Record<string, PagedTenancyCase> = {
     itemsKey: 'companies',
     scopedSql: '("company_catalog"."user_id" = $1 and "company_catalog"."is_deleted" = $2)',
     scopedTail: [false],
-    unscopedSql: '"company_catalog"."is_deleted" = $1',
-    unscopedParams: [false],
     ownedRow: (userId) => companyRow({ userId }) as { userId: string; id: string },
   },
   listJobFitTags: {
@@ -1374,10 +1411,6 @@ const PAGED_TENANCY_CASES: Record<string, PagedTenancyCase> = {
       '("job_fit_tags"."user_id" = $1 and "job_fit_tags"."category" = $2 and ' +
       '"job_fit_tags"."needs_review" = $3 and "job_fit_tags"."display_name" ilike $4)',
     scopedTail: ['industry', true, '%x%'],
-    unscopedSql:
-      '("job_fit_tags"."category" = $1 and "job_fit_tags"."needs_review" = $2 and ' +
-      '"job_fit_tags"."display_name" ilike $3)',
-    unscopedParams: ['industry', true, '%x%'],
     ownedRow: (userId) => tagRow({ userId }) as { userId: string; id: string },
   },
   listTechStackTags: {
@@ -1387,8 +1420,6 @@ const PAGED_TENANCY_CASES: Record<string, PagedTenancyCase> = {
       '("tech_stack_tags"."user_id" = $1 and "tech_stack_tags"."category" = $2 and ' +
       '"tech_stack_tags"."needs_review" = $3)',
     scopedTail: ['language', true],
-    unscopedSql: '("tech_stack_tags"."category" = $1 and "tech_stack_tags"."needs_review" = $2)',
-    unscopedParams: ['language', true],
     ownedRow: (userId) =>
       tagRow({ userId, category: 'language' }) as { userId: string; id: string },
   },
@@ -1399,9 +1430,6 @@ const PAGED_TENANCY_CASES: Record<string, PagedTenancyCase> = {
       '("quantified_bullets"."user_id" = $1 and "quantified_bullets"."impact_category" = $2 and ' +
       '"quantified_bullets"."source_id" = $3)',
     scopedTail: ['revenue', 'S1'],
-    unscopedSql:
-      '("quantified_bullets"."impact_category" = $1 and "quantified_bullets"."source_id" = $2)',
-    unscopedParams: ['revenue', 'S1'],
     ownedRow: (userId) => bulletRow({ userId }) as { userId: string; id: string },
   },
   listThemes: {
@@ -1411,9 +1439,6 @@ const PAGED_TENANCY_CASES: Record<string, PagedTenancyCase> = {
       '("recurring_themes"."user_id" = $1 and "recurring_themes"."is_core_strength" = $2 and ' +
       '"recurring_themes"."is_historical" = $3)',
     scopedTail: [true, false],
-    unscopedSql:
-      '("recurring_themes"."is_core_strength" = $1 and "recurring_themes"."is_historical" = $2)',
-    unscopedParams: [true, false],
     ownedRow: (userId) => themeRow({ userId }) as { userId: string; id: string },
   },
 };
@@ -1441,14 +1466,36 @@ describe.each(Object.entries(PAGED_TENANCY_CASES))('%s tenancy', (_fn, tc) => {
     expect(params).toEqual([OTHER_USER, ...tc.scopedTail]);
   });
 
-  it('leaves the page unscoped in single-user mode, other filters intact', async () => {
+  // ADR-010 D2 / AC-3. `userId` is required, so neither of the next two calls
+  // typechecks — but `packages/api/tsconfig.json` excludes `test/`, which is
+  // precisely what lets them reach past the signature and measure what the
+  // *predicate* does with an owner the type says cannot arrive. That is the
+  // property worth pinning: the signature is the first line of defence, not the
+  // only one, and a JS caller or an `as any` at some future call site does not
+  // get an unscoped read.
+  it('keeps the tenancy term when an absent owner reaches it, binding NULL', async () => {
     const { selectWhere } = stubPagedListDb([]);
 
-    await tc.run(undefined);
+    await tc.run(undefined as unknown as string);
 
+    // Same clause as the scoped direction, not a narrowed one. Before D2 the
+    // conjunct disappeared here and the remaining filters rendered a valid query
+    // over every tenant's rows; now it survives and binds undefined, which
+    // Postgres compares as NULL and no row satisfies.
     const { sql, params } = queryFor(selectWhere.mock.calls[0][0]);
-    expect(sql).toBe(tc.unscopedSql);
-    expect(params).toEqual(tc.unscopedParams);
+    expect(sql).toBe(tc.scopedSql);
+    expect(params).toEqual([undefined, ...tc.scopedTail]);
+  });
+
+  it('reads zero rows when an absent owner reaches it', async () => {
+    // AC-3 wants the read asserted, not a response code. stubPagedOwnedRow
+    // honours the clause it is handed, so this fails the moment the tenancy term
+    // stops being emitted — a shape-only assertion would not have.
+    stubPagedOwnedRow(tc.ownedRow(CALLER));
+
+    const page = await tc.run(undefined as unknown as string);
+
+    expect(page[tc.itemsKey]).toEqual([]);
   });
 
   it("does not page another user's rows", async () => {
