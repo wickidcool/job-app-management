@@ -186,11 +186,27 @@ interface StarEntryCardProps {
   showRelevance: boolean;
 }
 
+/**
+ * WIC-2073: the wrapper `<div>` used to carry `onClick={onToggle}` + `cursor-pointer`, which
+ * no keyboard could reach and which assistive tech saw as plain text. Unlike the other sites
+ * in that card there was no new control to add — the checkbox below is already a real,
+ * focusable, state-announcing one, so selection simply moved onto it and the wrapper went
+ * inert (never a `role=` on the wrapper; see WIC-1942 / WIC-2062).
+ *
+ * Two consequences, both deliberate:
+ *   - the checkbox's `onClick={(e) => e.stopPropagation()}` existed ONLY to escape the
+ *     wrapper handler, so it is now dead code and is deleted — the same call the `Reports*`
+ *     fix removed for the same reason. That deletion is the one part of this change that
+ *     could regress working behaviour, so it is pinned by 'fires exactly once on click' in
+ *     `StarEntryPicker.keyboardNav.test.tsx`.
+ *   - clicking the card BODY no longer toggles selection. That affordance was
+ *     keyboard-unreachable, so it was never part of the accessible contract, but it is a real
+ *     change for pointer users and is called out rather than hidden.
+ */
 function StarEntryCard({ entry, isSelected, onToggle, showRelevance }: StarEntryCardProps) {
   return (
     <div
-      onClick={onToggle}
-      className={`p-4 border rounded-lg cursor-pointer transition-all ${
+      className={`p-4 border rounded-lg transition-all ${
         isSelected
           ? 'border-blue-500 bg-blue-50 shadow-md'
           : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm'
@@ -201,8 +217,8 @@ function StarEntryCard({ entry, isSelected, onToggle, showRelevance }: StarEntry
           type="checkbox"
           checked={isSelected}
           onChange={onToggle}
+          aria-label={entry.title}
           className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-          onClick={(e) => e.stopPropagation()}
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">

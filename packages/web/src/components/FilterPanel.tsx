@@ -216,11 +216,14 @@ export function FilterPanel({
 
       {/* Active Only Toggle */}
       <div className="flex items-center justify-between py-2">
-        <label
-          htmlFor="activeOnly"
-          className="text-sm font-medium text-gray-700 cursor-pointer"
-          onClick={handleActiveOnlyToggle}
-        >
+        {/* No `onClick` here, deliberately (WIC-2073). `<button>` is a labelable element,
+            so `htmlFor` already forwards a label click to the switch below — the label's
+            own handler fired `handleActiveOnlyToggle` a SECOND time. That was not merely
+            redundant: measured on a stateful host, one label click wrote
+            `{activeOnly: true}` and then `{}`, leaving the state exactly where it started.
+            The label was a dead control, and the jsx-a11y finding was the symptom.
+            Pinned by "flips the filter once" in FilterPanel.test.tsx. */}
+        <label htmlFor="activeOnly" className="text-sm font-medium text-gray-700 cursor-pointer">
           Active Only
         </label>
         <button

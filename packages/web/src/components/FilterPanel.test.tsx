@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -418,6 +419,95 @@ describe('FilterPanel is controlled by activeFilters (WIC-1612)', () => {
     // back out untouched.
     expect(written.company).toEqual(['Acme']);
     expect(written.activeOnly).toBe(true);
+  });
+});
+
+/**
+ * WIC-2073 — the "Active Only" label was a dead control.
+ *
+ * `jsx-a11y` recorded this site as `click-events-have-key-events` +
+ * `no-noninteractive-element-interactions`, and it looked like a routine keyboard gap. It was
+ * not: `<button>` is a labelable element, so `htmlFor="activeOnly"` ALREADY forwarded a label
+ * click to the switch, and the label's own `onClick={handleActiveOnlyToggle}` ran the handler
+ * a second time. The remedy was to delete that `onClick` — no markup restructuring — but the
+ * a11y finding was the symptom of a live functional bug, so it gets a functional test.
+ *
+ * ⚠️ This has to be driven from a STATEFUL host, and that is the whole subtlety. `FilterPanel`
+ * is controlled: `activeOnly` is read from the `activeFilters` prop. With the prop pinned by a
+ * static `vi.fn()`, both handler calls compute `!false` from the same prop and write the same
+ * `{activeOnly: true}` twice — so the state assertion passes on the broken tree and only the
+ * call count reveals anything. Given a host that actually applies the write, React flushes the
+ * first update between the two dispatches, the second call reads the NEW prop, computes
+ * `!true`, and writes `{}`. Measured on the pre-fix tree: two writes, `{activeOnly: true}` then
+ * `{}`, final state `false`. Clicking the label did nothing at all.
+ *
+ * Both assertions are kept deliberately. The call count alone would pass if someone "fixed"
+ * this by making the handler idempotent, and the end state alone would pass on the
+ * static-prop shape above. Verified against a mutant that restores the label's `onClick`:
+ * both red.
+ */
+describe('FilterPanel "Active Only" label (WIC-2073)', () => {
+  const ALL: ApplicationStatus[] = ALL_STATUSES;
+
+  function StatefulHost({ onWrite }: { onWrite: (f: FilterOptions) => void }) {
+    const [filters, setFilters] = useState<FilterOptions>({});
+    return (
+      <FilterPanel
+        activeFilters={filters}
+        onFilterChange={(f) => {
+          onWrite(f);
+          setFilters(f);
+        }}
+        availableCompanies={[]}
+        availableStatuses={ALL}
+      />
+    );
+  }
+
+  it('flips the filter once when the label is clicked', async () => {
+    const user = userEvent.setup();
+    const onWrite = vi.fn();
+    render(<StatefulHost onWrite={onWrite} />);
+
+    const toggle = screen.getByRole('switch', { name: 'Active Only' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(screen.getByText('Active Only'));
+
+    expect(onWrite).toHaveBeenCalledTimes(1);
+    expect(onWrite).toHaveBeenLastCalledWith({ activeOnly: true });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('flips the filter once when the switch itself is clicked', async () => {
+    const user = userEvent.setup();
+    const onWrite = vi.fn();
+    render(<StatefulHost onWrite={onWrite} />);
+
+    // The control that always worked, pinned so the fix cannot be "delete both handlers".
+    await user.click(screen.getByRole('switch', { name: 'Active Only' }));
+
+    expect(onWrite).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('switch', { name: 'Active Only' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+  });
+
+  it('toggles back off on a second label click', async () => {
+    const user = userEvent.setup();
+    const onWrite = vi.fn();
+    render(<StatefulHost onWrite={onWrite} />);
+
+    await user.click(screen.getByText('Active Only'));
+    await user.click(screen.getByText('Active Only'));
+
+    // `activeOnly: newActiveOnly || undefined` drops the key rather than writing `false`.
+    expect(onWrite).toHaveBeenLastCalledWith({ activeOnly: undefined });
+    expect(screen.getByRole('switch', { name: 'Active Only' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    );
   });
 });
 

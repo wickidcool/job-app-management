@@ -30,17 +30,25 @@ const localRules = {
  * because the test asserts exact equality in both directions and cross-checks the two
  * numbers against each other. When a rule reaches zero, delete its line here.
  *
- * Three rules have reached zero and are gone from this list, back at `error`:
- * `label-has-associated-control` (19 -> 0), `no-redundant-roles` (1 -> 0), and
+ * Four rules have reached zero and are gone from this list, back at `error`:
+ * `label-has-associated-control` (19 -> 0), `no-redundant-roles` (1 -> 0),
  * `no-noninteractive-element-to-interactive-role` (1 -> 0, WIC-1942 — the
  * `<article role="button">` in `ResumeVariantCard.tsx`, which also tripped axe's
- * `aria-allowed-role` and `nested-interactive`).
+ * `aria-allowed-role` and `nested-interactive`), and `no-static-element-interactions`
+ * (2 -> 0, WIC-2073 — the last two bare `<div onClick>` wrappers, in
+ * `CatalogBrowseView.tsx` and `StarEntryPicker.tsx`).
  *
- * The resulting enforcement surface is 27 rules at `error` — but do not trust that
+ * That last promotion is a genuine ratchet tightening and it is not optional: the
+ * `warn` set is asserted to equal exactly the rules `A11Y_BASELINE` records findings
+ * for, so a rule that reaches zero CANNOT be left here — the suite reds until the line
+ * is deleted. Being free, it is also the `anchor-ambiguous-text` bargain below, taken
+ * for the same reason.
+ *
+ * The resulting enforcement surface is 28 rules at `error` — but do not trust that
  * number here. It is asserted against the RESOLVED config in `jsxA11yBaseline.test.ts`
  * ('states its enforcement surface exactly'), which is the only copy that cannot rot.
  * An earlier revision of this comment claimed 26 when the true figure was 24, by
- * arithmetic rather than measurement (see PROMOTED_RULES); it is 27 now because three
+ * arithmetic rather than measurement (see PROMOTED_RULES); it is 28 now because four
  * rules were fixed, and the test is what says so.
  *
  * NOTE (WIC-1483): `jsx-a11y` is per-file and therefore structurally blind to
@@ -48,9 +56,8 @@ const localRules = {
  * it mounts. Adopting it does NOT cover WCAG SC 1.3.1. That is layer 2's job.
  */
 const BASELINED_RULES = {
-  'jsx-a11y/click-events-have-key-events': 'warn', // 5
-  'jsx-a11y/no-static-element-interactions': 'warn', // 2
-  'jsx-a11y/no-noninteractive-element-interactions': 'warn', // 5
+  'jsx-a11y/click-events-have-key-events': 'warn', // 1
+  'jsx-a11y/no-noninteractive-element-interactions': 'warn', // 3
   'jsx-a11y/no-autofocus': 'warn', // 5
   'jsx-a11y/no-noninteractive-tabindex': 'warn', // 1
 };
@@ -110,15 +117,19 @@ const BASELINED_RULES = {
  *   `<div role={r} tabIndex={0} />`  recommended: NOTHING fires
  *                                    strict:      no-noninteractive-tabindex
  *
- * Both of those rules are baselined at `warn`, so a new instance lands as a 28th warning
- * and `--max-warnings 27` fails the build. `recommended` would have shipped it silently.
+ * Since WIC-2073 those two rules are no longer both baselined, and the option tightening
+ * now bites HARDER for it: `no-static-element-interactions` is back at `error`, so the
+ * first probe above fails the build outright rather than as an 11th warning, while
+ * `no-noninteractive-tabindex` stays `warn` and lands as an 11th warning against
+ * `--max-warnings 10`. `recommended` would have shipped both silently.
  *
- * Those two are in BASELINED_RULES, and that is not a contradiction: a severity-only
- * override (`'warn'`) replaces the severity and RETAINS the extended config's options, so
- * the tightening reaches the baselined 6 as well. `jsxA11yBaseline.test.ts` asserts the
- * resolved options directly, because the entry count, the 26/6/2 histogram and the two
- * `off` names are all identical under both configs — nothing in the numbers can tell you
- * which ruleset is loaded, so a silent revert to `recommended` needs its own assertion.
+ * That `no-noninteractive-tabindex` is still in BASELINED_RULES is not a contradiction: a
+ * severity-only override (`'warn'`) replaces the severity and RETAINS the extended
+ * config's options, so the tightening reaches the baselined 4 as well.
+ * `jsxA11yBaseline.test.ts` asserts the resolved options directly, because the entry
+ * count, the 28/4/2 histogram and the two `off` names are all identical under both
+ * configs — nothing in the numbers can tell you which ruleset is loaded, so a silent
+ * revert to `recommended` needs its own assertion.
  */
 const PROMOTED_RULES = {
   'jsx-a11y/anchor-ambiguous-text': 'error', // 0 findings — clean today, kept clean.
