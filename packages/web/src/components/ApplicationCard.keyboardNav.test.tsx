@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { ApplicationCard } from './ApplicationCard';
@@ -115,6 +115,50 @@ describe('ApplicationCard quick actions — keyboard reachability (WIC-2078)', (
     expect(onDelete).toHaveBeenCalledExactlyOnceWith(APPLICATION.id);
 
     confirmSpy.mockRestore();
+  });
+
+  // Pins `handleBlur`'s containment test on its own, because the Tab-driven cases above do
+  // NOT — measured: deleting the `relatedTarget` check leaves all of them green. In jsdom the
+  // `focusout` and `focusin` that a Tab produces are processed close enough together that
+  // React re-renders once with the final state, so the bar never observably unmounts. A real
+  // browser dispatches them as separate tasks, where React 18's automatic batching does not
+  // apply across the boundary and the intermediate `false` would unmount the button that is
+  // about to receive focus.
+  //
+  // So this asserts the intermediate state directly instead of hoping the environment
+  // reproduces the ordering: a `focusout` whose `relatedTarget` is inside the card must not
+  // collapse the bar.
+  it('keeps the bar mounted when focus moves from the card to its own Edit button', async () => {
+    const user = userEvent.setup();
+    renderCard();
+
+    await user.tab();
+    const edit = editButton();
+    expect(edit).not.toBeNull();
+
+    fireEvent.focusOut(screen.getByRole('article'), { relatedTarget: edit });
+
+    expect(editButton()).not.toBeNull();
+    expect(deleteButton()).not.toBeNull();
+  });
+
+  it('collapses the bar when focusout leads somewhere outside the card', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <ApplicationCard application={APPLICATION} variant="kanban" />
+        <button type="button">Somewhere else</button>
+      </>
+    );
+
+    await user.tab();
+    expect(editButton()).not.toBeNull();
+
+    fireEvent.focusOut(screen.getByRole('article'), {
+      relatedTarget: screen.getByRole('button', { name: 'Somewhere else' }),
+    });
+
+    expect(editButton()).toBeNull();
   });
 
   it('hides the quick actions again once focus leaves the card entirely', async () => {
