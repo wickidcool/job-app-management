@@ -21,6 +21,13 @@ The scheduled Layer 0 audit (`.github/workflows/secret-history-audit.yml`) went 
 Verified three ways, not one: the audit's own flags now report **0**; dropping `--redact` brings **all 41 back**, confirming the load-bearing redaction coupling the baseline header documents; and a throwaway commit carrying a synthetic credential is **still detected** against the enlarged baseline, so the ratchet mutes nothing it should catch (WIC-2116).
 
 
+### Fixed — Corrected the prod canary's cadence claims: it is scheduled every 15 min but GitHub *delivers ~5%* of those ticks (2026-09-05)
+
+The `.github/workflows/supabase-keepalive.yml` canary was documented — in its own comments and in the incident issues it files (#414) — as running "every 15 minutes." Measured over its complete 194.5h history it delivered **39 of ~778 expected `*/15` ticks = 5.0%**, median gap **191 min**, with a **67h** window that had no canary at all. Root cause is inherent GitHub Actions throttling of high-frequency `schedule` events: every delivered run succeeded and none were cancelled, so the loss is GitHub never *creating* the run — not the workflow's `concurrency` group and not any `[skip ci]`/`[skip deploy]` marker (those affect push/PR triggers only, never `schedule`) (WIC-2125).
+
+- The cron is offset off the top of the hour (`*/15` → `7,22,37,52`) as a partial mitigation, and every "every 15 minutes" claim in the workflow header, the cron comment, and the #414 incident-issue body template is corrected to state the measured best-effort cadence. Absence of the alert no longer implies prod is healthy.
+- The durable fix — a Cloudflare Worker Cron Trigger, immune to Actions throttling — is tracked as a follow-up and is human-gated on a credential no agent holds.
+
 ### Added — The 15-min prod canary now asserts the data plane, not just auth: `/api/health` must be 200 with `status:ok` (2026-09-05)
 
 `.github/workflows/supabase-keepalive.yml`'s 15-min canary job gains a second, independent probe alongside the auth check: it GETs `${PROD_BASE_URL}/api/health` and fails the run unless HTTP `200` with body `status:ok`. Production's data plane returned `503` for ~10 days (WIC-2092) while every monitor stayed green — the auth canary proves only that Supabase Auth REST is up (it never dials Postgres), `GET /api/*` returns `401` before Postgres is reached, and the keep-alive `SELECT 1` runs only on the 3-day schedule. `/api/health` became a real liveness check under WIC-1296 but nothing polled it, so the outage was invisible to CI (WIC-2123).
