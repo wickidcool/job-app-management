@@ -187,6 +187,16 @@ export function ApplicationCard({
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
+      // WIC-2110, reviewed exception — the same adjudication as the block above, which is
+      // why the reasoning is not repeated here: every spelling `no-noninteractive-tabindex`
+      // would accept (a real `<button>` in the `<h3>`, or `role="button"` on this article)
+      // trips axe's `nested-interactive` under `SortableApplicationCard`'s dnd-kit wrapper.
+      // WIC-2077 shipped the `<button>` form, measured it, and reverted it; WIC-1942
+      // measured the `role="button"` form on `ResumeVariantCard` and removed it. So the tab
+      // stop stays, and it is load-bearing: without it the card is keyboard-unreachable and
+      // `onKeyDown` can never fire. Directive placed on the ATTRIBUTE, not on `<article>` —
+      // this rule reports at `tabIndex`, unlike the element-level rule disabled above.
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={0}
       aria-label={ariaLabel}
     >

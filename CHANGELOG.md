@@ -21,6 +21,18 @@ A stacked-child close detector was scoped for `.github/workflows/evil-merge-swee
 
 
 
+
+### Accessibility — the `jsx-a11y` ratchet is finished: `A11Y_BASELINE` is empty and `--max-warnings` is 0 (2026-09-05)
+
+The last of the 47 findings baselined when `eslint-plugin-jsx-a11y` was adopted (WIC-1483) is retired. `A11Y_BASELINE` in `packages/web/src/test/jsxA11yBaseline.test.ts` and `BASELINED_RULES` in `packages/web/eslint.config.js` are both empty, and `lint` and `lint:fix` in `packages/web/package.json` both run at `--max-warnings 0` (WIC-2110, closing WIC-2085 and WIC-1589's AC-1/AC-2/AC-3).
+
+- **This is an exemption, not a fix, and the distinction is the whole point.** `ApplicationCard`'s `<article tabIndex={0}>` keeps its tab stop and now carries an `eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex` with its rationale at the line. Every spelling the rule would accept — a real `<button>` inside the `<h3>`, or `role="button"` on the article — trips axe's `nested-interactive` instead, because `SortableApplicationCard` wraps each card in a dnd-kit `div[role="button"][tabindex="0"]`. WIC-2077 shipped the button form, measured it, and reverted it; WIC-1942 measured the role form on `ResumeVariantCard` and removed it. Two ratchets pull against each other at that site and axe measures the more serious defect.
+- **It is a net tightening, and that is why the exemption is the right exit.** `no-noninteractive-tabindex` (1 → 0) leaves `BASELINED_RULES` and returns to `error`, taking the enforcement surface 31/1/2 → **32/0/2**. A new `tabIndex` on a non-interactive element anywhere in the tree now fails `npm run lint` outright instead of being absorbed by the ceiling.
+- **The promotion is forced, not chosen.** `jsxA11yBaseline.test.ts`'s *states its enforcement surface exactly* asserts the resolved `warn` set equals exactly the rules the baseline records, so a zero-finding rule cannot stay baselined — leaving the line in `eslint.config.js` reds the suite. The same guard binds in the other direction through the 32/0 severity counts.
+- **⚠️ The directive sits on the `tabIndex` attribute, not on `<article>`.** This rule reports at the attribute; the `no-noninteractive-element-interactions` directive four lines above reports at the element. Measured both placements — an element-level directive does not suppress it, and the wrong placement looks right.
+- Verified by running it rather than predicting it: `npm run lint` exits **0** at `--max-warnings 0` with no residual warnings, `jsxA11yBaseline.test.ts` is **5/5**, and `routeAxe.render.test.tsx` + `ApplicationCard.keyboardNav.test.tsx` are **20/20** — the axe suite being the check that killed both obvious fixes.
+- **⛔ An empty baseline does not mean the tree has no accessibility debt.** It means no finding is unadjudicated. Restructuring the dnd-kit wrapper so the card can be a genuinely interactive element remains open, and needs an axe measurement in both directions.
+
 ### Fixed — `cd packages/infra/redirect-worker && wrangler deploy` no longer deploys the production `jobtrail` app (2026-09-05)
 
 `packages/infra/redirect-worker/wrangler.toml` is renamed to `wrangler.jsonc`, and `SHADOWED_ALLOWLIST` in `scripts/wrangler-config-resolution-check.py` — which carried it as the one known shadowed config — is now empty (WIC-2109, closing WIC-2108). Filename precedence beats directory proximity in wrangler's resolution, so as a `.toml` this file lost its own directory to the repo-root `wrangler.jsonc`.
