@@ -43,6 +43,37 @@
 // `wrangler deploy`, so it cannot corroborate the revision either — only the
 // timing. This is the best available source, not a perfect one.
 
+// ── ⚠️ WIC-1271's own acceptance figures do NOT reproduce — measured 2026-09-05 ──
+// WIC-1271 asks that replaying its motivating window classify as "14 commits
+// behind, ZERO runtime paths -> informational, not a page." Replayed against
+// real history, that is wrong on both numbers, so do not tune this detector to
+// reproduce it:
+//
+//   DEPLOYED_SHA=$(git rev-parse c3b9d484) MAIN_SHA=$(git rev-parse 332856f9) \
+//     node .github/scripts/deploy-drift.mjs
+//   -> 17 commits behind (16 excluding the commit that CLOSED the gap), 4
+//      runtime-bearing, ALARM.
+//
+// The gap is real — last successful production deploy `c3b9d484` 2026-08-19
+// 06:08:45Z, next push run 2026-08-25 21:55:02Z — but its contents were not
+// runtime-free:
+//   - `332856f9` (WIC-1069) changes FOUR packages/web source files. It is the
+//     push that ended the drought, so it is arguably the boundary rather than
+//     the contents — but it is unambiguously runtime code.
+//   - `69259658`, `8e197059`, `69724346` touch `.gitleaks.toml`,
+//     `.gitleaks-baseline.json` and `.gitattributes`. WIC-1271 called these
+//     "zero runtime surface", and in the user-visible sense they are. They are
+//     NOT allowlisted, because the allowlist deliberately excludes
+//     secret-scan SUPPRESSION config for the same reason it excludes
+//     `.github/secret-scan-allowlist.json` — see runtime-paths.cjs.
+//
+// So the detector pages on that window, and it is right to. WIC-1271's "zero
+// runtime paths" was an unverified quantifier written from memory of the merge
+// subjects, not from the diffs. Whether `.gitleaks.*` / `.gitattributes` should
+// join the allowlist is a POLICY question that also moves skip-ci-guard, and it
+// is filed separately rather than decided here by tuning a monitor to a wrong
+// premise.
+
 import { execFileSync } from 'node:child_process';
 import runtime from './runtime-paths.cjs';
 
@@ -124,6 +155,12 @@ export function evaluate({
   // many runtime-touching commits went by.
   const treeHasUndeployedRuntimeCode = runtimeDiffPaths.length > 0;
 
+  // WIC-1271 point 4. Built here rather than in the workflow so the self-test
+  // can assert the alarm actually carries it.
+  const server = process.env.GITHUB_SERVER_URL || 'https://github.com';
+  const repo = process.env.GITHUB_REPOSITORY || 'wickidcool/job-app-management';
+  const dispatchUrl = `${server}/${repo}/actions/workflows/deploy.yml`;
+
   const oldest = runtimeCommits.length
     ? runtimeCommits.reduce((a, b) => (a.committedAt <= b.committedAt ? a : b))
     : null;
@@ -156,6 +193,7 @@ export function evaluate({
     oldestAgeMinutes,
     maxRuntimeDriftMinutes,
     maxRuntimeDriftCommits,
+    dispatchUrl,
     triggers,
     alarm: triggers.length > 0,
   };
@@ -234,10 +272,15 @@ function render(result, health) {
     lines.push('');
     lines.push(
       'Production is running code older than `main` in paths that affect what it runs. ' +
-        'Check whether the deploy lane is suppressed (a `[skip ci]` merge run, or a failing ' +
-        '`Deploy Production` job) and re-run `deploy.yml` — manual `workflow_dispatch` is the ' +
-        'documented lever (WIC-1260). **This detector does not deploy anything.**'
+        'Check whether the deploy lane is suppressed (a CI-skip merge run, or a failing ' +
+        '`Deploy Production` job). **This detector does not deploy anything.**'
     );
+    lines.push('');
+    // WIC-1271 design point 4: "surface the one-click close — link the
+    // workflow_dispatch run URL in the alert." An alarm that makes you go and
+    // find the lever is most of a page and none of a remedy. WIC-1260 built the
+    // lever; this is what connects the two.
+    lines.push(`**One-click fix:** [run \`deploy.yml\` against \`main\`](${result.dispatchUrl}) — WIC-1260's manual lever. It is a real production deploy and stays board-gated like any other.`);
   } else if (result.treeHasUndeployedRuntimeCode) {
     lines.push(
       '### 🟡 Runtime drift present but inside threshold\n\n' +
@@ -360,6 +403,27 @@ function selftest() {
       console.error(`FAIL  classifier: isRuntimePath(${p}) = ${!want}, expected ${want}`);
     } else {
       console.log(`PASS  classifier: ${p} -> ${want ? 'runtime' : 'allowlisted'}`);
+    }
+  }
+
+  // WIC-1271 design point 4: the alarm must carry the one-click lever, not just
+  // mention that one exists. Asserted on the RENDERED alarm, because that is
+  // what a human reads — a `dispatchUrl` present in the result object but
+  // dropped from `render()` would satisfy a field check and help nobody.
+  {
+    const r = evaluate({
+      deployedSha: 'a'.repeat(40),
+      headSha: 'b'.repeat(40),
+      nowMs: NOW,
+      commits: [c('z1', ['packages/api/src/app.ts'], 500)],
+      diffPaths: ['packages/api/src/app.ts'],
+    });
+    const md = render(r, { status: 'ok', httpStatus: 200 });
+    if (r.alarm && md.includes('/actions/workflows/deploy.yml') && md.includes('One-click fix')) {
+      console.log('PASS  alarm carries the WIC-1260 one-click deploy lever (WIC-1271 point 4)');
+    } else {
+      failed++;
+      console.error('FAIL  alarm does not carry the one-click deploy lever link (WIC-1271 point 4)');
     }
   }
 
