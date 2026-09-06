@@ -1,3 +1,24 @@
+/**
+ * ⚠️ THIS PAGE IS NOT ROUTED. No user can reach it.
+ *
+ * `App.tsx` sends `/reports/pipeline` to `<Navigate to="/applications" replace />`, so nothing
+ * renders this component in the app. It is retained deliberately, not by oversight:
+ * `constants/stale.drift.test.ts` imports it as `?raw` and pins it in a **scope control**
+ * (`expect(FILES).toContain('/src/pages/ReportsPipeline.tsx')`) plus three provenance
+ * assertions. Deleting the file fails that suite at import time — `?raw` on a missing module is
+ * a build error, so the whole file stops running rather than turning one test red.
+ *
+ * Consequences worth knowing before you edit it:
+ *   - Changes here ship to nobody. Do not treat a fix in this file as a user-facing fix.
+ *   - It still has to satisfy `stale.drift.test.ts`: it must import from `constants/stale`,
+ *     decide staleness by calling the shared predicate, and label the window it applies.
+ *   - Its keyboard-nav suite is excluded from `test/keyboardNavRouteCoverage.test.ts` for
+ *     exactly this reason, and that exclusion is asserted to still be earned.
+ *
+ * Whether a pipeline report should exist as a product is open in **WIC-1100** — a decision
+ * nobody has made, and not one to settle by deleting the file in passing. The unrouted-page
+ * accounting is **WIC-2190**.
+ */
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReportsPipeline } from '../hooks/useReports';
