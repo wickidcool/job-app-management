@@ -11,8 +11,8 @@ import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
  * The state `CommandPalette.loadingState.test.tsx` structurally cannot see (WIC-2179,
  * review round 1).
  *
- * That file mocks `useApplications` and derives `data` from the same flags the component
- * branches on, so `data === undefined ⟺ isPending || isError` holds there **by
+ * That file mocks `useApplicationCollection` and derives `data` from the same flags the
+ * component branches on, so `data === undefined ⟺ isPending || isError` holds there **by
  * construction**. It therefore asserts the fix's own premise instead of testing it, and
  * any real query state that breaks the premise is invisible to every assertion in it.
  *
@@ -75,7 +75,7 @@ async function type(query: string) {
 beforeEach(() => {
   localStorage.clear();
   QUERY_FN.mockReset();
-  QUERY_FN.mockResolvedValue({ applications: [], total: 0, truncated: false });
+  QUERY_FN.mockResolvedValue({ applications: [], totalCount: 0, truncated: false });
 });
 
 afterEach(() => {

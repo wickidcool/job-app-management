@@ -100,8 +100,11 @@ const { APPLICATIONS } = vi.hoisted(() => ({
  * neither is sufficient alone.
  */
 vi.mock('../hooks/useApplications', () => ({
-  useApplications: () => ({
-    data: STATE.isPending || STATE.isError ? undefined : APPLICATIONS,
+  useApplicationCollection: () => ({
+    data:
+      STATE.isPending || STATE.isError
+        ? undefined
+        : { applications: APPLICATIONS, totalCount: APPLICATIONS.length, truncated: false },
     isPending: STATE.isPending,
     isError: STATE.isError,
   }),

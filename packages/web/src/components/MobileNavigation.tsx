@@ -4,10 +4,21 @@ import { useRouteUnmatched } from '../contexts/RouteMatchContext';
 
 interface MobileNavigationProps {
   applicationCount?: number;
+  /**
+   * `applicationCount` is a lower bound rather than a count — render it as "12+", not
+   * "12" (WIC-2181). Set when the caller derived the number from a list it knows to be a
+   * prefix; today that is `App`'s in-progress badge when `getAllPaged` ran out of page
+   * budget. `TopNavigation` carries the same flag and must say the same thing.
+   */
+  applicationCountIsLowerBound?: boolean;
   exportCount?: number;
 }
 
-export function MobileNavigation({ applicationCount, exportCount }: MobileNavigationProps) {
+export function MobileNavigation({
+  applicationCount,
+  applicationCountIsLowerBound,
+  exportCount,
+}: MobileNavigationProps) {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
   const unmatched = useRouteUnmatched();
@@ -35,6 +46,7 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
       label: 'Applications',
       path: '/applications',
       badge: applicationCount,
+      badgeIsLowerBound: applicationCountIsLowerBound,
     },
     { icon: '📊', label: 'Reports', path: '/reports' },
     { icon: '📁', label: 'Projects', path: '/projects' },
@@ -122,6 +134,18 @@ export function MobileNavigation({ applicationCount, exportCount }: MobileNaviga
                         {item.badge !== undefined && item.badge > 0 && (
                           <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700">
                             {item.badge}
+                            {/* Hidden glyph plus its spoken replacement, the same shape
+                                WIC-1850 used on the palette's result rows: "+" is announced
+                                by some screen readers and swallowed by others, so neither
+                                leaving it bare nor relying on it is honest. Sighted users
+                                read "12+"; listeners hear "Applications 12 or more".
+                                `TopNavigation` renders the identical pair. */}
+                            {item.badgeIsLowerBound && (
+                              <>
+                                <span aria-hidden="true">+</span>
+                                <span className="sr-only"> or more</span>
+                              </>
+                            )}
                           </span>
                         )}
                       </Link>

@@ -7,6 +7,13 @@ interface NavTab {
   label: string;
   path: string;
   badge?: number;
+  /**
+   * `badge` is a lower bound rather than a count — render it as "12+", not "12"
+   * (WIC-2181). Set when the caller derived the number from a list it knows to be a
+   * prefix; today that is `App`'s in-progress badge when `getAllPaged` ran out of page
+   * budget. `MobileNavigation` carries the same flag and must say the same thing.
+   */
+  badgeIsLowerBound?: boolean;
 }
 
 interface NavDropdown {
@@ -17,10 +24,16 @@ interface NavDropdown {
 
 interface TopNavigationProps {
   applicationCount?: number;
+  /** See {@link NavTab.badgeIsLowerBound}. */
+  applicationCountIsLowerBound?: boolean;
   exportCount?: number;
 }
 
-export function TopNavigation({ applicationCount, exportCount }: TopNavigationProps) {
+export function TopNavigation({
+  applicationCount,
+  applicationCountIsLowerBound,
+  exportCount,
+}: TopNavigationProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -37,6 +50,7 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
       label: 'Applications',
       path: '/applications',
       badge: applicationCount,
+      badgeIsLowerBound: applicationCountIsLowerBound,
     },
     { label: 'Reports', path: '/reports' },
   ];
@@ -111,6 +125,17 @@ export function TopNavigation({ applicationCount, exportCount }: TopNavigationPr
                   {tab.badge !== undefined && tab.badge > 0 && (
                     <span className="ml-2 inline-flex items-center rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-800">
                       {tab.badge}
+                      {/* Hidden glyph plus its spoken replacement, the same shape WIC-1850
+                          used on the palette's result rows: "+" is announced by some screen
+                          readers and swallowed by others, so neither leaving it bare nor
+                          relying on it is honest. Sighted users read "12+"; listeners hear
+                          "Applications 12 or more". */}
+                      {tab.badgeIsLowerBound && (
+                        <>
+                          <span aria-hidden="true">+</span>
+                          <span className="sr-only"> or more</span>
+                        </>
+                      )}
                     </span>
                   )}
                 </Link>
