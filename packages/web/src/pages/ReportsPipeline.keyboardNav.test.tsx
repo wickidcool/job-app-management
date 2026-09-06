@@ -7,7 +7,21 @@ import { renderReportPage, tabUntilFocused } from '../test/reportsKeyboardNav';
 import { ReportsPipeline } from './ReportsPipeline';
 
 /**
- * `/reports/pipeline` cards are reachable and activatable by keyboard (WIC-2062).
+ * `ReportsPipeline`'s cards are reachable and activatable by keyboard (WIC-2062).
+ *
+ * ⚠️ THIS IS COMPONENT COVERAGE, NOT ROUTE COVERAGE — and the distinction is not pedantic.
+ * `App.tsx` routes `/reports/pipeline` to `<Navigate to="/applications" replace />`, so no user
+ * can reach this page. WIC-2062 fixed bare-div navigation on "four Reports* pages" and this was
+ * one of the four; the other three are live, this one is not. `renderReportPage` synthesizes its
+ * own `<Route path={path} element={page} />` rather than consulting `App.tsx`, so the
+ * `'/reports/pipeline'` string below is a **label**, not a route lookup — this suite would stay
+ * green if the route were deleted outright. Read it as "if this component were routed, its cards
+ * would be keyboard-reachable", which is all it can assert.
+ *
+ * That gap is now guarded generally by `test/keyboardNavRouteCoverage.test.ts`, which fails any
+ * `pages/*.keyboardNav.test.tsx` naming a path the app does not render. This file is its one
+ * documented exclusion, and the exclusion is asserted to still be earned — wire the route up and
+ * that check tells you to drop the entry. See WIC-2190; the product call is WIC-1100.
  *
  * Sibling of `ReportsClosedLoop.keyboardNav.test.tsx`; see that file for the rationale.
  * This page's card is the smallest of the four — its heading is an `<h4>` holding only
