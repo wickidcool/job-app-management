@@ -1,4 +1,5 @@
-import { eq, and, ilike, inArray, desc, asc, or, sql } from 'drizzle-orm';
+import { eq, and, ilike, inArray, desc, asc, or, sql, gte, lte } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { getDb } from '../db/client.js';
 import { encodeCursor, parseCursor, PAGE_NAMES } from '../lib/pagination.js';
@@ -217,21 +218,64 @@ export async function listApplications(
     );
   }
 
+  // WIC-2189. Inclusive on both ends. The route has already validated these as
+  // ISO-8601-with-offset and rejected an inverted range, so `new Date(...)` here
+  // cannot produce an `Invalid Date` from a well-formed request.
+  //
+  // Neither bound needs an explicit `IS NOT NULL` companion: comparing a NULL
+  // `interview_date` against either yields NULL, which the WHERE clause drops.
+  // Unscheduled applications therefore fall out of a date-window query on their
+  // own, which is the intended reading of the filter.
+  if (params.interviewDateFrom) {
+    conditions.push(gte(applications.interviewDate, new Date(params.interviewDateFrom)));
+  }
+
+  if (params.interviewDateTo) {
+    conditions.push(lte(applications.interviewDate, new Date(params.interviewDateTo)));
+  }
+
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const offset = parseCursor(params.page, PAGE_NAMES);
 
   const sortOrder = params.sortOrder === 'asc' ? asc : desc;
-  let orderBy;
+  let orderBy: SQL[];
   switch (params.sortBy) {
     case 'createdAt':
-      orderBy = sortOrder(applications.createdAt);
+      orderBy = [sortOrder(applications.createdAt)];
       break;
     case 'company':
-      orderBy = sortOrder(applications.company);
+      orderBy = [sortOrder(applications.company)];
+      break;
+    case 'interviewDate':
+      // WIC-2189 — NULLS LAST is pinned explicitly on *both* directions rather
+      // than inherited from Postgres.
+      //
+      // The default is NULLS LAST for ASC but NULLS FIRST for DESC, so a plain
+      // `DESC` would open the list with every application that has no interview
+      // scheduled. Most rows are NULL and will stay NULL for a long time, so
+      // that default does not merely misplace a few rows — it fills the entire
+      // first page with exactly the applications the sort was meant to push
+      // aside, and does it only in one of the two directions.
+      //
+      // `applications.id` is a load-bearing tiebreaker, not decoration. The NULL
+      // block is large and every row in it compares equal on the sort key, so
+      // its internal order is unspecified. Offset pagination issues one query
+      // per page, and Postgres is free to order an equal-ranked block
+      // differently between them — which silently drops some rows from the
+      // result set and repeats others. A unique trailing key makes the total
+      // order deterministic and the paging stable. ULIDs sort by creation time,
+      // so the tail reads oldest-first regardless of direction, which is a
+      // stable choice rather than a meaningful one.
+      orderBy = [
+        params.sortOrder === 'asc'
+          ? sql`${applications.interviewDate} asc nulls last`
+          : sql`${applications.interviewDate} desc nulls last`,
+        asc(applications.id),
+      ];
       break;
     default:
-      orderBy = sortOrder(applications.updatedAt);
+      orderBy = [sortOrder(applications.updatedAt)];
   }
 
   const [{ count }] = await db
@@ -243,7 +287,7 @@ export async function listApplications(
     .select()
     .from(applications)
     .where(whereClause)
-    .orderBy(orderBy)
+    .orderBy(...orderBy)
     .limit(limit + 1)
     .offset(offset);
 

@@ -124,15 +124,49 @@ const updateStatusSchema = z.object({
   version: z.number().int().positive(),
 });
 
-const listQuerySchema = z.object({
-  status: z.string().optional(),
-  company: z.string().optional(),
-  search: z.string().optional(),
-  sortBy: z.enum(['createdAt', 'updatedAt', 'company']).optional(),
-  sortOrder: z.enum(['asc', 'desc']).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-  page: z.string().optional(),
-});
+// WIC-2189. Same `datetime({ offset: true })` contract as the create/update
+// schemas above, and for the same reason: `interview_date` is TIMESTAMPTZ and
+// the service hands these to `new Date(...)`. A date-only bound would be read
+// as UTC midnight, moving the window by up to a day for any caller west of
+// Greenwich — the identical hazard documented at :54-57, arriving through a
+// query string instead of a body.
+//
+// The `'' -> undefined` transform matches the sibling fields: a client that
+// builds `?interviewDateFrom=` from an empty form control means "no bound", not
+// "a bound I could not parse".
+const interviewDateBound = z
+  .string()
+  .datetime({ offset: true })
+  .or(z.literal(''))
+  .optional()
+  .transform((v) => (v === '' ? undefined : v));
+
+const listQuerySchema = z
+  .object({
+    status: z.string().optional(),
+    company: z.string().optional(),
+    search: z.string().optional(),
+    interviewDateFrom: interviewDateBound,
+    interviewDateTo: interviewDateBound,
+    sortBy: z.enum(['createdAt', 'updatedAt', 'company', 'interviewDate']).optional(),
+    sortOrder: z.enum(['asc', 'desc']).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    page: z.string().optional(),
+  })
+  // An inverted range is a client bug, and the honest failure is loud. Left to
+  // the database it is a silent empty page, which reads exactly like "you have
+  // no interviews scheduled" — a wrong answer the caller cannot distinguish
+  // from a right one.
+  .refine(
+    (q) =>
+      !q.interviewDateFrom ||
+      !q.interviewDateTo ||
+      new Date(q.interviewDateFrom) <= new Date(q.interviewDateTo),
+    {
+      message: 'interviewDateFrom must be less than or equal to interviewDateTo',
+      path: ['interviewDateFrom'],
+    }
+  );
 
 export const applicationsRoutes = new Hono<AppEnv>()
   .get('/applications', async (c) => {
