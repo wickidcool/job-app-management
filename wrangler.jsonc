@@ -40,6 +40,31 @@
 	"observability": {
 		"enabled": true
 	},
+	// Production Hyperdrive binding (WIC-1386 / WIC-2200, ADR-007 option 1).
+	//
+	// Prod previously had NO top-level Hyperdrive binding, so every logged-in
+	// request opened a fresh Worker→Postgres TCP connect that exhausted the
+	// subrequest/connection budget and 503'd (`hyperdrive:false`). This block
+	// terminates the connection at Hyperdrive, as `env.preview` already does.
+	//
+	// ⛔ PLACEHOLDER — DO NOT MERGE/DEPLOY WITH THIS id. A binding pointing at a
+	// non-existent Hyperdrive config breaks EVERY prod deploy (approval d61d200b,
+	// risk (c)). The real id is minted when the `jobtrail-prod` Hyperdrive config
+	// is created in the Cloudflare console (its origin MUST point at the
+	// us-west-2 transaction pooler, aws-1-us-west-2.pooler.supabase.com:6543 —
+	// NOT us-east-2). Fill the id, un-draft, and merge under approval d61d200b.
+	//
+	// `localConnectionString` is used ONLY by local `wrangler dev` (no --env);
+	// it is the same localhost:5432 string the old DATABASE_URL default used, so
+	// local Worker dev keeps hitting the same database — it just now takes the
+	// HYPERDRIVE branch of db/client.ts instead of the DATABASE_URL branch.
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "REPLACE_WITH_JOBTRAIL_PROD_HYPERDRIVE_ID",
+			"localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
+		}
+	],
 	// Preview environment — used by PR preview deployments (wrangler deploy --env preview)
 	"env": {
 		"preview": {

@@ -15,8 +15,8 @@ The app runs as a **single Cloudflare Worker** (Hono) that serves both the API a
                     │                     (packages/web/dist)│
                     └───────┬───────────────────────┬───────┘
                             │                       │
-                 DATABASE_URL (prod)          R2 binding
-                 Hyperdrive (preview)
+                 Hyperdrive (prod/preview)    R2 binding
+                 DATABASE_URL (local dev:api)
                             │                       │
                             ▼                       ▼
                  ┌────────────────────┐   ┌────────────────────┐
@@ -26,7 +26,7 @@ The app runs as a **single Cloudflare Worker** (Hono) that serves both the API a
 ```
 
 - **Backend** — [Hono](https://hono.dev) on Cloudflare Workers. Object bindings (`ASSETS`, `HYPERDRIVE`, `R2_BUCKET`) are reachable only off the request `env`; text vars and secrets are reachable **both** ways, since `nodejs_compat` is on and `config.ts` reads `process.env`. The same code also runs on Node.js via `@hono/node-server` for local iteration. See [ADR-006](docs/architecture/adr/ADR-006-hono-framework-workers.md).
-- **Database** — Supabase PostgreSQL via Drizzle ORM over the `postgres` driver. `wrangler.jsonc` declares the `HYPERDRIVE` binding under **`env.preview` only**, so preview pools through [Cloudflare Hyperdrive](https://developers.cloudflare.com/hyperdrive/) while **production has no Hyperdrive binding** and connects to the Supabase transaction pooler (port 6543) through a `DATABASE_URL` Worker secret. `packages/api/src/db/client.ts` resolves `HYPERDRIVE` → `DATABASE_URL` → Node singleton.
+- **Database** — Supabase PostgreSQL via Drizzle ORM over the `postgres` driver. `wrangler.jsonc` declares the `HYPERDRIVE` binding at the **top level (production) and under `env.preview`**, so both pool through [Cloudflare Hyperdrive](https://developers.cloudflare.com/hyperdrive/); Hyperdrive's origin is the Supabase transaction pooler (port 6543, us-west-2). Only the Node local path (`dev:api`) connects directly through a `DATABASE_URL` secret. `packages/api/src/db/client.ts` resolves `HYPERDRIVE` → `DATABASE_URL` → Node singleton. _(Prod Hyperdrive binding restored by WIC-1386 / WIC-2200 — see [ADR-007](docs/architecture/adr/ADR-007-workers-subrequest-budget.md).)_
 - **Storage** — Resume and cover-letter files live in **Cloudflare R2** (`jobtrail-documents`), keyed by `{userId}/{type}/{filename}`. Presigned download URLs are generated with the AWS S3 SDK. See [ADR-004](docs/architecture/adr/ADR-004-cloudflare-r2-storage.md).
 - **Auth** — Supabase Auth (multi-user). When `SUPABASE_JWT_SECRET` is set, every `/api/*` route requires a valid JWT (verified with `jose`); with it unset, auth is bypassed for single-user local dev. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
 - **AI** — Anthropic Claude (`@anthropic-ai/sdk`) powers resume parsing, job-fit analysis, and dialogue capture. PDF/DOCX text extraction uses `pdfjs-dist`, `mammoth`, and `docx`.
@@ -43,7 +43,7 @@ packages/
 ├── api/          # Hono backend — Cloudflare Workers + Node (@wic/api)
 ├── marketing/    # Static marketing site (careerpin.app landing/pricing)
 └── infra/        # Redirect Worker / Pages config
-wrangler.jsonc    # Worker config: assets, R2, vars; Hyperdrive under env.preview only
+wrangler.jsonc    # Worker config: assets, R2, vars; Hyperdrive at top level (prod) + env.preview
 supabase/         # Supabase project config
 ```
 
@@ -58,7 +58,7 @@ supabase/         # Supabase project config
 ### Backend (`@wic/api`)
 
 - **Framework:** Hono 4 (Cloudflare Workers; Node via `@hono/node-server`)
-- **ORM:** Drizzle (PostgreSQL / Supabase — Hyperdrive in preview, `DATABASE_URL` in production)
+- **ORM:** Drizzle (PostgreSQL / Supabase — Hyperdrive in production and preview; `DATABASE_URL` on the Node local path)
 - **Storage:** Cloudflare R2 (S3-compatible)
 - **Auth:** Supabase JWT verification (`jose`)
 - **Analytics:** Provider-agnostic event wrapper (`noop` / `console` / `posthog`); **live in production** — the prod Worker and SPA build run `ANALYTICS_SINK=posthog`, capturing the 9 resume/export events to PostHog (as of 2026-08-11)
@@ -89,7 +89,7 @@ cp .dev.vars.example .dev.vars
 
 `wrangler dev` reads `.dev.vars` automatically. Binding names match `packages/api/src/types/env.ts`.
 
-> **Set `DATABASE_URL` in `.dev.vars`.** `npm run dev:worker` is a bare `wrangler dev` with no `--env`, so it loads the *top-level* `wrangler.jsonc`, which declares **no `HYPERDRIVE` binding** — the `localConnectionString` used for Hyperdrive emulation exists only under `env.preview`. Local Worker dev therefore takes the same `DATABASE_URL` path production does. Leaving it unset yields a Worker with no database behind it, which `/health` reports as `{"hyperdrive":false,"db":"not_applicable"}`.
+> **`DATABASE_URL` in `.dev.vars` is used by the Node path (`dev:api`, `db:migrate`).** `npm run dev:worker` is a bare `wrangler dev` with no `--env`, so it loads the *top-level* `wrangler.jsonc`, which now declares a `HYPERDRIVE` binding (WIC-2200). Local Worker dev therefore takes the Hyperdrive path, emulated against the binding's `localConnectionString` (`postgresql://postgres:postgres@localhost:5432/postgres` — the same database the old `DATABASE_URL` default pointed at), and `/health` reports `{"hyperdrive":true,...}`. `DATABASE_URL` still drives `npm run dev:api` (Node) and `npm run db:migrate`.
 
 ### Run locally
 
@@ -99,8 +99,8 @@ There are two backend dev modes:
 # Frontend dev server (http://localhost:5173)
 npm run dev
 
-# Option A — run the API as a Worker under wrangler/miniflare (assets + R2; no Hyperdrive,
-# so it reads DATABASE_URL from .dev.vars)
+# Option A — run the API as a Worker under wrangler/miniflare (assets + R2 + Hyperdrive,
+# emulated against the binding's localConnectionString → localhost:5432)
 npm run dev:worker
 
 # Option B — run the API on Node.js for faster iteration (http://localhost:3000)

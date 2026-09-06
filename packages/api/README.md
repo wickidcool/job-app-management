@@ -6,9 +6,10 @@ runs both as a **Cloudflare Worker** (production and `wrangler dev`) and on **No
 production the same Worker also serves the built React SPA.
 
 Backed by **Supabase PostgreSQL** via Drizzle ORM — pooled through Cloudflare **Hyperdrive**
-in `preview` only; **production has no Hyperdrive binding** and connects to the Supabase
-transaction pooler (port 6543) through a `DATABASE_URL` Worker secret. Document storage is
-**Cloudflare R2**.
+in **production and `preview`** (Hyperdrive's origin is the Supabase transaction pooler,
+port 6543, us-west-2). The Node local path (`dev:api`) connects directly through a
+`DATABASE_URL` secret. Document storage is **Cloudflare R2**. _(Prod Hyperdrive binding
+restored by WIC-1386 / WIC-2200 — see [`ADR-007`](../../docs/architecture/adr/ADR-007-workers-subrequest-budget.md).)_
 
 See [`docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md`](../../docs/architecture/CLOUDFLARE_WORKERS_ARCHITECTURE.md)
 for the full picture and [`ADR-006`](../../docs/architecture/adr/ADR-006-hono-framework-workers.md)
@@ -48,8 +49,8 @@ Two local modes, depending on what you need:
 npm run dev:api
 
 # Cloudflare Workers runtime via wrangler dev — bare `wrangler dev`, so it loads the
-# top-level config: ASSETS + R2, no HYPERDRIVE. Reads DATABASE_URL from .dev.vars,
-# which is the same database path production takes.
+# top-level config: ASSETS + R2 + HYPERDRIVE, emulated against the binding's
+# localConnectionString → localhost:5432 (same DB the old DATABASE_URL default used).
 npm run dev:worker
 ```
 
@@ -124,15 +125,17 @@ Bindings (not env vars):
 | Binding      | Purpose                                                                                                                                                             |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ASSETS`     | Built React SPA (`packages/web/dist`), with `not_found_handling: "single-page-application"`                                                                         |
-| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`). **Declared under `env.preview` only** — production and bare `wrangler dev` have no Hyperdrive binding |
+| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`). **Declared at the top level (production) and under `env.preview`**; bare `wrangler dev` emulates it against the binding's `localConnectionString` (localhost:5432) |
 | `R2_BUCKET`  | Document storage bucket (`jobtrail-documents`)                                                                                                                      |
 
-> `DATABASE_URL` **is** used by the production Worker. `db/client.ts` resolves
-> `HYPERDRIVE` → `DATABASE_URL` → Node singleton; since `wrangler.jsonc` declares
-> `HYPERDRIVE` only under `env.preview`, production takes the second path, and
-> `deploy.yml` pushes the Supabase transaction-pooler URL (port 6543) as a production
-> Worker secret. It is also read by the migration runner (`src/db/migrate.ts`), and by
-> `npm run dev:worker`, which loads the top-level config and so gets no binding either.
+> `db/client.ts` resolves `HYPERDRIVE` → `DATABASE_URL` → Node singleton. Since
+> `wrangler.jsonc` now declares `HYPERDRIVE` at the top level, the production Worker's
+> request path takes the **first** path (Hyperdrive). `DATABASE_URL` remains a production
+> secret — `deploy.yml` still pushes the Supabase transaction-pooler URL (port 6543) — but
+> at the edge it is now only a fallback behind the binding. It is still the live path for
+> the migration runner (`src/db/migrate.ts`, which runs in CI, not through Hyperdrive) and
+> for `npm run dev:api`. `npm run dev:worker` loads the top-level config and so now gets
+> the `HYPERDRIVE` binding, emulated against its `localConnectionString`.
 
 ## Running Tests
 

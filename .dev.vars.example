@@ -24,13 +24,14 @@ SUPABASE_JWT_SECRET=your-jwt-secret
 # Anthropic API
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Database — REQUIRED for `npm run dev:worker`.
-# That script is a bare `wrangler dev` with no --env, so it loads the top-level
-# wrangler.jsonc, which declares NO hyperdrive binding (the binding and its
-# localConnectionString exist only under env.preview). db/client.ts resolves
-# HYPERDRIVE -> DATABASE_URL -> Node singleton, so local Worker dev takes the
-# DATABASE_URL path -- the same one production takes. Leave this unset and the
-# Worker runs with no database: /health reports "db":"not_applicable".
+# Database — used by `npm run dev:api` (Node) and `npm run db:migrate`.
+# As of WIC-2200 the top-level wrangler.jsonc declares a HYPERDRIVE binding (it
+# no longer lives only under env.preview), so `npm run dev:worker` (a bare
+# `wrangler dev` with no --env) now takes the HYPERDRIVE path, emulated against
+# the binding's localConnectionString -> localhost:5432 (the same value below).
+# db/client.ts resolves HYPERDRIVE -> DATABASE_URL -> Node singleton, so this
+# var still drives the Node path (dev:api) and the migration runner; the Worker
+# request path prefers the binding.
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 
 # Note: R2_BUCKET is a native binding defined in wrangler.jsonc — no env var needed.
