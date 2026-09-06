@@ -583,9 +583,22 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <div className="text-4xl mb-2" aria-hidden="true">
                   {isLoading ? '⏳' : isError ? '⚠️' : '🔍'}
                 </div>
-                {/* "No results found" is a claim about the data, and until the query
-                    settles we are not entitled to make it. `role="status"` because this
-                    text changes underneath a screen-reader user who is already typing. */}
+                {/* "No results found" is a claim about the data, and until the query settles
+                    we are not entitled to make it. That correction is the fix; the role
+                    below is a smaller, separate thing, and is described honestly here
+                    because over-claiming in permanent text is the failure mode this whole
+                    change exists to correct.
+
+                    ⚠️ `role="status"` EXPOSES this text as a status region. It does NOT
+                    reliably get it ANNOUNCED, because this whole `<p>` unmounts the moment
+                    any result appears and a freshly-mounted live region is announced
+                    inconsistently across screen readers — the very reason the repo's shared
+                    announcer (WIC-1794) is mounted permanently instead. Routing this through
+                    that announcer was considered and deliberately deferred: it portals to
+                    `<body>`, and this palette is a Radix modal whose `hideOthers` hides
+                    everything outside its content, so the migration is a real piece of work
+                    rather than a one-line swap. The role is a strict improvement over the
+                    bare `<p>` that was here and is not load-bearing for the defect. */}
                 <p role="status">
                   {isLoading
                     ? 'Searching your applications…'

@@ -19,7 +19,9 @@ All notable changes to the Job Application Manager are documented here.
 
 **A second surface, where the empty state never renders at all.** Typing `Applied` — a `SUGGESTED_FILTERS` title — matches a suggestion, so the result list is *non-empty*: the palette looks confident and complete while every one of the user's actual applications is silently missing, and the empty-state branch is never reached. Fixing only the empty state would have left this case still lying, so a partial list now carries an inline notice naming what is absent from it.
 
-The honest empty state is unchanged. Both new strings are `role="status"`, because they replace text underneath a screen-reader user who is already typing.
+The honest empty state is unchanged.
+
+Both new strings carry `role="status"`, and the limit of that is stated rather than implied: it **exposes** them as a status region but does **not** reliably get them **announced**, because the empty-state element unmounts the moment any result appears, and a freshly-mounted live region is announced inconsistently across screen readers — which is exactly why this repo's shared announcer (WIC-1794) is mounted permanently instead. Routing these strings through that announcer was considered and deliberately deferred: it portals to `<body>`, and the palette is a Radix modal whose `hideOthers` hides everything outside its own content, so the migration is real work rather than a one-line swap. The role is a strict improvement on the bare `<p>` that was there, and it is not load-bearing for the defect.
 
 **Scope was swept, not assumed.** All 32 query-hook call sites in `packages/web/src` were classified; four read `data` with no loading state, and only this one produces a false claim. `App.tsx:76,77` renders nav badges only at `count > 0`, so in-flight is an *absent* badge rather than a wrong one; `onboarding/OnboardingModal.tsx:60` is self-healing, because `PersonalInfoForm` resets the form in a `useEffect` when `personalInfo` arrives. Both are recorded as checked rather than left unexplained.
 
