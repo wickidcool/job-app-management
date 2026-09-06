@@ -87,8 +87,92 @@ describe('satisfies', () => {
     }
   });
 
+  // WIC-2211. npm narrows the caret as leading zeros accumulate, so the plain
+  // major-lock is wrong for 0.x — and wrong fail-OPEN, which is the one direction
+  // this guard must never be. Declining to judge is the honest answer.
+  it('declines to judge a 0.x caret or tilde rather than answering fail-open', () => {
+    // Each pair is one npm would REJECT; the old major-lock rule accepted them.
+    expect(satisfies('0.9.0', '^0.5.7')).toBeNull();
+    expect(satisfies('0.0.9', '^0.0.3')).toBeNull();
+    expect(satisfies('0.9.0', '~0.5.7')).toBeNull();
+    // Declining is uniform: a 0.x range is never judged, even when it would agree.
+    expect(satisfies('0.5.9', '^0.5.7')).toBeNull();
+  });
+
+  it('still judges non-zero majors exactly, so declining 0.x costs no coverage', () => {
+    expect(satisfies('1.6.1', '^4.1.11')).toBe(false);
+    expect(satisfies('4.2.0', '^4.1.11')).toBe(true);
+  });
+
   it('returns null for a non-semver installed version', () => {
     expect(satisfies('not-a-version', '^4.1.11')).toBeNull();
+  });
+});
+
+/**
+ * Build a package whose own `node_modules` has no vitest, with `installed`
+ * sitting one level up — the real topology of the defect (WIC-2209).
+ */
+function hoistedFixture(pin: string, installed: string): string {
+  const root = mkdtempSync(join(tmpdir(), 'wic2209-root-'));
+  scratch.push(root);
+  const vitestDir = join(root, 'node_modules', 'vitest');
+  mkdirSync(vitestDir, { recursive: true });
+  writeFileSync(
+    join(vitestDir, 'package.json'),
+    JSON.stringify({ name: 'vitest', version: installed, main: 'index.js' })
+  );
+  writeFileSync(join(vitestDir, 'index.js'), '');
+  const pkg = join(root, 'packages', 'api');
+  mkdirSync(join(pkg, 'node_modules'), { recursive: true }); // present but WITHOUT vitest
+  writeFileSync(
+    join(pkg, 'package.json'),
+    JSON.stringify({ name: 'fixture-pkg', devDependencies: { vitest: pin } })
+  );
+  return pkg;
+}
+
+// WIC-2211. The `cause` line had no coverage at all, and was consequently a
+// constant: `hoisted` compared `.../node_modules` against `.../node_modules/vitest`,
+// which can never be equal, so every failure claimed a lockfile orphan — including
+// a plain package-local install that was merely out of date. The two topologies must
+// produce two different explanations, so both are asserted here.
+describe('assertPinnedVitest — the `cause` line distinguishes the two topologies', () => {
+  it('names a stale package-local install as out of date, not as a hoisted stranger', () => {
+    const dir = fixture('^4.1.11', '1.6.1'); // vitest IS in this package's node_modules
+    expect(() => assertPinnedVitest(dir)).toThrow(/cause\s*:\s*the installed copy is out of date/);
+    expect(() => assertPinnedVitest(dir)).not.toThrow(/walked up/);
+  });
+
+  it('names a genuinely hoisted copy as resolution walking up', () => {
+    const dir = hoistedFixture('^4.1.11', '1.6.1'); // vitest is one level UP
+    expect(() => assertPinnedVitest(dir)).toThrow(
+      /cause\s*:\s*no vitest is installed in this package/
+    );
+    expect(() => assertPinnedVitest(dir)).toThrow(/walked up/);
+  });
+
+  it('reports the two topologies differently — the branch is not a constant', () => {
+    // Compare ONLY the `cause` line. An earlier version of this test compared whole
+    // messages and was very nearly vacuous: the two fixtures live in different temp
+    // directories, so the `loaded from:` paths differ no matter what the branch does,
+    // and it stayed green with the constant-`true` bug restored. The branch output is
+    // the thing under test, so isolate it.
+    const cause = (d: string) => {
+      try {
+        assertPinnedVitest(d);
+      } catch (e) {
+        const line = (e as Error).message.split('\n').find((l) => l.trim().startsWith('cause'));
+        if (!line) throw new Error(`no cause line in message: ${(e as Error).message}`);
+        return line.trim();
+      }
+      throw new Error('expected assertPinnedVitest to throw, but it did not');
+    };
+    const local = cause(fixture('^4.1.11', '1.6.1'));
+    const hoisted = cause(hoistedFixture('^4.1.11', '1.6.1'));
+    expect(local).not.toBe(hoisted);
+    expect(local).toContain('out of date');
+    expect(hoisted).toContain('walked up');
   });
 });
 

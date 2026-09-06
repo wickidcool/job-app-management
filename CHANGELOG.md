@@ -28,6 +28,19 @@ The entry below split the UI tier onto its own `E2E_ISOLATION_UI` gate and carri
 **Turned on in `e2e-tests`, not in `e2e-isolation-coverage`.** WIC-2207 proposed the latter, but that job has no checkout, no Node and no Playwright install — it is a 2-minute credential preflight that runs zero tests, so the variable would have gated nothing while reading as coverage. `e2e-tests` already runs `npx playwright test`; the 8 tests need no backend and no credentials, so they cost ~11s there and do not wait on WIC-2122. Result: 7 passed, 8 skipped — the 8th UI test keeps its own inner `hasTestCredentials()` guard, and the 7 backend-gated specs still skip on `E2E_LIVE_BACKEND`.
 
 
+
+### Fixed — the vitest runner guard explained every failure as a hoisted stranger, and blessed a mismatched `0.x` runner (2026-09-06)
+
+Three follow-ups to the guard added the same day, all found in review (WIC-2211). None changed its pass/fail decision; two made it lie about *why*, and one made it silent when it should not be.
+
+**`hoisted` was a constant `true`, so the `cause` line was never right for a stale local install.** It compared `path.dirname(path.dirname(resolvedPath))` — which lands on `.../node_modules` — against `.../node_modules/vitest`, two paths that can never be equal. Every failure therefore claimed *"no vitest is installed in this package, so resolution walked up"*, including the case where vitest **is** installed locally and is merely out of date, sending the reader after a lockfile orphan that does not exist. One `dirname` too many; the "out of date" branch was unreachable. Fittingly, this was the guard's own thesis turned on itself — a confident, plausible, wrong answer where nothing about the output looks off.
+
+**`satisfies()` judged `0.x` carets confidently and wrongly, in the fail-open direction.** npm narrows the caret as leading zeros accumulate — `^0.5.7` locks the minor, `^0.0.3` locks the patch — while the major-lock rule accepted `0.9.0` under `^0.5.7` and `0.0.9` under `^0.0.3`. Both verified against `semver.satisfies`, which rejects them. A `0.x` range is shaped exactly like `^X.Y.Z`, so the existing "unmodelled syntax" test could not exclude it. It now returns `null` — "cannot judge" — rather than modelling npm's zero-rules, which would be a second thing to get wrong. Latent today (both workspaces pin `^4.1.11`), but the repo already carries `0.x` pins.
+
+**A comment claimed a measurement the function cannot make.** It said the resolution reports "the file the runner actually loaded"; `assertPinnedVitest`'s only inputs are a directory and the filesystem, so it reports the copy that *would resolve from this package*. The two coincide in the defect it was written for, which is why the fix works, and diverge on a repaired tree driven by an outside runner. That residual hole is now stated in the file rather than papered over.
+
+The `cause` line had **no test coverage at all** — none of the original four mutants touched it, which is why a constant branch shipped. Both topologies are now asserted, and the branch-is-not-constant test compares only the `cause` line: an earlier draft compared whole messages and stayed green with the bug restored, because the two fixtures sit in different temp directories and their paths differ regardless.
+
 ### Fixed — a `packages/api` test run could silently execute on `vitest@1.6.1` instead of the pinned 4.1.11, and pass (2026-09-06)
 
 `packages/api` had no `vitest` installed in the primary checkout at all. Node's resolution walked up and found an orphan `vitest@1.6.1` at the repo root — a package in **no** `package.json` and **no** `package-lock.json` entry, left behind by a tree that had not been reinstalled since the 1.6 → 4 migration (WIC-2137). Every local api suite run therefore printed `RUN v1.6.1` and passed, while CI ran the pinned `^4.1.11` (WIC-2209).
