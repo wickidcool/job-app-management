@@ -161,7 +161,7 @@ export function ResumeManager() {
         {!isLoading && !error && !hasResumes && (
           <EmptyState
             variant="no-documents"
-            onAction={() => (window.location.href = '/resumes/upload')}
+            onAction={() => navigate('/resumes/upload')}
             actionLabel="Upload Your First Resume"
           />
         )}

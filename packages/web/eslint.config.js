@@ -8,11 +8,13 @@ import prettierConfig from 'eslint-config-prettier';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 import noLiteralCapsJsxText from './eslint-rules/no-literal-caps-jsx-text.js';
 import noUseStateFromProp from './eslint-rules/no-usestate-from-prop.js';
+import noReloadNavigation from './eslint-rules/no-reload-navigation.js';
 
 const localRules = {
   rules: {
     'no-literal-caps-jsx-text': noLiteralCapsJsxText,
     'no-usestate-from-prop': noUseStateFromProp,
+    'no-reload-navigation': noReloadNavigation,
   },
 };
 
@@ -240,6 +242,33 @@ export default defineConfig([
       // which WIC-2053 showed are coupled to the a11y baselines. `error` + zero findings
       // touches neither.
       'local/no-usestate-from-prop': 'error',
+    },
+  },
+  {
+    // WIC-1097: a `window.location` write is a document navigation — it discards the React
+    // Query cache and re-downloads the bundle to render a view the router reaches in place.
+    //
+    // This closes the class WIC-1068 AC3.2 opened. AC3.2 removed the `ProjectDetail`
+    // instance and cited "WIC-1044's sibling ticket on reload-class navigation, filed
+    // alongside this one"; that ticket was never filed, so the class sat at exactly one
+    // survivor (`pages/ResumeManager.tsx:164`) with no owner for ~3 weeks. That site is
+    // fixed in this same change, so the rule lands at zero findings.
+    //
+    // Scope is `{ts,tsx}` to match `no-usestate-from-prop` rather than the caps rule's
+    // `tsx`: a `window.location` write is just as reachable from a service or a hook in a
+    // `.ts` file, and `services/` is where an auth redirect would most naturally be
+    // written. Test files are in scope for the same reason they are there — a helper that
+    // navigates is the shape the rule reads.
+    //
+    // `error` with zero findings and no allowlist, so it touches neither `--max-warnings`
+    // ceiling in package.json (WIC-2053 showed those are coupled to the a11y baselines).
+    // Off-site navigation has no router equivalent and is expected to take a justified
+    // `eslint-disable-next-line`, the convention this config already uses for
+    // `jsx-a11y/no-autofocus`. Zero sites need it today.
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { local: localRules },
+    rules: {
+      'local/no-reload-navigation': 'error',
     },
   },
 ]);
