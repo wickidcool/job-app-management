@@ -281,6 +281,12 @@ jobs:
     # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
     # red check in 15 min rather than a pending one for 6h.
     timeout-minutes: 15
+    # WIC-2122: SUPABASE_URL/SUPABASE_ANON_KEY (vars) and the four E2E_TEST_USER*
+    # secrets the isolation specs need are provisioned on the `dev` environment,
+    # not at the repo level. Without this, `vars.*`/`secrets.*` below resolve
+    # empty, the specs self-skip, and e2e-isolation-coverage going green (now
+    # that its own environment: dev is set) would assert nothing.
+    environment: dev
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -363,19 +369,15 @@ jobs:
   #
   # The isolation specs run ONLY when a real Supabase project and two test-user
   # logins are present — they self-skip on an empty TEST_USER_EMAIL
-  # (multi-user-isolation.spec.ts:95,173,226,262,292,359). None of the six values
-  # below exists at any level today (the four E2E_TEST_USER* secrets are unset;
-  # SUPABASE_URL / SUPABASE_ANON_KEY live on the `dev`/`production` environments
-  # and this job declares no `environment:`), so the specs skip and any job that
-  # merely runs them stays GREEN while asserting nothing about RLS isolation
-  # (run 33986788859: 48 skipped / 128 passed).
+  # (multi-user-isolation.spec.ts:95,173,226,262,292,359). WIC-2122 route 1 is
+  # now done: the four E2E_TEST_USER* secrets and the SUPABASE_URL /
+  # SUPABASE_ANON_KEY vars are provisioned on the `dev` environment, and both
+  # this job and `e2e-tests` declare `environment: dev` to read them.
   #
-  # This preflight makes that silent-skip impossible: if any value the isolation
-  # specs need is empty, it fails LOUD here. A red check is the honest signal
-  # until real coverage is restored — that is WIC-2122 route 1 (provision these
-  # on the `dev` environment and add `environment: dev` to this job), which needs
-  # a HUMAN to mint live test-user credentials and is the real fix. It is
-  # deliberately out of scope here and not agent-executable.
+  # This preflight stays even though credentials now exist: it is what makes a
+  # *future* silent-skip impossible — a rotated or deleted secret fails LOUD
+  # here instead of the specs quietly skipping and `e2e-tests` reading GREEN
+  # while asserting nothing about RLS isolation.
   #
   # ⛔ This job is intentionally NOT in `deploy-production`'s `needs:` and is NOT
   # a required merge context (ruleset `skip-ci-sweep-required`, id 21489705, does
@@ -387,6 +389,7 @@ jobs:
     needs: lint-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    environment: dev
     steps:
       - name: Assert isolation-test credentials are present
         env:
