@@ -35,6 +35,17 @@ export interface Application {
   compTarget?: string; // User's compensation target
   nextAction?: string; // Next action description (max 500)
   nextActionDue?: string; // ISO date (YYYY-MM-DD)
+  /**
+   * Scheduled interview instant, ISO-8601 **with an offset** — e.g. `2026-09-10T19:30:00.000Z`.
+   *
+   * Deliberately *not* the `YYYY-MM-DD` contract `nextActionDue` above carries, and the
+   * comment is spelled out here so the two are not read as the same kind of field. The column
+   * is `TIMESTAMPTZ`, the API validates this as `z.string().datetime({ offset: true })`, and
+   * `InterviewPrepCard` does real `getTime()` arithmetic on it for a countdown. A date-only
+   * string would be accepted by `new Date` as UTC midnight and silently move the instant.
+   * See `utils/datetimeLocal.ts`.
+   */
+  interviewDate?: string;
 }
 
 /**
@@ -76,4 +87,13 @@ export interface ApplicationFormData {
   compTarget?: string;
   nextAction?: string;
   nextActionDue?: string;
+  /**
+   * Scheduled interview instant, ISO-8601 **with an offset**.
+   *
+   * The `<input type="datetime-local">` bound to this field holds `YYYY-MM-DDTHH:mm` while
+   * the user is editing; `applicationFormSchema` converts that to a full instant on submit,
+   * so what a submit handler receives — and what this type describes — is already the wire
+   * format. `''` means "no interview scheduled" and clears a previously-stored date.
+   */
+  interviewDate?: string;
 }
