@@ -324,6 +324,26 @@ jobs:
       #   `if: always()` so a failing auth probe never masks the data-plane verdict, and
       #   vice versa — both probes run every time and each records an independent verdict.
       #
+      # ⛔ THIS WORKFLOW'S GREEN HISTORY PREDATES THIS STEP — do not read it as uptime
+      #   The `prod canary (auth + data plane)` job did not exist until WIC-2123 landed in
+      #   `18d8a183`, 2026-09-05T22:03Z. Every earlier run of this workflow is green
+      #   because it only ever ran the keep-alive and the auth probe, neither of which
+      #   dials Postgres — NOT because the data plane was up. `gh run list` renders the
+      #   two indistinguishably, so the transition to red at 2026-09-05T21:53Z is this
+      #   instrument landing, not a regression: it is the first execution of the job,
+      #   from a `workflow_dispatch` on the WIC-2123 branch ten minutes before merge.
+      #
+      #   Measured 2026-09-06T11:0xZ: of the runs in which this job exists it is red
+      #   9/9, from its very first execution. It has never once observed a healthy data
+      #   plane. So this workflow's history contains NO evidence the data plane was ever
+      #   up, in either direction — it is silent before 21:53Z and uniformly red after.
+      #
+      #   Two live cards turn on that distinction, in opposite directions. Do not close
+      #   or downgrade WIC-2092 ("prod data layer down") by citing green runs from
+      #   2026-09-05 or earlier — they assert nothing about the data plane. And do not
+      #   open a regression card for "prod broke at 21:53Z" — nothing broke then; the
+      #   probe started looking. (WIC-2174; same class as the signature drift above.)
+      #
       # SAFETY
       #   Read-only, unauthenticated GET. No credentials, no state change.
       - name: Probe prod data plane (GET /api/health)
