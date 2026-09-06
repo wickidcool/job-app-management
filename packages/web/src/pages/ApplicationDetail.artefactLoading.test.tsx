@@ -220,7 +220,11 @@ function rowMarkup(label: (typeof ROWS)[number]): string {
  * whichever assertion happened to call it first.
  */
 function progressText(): string | null {
-  return within(checklist()).queryByText(/steps completed/)?.textContent?.trim() ?? null;
+  return (
+    within(checklist())
+      .queryByText(/steps completed/)
+      ?.textContent?.trim() ?? null
+  );
 }
 
 function captureMarkup(label: (typeof ROWS)[number], phase: Phase): string {
@@ -543,7 +547,10 @@ describe('ApplicationDetail — every artefact query in flight on a cold load (W
     ['Cover Letter', 'in-flight'],
     ['Tailored Resume', 'in-flight'],
     ['Interview Prep', 'in-flight'],
-  ] as const)('renders the %s row as it does when only its own query is in flight', (label, phase) => {
-    expect(captureMarkup(label, 'all-in-flight')).toEqual(captureMarkup(label, phase));
-  });
+  ] as const)(
+    'renders the %s row as it does when only its own query is in flight',
+    (label, phase) => {
+      expect(captureMarkup(label, 'all-in-flight')).toEqual(captureMarkup(label, phase));
+    }
+  );
 });
