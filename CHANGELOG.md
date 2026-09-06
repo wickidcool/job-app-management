@@ -22,6 +22,17 @@ Verified three ways, not one: the audit's own flags now report **0**; dropping `
 
 
 
+
+### Documentation — ADR-010's D2 row was stale by 4x and read as an open backlog; the guard reports 21/3, not 71/29 (2026-09-06)
+
+`docs/architecture/adr/ADR-010-absent-owner-posture.md` exists to stop agents re-deriving the absent-owner burndown — its own header says so. Its **D2** row had drifted to a quarter of its stated value and, worse, presented the remainder as dispatchable work. Docs only; no code, schema, migration, baseline or guard change.
+
+- **The numbers, measured at each commit rather than inherited.** `[SIG]`/`[COND]` from `audit-owner-predicates.mjs --stats`: `a64554a8` **71/29** (the figure the ADR recorded — reproduced exactly, so the row was right when written), `feade4d7` 71/29, `58ee67e8` 46/29 (WIC-2070), `91811dc4` 41/23 (WIC-2071), `34a2503c` 29/10 (WIC-2072), `8c8e5cf2` 23/3 (WIC-2068), `2b3cdd55` **21/3** (WIC-2076), unchanged at `e50ec066`.
+- **The drop is remediation, not a blunted guard.** The two alternative explanations were both checked and both fail: WIC-2069's guard change at `feade4d7` left the counts at 71/29 to the digit, and every baseline regeneration across the five slices was downward by deletion only. Independently, the baseline's 12 keys carry `count` fields summing to exactly the 24 findings (21 `SIG` + 3 `COND`), so no coarse key is absorbing new sites — that sum is now documented as the cheap integrity test.
+- **"24 remaining" is not a backlog anyone can pick up, and the row now says so.** 10 are forbidden by in-file headers, **12 need a data backfill plus `SET NOT NULL` behind a human-gated `DATABASE_URL`**, 1 is a documented guard false positive (`analytics.service.ts` pre-auth telemetry), 1 is entangled with the nullable-table set. D2's remainder is gated on a production data migration, not on engineering time — the signature half is done.
+- **This had already cost work once.** WIC-2068 scoped itself against this table's `71 / 29` when the true starting point was `29 / 10`; its own entry records *"The 71 was never 71 units of work."* That lesson reached the changelog and never propagated back into the ADR, which is the document agents are pointed at. The header now states that each count is a measurement at a named commit, and that a re-measure must move the row and its commit together.
+- **The identical string at `audit-owner-predicates.mjs:86` was deliberately left alone.** It also reads `[SIG] 71 / [COND] 29`, but it is a mutation-matrix record explicitly pinned to *"`origin/main` a64554a before the fix and again after"* — accurate history, not a current-state claim. Grepping the *claim* across the tree rather than editing the one file is what separated the two; a blind find-and-replace would have destroyed correct provenance.
+
 ### Fixed — every client-side form validation message was dead: `packages/web` resolved zod 4 against `@hookform/resolvers` 3 (2026-09-05)
 
 `PersonalInfoForm` and `ApplicationForm` never rendered a validation message. An invalid submit threw an uncaught `ZodError` and the form silently did nothing — no message, no `PATCH`, no feedback of any kind. **This supersedes the ⚠️ note in the WIC-2124 entry below, which recorded the defect as unfixed** (WIC-2126).
