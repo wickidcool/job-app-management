@@ -25,12 +25,18 @@ import { ESLint } from 'eslint';
  * rather than by the exemption under test.
  *
  * ⚠️ WHAT THE SCOPE ANALYSIS ACTUALLY BUYS — this docstring got it wrong first time round.
- * It claimed the tree's 35 `location.pathname` reads were the reason for scope analysis,
+ * It claimed the tree's 22 `location.pathname` reads were the reason for scope analysis,
  * because "a name-matching implementation would report all of them". Measured under
  * WIC-2173: force `isUnresolvedGlobal` to `return true` and `npm run lint` is rc=0 with ZERO
  * findings. The rule visits only `AssignmentExpression` and `CallExpression`, so a read
- * never reaches the resolution step at all — those 35 sites are excluded by reads-not-writes,
+ * never reaches the resolution step at all — those 22 sites are excluded by reads-not-writes,
  * under any resolution strategy.
+ *
+ * ⚠️ 22, NOT 35. `git grep -o 'location\.pathname' -- packages/web/src` returns 35 and an
+ * earlier pass of this correction shipped that raw total as a read count. It is not one: it
+ * includes THIS FILE's own write fixtures, which are precisely the sites the rule flags, and
+ * prose lines including the false sentence being corrected. 22 genuine reads across 11 files,
+ * same on `main` and on this branch.
  *
  * So the `useLocation()` cases below are pinning the SUITE's contract, not a live tree
  * hazard, and that is worth saying plainly. The case that genuinely discriminates the two
@@ -261,12 +267,16 @@ describe('no-reload-navigation', () => {
   });
 
   describe('a local binding named `location` is not the DOM global', () => {
-    // This tree reads `location.pathname` in 35 places — TopNavigation, BottomTabBar,
-    // MobileNavigation, ResumeManagerTabs, RouteTitle, NotFound, useRouteFocusHandoff and
-    // several test harnesses. Every one is correct, but NONE of them is what the scope
-    // analysis protects: the rule never visits a read position, so a name-matching build of
-    // it leaves all 35 alone too (measured, WIC-2173). What scope analysis separates is a
-    // WRITE, or an `assign`/`replace` CALL, on a local named `location` — the cases below.
+    // This tree reads `location.pathname` in 22 places across 11 files — TopNavigation,
+    // BottomTabBar, MobileNavigation, ResumeManagerTabs, RouteTitle, NotFound,
+    // useRouteFocusHandoff and several test harnesses. Every one is correct, but NONE of them
+    // is what the scope analysis protects: the rule never visits a read position, so a
+    // name-matching build of it leaves all 22 alone too (measured, WIC-2173). What scope
+    // analysis separates is a WRITE, or an `assign`/`replace` CALL, on a local named
+    // `location` — the cases below.
+    //
+    // 22 is hand-classified, not `git grep -c`: the raw occurrence total is 35, and the
+    // difference is this file's own write fixtures plus prose. See the file docstring.
 
     it('does not flag a read of a `useLocation()` result', async () => {
       const source =
@@ -365,7 +375,7 @@ describe('no-reload-navigation', () => {
       // Measured both directions under WIC-2173, in a `src/services/*.ts` path:
       //   shipped rule            -> not flagged (asserted here)
       //   `isUnresolvedGlobal` forced to `return true` -> FLAGGED
-      // That is a genuine false positive the shipped rule avoids, unlike the 35
+      // That is a genuine false positive the shipped rule avoids, unlike the 22
       // `location.pathname` reads, which a name-matching rule leaves alone as well.
       const source =
         'export function stripLeadingSlash(raw: string) {\n' +

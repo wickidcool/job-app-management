@@ -31,13 +31,20 @@
  * global.
  *
  * ⚠️ BE PRECISE ABOUT WHAT THAT BUYS, because the first version of this paragraph was not.
- * It said: `location` here is overwhelmingly react-router's `useLocation()` result — 35
+ * It said: `location` here is overwhelmingly react-router's `useLocation()` result — 22
  * reads of `location.pathname` in components, hooks and tests — and "a name-matching rule
  * would report all of them". THAT IS MEASURABLY FALSE. Force `isUnresolvedGlobal` to
  * `return true` (pure name matching) and `npm run lint` on this tree is rc=0 with ZERO
  * findings (WIC-2173). The rule only visits `AssignmentExpression` and `CallExpression`, so
- * a *read* never reaches `isWindowLocation` under any resolution strategy. Those 35 sites
+ * a *read* never reaches `isWindowLocation` under any resolution strategy. Those 22 sites
  * are excluded by READS ARE NOT WRITES below, not by scope analysis.
+ *
+ * ON THE FIGURE, because the first correction of it was also wrong: `git grep -o
+ * 'location\.pathname' -- packages/web/src` returns 35, but that is an OCCURRENCE count, not
+ * a read count. It sweeps in this test file's own write fixtures — the very sites the rule
+ * DOES flag — plus prose lines, two of which are the false sentence being corrected here.
+ * Hand-classified, the tree has 22 genuine reads across 11 files, and that figure is
+ * identical on `main` and on this branch. Never restate the raw grep total as a read count.
  *
  * The real justification is narrower and sharper: scope analysis is what separates the
  * global from a local binding named `location` that is *written to*, or that has
