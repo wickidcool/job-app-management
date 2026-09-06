@@ -74,6 +74,17 @@ The `clear()` on dialog-open is **kept, with its rationale rewritten**. It previ
 `ProjectsList`'s create-success announcement now quotes the project name (`Project "Acme Corp" created.`), matching `Resume "resume.pdf" deleted.` and closing the non-blocking note left on PR #252: unquoted, a project named `created` or one ending in a period produced a sentence that is hard to parse aloud. Its two pinned assertions move with it.
 
 
+### Documentation — the prod canary's green run history predates its data-plane job, and must not be read as data-plane uptime (2026-09-06)
+
+`.github/workflows/supabase-keepalive.yml` now states, at the data-plane probe, that this workflow's own green runs carry **no** information about the data plane. The `prod canary (auth + data plane)` job did not exist until WIC-2123 landed in `18d8a183` at 2026-09-05T22:03Z; every earlier run is green because it ran only the keep-alive and the auth probe, and **neither dials Postgres**. `gh run list` renders "green because healthy" and "green because unmeasured" identically.
+
+So the workflow's transition to red at 2026-09-05T21:53Z is **this instrument landing, not a regression** — that run is the job's first execution ever, a `workflow_dispatch` on the WIC-2123 branch ten minutes before merge. Measured 2026-09-06T11:0xZ: across every run in which the job exists it is red **9/9, from first execution**, and it has never once observed a healthy data plane. The history is silent before 21:53Z and uniformly red after.
+
+This is the same class as the `db` signature drift recorded above (WIC-2169), and the second time in two days that a green→red edge on this service was the instrument moving rather than production. Both directions of the misread are live: **do not** close or downgrade WIC-2092 by citing green canary runs from 2026-09-05 or earlier, and **do not** open a regression card for "prod broke at 21:53Z". Verify with `gh run view <id> --json jobs` — the job is absent, not passing, in every green run (WIC-2174).
+
+Documentation only. No workflow logic, assertion or schedule changed; the probe still passes iff HTTP 200 and `.status == "ok"`.
+
+
 ### Fixed — Layer 0 full-history secret audit is green again: 6 triaged-benign findings baselined, zero live credentials (2026-09-05)
 
 The scheduled Layer 0 audit (`.github/workflows/secret-history-audit.yml`) went **RED on 2026-08-31** and would have failed again on its next Monday fire. Re-scanned with the pinned gitleaks `8.28.0` and the workflow's exact flags: the live count was **6, not the 3 the failing run reported** — the 3 originals plus 3 more that landed in the five days since. **Every one is a false positive; no credential is exposed and nothing needs rotating.**
