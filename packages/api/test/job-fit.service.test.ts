@@ -435,7 +435,10 @@ describe('parseJobDescription - LLM integration', () => {
     };
 
     const mockParseJD = vi.fn().mockResolvedValue(llmResult);
-    vi.mocked(LLMService).mockImplementation(() => ({ parseJobDescription: mockParseJD }) as any);
+    // vitest 4 refuses to `new` a mock implemented with an arrow function.
+    vi.mocked(LLMService).mockImplementation(function () {
+      return { parseJobDescription: mockParseJD } as any;
+    });
 
     const result = await parseJobDescription(
       'Senior Engineer at Acme requiring TypeScript and React.'
@@ -450,7 +453,10 @@ describe('parseJobDescription - LLM integration', () => {
     _resetConfig();
 
     const mockParseJD = vi.fn().mockRejectedValue(new Error('LLM unavailable'));
-    vi.mocked(LLMService).mockImplementation(() => ({ parseJobDescription: mockParseJD }) as any);
+    // vitest 4 refuses to `new` a mock implemented with an arrow function.
+    vi.mocked(LLMService).mockImplementation(function () {
+      return { parseJobDescription: mockParseJD } as any;
+    });
 
     const jd = 'Senior Software Engineer at Acme. Requirements: TypeScript, React. Remote.';
     const result = await parseJobDescription(jd);
