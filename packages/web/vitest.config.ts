@@ -14,6 +14,12 @@ export default mergeConfig(
       environment: 'jsdom',
       globals: false,
       setupFiles: ['./src/test/setup.ts'],
+      // WIC-2209. Refuse to run on a vitest other than the one pinned in
+      // package.json. This package happened to have a correct install when the
+      // defect was found in packages/api, but the cause was a missing package-level
+      // install falling back to a hoisted copy — nothing about that is specific to
+      // the api workspace, so both are guarded.
+      globalSetup: ['./vitest.globalSetup.mjs'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
       exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
       restoreMocks: true,
