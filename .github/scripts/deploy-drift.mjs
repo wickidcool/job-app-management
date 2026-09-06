@@ -10,8 +10,22 @@
 // ⚠️ SCOPING — this is NOT a health-regression alarm (WIC-2098 correction).
 // WIC-2088 cited the 2026-09-05 `503` as motivation. That outage is NOT drift:
 // prod was running current code (deploy.yml succeeded at 12:49:33Z) and was
-// degraded for a CONNECTIVITY reason (`hyperdrive:false`, CONNECTION_DESTROYED
-// against the us-west-2 pooler) tracked on WIC-1386 / WIC-2092 / WIC-2097.
+// degraded for a CONNECTIVITY reason (`hyperdrive:false` plus a failing `db`
+// field) tracked on WIC-1386 / WIC-2092 / WIC-2097.
+//
+// ⛔ Do NOT key anything on that `db` string. It names whichever of OUR OWN
+// mitigations fired, not the fault, and it has changed three times while the
+// fault stayed put (WIC-2169):
+//   1. `Too many subrequests by single Worker invocation`  — pre-WIC-2043, the
+//      unbounded initial connect loop spending the whole subrequest budget.
+//   2. `write CONNECTION_DESTROYED aws-1-us-west-2.pooler.supabase.com:6543`
+//      — WIC-2043's deadline tearing the pool down; teardown collateral, not
+//      the pooler dropping us. This comment used to quote it as
+//      "CONNECTION_DESTROYED against the us-west-2 pooler", which read as a
+//      far-end fault. WIC-2163 disproved that.
+//   3. `connect deadline exceeded: no connection within 1500ms (…:6543)`
+//      — WIC-2163's honest rendering. Current as of 2026-09-06.
+//
 // So `/api/health` is REPORTED here as context — WIC-2088's addition, because a
 // monitor saying "prod is 0 commits behind" while prod returns 503 is telling a
 // true and useless thing — but it can NEVER trigger this alarm. A health alarm

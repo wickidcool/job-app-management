@@ -173,6 +173,61 @@ only the data path is down. `hyperdrive:false` confirms prod takes the
 `DATABASE_URL` branch (`db/client.ts:19`), which on `main` still passes no `max`
 — i.e. the pool of 10 described above is what production is running right now.
 
+### Status 2026-09-06: the signature above is STALE, and it went stale because *we* changed it
+
+⚠️ **Do not quote the `Too many subrequests` reading above as prod's current
+signature.** The block is accurate for its date and is kept as the record of the
+unmitigated fault. Prod's `db` string has since changed twice, both times because
+one of our own mitigations landed — not because the fault moved:
+
+| from | to | cause | landed |
+|---|---|---|---|
+| `Too many subrequests by single Worker invocation` | `write CONNECTION_DESTROYED …:6543` | WIC-2043 bounded the dial loop; the string is `sql.end()` teardown collateral | 2026-09-04 (#364) |
+| `write CONNECTION_DESTROYED …:6543` | `connect deadline exceeded: no connection within 1500ms (…:6543)` | WIC-2163 reported the deadline trip instead of the collateral | 2026-09-06 (#428) |
+
+Measured 2026-09-06T08:2xZ and re-measured T08:3xZ, both hostnames, `503`, ~1.85s:
+
+```
+GET https://app.careerpin.app/api/health
+GET https://jobtrail.al-23f.workers.dev/api/health
+{"status":"degraded","hyperdrive":false,
+ "db":"connect deadline exceeded: no connection within 1500ms (aws-1-us-west-2.pooler.supabase.com:6543)"}
+```
+
+**⭐ The reusable trap.** The `Too many subrequests` string is the discriminator
+for whether the dial loop is spinning, and WIC-2043 was built specifically to
+stop it being emitted. Reasoning from its *absence* therefore measures the
+mitigation, not the fault. WIC-2169 §3 made exactly that error and concluded the
+loop was probably *not* spinning; WIC-2170 retracted it. Before treating a missing
+symptom as evidence, ask what was installed to suppress it, and when.
+
+**Verdict: the accept-then-close spin loop is CONFIRMED, by this ADR's own data.**
+Under the competing "one slow dial" shape an invocation consumes exactly **one**
+subrequest and can never exhaust a 1000-subrequest budget. Prod exhausted it, on
+2026-08-26/27/30/31 and 09-01. That refutes "one slow dial" outright for the
+pre-mitigation window.
+
+**Prod-path re-dial rate, from the 4.04s reading above.** `connect-bound.ts` cites
+878 dials/s, but that was measured locally against a synthetic accept-then-close
+host. The block above is the same quantity measured on prod's own path: ≥1000
+dials inside a 4.04s response ⇒ **≥250 dials/s**, and that is a lower bound, since
+the response time also covers routing and serialisation. Same order as the
+synthetic figure.
+
+**⛔ Do not raise `DB_CONNECT_DEADLINE_MS` as a diagnostic.** At ≥250 dials/s the
+arithmetic is:
+
+- the current 1500ms deadline already spends **≥375 of the 1000** subrequests
+  (≥38% of the per-invocation budget) on any invocation that dials the DB;
+- the budget is exhausted again at a deadline of **1000 / 250 ≈ 4.0s**, which is
+  precisely the 4.04s reading above;
+- so a raise toward ~4s re-arms the WIC-2043 failure on **every** endpoint, not
+  just `/api/health` — and under a confirmed spin loop no finite deadline connects
+  anyway, because every dial is closed by the far end.
+
+The informative range of that experiment is empty and its unsafe range is
+reachable. Settled; do not reopen (WIC-2169 / WIC-2170).
+
 ### Settled 2026-08-30: the host is derivable, and PR #156 was right
 
 **A previous revision of this section said the host `DATABASE_URL` names "is not

@@ -305,10 +305,21 @@ jobs:
       #
       # WHAT IT ASSERTS  (read before editing)
       #   A *healthy* data plane returns HTTP 200 with body `{"status":"ok",...}`. PASS
-      #   iff HTTP 200 AND `.status == "ok"`. FAIL on anything else — the live outage
-      #   signature is HTTP 503 with `{"status":"degraded","hyperdrive":false,
-      #   "db":"write CONNECTION_DESTROYED ..."}`. The failure names the observed
-      #   `hyperdrive` and `db` fields verbatim so the incident issue is self-diagnosing.
+      #   iff HTTP 200 AND `.status == "ok"`. FAIL on anything else. The failure names
+      #   the observed `hyperdrive` and `db` fields verbatim so the incident issue is
+      #   self-diagnosing. As measured 2026-09-06 the outage signature is HTTP 503 with
+      #   `{"status":"degraded","hyperdrive":false,
+      #   "db":"connect deadline exceeded: no connection within 1500ms (...:6543)"}`.
+      #
+      #   ⛔ That `db` string is an EXAMPLE, deliberately not a matcher — keep it that
+      #   way. It names whichever of our own mitigations fired, not the fault, and it
+      #   has changed three times without the fault changing: `Too many subrequests by
+      #   single Worker invocation` (pre-WIC-2043) -> `write CONNECTION_DESTROYED
+      #   aws-1-us-west-2.pooler.supabase.com:6543` (WIC-2043 teardown collateral, and
+      #   NOT the pooler dropping us — WIC-2163) -> the current string above. The
+      #   assertion is `.status == "ok"`, which is invariant under all three; a probe
+      #   keyed on the string would have gone quiet at each change and reported the
+      #   ~10-day outage as healthy (WIC-2169).
       #
       #   `if: always()` so a failing auth probe never masks the data-plane verdict, and
       #   vice versa — both probes run every time and each records an independent verdict.
