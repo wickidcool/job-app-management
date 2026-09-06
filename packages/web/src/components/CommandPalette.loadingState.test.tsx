@@ -19,14 +19,22 @@ import type { Application } from '../types/application';
  * "we couldn't find out", and "there are genuinely none" — which the results region then
  * rendered as the flat claim **"No results found"**.
  *
- * THE MEASUREMENT THAT DEFINES THE DEFECT. Holding the user's own typed query constant
- * (two queries of equal length, Radix's generated ids normalised), the DOM the palette
- * rendered for *"an application that exists, still loading"* was **byte-identical across
- * all 1546 characters** to the DOM for *"a query that genuinely matches nothing"*. The
- * only differing bytes in the whole subtree were the `value` attribute of the search input
- * — the user's own keystrokes, not anything the palette was telling them.
+ * THE MEASUREMENT THAT DEFINES THE DEFECT. Re-derived at base `66ae5778`, and stated with
+ * the node named so it can be re-run — an earlier revision of this docstring said
+ * "byte-identical across all 1546 characters" without saying *what* was measured, which
+ * made the figure unreproducible (a reviewer re-measuring got 2162). The node is the
+ * palette's `role="dialog"` subtree, and the quantity is `announcedText()` below:
  *
- * That byte-identity is what `ANNOUNCES something different ...` below pins directly.
+ *   - announced text, in flight vs settled-and-genuinely-empty: **234 characters, equal —
+ *     zero differing characters.** The palette said the identical thing in both states.
+ *   - for reference, the raw markup of the same node (Radix's per-mount generated ids
+ *     normalised) was 1540 characters of `innerHTML` / 2162 of `outerHTML`, differing in
+ *     **13** — every one of them inside the search input's own `value` attribute, i.e. the
+ *     user's keystrokes, not anything the palette was telling them.
+ *
+ * The announced-text figure is the one that matters and the one carrying no caveat: on the
+ * channel that actually reaches the user there was no difference at all. That exact
+ * identity is what `ANNOUNCES something different ...` below pins.
  *
  * ⚠️ AND THE FIRST VERSION OF THAT ASSERTION DID NOT WORK, which is worth recording rather
  * than quietly fixing. It compared normalised `innerHTML`, and the docstring here claimed
@@ -55,7 +63,7 @@ import type { Application } from '../types/application';
  */
 
 const { STATE } = vi.hoisted(() => ({
-  STATE: { isLoading: false, isError: false },
+  STATE: { isPending: false, isError: false },
 }));
 
 const { APPLICATIONS } = vi.hoisted(() => ({
@@ -74,14 +82,27 @@ const { APPLICATIONS } = vi.hoisted(() => ({
 }));
 
 /**
- * Models the real hook rather than a convenient shape: react-query leaves `data`
- * `undefined` in both the pending and the error state, and a mock that returned `[]` there
- * would quietly assert the component reads a flag it does not have to read.
+ * A mock, with a known and deliberate limit — stated here because the previous version of
+ * this docstring claimed it "models the real hook", and in the one dimension that matters
+ * it does not.
+ *
+ * It gets the important half right: react-query leaves `data` `undefined` in both the
+ * pending and the error state, and a mock returning `[]` there would quietly assert the
+ * component reads a flag it does not have to read.
+ *
+ * ⚠️ But `data` is derived here from the very flags the component branches on, so
+ * `data === undefined ⟺ isPending || isError` holds **by construction**. That is the exact
+ * proposition the fix rests on, which means no test in this file can ever falsify it. A
+ * real query state where `data` is `undefined` and both flags are false would be invisible
+ * to every assertion below — and there is one: `fetchStatus: "paused"`, where `isLoading`
+ * (v5: `isPending && isFetching`) is false. That gap is covered against the real library,
+ * with no mock at all, in `CommandPalette.pausedQuery.test.tsx`. The two files are a pair;
+ * neither is sufficient alone.
  */
 vi.mock('../hooks/useApplications', () => ({
   useApplications: () => ({
-    data: STATE.isLoading || STATE.isError ? undefined : APPLICATIONS,
-    isLoading: STATE.isLoading,
+    data: STATE.isPending || STATE.isError ? undefined : APPLICATIONS,
+    isPending: STATE.isPending,
     isError: STATE.isError,
   }),
 }));
@@ -128,7 +149,7 @@ function announcedText(dialog: HTMLElement) {
 
 beforeEach(() => {
   localStorage.clear();
-  STATE.isLoading = false;
+  STATE.isPending = false;
   STATE.isError = false;
 });
 
@@ -138,17 +159,17 @@ afterEach(() => {
 
 describe('CommandPalette — an unsettled query is not "No results found" (WIC-2179)', () => {
   it('ANNOUNCES something different in flight than when genuinely empty', async () => {
-    // The exact comparison that measured the defect. Before the fix these two were equal:
-    // byte-identical across all 1546 characters of markup, differing only in the search
-    // input's own `value`. Both queries below are the same length so that `value` cannot
-    // be the difference this assertion detects.
-    STATE.isLoading = true;
+    // The exact comparison that measured the defect. Before the fix these two announced
+    // strings were equal: 234 characters, zero differing (base `66ae5778`). Both queries
+    // below are the same length so that the input's own `value` cannot be the difference
+    // this assertion detects.
+    STATE.isPending = true;
     const dialog = renderPalette();
     await type(MATCHES_AN_APPLICATION);
     const inFlight = announcedText(dialog);
     cleanup();
 
-    STATE.isLoading = false;
+    STATE.isPending = false;
     const settled = renderPalette();
     await type(MATCHES_NOTHING);
     const settledAbsent = announcedText(settled);
@@ -157,7 +178,7 @@ describe('CommandPalette — an unsettled query is not "No results found" (WIC-2
   });
 
   it('does not claim "No results found" while the applications query is in flight', async () => {
-    STATE.isLoading = true;
+    STATE.isPending = true;
     const dialog = renderPalette();
 
     await type(MATCHES_AN_APPLICATION);
@@ -194,7 +215,7 @@ describe('CommandPalette — an unsettled query is not "No results found" (WIC-2
     // list is non-empty — the palette looks confident and complete while every one of the
     // user's actual applications is missing. The empty-state branch is never reached here,
     // which is why fixing only that branch would leave this case still lying.
-    STATE.isLoading = true;
+    STATE.isPending = true;
     const dialog = renderPalette();
 
     await type(FILTER_SHORTCUT_LABELS.applied);
@@ -231,7 +252,7 @@ describe('CommandPalette — an unsettled query is not "No results found" (WIC-2
     // This surface had no positive test until WIC-2179 follow-up. It was covered by the
     // implementation only incidentally, because the notice sits in the outer results
     // `<div>` after both the `!query` and query blocks rather than inside either one.
-    STATE.isLoading = true;
+    STATE.isPending = true;
     localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(['remote backend']));
     const dialog = renderPalette();
 

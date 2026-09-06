@@ -161,15 +161,24 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [prevQuery, setPrevQuery] = useState('');
   const [prevOpen, setPrevOpen] = useState(false);
   const navigate = useNavigate();
-  // `isLoading` and `isError` are read, not just `data`, and that is the whole point of
+  // `isPending` and `isError` are read, not just `data`, and that is the whole point of
   // this destructure. `data` is `undefined` in BOTH the in-flight and the failed state,
   // so the `= []` default collapses "we do not know yet", "we could not find out" and
   // "there are genuinely none" into one indistinguishable empty list — and the branch at
   // the bottom of this component renders that list as the flat assertion "No results
-  // found". Measured before the fix: with the user's typed query held constant, the
-  // in-flight DOM and the settled-and-genuinely-empty DOM were byte-identical across all
-  // 1546 characters. See the loading/error branches in the results region below.
-  const { data: applications = [], isLoading, isError } = useApplications();
+  // found". Measured before the fix (base `66ae5778`): with the user's typed query held
+  // constant, the announced text of this component's `role="dialog"` subtree was 234
+  // characters in flight and the same 234 characters when settled and genuinely empty —
+  // zero differing. See the loading/error branches in the results region below.
+  //
+  // ⚠️ `isPending`, NOT `isLoading`. In react-query v5 `isLoading` is
+  // `isPending && isFetching`, so it is FALSE for a query that is pending but *paused*
+  // (`fetchStatus: "paused"`) — which is exactly what the default `networkMode: "online"`
+  // does the moment the browser reports itself offline. `data` is still `undefined`
+  // there, so reading `isLoading` would leave a third instance of this very defect: same
+  // `= []` default, same "No results found", byte-for-byte. `isPending` covers every
+  // state in which `data` is `undefined` and the query has not failed.
+  const { data: applications = [], isPending, isError } = useApplications();
 
   // Load recent searches - recalculate when palette opens
   const recentSearches = useMemo(() => (open ? getRecentSearches() : []), [open]);
@@ -256,8 +265,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   // True whenever the applications half of the result set is unavailable — in flight, or
   // failed. Both spellings leave `applications` empty, and neither is "there are none".
-  const applicationsMissing = isLoading || isError;
-  const applicationsMissingNotice = isLoading
+  const applicationsMissing = isPending || isError;
+  const applicationsMissingNotice = isPending
     ? 'Still loading your applications — they are not in these results yet.'
     : 'Your applications could not be loaded, so they are missing from these results.';
 
@@ -581,7 +590,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     glyphs this one needs no `sr-only` replacement. Without aria-hidden it is
                     read out as "magnifying glass tilted left" first (WIC-1850). */}
                 <div className="text-4xl mb-2" aria-hidden="true">
-                  {isLoading ? '⏳' : isError ? '⚠️' : '🔍'}
+                  {isPending ? '⏳' : isError ? '⚠️' : '🔍'}
                 </div>
                 {/* "No results found" is a claim about the data, and until the query settles
                     we are not entitled to make it. That correction is the fix; the role
@@ -600,7 +609,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     rather than a one-line swap. The role is a strict improvement over the
                     bare `<p>` that was here and is not load-bearing for the defect. */}
                 <p role="status">
-                  {isLoading
+                  {isPending
                     ? 'Searching your applications…'
                     : isError
                       ? 'Could not load your applications, so this search is incomplete.'
