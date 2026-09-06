@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useApplications } from '../hooks/useApplications';
+import { useApplicationCollection } from '../hooks/useApplications';
 import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import { RECENT_SEARCHES_KEY } from '../services/appStorage';
 
@@ -178,7 +178,17 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // there, so reading `isLoading` would leave a third instance of this very defect: same
   // `= []` default, same "No results found", byte-for-byte. `isPending` covers every
   // state in which `data` is `undefined` and the query has not failed.
-  const { data: applications = [], isPending, isError } = useApplications();
+  //
+  // `useApplicationCollection`, not the `useApplications` projection this used to call
+  // (WIC-2181). Same query key, same fetch, same cache entry — the only difference is
+  // that the rows arrive inside their metadata instead of stripped of it, which is what
+  // makes `truncated` reachable below. The palette renders "No results found", and that
+  // sentence is a claim about the whole account; it is false whenever the rows searched
+  // were only a prefix of it.
+  const { data: collection, isPending, isError } = useApplicationCollection();
+  // Memoised so the `?? []` fallback does not hand a fresh array to `results`' dep list
+  // on every render — same reason `ApplicationsList` memoises its own.
+  const applications = useMemo(() => collection?.applications ?? [], [collection]);
 
   // Load recent searches - recalculate when palette opens
   const recentSearches = useMemo(() => (open ? getRecentSearches() : []), [open]);
@@ -266,9 +276,24 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // True whenever the applications half of the result set is unavailable — in flight, or
   // failed. Both spellings leave `applications` empty, and neither is "there are none".
   const applicationsMissing = isPending || isError;
-  const applicationsMissingNotice = isPending
+  // The third way this palette's results can fail to be the whole story, and the only one
+  // in which they are non-empty (WIC-2181). `getAllPaged` follows `nextPage` for at most
+  // `MAX_APPLICATION_PAGES` pages; past that it returns a prefix and says so. Every filter
+  // below runs client-side over exactly that prefix, so "No results found" then means "no
+  // matches among the rows we happened to have", which is not what it says. Unreachable
+  // for any realistic account — 50 x 100 = 5,000 applications for one user — but the cost
+  // of being honest about it is this branch, and the cost of not being is a confident
+  // false negative with nothing anywhere on screen to hint at it.
+  const applicationsTruncated = !applicationsMissing && (collection?.truncated ?? false);
+  // Deliberately ordered pending -> error -> truncated, not combined: a background refetch
+  // that fails leaves the previous (possibly truncated) rows in place with `isError` set,
+  // and "could not be loaded" is the more urgent of the two things to say.
+  const applicationsIncomplete = applicationsMissing || applicationsTruncated;
+  const applicationsIncompleteNotice = isPending
     ? 'Still loading your applications — they are not in these results yet.'
-    : 'Your applications could not be loaded, so they are missing from these results.';
+    : isError
+      ? 'Your applications could not be loaded, so they are missing from these results.'
+      : `Only the first ${applications.length} of your ${collection?.totalCount ?? applications.length} applications were searched, so some may be missing from these results.`;
 
   // Derived state pattern to reset selected index when query changes
   if (query !== prevQuery) {
@@ -572,15 +597,17 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     ))}
                   </>
                 )}
-                {/* Results exist, but they cannot include applications yet. Without this
-                    the partial list reads as the complete one: type "app" while the query
-                    is in flight and the "Applications" filter suggestion matches, so the
-                    palette shows a populated, confident-looking list with every one of
-                    your actual applications silently missing. Same false negative as the
-                    empty branch below, just harder to notice. */}
-                {applicationsMissing && (
+                {/* Results exist, but they are not drawn from all of your applications.
+                    Without this the partial list reads as the complete one: type "app"
+                    while the query is in flight and the "Applications" filter suggestion
+                    matches, so the palette shows a populated, confident-looking list with
+                    every one of your actual applications silently missing. Same false
+                    negative as the empty branch below, just harder to notice — and since
+                    WIC-2181 this also covers the truncated case, where the rows are real
+                    but are only a prefix of the account. */}
+                {applicationsIncomplete && (
                   <p role="status" className="px-3 py-2 text-xs text-neutral-500">
-                    {applicationsMissingNotice}
+                    {applicationsIncompleteNotice}
                   </p>
                 )}
               </div>
@@ -613,7 +640,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     ? 'Searching your applications…'
                     : isError
                       ? 'Could not load your applications, so this search is incomplete.'
-                      : 'No results found'}
+                      : applicationsTruncated
+                        ? `No matches among the first ${applications.length} of your ${collection?.totalCount ?? applications.length} applications — the rest were not searched.`
+                        : 'No results found'}
                 </p>
               </div>
             )}

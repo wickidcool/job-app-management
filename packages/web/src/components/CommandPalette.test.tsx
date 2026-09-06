@@ -58,8 +58,14 @@ const { APPLICATIONS } = vi.hoisted(() => ({
 // `isPending`/`isError` are stated explicitly rather than left off. The component reads
 // them (WIC-2179), and an omitted key mocks as `undefined` — falsy, and therefore the
 // settled-and-succeeded state these tests want, but by accident rather than on purpose.
+// `truncated` is stated for the same reason since WIC-2181: `false` here is "we really do
+// have the whole account", which is what every assertion in this file assumes.
 vi.mock('../hooks/useApplications', () => ({
-  useApplications: () => ({ data: APPLICATIONS, isPending: false, isError: false }),
+  useApplicationCollection: () => ({
+    data: { applications: APPLICATIONS, totalCount: APPLICATIONS.length, truncated: false },
+    isPending: false,
+    isError: false,
+  }),
 }));
 
 const RECENT_SEARCHES_KEY = 'wic-recent-searches';

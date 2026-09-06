@@ -24,28 +24,26 @@ type ApplicationFilters = {
  * Fetch every application matching `filters`, together with the metadata needed
  * to tell a complete result from a partial one.
  *
- * Use this over {@link useApplications} on any surface that renders a count, a
- * total, or a "nothing to see here" conclusion — `truncated` is the only signal
- * that the list is a prefix rather than the whole set.
+ * This is the only list hook. Read `collection.applications` for the rows, and
+ * `collection.truncated` before rendering a count, a total, or a "nothing to see
+ * here" conclusion — it is the only signal that the rows are a prefix rather than
+ * the whole set.
+ *
+ * There used to be a second hook, `useApplications`, which ran the identical query
+ * and `select`ed the rows out of the result. Its docstring carried the sentence
+ * above as a *rule* directing callers here — and both of its callers broke it
+ * (`CommandPalette` rendered "No results found"; `App` rendered the nav count
+ * badges). A rule nothing enforces and every caller violates is worse than no rule,
+ * because the next reader takes it for a guarantee. WIC-2181 migrated both callers,
+ * which left that hook with none, so it is gone: the rule is now a property of the
+ * only API there is rather than a request. Projecting the rows out is one line at
+ * the call site (`collection?.applications ?? []`), and that line is where the
+ * caller has to look at `truncated` anyway.
  */
 export function useApplicationCollection(filters?: ApplicationFilters) {
   return useQuery({
     queryKey: applicationKeys.list(filters),
     queryFn: () => applicationService.getAllPaged(filters),
-  });
-}
-
-/**
- * Fetch all applications.
- *
- * Shares a cache entry with {@link useApplicationCollection} — same query key,
- * same fetch — and just projects out the rows.
- */
-export function useApplications(filters?: ApplicationFilters) {
-  return useQuery({
-    queryKey: applicationKeys.list(filters),
-    queryFn: () => applicationService.getAllPaged(filters),
-    select: (collection) => collection.applications,
   });
 }
 

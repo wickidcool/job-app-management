@@ -41,7 +41,7 @@ import { ResumeVariantDetail } from './pages/ResumeVariantDetail';
 import { ResumeVariantNew } from './pages/ResumeVariantNew';
 import { InterviewPrepPage } from './pages/InterviewPrepPage';
 import { NotFound } from './pages/NotFound';
-import { useApplications } from './hooks/useApplications';
+import { useApplicationCollection } from './hooks/useApplications';
 import { useExports } from './hooks/useExports';
 
 /**
@@ -73,12 +73,24 @@ function CommandPaletteHost() {
  * `router` below.
  */
 function AppShell() {
-  const { data: applications = [] } = useApplications();
+  // `useApplicationCollection`, not the `useApplications` projection this used to call
+  // (WIC-2181). Same query key, same fetch, same cache entry — but the rows arrive with
+  // `truncated` attached instead of stripped off, and the two nav badges below are
+  // counts, which is exactly what that flag qualifies.
+  const { data: applicationCollection } = useApplicationCollection();
+  const applications = applicationCollection?.applications ?? [];
   const { data: exports = [] } = useExports();
 
   const inProgressCount = applications.filter(
     (app) => app.status === 'phone_screen' || app.status === 'interview'
   ).length;
+  // `inProgressCount` is a client-side filter over whatever rows we were handed. If
+  // `getAllPaged` ran out of page budget those rows are a prefix, so the badge is a lower
+  // bound, not a count — the nav renders it as "12+" rather than "12". Reachable only at
+  // MAX_APPLICATION_PAGES x APPLICATION_PAGE_SIZE = 5,000 applications for one user, so
+  // in practice this is always `false`; it is here because a nav badge that quietly
+  // undercounts has no other signal anywhere on screen.
+  const inProgressCountIsLowerBound = applicationCollection?.truncated ?? false;
 
   const exportCount = exports.length;
 
@@ -96,11 +108,16 @@ function AppShell() {
                     {/* Renders nothing; applies the route table's document.title (WIC-1089). */}
                     <RouteTitle />
                     <div className="hidden md:block">
-                      <TopNavigation applicationCount={inProgressCount} exportCount={exportCount} />
+                      <TopNavigation
+                        applicationCount={inProgressCount}
+                        applicationCountIsLowerBound={inProgressCountIsLowerBound}
+                        exportCount={exportCount}
+                      />
                     </div>
                     <div className="md:hidden">
                       <MobileNavigation
                         applicationCount={inProgressCount}
+                        applicationCountIsLowerBound={inProgressCountIsLowerBound}
                         exportCount={exportCount}
                       />
                     </div>
