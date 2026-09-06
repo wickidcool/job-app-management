@@ -292,7 +292,10 @@ vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 vi.mock('@anthropic-ai/sdk', () => {
   const mockCreate = vi.fn();
   return {
-    default: vi.fn().mockImplementation(() => ({ messages: { create: mockCreate } })),
+    // vitest 4 refuses to `new` a mock implemented with an arrow function.
+    default: vi.fn().mockImplementation(function () {
+      return { messages: { create: mockCreate } };
+    }),
     __mockCreate: mockCreate,
   };
 });

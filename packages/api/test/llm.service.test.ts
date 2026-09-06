@@ -6,9 +6,11 @@ import { _resetConfig } from '../src/config.js';
 vi.mock('@anthropic-ai/sdk', () => {
   const mockCreate = vi.fn();
   return {
-    default: vi.fn().mockImplementation(() => ({
-      messages: { create: mockCreate },
-    })),
+    // vitest 4 refuses to `new` a mock whose implementation is an arrow function
+    // ("did not use 'function' or 'class'"), so this must stay a function expression.
+    default: vi.fn().mockImplementation(function () {
+      return { messages: { create: mockCreate } };
+    }),
     __mockCreate: mockCreate,
   };
 });

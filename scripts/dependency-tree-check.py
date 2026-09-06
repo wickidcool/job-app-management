@@ -558,6 +558,18 @@ def selftest() -> int:
     bumped = [{**_ROWS_TODAY[0], "observedVersion": "0.19.13"}, _ROWS_TODAY[1]]
     check("a patch bump of an exempt package passes", grade(bumped, [], _baseline_today(), fake_root), 0)
 
+    # 8. The EMPTY-baseline arms. As of WIC-2137 the real baseline file has no entries at
+    #    all, and emptying a baseline can quietly disarm the checks built on top of it
+    #    (WIC-2110). Arms 2-7 above cannot see that: they grade against `_baseline_today()`,
+    #    a fixture derived from `_ROWS_TODAY`, so they pass identically whatever the file on
+    #    disk says. These two are the ones that actually exercise the shipped state.
+    check("a clean tree against an EMPTY baseline passes", grade([], [], [], fake_root), 0)
+    check(
+        "a new invalid row against an EMPTY baseline fails",
+        grade([_ROWS_TODAY[0]], [], [], fake_root),
+        1,
+    )
+
     if failures:
         print(f"\nselftest FAILED: {', '.join(failures)}")
         return 1
