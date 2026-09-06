@@ -715,8 +715,8 @@ weight:
    `listProjects(undefined)` returns **both tenants' rows**, and `getProject(<A's id>, undefined)`
    returns **A's row** — because #316 branched before `projectIdScope`/`requireOwner` existed and
    left `.where(userId ? eq(...) : undefined)` and an id-only predicate in place. `main` throws on
-   both. #316's own AC-T0 suite asserts neither path, which is why "the cross-tenant assertions pass
-   under both designs" — the assertion set has a hole exactly where the design is weakest. This is
+   both. #316's own AC-T0 suite asserts neither path, which is why its security assertions pass
+   under both designs — the assertion set has a hole exactly where the design is weakest. This is
    the AC-4 lesson again: a spec that never quantifies the absent owner is satisfied vacuously.
 3. **The mode it defends is not reachable fail-closed.** `projects.user_id` is `NOT NULL` and
    `createProject` has rejected an owner-less caller since WIC-1434, so **no `projects` row can ever
