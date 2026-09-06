@@ -107,9 +107,13 @@ describe('WorkflowChecklist — Cover Letter step', () => {
  * row that still had it.
  *
  * `link: hasFitAnalysis ? undefined : …` made ticking the step *remove* the way to see
- * what had been ticked. The correction WIC-1533 recorded applies verbatim: passing
- * `hasFitAnalysis` alone is not the fix, because it turns a wrong-but-clickable row into a
+ * what had been ticked. The correction WIC-1533 recorded applies verbatim: passing the
+ * step's presence alone is not the fix, because it turns a wrong-but-clickable row into a
  * correct-but-inert one. The row has to be repointed, so the call site supplies the id.
+ *
+ * These cells took a `hasFitAnalysis` boolean until WIC-2141 replaced it with the same
+ * tri-state the other three rows carry. The prop moved; every assertion below is
+ * unchanged, and they still fail on a component that ignores `jobFitAnalysisId`.
  *
  * The component half is pinned here and the wiring half in
  * `ApplicationDetail.workflowChecklist.test.tsx`; neither implies the other, which is the
@@ -117,7 +121,7 @@ describe('WorkflowChecklist — Cover Letter step', () => {
  */
 describe('WorkflowChecklist — Job Fit Analysis step', () => {
   it('points at the generator when no analysis exists', () => {
-    renderChecklist({ hasFitAnalysis: false });
+    renderChecklist({ fitAnalysisStatus: 'absent' });
 
     expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).toHaveAttribute(
       'href',
@@ -126,7 +130,7 @@ describe('WorkflowChecklist — Job Fit Analysis step', () => {
   });
 
   it('points at the analysis once one exists', () => {
-    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: 'jfa_42', fitScore: 72 });
+    renderChecklist({ fitAnalysisStatus: 'present', jobFitAnalysisId: 'jfa_42', fitScore: 72 });
 
     expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).toHaveAttribute(
       'href',
@@ -141,7 +145,7 @@ describe('WorkflowChecklist — Job Fit Analysis step', () => {
    * dead end, so it is asserted rather than assumed to follow.
    */
   it('links an unscored analysis, which has no badge to offer instead', () => {
-    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: 'jfa_7', fitScore: null });
+    renderChecklist({ fitAnalysisStatus: 'present', jobFitAnalysisId: 'jfa_7', fitScore: null });
 
     expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).toHaveAttribute(
       'href',
@@ -158,7 +162,7 @@ describe('WorkflowChecklist — Job Fit Analysis step', () => {
    * fail here.
    */
   it('does not send a completed step back to the generator', () => {
-    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: 'jfa_42' });
+    renderChecklist({ fitAnalysisStatus: 'present', jobFitAnalysisId: 'jfa_42' });
 
     expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).not.toHaveAttribute(
       'href',
@@ -167,14 +171,132 @@ describe('WorkflowChecklist — Job Fit Analysis step', () => {
   });
 
   /**
-   * The id is optional — `hasFitAnalysis` comes from a list read that can settle before
+   * The id is optional — the status comes from a list read that can settle before
    * the caller has an id in hand — and absence must degrade to the old inert row rather
    * than to `/job-fit-analysis/undefined`.
    */
   it('falls back to an inert row when an analysis exists but its id is unknown', () => {
-    renderChecklist({ hasFitAnalysis: true, jobFitAnalysisId: undefined });
+    renderChecklist({ fitAnalysisStatus: 'present', jobFitAnalysisId: undefined });
 
     expect(screen.queryByRole('link', { name: 'Job Fit Analysis' })).not.toBeInTheDocument();
     expect(screen.getByText('Job Fit Analysis')).toBeInTheDocument();
+  });
+});
+
+/**
+ * WIC-2141 — the Job Fit Analysis row was hardcoded `unknown: false` behind a
+ * comment reading "backed by no query at all (WIC-1652), so it is never
+ * unknown". WIC-1652 had since given the row a query, so the literal asserted
+ * something the data no longer supported. It now takes the same tri-state as
+ * the other three, which is what the cells above were migrated onto.
+ *
+ * These assert the component contract; `ApplicationDetail.artefactLoading.test.tsx`
+ * asserts the page wiring. The default matters as much as the states: because
+ * the tri-state *replaced* a boolean, a caller that passes nothing must still
+ * get the old settled-and-absent row rather than one that loads forever.
+ */
+describe('WorkflowChecklist — Job Fit Analysis step while its query is in flight (WIC-2141)', () => {
+  it('withholds the generator link while the query is in flight', () => {
+    renderChecklist({ fitAnalysisStatus: 'unknown' });
+
+    expect(screen.queryByRole('link', { name: 'Job Fit Analysis' })).not.toBeInTheDocument();
+  });
+
+  /**
+   * The discriminating half. `'absent'` renders this pill on the same props —
+   * the application has a job description and no analysis — so a component that
+   * ignored the new state entirely fails here.
+   */
+  it('withholds "Recommended" while the query is in flight, and offers it once settled', () => {
+    const { unmount } = renderChecklist({ fitAnalysisStatus: 'unknown' });
+    expect(screen.queryByText('Recommended')).not.toBeInTheDocument();
+    unmount();
+
+    renderChecklist({ fitAnalysisStatus: 'absent' });
+    expect(screen.getByText('Recommended')).toBeInTheDocument();
+  });
+
+  it('drops an unknown step from the denominator and withholds the percentage', () => {
+    renderChecklist({ fitAnalysisStatus: 'unknown' });
+
+    expect(screen.getByText('0 of 3 steps completed')).toBeInTheDocument();
+    expect(screen.getByText('Checking 1 more step…')).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+  });
+
+  /**
+   * The tick is driven by the step's state and not by `fitScore`, so an
+   * analysis that scored nothing still counts once the query settles. This is
+   * the WIC-2058 invariant restated against the new prop, because the migration
+   * above is exactly where it could have been lost.
+   */
+  it('counts an unscored analysis once the query settles', () => {
+    renderChecklist({ fitAnalysisStatus: 'present', fitScore: null });
+
+    expect(screen.getByText('1 of 4 steps completed')).toBeInTheDocument();
+    expect(screen.queryByText(/% match/)).not.toBeInTheDocument();
+  });
+
+  it('defaults to settled-and-absent when the caller passes no status', () => {
+    renderChecklist();
+
+    expect(screen.getByText('0 of 4 steps completed')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Job Fit Analysis' })).toHaveAttribute(
+      'href',
+      '/job-fit-analysis?appId=app_1'
+    );
+  });
+});
+
+/**
+ * WIC-2153 — the header at a zero denominator.
+ *
+ * Reachable only since WIC-2141: while the fourth row was hardcoded settled,
+ * `totalCount = items.length - unknownCount` had a floor of 1. With four
+ * tri-states it can be 0, which is the cold page load, and the header read
+ * "0 of 0 steps completed" next to "Checking 4 more steps…".
+ *
+ * The component-level counterpart to the `all-in-flight` phase in
+ * `ApplicationDetail.artefactLoading.test.tsx`: that one proves the page can
+ * reach this state, these prove what the component does in it.
+ */
+describe('WorkflowChecklist — every step unknown (WIC-2153)', () => {
+  const allUnknown = {
+    fitAnalysisStatus: 'unknown',
+    coverLetterStatus: 'unknown',
+    resumeVariantStatus: 'unknown',
+    interviewPrepStatus: 'unknown',
+  } as const;
+
+  it('withholds the count line rather than stating a zero denominator', () => {
+    renderChecklist(allUnknown);
+
+    expect(screen.queryByText(/steps completed/)).not.toBeInTheDocument();
+    expect(screen.queryByText('0 of 0 steps completed')).not.toBeInTheDocument();
+  });
+
+  it('drops "more" from the checking line when no step is known', () => {
+    renderChecklist(allUnknown);
+
+    expect(screen.getByText('Checking 4 steps…')).toBeInTheDocument();
+  });
+
+  /**
+   * The discriminating half. A fix that dropped "more" unconditionally, or
+   * suppressed the count line unconditionally, passes both assertions above and
+   * fails this one — one known step is enough for both to be correct again.
+   */
+  it('keeps both lines as soon as one step is known', () => {
+    renderChecklist({ ...allUnknown, interviewPrepStatus: 'absent' });
+
+    expect(screen.getByText('0 of 1 steps completed')).toBeInTheDocument();
+    expect(screen.getByText('Checking 3 more steps…')).toBeInTheDocument();
+  });
+
+  it('withholds the percentage without rendering NaN', () => {
+    const { container } = renderChecklist(allUnknown);
+
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/NaN/);
   });
 });

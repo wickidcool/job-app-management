@@ -331,26 +331,63 @@ jobs:
         timeout-minutes: 6
         run: npx playwright install chromium
 
-      # WIC-2131 (WIC-2122 route 2): this job's headline signal is multi-user
-      # data-isolation coverage (ADR-005 / WIC-201), and that coverage runs ONLY
-      # when a real Supabase project and two test-user logins are present — the
-      # isolation specs self-skip on an empty TEST_USER_EMAIL
-      # (multi-user-isolation.spec.ts:95,173,226,262,292,359). None of the six
-      # values below exists at any level today (the four E2E_TEST_USER* secrets
-      # are unset; SUPABASE_URL / SUPABASE_ANON_KEY live on the `dev`/`production`
-      # environments and this job declares no `environment:`), so before WIC-2131
-      # the specs skipped and the job still went GREEN — a check that read as RLS
-      # isolation coverage while asserting nothing about it (run 33986788859:
-      # 48 skipped / 128 passed).
-      #
-      # This preflight makes that state impossible: if any value the isolation
-      # specs need is empty, the job fails LOUD here instead of passing green on a
-      # silent skip. A red check is the honest signal until real coverage is
-      # restored — that is WIC-2122 route 1 (provision these on the `dev`
-      # environment and add `environment: dev` to this job), which needs a human
-      # to mint live test-user credentials and is deliberately out of scope here.
-      # Mirrors the `missing=...; exit 1` secret preflight in the deploy-preview
-      # job below. Prints NAMES ONLY — never a secret value, prefix, or length.
+      # WIC-2157: the isolation-coverage credential preflight that used to sit
+      # HERE — before `npx playwright test` — has moved to its own job,
+      # `e2e-isolation-coverage` (below). It was skipping the entire E2E suite
+      # (128 real specs + 48 isolation specs) whenever the six isolation
+      # credentials were absent, because `exit 1` here aborted the job before the
+      # test step ran. Splitting it out lets this job run the suite again while
+      # keeping the missing-credential state loud and separately visible. See
+      # that job's comment block for the full rationale.
+      - name: Run E2E tests
+        run: npx playwright test
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
+          TEST_USER2_EMAIL: ${{ secrets.E2E_TEST_USER2_EMAIL }}
+          TEST_USER2_PASSWORD: ${{ secrets.E2E_TEST_USER2_PASSWORD }}
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+  # WIC-2157 (was WIC-2131, WIC-2122 route 2): the multi-user data-isolation
+  # coverage signal (ADR-005 / WIC-201) lives in its OWN job so it can stay red
+  # without taking the rest of the E2E suite or `deploy-production` down with it.
+  #
+  # The isolation specs run ONLY when a real Supabase project and two test-user
+  # logins are present — they self-skip on an empty TEST_USER_EMAIL
+  # (multi-user-isolation.spec.ts:95,173,226,262,292,359). None of the six values
+  # below exists at any level today (the four E2E_TEST_USER* secrets are unset;
+  # SUPABASE_URL / SUPABASE_ANON_KEY live on the `dev`/`production` environments
+  # and this job declares no `environment:`), so the specs skip and any job that
+  # merely runs them stays GREEN while asserting nothing about RLS isolation
+  # (run 33986788859: 48 skipped / 128 passed).
+  #
+  # This preflight makes that silent-skip impossible: if any value the isolation
+  # specs need is empty, it fails LOUD here. A red check is the honest signal
+  # until real coverage is restored — that is WIC-2122 route 1 (provision these
+  # on the `dev` environment and add `environment: dev` to this job), which needs
+  # a HUMAN to mint live test-user credentials and is the real fix. It is
+  # deliberately out of scope here and not agent-executable.
+  #
+  # ⛔ This job is intentionally NOT in `deploy-production`'s `needs:` and is NOT
+  # a required merge context (ruleset `skip-ci-sweep-required`, id 21489705, does
+  # not list it). Keep it that way: it must be a visible-but-harmless red, never a
+  # deploy or merge blocker. Prints NAMES ONLY — never a secret value, prefix, or
+  # length. Mirrors the `missing=...; exit 1` secret preflight in deploy-preview.
+  e2e-isolation-coverage:
+    name: E2E Isolation Coverage
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
       - name: Assert isolation-test credentials are present
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -373,24 +410,6 @@ jobs:
             exit 1
           fi
           echo "All isolation-test credentials present — multi-user data-isolation specs will run."
-
-      - name: Run E2E tests
-        run: npx playwright test
-        env:
-          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
-          TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
-          TEST_USER2_EMAIL: ${{ secrets.E2E_TEST_USER2_EMAIL }}
-          TEST_USER2_PASSWORD: ${{ secrets.E2E_TEST_USER2_PASSWORD }}
-
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 14
 
   # WIC-1203: does this PR change anything that writes to the shared dev
   # database? Only such PRs need to serialize against each other (see the
