@@ -13,16 +13,21 @@ Analysis of record: WIC-1430 document `tenancy-absent-caller-audit`.
 
 ## Implementation status
 
-Re-measured on this branch after merging `main` at `c661d36` (WIC-2065 / PR #376, which closed
-the reports vertical while this change was in flight). Recorded here so the next reader does
-not re-derive it — three separate cards have already re-measured this independently.
+Re-measured on `main` at `e50ec066` (2026-09-06). Recorded here so the next reader does not
+re-derive it — four separate cards have now re-measured this independently, which is itself
+the reason to keep this table current rather than pinned to the commit that first filled it in.
+
+**Every count below is a measurement at a named commit, not a standing quantity.** The D2 row
+in particular was stale by a factor of four for a day, and a stale count here does not merely
+misinform — it reads as a backlog and invites duplicate remediation. If you re-measure, update
+the row and its commit together, or say nothing.
 
 | decision | state | evidence |
 |---|---|---|
 | **D1.1** reject a token that verifies with no `sub` | ✅ landed | `middleware/auth.ts` `requireSubject` throws → 401 on both the ES256/RS256 and HS256 paths |
 | **D1.2** narrow `HonoVariables.userId` to `string` | ✅ landed | `src/types/env.ts` is `userId: string`; `PUBLIC_PATHS` now leaves the variable unset rather than setting `null` |
 | **D1.3** delete the `c.get('userId') ?? undefined` laundering at every route | ✅ landed — **0 sites** | was 66 across 11 route files; `requireOwner(c)` adoptions **77**, in all 11 route files |
-| **D2** service signatures take `userId: string` | ⚠️ partial | the guard reports `[SIG] 71`, `[COND] 29` (was 81/42; WIC-2065 narrowed the 5 `reports.service.ts` signatures, WIC-2067 the catalog ones) |
+| **D2** service signatures take `userId: string` | ✅ agent-dispatchable burndown complete; **24 sites remain, none agent-actionable** | the guard reports `[SIG] 21`, `[COND] 3` at `e50ec066` (was 71/29 at `a64554a8`, 81/42 before that). Five slices closed the gap: WIC-2070 `58ee67e8` → 46/29, WIC-2071 `91811dc4` → 41/23, WIC-2072 `34a2503c` → 29/10, WIC-2068 `8c8e5cf2` → 23/3, WIC-2076 `2b3cdd55` → 21/3. See **What the remaining 24 are** below |
 | **D3** local dev gets a real owner | ✅ landed | `middleware/auth.ts` supplies `LOCAL_DEV_USER_ID` (WIC-1964) |
 | **D4** CI guard is the mechanism | ✅ landed | `scripts/audit-owner-predicates.mjs`, wired into `Lint & Test`; now four checks, `[LAUNDER]` added for the route layer |
 | **D5** `[NOWNER]` checks owner-absent writes | ✅ landed, soundness fixed | was blind to a ternary's fallback arm; WIC-2067 classifies arm by arm and rewrote the 4 `catalog.service.ts` sites. One `or(...)` blind spot remains, 0 sites — see the caveat below |
@@ -35,6 +40,48 @@ grep -n 'userId:' packages/api/src/types/env.ts
 node packages/api/scripts/audit-owner-predicates.mjs --stats | grep LAUNDER
 ```
 
+Reproduce D2 (the gated run must exit `0`; `--stats` prints the split):
+
+```sh
+node packages/api/scripts/audit-owner-predicates.mjs           # exit 0, "24 baselined site(s) remain"
+node packages/api/scripts/audit-owner-predicates.mjs --stats   # [SIG] 21, [COND] 3, [NOWNER] 0, [LAUNDER] 0
+```
+
+Note that `--stats` **never gates** — only the bare run's exit code does. A green exit means *no
+new* owner-absent branches, not zero of them; the baseline is what makes the difference, and it
+holds 12 keys whose `count` fields sum to the 24 sites (21 `SIG` + 3 `COND`). Check that sum if
+you ever suspect a coarse key is absorbing new sites — it is the cheapest integrity test there is.
+
+### What the remaining 24 are — a backlog nobody can pick up
+
+**Do not read "24 remaining" as available work** — that misreading is exactly why the D2 row no
+longer carries a `⚠️`. Every one of the 24 is blocked or deliberate, per the WIC-2076 changelog
+entry, which enumerates them:
+
+| n | class | why it is not agent-actionable |
+|---|---|---|
+| 10 | forbidden by in-file headers (`interviewPrep.service.ts`, `resume-variant.service.ts`) | the header states the constraint; narrowing them contradicts it |
+| 12 | on **nullable** `user_id` tables | needs a data backfill plus `SET NOT NULL`, which requires a human-gated `DATABASE_URL` against production |
+| 1 | `analytics.service.ts` pre-auth telemetry | a documented guard false positive — an absent owner is the intended session-scoped case |
+| 1 | entangled with a nullable-table caller | unblocks with the 12 above, not before |
+
+So D2's remainder is gated on a **production data migration**, not on engineering time. The
+signature change is the easy half and it is done; what is left cannot be typed away while the
+column still admits `NULL`.
+
+### Why the count fell by 76 in two days, and why that is not 76 units of work
+
+Worth stating explicitly, because this document's own numbers caused the mistake once. WIC-2068's
+card cited `[SIG] 71 / [COND] 29` from this table and scoped itself against it; by the time it was
+picked up `main` had advanced six PRs and the true starting point was **29 / 10**. The changelog
+records the conclusion: *"The 71 was never 71 units of work."*
+
+The drop is real remediation (the five slices in the D2 row, each verified above), **not** a guard
+becoming less sensitive and **not** a baseline regenerated to hide sites — WIC-2069's guard fix at
+`feade4d7` left the counts at 71/29 exactly, and every baseline regeneration in the five slices was
+downward by deletion only. But a count in a document is a measurement with a timestamp, and this one
+decayed to a quarter of its value inside 48 hours while reading as a standing figure.
+
 ### Why D1.2 alone was not the mechanism for D1.3
 
 The obvious expectation is that narrowing the type makes the laundering a compile error, so
@@ -42,8 +89,9 @@ that D1.2 gates D1.3 for free. **It does not, and this was measured rather than 
 With `HonoVariables.userId` narrowed to `string`, reintroducing
 `getDashboardStats(c.get('userId') ?? undefined)` in `routes/dashboard.ts` still gives
 `tsc --noEmit` **exit 0**: a redundant `??` is legal TypeScript, not an error, and passing
-`string | undefined` into a service that still accepts `userId?: string` (71 such signatures
-remain — D2 is partial) is well typed at every one of those call sites.
+`string | undefined` into a service that still accepts `userId?: string` (**21** such signatures
+remain at `e50ec066`, down from 71 when this was written — the argument does not depend on the
+count, only on the count being non-zero) is well typed at every one of those call sites.
 
 So D1.2 makes the laundering *pointless* without making it *detectable*, and `[SIG]`/`[COND]`
 cannot see it either — they key on service signatures and on predicates, and a route call

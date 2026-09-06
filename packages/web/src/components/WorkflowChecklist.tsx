@@ -21,7 +21,8 @@ interface WorkflowChecklistProps {
   status: ApplicationStatus;
   hasJobDescription: boolean;
   /**
-   * Whether a job fit analysis exists for this application.
+   * Whether a job fit analysis exists for this application, or whether the
+   * query that would say has not settled yet.
    *
    * "Exists", not "scored something". An analysis that produced no score — the
    * catalog was empty, or the job description named no required skills — is
@@ -38,8 +39,12 @@ interface WorkflowChecklistProps {
    * exists and only its `application_id` link is missing, on `cover_letters`
    * and `resume_variants` — which is why those two steps below are still
    * reconstructed by company-and-role rather than looked up.
+   *
+   * This was a `hasFitAnalysis` boolean until WIC-2141. It is the tri-state now
+   * for the same reason the other three are, and it *replaces* the boolean
+   * rather than pairing with an `unknown` flag — see {@link ArtefactStatus}.
    */
-  hasFitAnalysis?: boolean;
+  fitAnalysisStatus?: ArtefactStatus;
   /**
    * The match percentage for the "Job Fit Analysis" badge, 0-100.
    *
@@ -52,7 +57,7 @@ interface WorkflowChecklistProps {
    *
    * A null score renders no badge on purpose: there is no percentage to show
    * and "0% match" would be a false one. The tick, driven by
-   * {@link hasFitAnalysis}, is what tells that user their analysis exists.
+   * {@link fitAnalysisStatus}, is what tells that user their analysis exists.
    */
   fitScore?: number | null;
   /**
@@ -71,7 +76,7 @@ interface WorkflowChecklistProps {
    * link exactly the analyses that already show the user something and leave the one that
    * shows them nothing still a dead end, which is the defect restated rather than fixed.
    *
-   * Optional, and absence is honest rather than defensive: `hasFitAnalysis` is resolved
+   * Optional, and absence is honest rather than defensive: the status is resolved
    * from a list read that can be settled-and-present before the caller has an id to hand.
    * A completed step with no id keeps today's behaviour — a plain `<span>` — rather than
    * linking somewhere that would 404.
@@ -144,7 +149,7 @@ export function WorkflowChecklist({
   applicationId,
   status,
   hasJobDescription,
-  hasFitAnalysis = false,
+  fitAnalysisStatus = 'absent',
   fitScore,
   jobFitAnalysisId,
   coverLetterStatus = 'absent',
@@ -153,13 +158,15 @@ export function WorkflowChecklist({
   resumeVariantId,
   interviewPrepStatus = 'absent',
 }: WorkflowChecklistProps) {
+  const hasFitAnalysis = fitAnalysisStatus === 'present';
   const hasCoverLetter = coverLetterStatus === 'present';
   const hasResumeVariant = resumeVariantStatus === 'present';
   const hasInterviewPrep = interviewPrepStatus === 'present';
 
-  // An unknown step renders inert: no link, no "Recommended", no tick. The two
-  // generator links are the user-visible harm — offering to write a letter that
-  // may already exist — but Interview Prep drops its link too even though
+  // An unknown step renders inert: no link, no "Recommended", no tick. The
+  // three generator links are the user-visible harm — offering to run an
+  // analysis or write a letter that may already exist — but Interview Prep
+  // drops its link too even though
   // `/applications/:id/prep` is its destination either way, because what the
   // link *means* ("go read your prep" vs "go make one") is exactly what is not
   // known yet.
@@ -167,19 +174,19 @@ export function WorkflowChecklist({
     {
       label: 'Job Fit Analysis',
       completed: hasFitAnalysis,
-      // Backed by no query at all (WIC-1652), so it is never unknown and must
-      // stay identical while the other three load.
-      unknown: false,
-      recommended: hasJobDescription && !hasFitAnalysis,
-      // Same three-way shape the two rows below take: create it, read it, or — only when
+      unknown: !settled(fitAnalysisStatus),
+      recommended: settled(fitAnalysisStatus) && hasJobDescription && !hasFitAnalysis,
+      // Same shape the row below takes: unknown, then create it, read it, or — only when
       // the artefact exists but its id has not reached us — nothing. Note the completed
       // branch does not consult `fitScore`: an unscored analysis is exactly the one whose
       // row shows no badge, so it is the row that most needs somewhere to go (WIC-2058).
-      link: hasFitAnalysis
-        ? jobFitAnalysisId
-          ? `/job-fit-analysis/${jobFitAnalysisId}`
-          : undefined
-        : `/job-fit-analysis?appId=${applicationId}`,
+      link: settled(fitAnalysisStatus)
+        ? hasFitAnalysis
+          ? jobFitAnalysisId
+            ? `/job-fit-analysis/${jobFitAnalysisId}`
+            : undefined
+          : `/job-fit-analysis?appId=${applicationId}`
+        : undefined,
       // `!= null`, not truthiness: a genuine 0% match is a score, and the `?`
       // this replaces rendered it as no badge at all. See {@link fitScore}.
       badge: fitScore != null ? `${fitScore}% match` : undefined,
@@ -228,25 +235,41 @@ export function WorkflowChecklist({
   const totalCount = items.length - unknownCount;
   const progressPercent = totalCount === 0 ? 0 : (completedCount / totalCount) * 100;
 
+  // "more" is relative to the steps we already have an answer for, so with no
+  // known steps there is nothing for it to be more than and the word drops out
+  // along with the count line it refers to: "Checking 4 steps…" (WIC-2153).
+  const checkingLabel = `Checking ${unknownCount} ${totalCount === 0 ? '' : 'more '}${
+    unknownCount === 1 ? 'step' : 'steps'
+  }…`;
+
   return (
     <div className="bg-white rounded-lg border border-neutral-200 p-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-neutral-900">Application Workflow</h2>
           {/*
-            "steps" stays literal even when the denominator is 1: the count is
-            the surface `ApplicationDetail.artefactLoading.test.tsx` reads by a
+            The denominator's floor is 0, not 1: since WIC-2141 gave the fourth
+            row a tri-state, every row can be unknown at once, which is exactly
+            the cold page load — `ApplicationDetail` fires all four artefact
+            queries on mount and this renders as soon as the *application* query
+            resolves. "0 of 0 steps completed" states a settled figure over an
+            empty denominator, so the line is withheld rather than reworded; the
+            `Checking N steps…` line below carries the whole signal in that
+            window (WIC-2153). The *rendered* denominator therefore floors at 1.
+
+            At 1 "steps" stays literal: the count is the surface
+            `ApplicationDetail.artefactLoading.test.tsx` reads by a
             `/steps completed/` matcher, and pluralising it would make that
-            helper throw rather than assert.
+            helper miss the line. That helper is `queryByText`-based and returns
+            `null` for the suppressed case, so it reports absence instead of
+            throwing.
           */}
-          <p className="text-sm text-neutral-600">
-            {completedCount} of {totalCount} steps completed
-          </p>
-          {unknownCount > 0 && (
-            <p className="text-xs text-neutral-500">
-              Checking {unknownCount} more {unknownCount === 1 ? 'step' : 'steps'}…
+          {totalCount > 0 && (
+            <p className="text-sm text-neutral-600">
+              {completedCount} of {totalCount} steps completed
             </p>
           )}
+          {unknownCount > 0 && <p className="text-xs text-neutral-500">{checkingLabel}</p>}
         </div>
         <div className="text-right">
           {/*
