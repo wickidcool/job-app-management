@@ -46,6 +46,17 @@ function compare(a, b) {
  * dependency. Anything else returns `null`, meaning "cannot judge" — the caller
  * treats that as a pass, because a guard that cannot parse the pin has no
  * business failing the build on it.
+ *
+ * WIC-2211. `null` is also returned for a `0.x` caret or tilde. npm narrows the
+ * caret as the leading zeros accumulate — `^0.5.7` locks the minor, `^0.0.3`
+ * locks the patch — and the `major === major` rule below is wrong for both, in
+ * the fail-OPEN direction: it would bless `0.9.0` under `^0.5.7`, i.e. stay
+ * silent about exactly the mismatch this file exists to catch. A `0.x` range is
+ * shaped identically to `^X.Y.Z`, so it cannot be excluded by the syntax test
+ * above and has to be excluded here. Declining to judge is the honest answer;
+ * modelling npm's zero-rules would be a second thing to get wrong. No workspace
+ * pins vitest at `0.x` today, but this repo does carry `0.x` pins (`pglite`), so
+ * the helper must not be quietly wrong the day it is pointed at one.
  */
 export function satisfies(installed, range) {
   const got = parseVersion(installed);
@@ -57,6 +68,7 @@ export function satisfies(installed, range) {
   if (!want) return null;
   // A range with anything else in it (` || `, ` - `, `>=`) is not one we model.
   if (/[|\s>=<*x]/i.test(operator ? trimmed.slice(1) : trimmed)) return null;
+  if (operator && want.major === 0) return null;
 
   if (compare(got, want) < 0) return false;
   if (operator === '^') return got.major === want.major;
@@ -81,8 +93,19 @@ export function assertPinnedVitest(packageDir) {
     );
   }
 
-  // Resolve exactly the way the package itself would, so we report the file the
-  // runner actually loaded rather than one we guessed at.
+  // Resolve exactly the way the package itself would, so the path we report is
+  // the one this package's own imports reach.
+  //
+  // WIC-2211. Note what this does and does not measure. It reports the copy that
+  // *resolves from this package*, not the copy the running process loaded — the
+  // function's only inputs are `packageDir` and the filesystem, and it has no
+  // channel to the executing runner. The two coincide in the defect this guard
+  // was written for (no local vitest, so both are the hoisted one), which is why
+  // it catches it. They diverge on a repaired tree driven from outside: with a
+  // correct 4.1.11 installed here, a run launched by some other vitest still
+  // resolves 4.1.11 from this package and the guard stays silent. That residual
+  // hole is accepted rather than hidden — closing it means reading the runner out
+  // of `process.argv`, which is a different and less stable measurement.
   const requireFromPackage = createRequire(manifestPath);
   let resolvedPath;
   try {
@@ -102,7 +125,15 @@ export function assertPinnedVitest(packageDir) {
   // rather than inventing a failure — see `satisfies`.
   if (ok === null || ok === true) return;
 
-  const installedDir = path.dirname(path.dirname(resolvedPath));
+  // WIC-2211. One `dirname`, not two. `resolvedPath` ends `.../vitest/package.json`,
+  // so a single step lands on the package directory — which is what `expectedDir`
+  // names. Two steps land on `.../node_modules`, which can never equal
+  // `.../node_modules/vitest`, making `hoisted` a constant `true` and the
+  // "out of date" branch unreachable. That shipped in the first cut of this file:
+  // a correct-but-stale local install was explained as a lockfile orphan, sending
+  // the reader after a file that does not exist. Fittingly, it was this guard's own
+  // thesis turned on itself — a confident, plausible, wrong answer.
+  const installedDir = path.dirname(resolvedPath);
   const expectedDir = path.join(packageDir, 'node_modules', 'vitest');
   const hoisted = path.resolve(installedDir) !== path.resolve(expectedDir);
 
