@@ -110,7 +110,7 @@ export function ApplicationDetail() {
     useInterviewPrepByApplication(id);
   const hasInterviewPrep = !!interviewPrep?.interviewPrep;
 
-  // The three artefact steps, as the checklist reads them. `isLoading` is only
+  // The four artefact steps, as the checklist reads them. `isLoading` is only
   // ever true for an enabled, unsettled query in React Query v5 (it is
   // `isPending && isFetching`), so a disabled query reads as settled rather
   // than pinning a row at "unknown" forever.
@@ -130,7 +130,14 @@ export function ApplicationDetail() {
   // no `appId` is a supported flow — so an unfiltered page can be entirely rows
   // that belong to no application, and a client filter over it could only
   // remove rows, never recover the one this page needed (WIC-1533).
-  const { data: fitAnalyses } = useJobFitAnalyses(
+  //
+  // `isLoading` is read alongside `data` for the same reason the three queries
+  // above do it: `fitAnalyses?.analyses?.[0]` is `undefined` both while the
+  // query is in flight and when it has come back empty, so reading `data` alone
+  // states "you have no analysis" as fact for a full round-trip. That was true
+  // of this row until WIC-2141 — WIC-1630 left it out because at the time the
+  // step was backed by no query at all, a premise WIC-1652 retired.
+  const { data: fitAnalyses, isLoading: fitAnalysesLoading } = useJobFitAnalyses(
     { applicationId: id, limit: 1 },
     { enabled: !!id }
   );
@@ -302,7 +309,7 @@ export function ApplicationDetail() {
             applicationId={id!}
             status={application.status}
             hasJobDescription={!!application.jobDescription}
-            hasFitAnalysis={hasFitAnalysis}
+            fitAnalysisStatus={artefactStatus(fitAnalysesLoading, hasFitAnalysis)}
             fitScore={fitScore}
             jobFitAnalysisId={latestFitAnalysis?.id}
             coverLetterStatus={artefactStatus(coverLettersLoading, coverLetters.length > 0)}

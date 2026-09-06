@@ -91,21 +91,29 @@ const application: Application = {
 };
 
 /**
- * Which of the two lifecycle states to mock the three artefact queries in.
+ * Which lifecycle state to mock the four artefact queries in.
  *
- * `in-flight` is the state under test. `settled-absent` is the comparison
- * baseline — the application genuinely has no artefacts — and is the state the
- * page is currently, wrongly, indistinguishable from.
+ * `in-flight` is WIC-1630's state under test: the cover-letter, resume-variant
+ * and interview-prep queries are unsettled. `fit-in-flight` is WIC-2141's, and
+ * is deliberately its mirror image — only the job-fit-analysis query is
+ * unsettled — so that each phase doubles as the *negative control* for the
+ * other. A fix that keyed off a page-wide "something is loading" flag rather
+ * than per-query state would blank rows in both phases and fail both controls.
  *
- * The application query itself is resolved in *both* cases on purpose. While it
+ * `settled-absent` is the comparison baseline for both — the application
+ * genuinely has no artefacts — and is the state the page is currently, wrongly,
+ * indistinguishable from.
+ *
+ * The application query itself is resolved in *all* cases on purpose. While it
  * is loading the page renders a spinner and no checklist at all, so that render
  * is not the defect; the defect is the window after it resolves and before the
  * artefact queries do.
  */
-type Phase = 'in-flight' | 'settled-absent';
+type Phase = 'in-flight' | 'settled-absent' | 'fit-in-flight';
 
 function renderDetail(phase: Phase) {
   const loading = phase === 'in-flight';
+  const fitLoading = phase === 'fit-in-flight';
 
   vi.mocked(useApplication).mockReturnValue({
     data: application,
@@ -132,12 +140,14 @@ function renderDetail(phase: Phase) {
     isLoading: loading,
   } as unknown as ReturnType<typeof useInterviewPrepByApplication>);
 
-  // Job Fit Analysis is this file's negative control (WIC-1652 is backed by
-  // no query at all), so it is held settled and empty in both phases — the
-  // whole point is that it must render identically while the other three load.
+  // Job Fit Analysis is backed by a real query (`useJobFitAnalyses`, added by
+  // WIC-1652), and `data` is `undefined` both in flight and when it comes back
+  // empty — the same collapse as the three above. It stays settled through the
+  // `in-flight` phase, where it remains this file's negative control, and is
+  // the only unsettled query in `fit-in-flight` (WIC-2141).
   vi.mocked(useJobFitAnalyses).mockReturnValue({
-    data: { analyses: [] },
-    isLoading: false,
+    data: fitLoading ? undefined : { analyses: [] },
+    isLoading: fitLoading,
   } as unknown as ReturnType<typeof useJobFitAnalyses>);
 
   return render(
@@ -270,14 +280,17 @@ describe('ApplicationDetail — artefact steps while their queries are in flight
     /**
      * The negative control for the three cases above.
      *
-     * Job Fit Analysis is driven by no query at all — `hasFitAnalysis` is never
-     * passed and nothing persists a fit analysis (WIC-1652) — so it is
-     * genuinely the same in both phases, and *must* stay identical. If a fix
-     * makes this row differ too, it is keying off a page-wide "something is
-     * loading" flag rather than per-query state, and would blank a row whose
-     * answer was never in doubt.
+     * Job Fit Analysis has its own query, but that query is held *settled* in
+     * both of these phases, so the row's answer is not in doubt in either and
+     * it must render identically. If a fix makes this row differ too, it is
+     * keying off a page-wide "something is loading" flag rather than per-query
+     * state, and would blank a row whose answer was already in hand.
+     *
+     * This control is load-bearing for WIC-2141 and must not be relaxed to
+     * accommodate it: that card is covered by a third phase in which the fit
+     * query alone is unsettled, not by letting this one vary.
      */
-    it('leaves the query-less Job Fit Analysis step identical across both phases', () => {
+    it('leaves the settled Job Fit Analysis step identical across both phases', () => {
       const inFlight = captureMarkup('Job Fit Analysis', 'in-flight');
       const absent = captureMarkup('Job Fit Analysis', 'settled-absent');
 
@@ -346,6 +359,104 @@ describe('ApplicationDetail — artefact steps while their queries are in flight
       renderDetail('in-flight');
 
       expect(progressText()).not.toMatch(/of 4 steps completed/);
+    });
+  });
+});
+
+/**
+ * WIC-2141 — the same defect, on the fourth row.
+ *
+ * WIC-1630 excluded Job Fit Analysis with a comment stating it was "backed by
+ * no query at all", and hardcoded `unknown: false`. That was true when written
+ * and false by the time it shipped: `ApplicationDetail` calls
+ * `useJobFitAnalyses(…)` and read `data` alone, so `undefined` flattened onto
+ * "we looked and there is none" for a full round-trip — the exact collapse
+ * WIC-1630 was filed about, one row over.
+ *
+ * The suite could not catch it because this file pinned the fit query
+ * `isLoading: false` in both phases by construction, so no value of the mock
+ * could exercise the in-flight row. The fix is a third phase, not a flipped
+ * flag: the settled-fit control above still has to hold for rows 1-3.
+ */
+describe('ApplicationDetail — the Job Fit Analysis step while its query is in flight (WIC-2141)', () => {
+  describe('AC-1 — an in-flight fit step does not render as settled-incomplete', () => {
+    it('does not offer "run a job fit analysis" from the checklist while the query is in flight', () => {
+      renderDetail('fit-in-flight');
+
+      expect(hrefsIn(row('Job Fit Analysis'))).not.toContain('/job-fit-analysis?appId=app_1');
+    });
+
+    /**
+     * The discriminating half of AC-1. `settled-absent` renders this pill —
+     * the application has a job description and no analysis — so a component
+     * that ignored the new state entirely would fail here, where the link
+     * assertion above could in principle be satisfied by an unrelated change.
+     */
+    it('does not mark the step "Recommended" while the query is in flight', () => {
+      renderDetail('fit-in-flight');
+      expect(within(row('Job Fit Analysis')).queryByText('Recommended')).toBeNull();
+    });
+
+    it('marks the step "Recommended" once the query settles with no analysis', () => {
+      renderDetail('settled-absent');
+      expect(within(row('Job Fit Analysis')).getByText('Recommended')).toBeTruthy();
+    });
+
+    it('does not tick the step while the query is in flight', () => {
+      renderDetail('fit-in-flight');
+      expect(within(row('Job Fit Analysis')).queryByText('✓')).toBeNull();
+    });
+  });
+
+  describe('AC-2 — unknown is distinguishable from absent, on row 4', () => {
+    it('renders the Job Fit Analysis step differently while loading than when it is known to be absent', () => {
+      const inFlight = captureMarkup('Job Fit Analysis', 'fit-in-flight');
+      const absent = captureMarkup('Job Fit Analysis', 'settled-absent');
+
+      expect(inFlight).not.toEqual(absent);
+    });
+
+    /**
+     * The mirror of the settled-fit control in the WIC-1630 block: with only
+     * the fit query unsettled, the other three rows must be untouched. Together
+     * the two controls pin the state as per-query in both directions, which a
+     * page-wide loading flag cannot satisfy.
+     */
+    it.each([['Cover Letter'], ['Tailored Resume'], ['Interview Prep']] as const)(
+      'leaves the settled %s step identical while only the fit query is in flight',
+      (label) => {
+        const fitInFlight = captureMarkup(label, 'fit-in-flight');
+        const absent = captureMarkup(label, 'settled-absent');
+
+        expect(fitInFlight).toEqual(absent);
+      }
+    );
+  });
+
+  describe('AC-3 — the unknown fit step is not counted as incomplete', () => {
+    it('does not report the same progress while the fit query loads as when it is known absent', () => {
+      const inFlightRender = renderDetail('fit-in-flight');
+      const inFlight = progressText();
+      inFlightRender.unmount();
+
+      renderDetail('settled-absent');
+      const absent = progressText();
+
+      expect(absent).toEqual('0 of 4 steps completed');
+      expect(inFlight).not.toEqual(absent);
+    });
+
+    /**
+     * Pinned exactly, unlike the WIC-1630 case above: three of the four answers
+     * are in hand here, so the denominator has one correct value rather than a
+     * range of acceptable ones.
+     */
+    it('drops the unknown step out of the denominator and withholds the percentage', () => {
+      renderDetail('fit-in-flight');
+
+      expect(progressText()).toEqual('0 of 3 steps completed');
+      expect(within(checklist()).getByText('Checking 1 more step…')).toBeTruthy();
+      expect(within(checklist()).getByText('—')).toBeTruthy();
     });
   });
 });
