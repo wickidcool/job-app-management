@@ -86,7 +86,23 @@ export interface ListApplicationsParams {
   status?: string;
   company?: string;
   search?: string;
-  sortBy?: 'createdAt' | 'updatedAt' | 'company';
+  /**
+   * Inclusive bounds on `applications.interview_date` (WIC-2189).
+   *
+   * ISO-8601 **with an offset**, matching the `datetime({ offset: true })`
+   * contract the create/update schemas established for this column in WIC-2023.
+   * The column is `TIMESTAMPTZ` and these feed straight into `new Date(...)`, so
+   * a date-only bound would be read as UTC midnight and silently shift the
+   * window by up to a day for any caller west of Greenwich.
+   *
+   * Rows with a `NULL` interview date are **excluded** by either bound — a SQL
+   * comparison against `NULL` is `NULL`, never true. That is the intended
+   * reading: "applications interviewing between X and Y" does not include the
+   * ones that are not interviewing at all.
+   */
+  interviewDateFrom?: string;
+  interviewDateTo?: string;
+  sortBy?: 'createdAt' | 'updatedAt' | 'company' | 'interviewDate';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
   page?: string;
