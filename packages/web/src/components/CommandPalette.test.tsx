@@ -55,8 +55,11 @@ const { APPLICATIONS } = vi.hoisted(() => ({
   ] as Application[],
 }));
 
+// `isPending`/`isError` are stated explicitly rather than left off. The component reads
+// them (WIC-2179), and an omitted key mocks as `undefined` — falsy, and therefore the
+// settled-and-succeeded state these tests want, but by accident rather than on purpose.
 vi.mock('../hooks/useApplications', () => ({
-  useApplications: () => ({ data: APPLICATIONS }),
+  useApplications: () => ({ data: APPLICATIONS, isPending: false, isError: false }),
 }));
 
 const RECENT_SEARCHES_KEY = 'wic-recent-searches';
