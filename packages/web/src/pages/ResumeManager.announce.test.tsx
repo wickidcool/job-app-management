@@ -9,12 +9,21 @@ import { ResumeManager } from './ResumeManager';
 /**
  * The delete announcement on `/resumes` — pinned in jsdom (WIC-2155).
  *
- * The committed pin for this behaviour is `e2e/modal-focus.spec.ts:413-467`, and it does
- * not currently execute: the `E2E Tests` job's `Assert isolation-test credentials are
- * present` step fails and `Run E2E tests` is skipped (WIC-2131's deliberate loud-red gate;
- * restoring the six `VITE_SUPABASE_*` / `E2E_TEST_USER*` values is WIC-2122 and needs a
- * human). Measured on PR #423, removing the live region from `ResumeManager` outright left
- * the web suite fully green at 837/837 — so nothing that runs covers this today.
+ * The other committed pin for this behaviour is `e2e/modal-focus.spec.ts:413-467`. This file
+ * is the fast jsdom layer under it, and it is not redundant: measured on PR #423, removing
+ * the live region from `ResumeManager` outright left the **vitest** suite fully green at
+ * 837/837. The vitest suite on its own is blind to this, so without this file every guard on
+ * the behaviour lives in Playwright.
+ *
+ * ⚠️ History, because it inverted mid-review (WIC-2164). This file was written at a moment
+ * when the e2e pin did not execute at all: WIC-2131's deliberate loud-red gate failed the
+ * `E2E Tests` job at `Assert isolation-test credentials are present` and skipped `Run E2E
+ * tests` wholesale. WIC-2157 (PR #426) then moved that assertion into its own non-required
+ * `e2e-isolation-coverage` job, and the e2e pin runs again — verified green on `main` at
+ * `813af9c9`, run `34014906059`, as test 115. So this is a second layer, **not** a stand-in
+ * for a suppressed one. What is still credential-blocked is the isolation/RLS suite
+ * (WIC-2122, needs a human to mint `E2E_TEST_USER*`); that is a different gap, and nothing
+ * in this file speaks to it.
  *
  * This file replicates that e2e test's *instrument*, not its text assertion, for the reason
  * given there: after the second delete the region's text names the right file either way,

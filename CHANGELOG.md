@@ -9,11 +9,11 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
-### Added — the resume delete announcement is pinned by a test that runs, while E2E stays credential-blocked (2026-09-06)
+### Added — the resume delete announcement is pinned in jsdom, not only in Playwright (2026-09-06)
 
-Deleting a resume announces the outcome to a screen reader through a live region. The only committed pin for that was `packages/web/e2e/modal-focus.spec.ts:413-467`, and **it has not executed on any PR or on `main`**: the `E2E Tests` job's `Assert isolation-test credentials are present` step fails and `Run E2E tests` is skipped. That is WIC-2131's deliberate loud-red gate working as designed — restoring the six `VITE_SUPABASE_*` / `E2E_TEST_USER*` values is WIC-2122 and needs a human. Confirmed still failing on `main` at `a488932a`.
+Deleting a resume announces the outcome to a screen reader through a live region. Until now the only committed pin for that was `packages/web/e2e/modal-focus.spec.ts:413-467` — a browser-only test. Measured on PR #423 at `013da8d8`: removing the live region from `ResumeManager` outright left the **vitest** suite **fully green at 837/837**. `ResumeManager.outline.test.tsx` does render the page on both branches — injecting a throw reds both of its assertions — it simply grades heading levels, and a portalled `role="status"` is not a heading (WIC-2155). So the unit layer was blind to this behaviour entirely.
 
-So the behaviour was unpinned by anything that runs. Measured on PR #423 at `013da8d8`: removing the live region from `ResumeManager` outright left the web suite **fully green at 837/837**. `ResumeManager.outline.test.tsx` does render the page on both branches — injecting a throw reds both of its assertions — it simply grades heading levels, and a portalled `role="status"` is not a heading (WIC-2155).
+**Correction to this entry's original premise (WIC-2164).** As first written it claimed the e2e pin "has not executed on any PR or on `main`", because at that moment WIC-2131's deliberate loud-red gate failed `E2E Tests` at `Assert isolation-test credentials are present` and skipped `Run E2E tests` wholesale. WIC-2157 (PR #426) has since moved that assertion into its own non-required `e2e-isolation-coverage` job, and the e2e pin **runs and passes again** — verified on `main` at `813af9c9`, run `34014906059`, as test 115. This entry therefore records a second, faster layer, not a stand-in for a suppressed one. What remains credential-blocked is the isolation/RLS suite (WIC-2122, needs a human to mint `E2E_TEST_USER*`) — a different gap, which nothing here addresses.
 
 `packages/web/src/pages/ResumeManager.announce.test.tsx` closes that gap in jsdom in ~4s.
 
@@ -25,7 +25,7 @@ So the behaviour was unpinned by anything that runs. Measured on PR #423 at `013
 
 **The same-name fixture is load-bearing, and that was measured rather than asserted.** Re-run with distinct filenames, the clear-removed defect produces two genuinely different strings, mutates the region twice and **passes** — a distinct-name fixture is structurally blind to this bug. Two assertions the e2e spec makes are deliberately *not* copied: that the region sits outside `#root` and wraps nothing focusable are vacuous in jsdom, where Testing Library renders into a bare `<div>` on `document.body` and there is no `#root` at all. They stay in the e2e spec.
 
-This does not reduce the need for WIC-2122. It covers one behaviour that was silently unguarded while the whole e2e layer is dark.
+This does not reduce the need for WIC-2122. It adds a unit-layer guard to one behaviour that had none; the isolation/RLS coverage that WIC-2122 unblocks is untouched by it.
 
 ### Fixed — Layer 0 full-history secret audit is green again: 6 triaged-benign findings baselined, zero live credentials (2026-09-05)
 
