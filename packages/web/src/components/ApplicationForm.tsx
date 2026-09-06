@@ -280,7 +280,7 @@ export function ApplicationForm({
             </div>
           )}
 
-          <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+          <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4" noValidate>
             {/* Job Title */}
             <div>
               <label htmlFor="jobTitle" className="block text-sm font-medium text-gray-700 mb-1">

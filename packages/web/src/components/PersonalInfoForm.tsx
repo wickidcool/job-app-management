@@ -138,7 +138,7 @@ export function PersonalInfoForm({
   };
 
   return (
-    <form id={formId} onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
+    <form id={formId} onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-6">
       {/* Basic Information */}
       <div>
         <h3 className="mb-4 text-lg font-semibold text-neutral-900">Basic Information</h3>
@@ -151,11 +151,16 @@ export function PersonalInfoForm({
               {...register('firstName')}
               type="text"
               id="firstName"
+              aria-required="true"
+              aria-invalid={!!errors.firstName}
+              aria-describedby={errors.firstName ? 'firstName-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="Alex"
             />
             {errors.firstName && (
-              <p className="mt-1 text-sm text-error-600">{errors.firstName.message}</p>
+              <p id="firstName-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.firstName.message}
+              </p>
             )}
           </div>
 
@@ -167,11 +172,16 @@ export function PersonalInfoForm({
               {...register('lastName')}
               type="text"
               id="lastName"
+              aria-required="true"
+              aria-invalid={!!errors.lastName}
+              aria-describedby={errors.lastName ? 'lastName-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="Johnson"
             />
             {errors.lastName && (
-              <p className="mt-1 text-sm text-error-600">{errors.lastName.message}</p>
+              <p id="lastName-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.lastName.message}
+              </p>
             )}
           </div>
 
@@ -183,10 +193,17 @@ export function PersonalInfoForm({
               {...register('email')}
               type="email"
               id="email"
+              aria-required="true"
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? 'email-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="alex@example.com"
             />
-            {errors.email && <p className="mt-1 text-sm text-error-600">{errors.email.message}</p>}
+            {errors.email && (
+              <p id="email-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.email.message}
+              </p>
+            )}
           </div>
 
           <div>
@@ -197,10 +214,16 @@ export function PersonalInfoForm({
               {...register('phone')}
               type="tel"
               id="phone"
+              aria-invalid={!!errors.phone}
+              aria-describedby={errors.phone ? 'phone-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="(555) 123-4567"
             />
-            {errors.phone && <p className="mt-1 text-sm text-error-600">{errors.phone.message}</p>}
+            {errors.phone && (
+              <p id="phone-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.phone.message}
+              </p>
+            )}
           </div>
 
           <div className="sm:col-span-2">
@@ -211,11 +234,15 @@ export function PersonalInfoForm({
               {...register('headline')}
               type="text"
               id="headline"
+              aria-invalid={!!errors.headline}
+              aria-describedby={errors.headline ? 'headline-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="Senior Software Engineer"
             />
             {errors.headline && (
-              <p className="mt-1 text-sm text-error-600">{errors.headline.message}</p>
+              <p id="headline-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.headline.message}
+              </p>
             )}
           </div>
         </div>
@@ -233,11 +260,15 @@ export function PersonalInfoForm({
               {...register('addressLine1')}
               type="text"
               id="addressLine1"
+              aria-invalid={!!errors.addressLine1}
+              aria-describedby={errors.addressLine1 ? 'addressLine1-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="123 Main St"
             />
             {errors.addressLine1 && (
-              <p className="mt-1 text-sm text-error-600">{errors.addressLine1.message}</p>
+              <p id="addressLine1-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.addressLine1.message}
+              </p>
             )}
           </div>
 
@@ -249,11 +280,15 @@ export function PersonalInfoForm({
               {...register('addressLine2')}
               type="text"
               id="addressLine2"
+              aria-invalid={!!errors.addressLine2}
+              aria-describedby={errors.addressLine2 ? 'addressLine2-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="Apt 4B"
             />
             {errors.addressLine2 && (
-              <p className="mt-1 text-sm text-error-600">{errors.addressLine2.message}</p>
+              <p id="addressLine2-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.addressLine2.message}
+              </p>
             )}
           </div>
 
@@ -265,10 +300,16 @@ export function PersonalInfoForm({
               {...register('city')}
               type="text"
               id="city"
+              aria-invalid={!!errors.city}
+              aria-describedby={errors.city ? 'city-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="San Francisco"
             />
-            {errors.city && <p className="mt-1 text-sm text-error-600">{errors.city.message}</p>}
+            {errors.city && (
+              <p id="city-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.city.message}
+              </p>
+            )}
           </div>
 
           <div>
@@ -279,10 +320,16 @@ export function PersonalInfoForm({
               {...register('state')}
               type="text"
               id="state"
+              aria-invalid={!!errors.state}
+              aria-describedby={errors.state ? 'state-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="CA"
             />
-            {errors.state && <p className="mt-1 text-sm text-error-600">{errors.state.message}</p>}
+            {errors.state && (
+              <p id="state-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.state.message}
+              </p>
+            )}
           </div>
 
           <div>
@@ -293,11 +340,15 @@ export function PersonalInfoForm({
               {...register('postalCode')}
               type="text"
               id="postalCode"
+              aria-invalid={!!errors.postalCode}
+              aria-describedby={errors.postalCode ? 'postalCode-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="94102"
             />
             {errors.postalCode && (
-              <p className="mt-1 text-sm text-error-600">{errors.postalCode.message}</p>
+              <p id="postalCode-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.postalCode.message}
+              </p>
             )}
           </div>
 
@@ -309,11 +360,15 @@ export function PersonalInfoForm({
               {...register('country')}
               type="text"
               id="country"
+              aria-invalid={!!errors.country}
+              aria-describedby={errors.country ? 'country-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="USA"
             />
             {errors.country && (
-              <p className="mt-1 text-sm text-error-600">{errors.country.message}</p>
+              <p id="country-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.country.message}
+              </p>
             )}
           </div>
         </div>
@@ -331,11 +386,16 @@ export function PersonalInfoForm({
               {...register('linkedinUrl')}
               type="url"
               id="linkedinUrl"
+              aria-required="true"
+              aria-invalid={!!errors.linkedinUrl}
+              aria-describedby={errors.linkedinUrl ? 'linkedinUrl-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="https://linkedin.com/in/yourusername"
             />
             {errors.linkedinUrl && (
-              <p className="mt-1 text-sm text-error-600">{errors.linkedinUrl.message}</p>
+              <p id="linkedinUrl-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.linkedinUrl.message}
+              </p>
             )}
           </div>
 
@@ -347,11 +407,15 @@ export function PersonalInfoForm({
               {...register('githubUrl')}
               type="url"
               id="githubUrl"
+              aria-invalid={!!errors.githubUrl}
+              aria-describedby={errors.githubUrl ? 'githubUrl-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="https://github.com/yourusername"
             />
             {errors.githubUrl && (
-              <p className="mt-1 text-sm text-error-600">{errors.githubUrl.message}</p>
+              <p id="githubUrl-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.githubUrl.message}
+              </p>
             )}
           </div>
 
@@ -363,11 +427,15 @@ export function PersonalInfoForm({
               {...register('portfolioUrl')}
               type="url"
               id="portfolioUrl"
+              aria-invalid={!!errors.portfolioUrl}
+              aria-describedby={errors.portfolioUrl ? 'portfolioUrl-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="https://yourportfolio.com"
             />
             {errors.portfolioUrl && (
-              <p className="mt-1 text-sm text-error-600">{errors.portfolioUrl.message}</p>
+              <p id="portfolioUrl-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.portfolioUrl.message}
+              </p>
             )}
           </div>
 
@@ -379,11 +447,15 @@ export function PersonalInfoForm({
               {...register('websiteUrl')}
               type="url"
               id="websiteUrl"
+              aria-invalid={!!errors.websiteUrl}
+              aria-describedby={errors.websiteUrl ? 'websiteUrl-error' : undefined}
               className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="https://yourwebsite.com"
             />
             {errors.websiteUrl && (
-              <p className="mt-1 text-sm text-error-600">{errors.websiteUrl.message}</p>
+              <p id="websiteUrl-error" className="mt-1 text-sm text-error-600" role="alert">
+                {errors.websiteUrl.message}
+              </p>
             )}
           </div>
         </div>
@@ -402,12 +474,16 @@ export function PersonalInfoForm({
           <textarea
             {...register('professionalSummary')}
             id="professionalSummary"
+            aria-invalid={!!errors.professionalSummary}
+            aria-describedby={errors.professionalSummary ? 'professionalSummary-error' : undefined}
             rows={4}
             className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
             placeholder="Brief summary of your professional background and expertise..."
           />
           {errors.professionalSummary && (
-            <p className="mt-1 text-sm text-error-600">{errors.professionalSummary.message}</p>
+            <p id="professionalSummary-error" className="mt-1 text-sm text-error-600" role="alert">
+              {errors.professionalSummary.message}
+            </p>
           )}
           <p className="mt-1 text-xs text-neutral-500">
             This summary will be used in your resume and cover letters.

@@ -641,26 +641,23 @@ test.describe('Personal Information — Settings page (populated form)', () => {
     await expectNoSave(page, patches);
   });
 
-  // ⚠️ DOCUMENTS A BUG, does not assert the desired behaviour. See WIC-2126.
+  // Asserts the fixed behaviour. This test used to pin the defect; WIC-2126 landed.
   //
-  // This is the one case where the Zod message *should* be reachable: an empty
-  // `linkedinUrl` passes native validation (the input carries no `required`
-  // attribute), so the submit event fires and React Hook Form runs the resolver.
-  // `min(1, 'LinkedIn URL is required')` ought to render.
+  // This is the one case where the Zod message is reachable without the native layer
+  // having any say: an empty `linkedinUrl` passes native validation (the input carries
+  // no `required` attribute), so the submit event fires and React Hook Form runs the
+  // resolver. `min(1, 'LinkedIn URL is required')` renders.
   //
-  // It does not. `packages/web` resolves `zod@4.3.6` (nested, and invalid against
-  // its own declared `^3.23.8`) against `@hookform/resolvers@3.10.0`, which only
-  // understands zod 3's `ZodError`. The resolver rethrows instead of mapping, so
-  // `formState.errors` stays empty and the page throws an uncaught `ZodError`:
-  // no message, no save, no feedback of any kind. Confirmed in isolation — see
-  // WIC-2126 for the four-line repro. Both `zodResolver` call sites are affected.
+  // Before the fix it did not. `packages/web` resolved a nested `zod@4.3.6` — invalid
+  // against its own declared `^3.23.8` — while `@hookform/resolvers@3.10.0` only
+  // understands zod 3's `ZodError`. The resolver rethrew instead of mapping, so
+  // `formState.errors` stayed empty and the page threw an uncaught `ZodError`: no
+  // message, no save, no feedback of any kind. Both `zodResolver` call sites were hit.
   //
-  // So this pins what genuinely holds today — the invalid value is not saved —
-  // and records the gap. When WIC-2126 lands, replace the `expect(...).toHaveCount(0)`
-  // below with the commented assertion above it; the rest of the test is already right.
-  test('clearing a required field blocks the save (Zod message missing — WIC-2126)', async ({
-    page,
-  }) => {
+  // The dependency half of the fix is gated by `npm ls zod` in CI; the component half is
+  // covered offline by `src/components/PersonalInfoForm.validation.test.tsx`. This spec is
+  // the end-to-end proof that the message reaches a real browser.
+  test('clearing a required field shows the Zod message and blocks the save', async ({ page }) => {
     await openProfileFormIfNeeded(page);
     const patches = capturePersonalInfoPatches(page);
 
@@ -671,11 +668,9 @@ test.describe('Personal Information — Settings page (populated form)', () => {
     await field(page, 'phone').fill('+1 (555) 222-3333');
     await page.getByRole('button', { name: /save changes/i }).click();
 
-    // WIC-2126 target state:
-    // await expect(page.getByText('LinkedIn URL is required').first()).toBeVisible();
-    await expect(page.getByText('LinkedIn URL is required')).toHaveCount(0);
+    await expect(page.getByText('LinkedIn URL is required').first()).toBeVisible();
 
-    // What does hold: the bad value never reaches the API.
+    // And the bad value still never reaches the API.
     await expectNoSave(page, patches);
   });
 });
