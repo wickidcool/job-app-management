@@ -27,6 +27,21 @@ The entry below split the UI tier onto its own `E2E_ISOLATION_UI` gate and carri
 
 **Turned on in `e2e-tests`, not in `e2e-isolation-coverage`.** WIC-2207 proposed the latter, but that job has no checkout, no Node and no Playwright install — it is a 2-minute credential preflight that runs zero tests, so the variable would have gated nothing while reading as coverage. `e2e-tests` already runs `npx playwright test`; the 8 tests need no backend and no credentials, so they cost ~11s there and do not wait on WIC-2122. Result: 7 passed, 8 skipped — the 8th UI test keeps its own inner `hasTestCredentials()` guard, and the 7 backend-gated specs still skip on `E2E_LIVE_BACKEND`.
 
+
+### Fixed — a `packages/api` test run could silently execute on `vitest@1.6.1` instead of the pinned 4.1.11, and pass (2026-09-06)
+
+`packages/api` had no `vitest` installed in the primary checkout at all. Node's resolution walked up and found an orphan `vitest@1.6.1` at the repo root — a package in **no** `package.json` and **no** `package-lock.json` entry, left behind by a tree that had not been reinstalled since the 1.6 → 4 migration (WIC-2137). Every local api suite run therefore printed `RUN v1.6.1` and passed, while CI ran the pinned `^4.1.11` (WIC-2209).
+
+**The divergence is behavioural, not cosmetic, and `packages/api/vitest.config.ts` already documented it.** Its own comment records that vitest 4 enforces the default `hookTimeout` on the six suites that build a real PGlite database in `beforeAll`, where 1.6 did not. So the stale runner can pass suites CI fails — and it does so with a *plausible test count*, which is the expensive shape: nothing about the output looks wrong.
+
+**Measured at `ae93cdb2`, the fault was one workspace, not the repo.** `packages/web` has its own correct 4.1.11 and was never affected. Only `packages/api` in the primary checkout — and any worktree symlinking its `node_modules` there — fell through to the root copy. The narrow blast radius is why it survived: the tree that ran the most tests was the one running them wrong.
+
+**The guard runs as `globalSetup`, deliberately, not as a `pretest` npm script.** A bare `npx vitest run` bypasses npm scripts entirely, and that is exactly how a wrong-runner result gets produced in practice. `globalSetup` executes inside the process being mis-versioned, so no invocation skips it. It is also kept free of any vitest API and of any dependency: a guard that needed vitest 4 to run could not report that you are on vitest 1.
+
+**It does not repair a stale tree — `npm ci` does.** What it removes is the silence. Verified in both directions against the two runners present on disk rather than simulated: on 4.1.11 the guard is quiet and the suite passes; on 1.6.1 the run aborts before a single test executes, naming both versions, the file actually loaded, and `npm ci`. `satisfies()` returns "cannot judge" for range shapes it does not model (`||`, `>=`, `4.x`), so an unparseable pin can never invent a failing build.
+
+Both workspaces are guarded, since nothing about a missing package-level install is specific to the api one. The accompanying tests grade the comparison logic on fixtures *and* assert the wiring against the real `vitest.config.ts` files — a correct checker attached to no config would be exactly as silent as the bug it replaces.
+
 ### Fixed — `main` was undeployable: a credential granted to `e2e-tests` un-skipped 29 specs against a backend CI never starts (2026-09-06)
 
 `2a9482a7` (WIC-2122, pushed direct to `main` with no PR) added `environment: dev` to the **`e2e-tests`** job so the isolation specs would stop self-skipping. They stopped skipping and started **failing**, and the collateral was production delivery: on run `34052242328` `e2e-tests` was cancelled at **15m14s** against its `timeout-minutes: 15`, and because `deploy-production` declares `needs: [lint-and-test, e2e-tests]`, it was **skipped**. `main` shipped nothing from 18:36Z onward (WIC-2201).

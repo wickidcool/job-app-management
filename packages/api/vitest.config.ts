@@ -4,6 +4,12 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    // WIC-2209. Refuse to run on a vitest other than the one pinned below in
+    // package.json. This package is the one that was silently executing on a
+    // hoisted `vitest@1.6.1` locally while CI ran 4.1.11, and the `hookTimeout`
+    // note further down is exactly the behaviour that differs between them — so a
+    // stale-runner pass here is not comparable to CI.
+    globalSetup: ['./vitest.globalSetup.mjs'],
     // Six suites build a real database in `beforeAll` via `createMigratedDb()` —
     // PGlite boot plus every migration in src/db/migrations. That is genuinely slow
     // work, and its cost is dominated by contention: vitest sizes the fork pool from
