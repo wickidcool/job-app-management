@@ -50,7 +50,12 @@ const requiresLiveBackend = () => !process.env.E2E_LIVE_BACKEND;
 // `e2e-isolation-coverage` job; see WIC-2207.
 const requiresIsolationUi = () => !process.env.E2E_ISOLATION_UI;
 
-const hasTestCredentials = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
+// WIC-2207: `hasTestCredentials()` used to live here. It was the file's last
+// credential-presence guard, and its only caller now gates on
+// `requiresLiveBackend()` instead — see the comment at that call site. Deleted
+// rather than left unused so it cannot be reached for again: WIC-2201 retired
+// this predicate as a proxy for "a backend is up", and a helper that is still
+// lying around is an invitation to reintroduce the fail-open.
 
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -455,7 +460,23 @@ test.describe('Resume/Document Isolation - UI', () => {
   test('API request for resumes includes Authorization header when authenticated', async ({
     page,
   }) => {
-    if (!hasTestCredentials()) {
+    // WIC-2207: this is the one test in the UI tier that is NOT a UI-tier test —
+    // it calls `loginAs`, which drives the real sign-in flow against a real API.
+    // It therefore needs the same thing the backend tier needs, and gates on it.
+    //
+    // It used to gate on `hasTestCredentials()`. WIC-2201 established that
+    // credential presence is not backend availability and must never stand in for
+    // it, but the inner guard was left alone because the describe-level
+    // `E2E_ISOLATION_UI` skip always fired first — so it was decorative. Turning
+    // that gate ON promotes this guard to load-bearing, which turns the file's
+    // only surviving fail-open into a live tripwire.
+    //
+    // Measured: with `E2E_ISOLATION_UI=1` and `TEST_USER_EMAIL`/`PASSWORD` set but
+    // no backend, this test FAILS on a 40s `loginAs` timeout. It is latent today
+    // only because `e2e-tests` deliberately does not declare `environment: dev`
+    // (WIC-2201), so the `dev`-scoped secrets resolve empty there — i.e. the test
+    // is safe by an accident of secret scoping, which is not a guard.
+    if (requiresLiveBackend()) {
       test.skip();
       return;
     }
