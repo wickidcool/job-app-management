@@ -4,12 +4,15 @@ import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_CONNECT_DEADLINE_MS,
+  DatabaseUnreachableError,
   createConnectBound,
+  describeDbFailure,
   isDatabaseUnreachable,
   resolveConnectDeadlineMs,
 } from '../src/db/connect-bound.js';
 import { getDb } from '../src/db/client.js';
 import { getRequestContext, runWithEnv } from '../src/db/context.js';
+import { buildApp } from '../src/app.js';
 import type { Env } from '../src/types/env.js';
 
 /**
@@ -216,5 +219,195 @@ describe('isDatabaseUnreachable', () => {
   it('leaves ordinary failures alone', () => {
     expect(isDatabaseUnreachable(new Error('relation "users" does not exist'))).toBe(false);
     expect(isDatabaseUnreachable(undefined)).toBe(false);
+  });
+});
+
+/**
+ * A socket that fails the way a *server-side* fault does: it emits `error`.
+ *
+ * That single difference is what separates the two branches under test. An
+ * `error` reaches postgres-js's `errored()` (`connection.js:390-394`), which
+ * nulls `initial` and rejects after one dial, so the connect deadline never
+ * trips and no circuit opens. `CleanClosingSocket` above emits `close` alone,
+ * which is the Cloudflare-polyfill shape that drives the dial loop into the
+ * watchdog. Same endpoint, same driver, different cause — and the point of
+ * WIC-2163 is that `/api/health` must not render them as the same string.
+ */
+class ErroringSocket extends EventEmitter {
+  readyState = 'open';
+
+  connect(): this {
+    dials++;
+    setImmediate(() => {
+      this.readyState = 'closed';
+      this.emit('error', Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+    });
+    return this;
+  }
+
+  write(): boolean {
+    return true;
+  }
+  end(): void {}
+  destroy(): void {}
+  setKeepAlive(): void {}
+  setTimeout(): void {}
+}
+
+interface HealthBody {
+  status: string;
+  hyperdrive: boolean;
+  db: string;
+}
+
+/** Drive the real `/api/health` route through the real request context. */
+async function getHealth(env: Env): Promise<{ httpStatus: number; body: HealthBody }> {
+  const app = buildApp();
+  return runWithEnv(env, async () => {
+    const res = await app.fetch(
+      new Request('https://health.example.invalid/api/health'),
+      env as unknown as Record<string, unknown>
+    );
+    const body = (await res.json()) as HealthBody;
+    // Whatever the outcome, this request's pool owns its own teardown so a
+    // still-running dial loop cannot leak into a later case's dial count.
+    const pool = getRequestContext()?.sql as
+      | { end(o: { timeout: number }): Promise<unknown> }
+      | undefined;
+    await pool?.end({ timeout: 0 }).catch(() => {});
+    return { httpStatus: res.status, body };
+  });
+}
+
+const PROD_SHAPED_ENV: Env = {
+  DATABASE_URL: 'postgres://u:p@aws-1-us-west-2.pooler.supabase.invalid:6543/app',
+};
+
+describe('/api/health names the cause, not postgres-js teardown collateral (WIC-2163)', () => {
+  beforeEach(() => {
+    dials = 0;
+  });
+
+  afterEach(() => {
+    (net as { Socket: unknown }).Socket = realSocket;
+  });
+
+  it('reports our connect deadline, with the endpoint, when the watchdog trips', async () => {
+    (net as { Socket: unknown }).Socket = CleanClosingSocket;
+
+    const { httpStatus, body } = await getHealth({
+      ...PROD_SHAPED_ENV,
+      DB_CONNECT_DEADLINE_MS: '0',
+    });
+
+    // AC1 — the deadline is ours and the message says so.
+    expect(body.db).toMatch(/^connect deadline exceeded: no connection within 0ms /);
+    // The endpoint survives. It comes from postgres-js's ARRAY-valued `address`
+    // and `port` fields, so a string-only guard drops it and this is the
+    // assertion that catches that.
+    expect(body.db).toContain('aws-1-us-west-2.pooler.supabase.invalid:6543');
+    // The misleading string is gone — this is the whole point of the card.
+    expect(body.db).not.toContain('CONNECTION_DESTROYED');
+
+    // AC3 — the fields the WIC-2123 canary actually asserts on are untouched.
+    // Its predicate is `http == 200 && status == "ok"`; `db` is display only.
+    expect(httpStatus).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(body.hyperdrive).toBe(false);
+  });
+
+  it('leaves a genuine server-side disconnect reporting its own error', async () => {
+    (net as { Socket: unknown }).Socket = ErroringSocket;
+
+    // A long deadline the test cannot reach, so the watchdog is provably not
+    // what ended this request — the server-side fault is.
+    const { httpStatus, body } = await getHealth({
+      ...PROD_SHAPED_ENV,
+      DB_CONNECT_DEADLINE_MS: '60000',
+    });
+
+    // AC2 — the two causes must not collapse into one string.
+    expect(body.db).toContain('ECONNRESET');
+    expect(body.db).not.toContain('connect deadline exceeded');
+
+    expect(httpStatus).toBe(503);
+    expect(body.status).toBe('degraded');
+  });
+
+  it('still reports ok, http 200, when the probe succeeds', async () => {
+    // No DB binding at all: the probe is skipped, which is the local/test path
+    // and the only shape in this file that reaches the canary's PASS branch.
+    const { httpStatus, body } = await getHealth({});
+
+    expect(httpStatus).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(body.db).toBe('not_applicable');
+  });
+});
+
+describe('describeDbFailure', () => {
+  const tripped = (): { dbUnreachable: Error; env: Env } => ({
+    env: {} as Env,
+    dbUnreachable: new DatabaseUnreachableError('no connection within 1500ms'),
+  });
+
+  /** Exactly what postgres-js `terminate()` hands us: array-valued host/port. */
+  const destroyed = (): Error =>
+    Object.assign(
+      new Error('write CONNECTION_DESTROYED aws-1-us-west-2.pooler.supabase.com:6543'),
+      {
+        code: 'CONNECTION_DESTROYED',
+        errno: 'CONNECTION_DESTROYED',
+        address: ['aws-1-us-west-2.pooler.supabase.com'],
+        port: [6543],
+      }
+    );
+
+  it('rewrites the teardown collateral when this request tripped the deadline', () => {
+    expect(describeDbFailure(destroyed(), tripped())).toBe(
+      'connect deadline exceeded: no connection within 1500ms (aws-1-us-west-2.pooler.supabase.com:6543)'
+    );
+  });
+
+  it('passes a server-side failure through untouched when no circuit opened', () => {
+    expect(describeDbFailure(destroyed(), { env: {} as Env })).toBe(
+      'write CONNECTION_DESTROYED aws-1-us-west-2.pooler.supabase.com:6543'
+    );
+    expect(
+      describeDbFailure(new Error('terminating connection due to administrator command'), {
+        env: {} as Env,
+      })
+    ).toBe('terminating connection due to administrator command');
+  });
+
+  it('reads scalar and unix-socket endpoints as well as the array form', () => {
+    const scalar = Object.assign(new Error('write CONNECTION_DESTROYED h:5432'), {
+      address: 'h',
+      port: 5432,
+    });
+    expect(describeDbFailure(scalar, tripped())).toContain('(h:5432)');
+
+    // `options.path` sets `address` and leaves `port` undefined.
+    const unix = Object.assign(new Error('write CONNECTION_DESTROYED /tmp/.s.PGSQL.5432'), {
+      address: '/tmp/.s.PGSQL.5432',
+    });
+    expect(describeDbFailure(unix, tripped())).toBe(
+      'connect deadline exceeded: no connection within 1500ms (/tmp/.s.PGSQL.5432)'
+    );
+  });
+
+  it('still names the deadline when no endpoint can be recovered', () => {
+    expect(describeDbFailure(new Error('write CONNECTION_DESTROYED'), tripped())).toBe(
+      'connect deadline exceeded: no connection within 1500ms'
+    );
+    expect(describeDbFailure('not an error at all', { env: {} as Env })).toBe(
+      'not an error at all'
+    );
+  });
+
+  it('is a no-op without a request context', () => {
+    expect(describeDbFailure(destroyed(), undefined)).toBe(
+      'write CONNECTION_DESTROYED aws-1-us-west-2.pooler.supabase.com:6543'
+    );
   });
 });

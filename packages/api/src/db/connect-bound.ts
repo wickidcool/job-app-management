@@ -97,6 +97,77 @@ export function isDatabaseUnreachable(err: unknown): boolean {
 }
 
 /**
+ * The endpoint postgres-js names in a connection error, read from the structured
+ * fields rather than parsed back out of the message.
+ *
+ * `Errors.connection` (`postgres/src/errors.js:17-28`) builds the message as
+ * `write <CODE> <host>:<port>` and attaches `address` (the host, or the unix
+ * socket path) and — for TCP only — `port`. Reading the fields keeps this
+ * independent of that message format.
+ *
+ * ⚠️ `address` and `port` are **arrays**, not strings: postgres-js parses the
+ * connection string into `host: ['h']` / `port: [5432]` to support multi-host
+ * failover, and `Errors.connection` assigns them through unchanged. It renders
+ * them with `host + ':' + port`, and a single-element array stringifies without
+ * brackets, which is why the message reads cleanly and hides the array. A
+ * `typeof x === 'string'` guard therefore rejects every real postgres-js error
+ * and silently drops the endpoint. Mirror the driver's own coercion instead.
+ */
+function endpointOf(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const { address, port } = err as { address?: unknown; port?: unknown };
+  const host = stringifyEndpointPart(address);
+  if (host === undefined) return undefined;
+  // A unix-socket error carries `address` (the path) and no `port`.
+  const suffix = stringifyEndpointPart(port);
+  return suffix === undefined ? host : `${host}:${suffix}`;
+}
+
+/** Coerce postgres-js's array-or-scalar endpoint fields the way the driver does. */
+function stringifyEndpointPart(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) {
+    // `String(['a','b'])` is `'a,b'`, exactly what the driver's own message shows.
+    return value.length > 0 ? String(value) : undefined;
+  }
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const text = String(value);
+  return text.length > 0 ? text : undefined;
+}
+
+/**
+ * Name the *cause* of a database failure for an operator-facing surface.
+ *
+ * The two failures are indistinguishable from the caught error alone, and the
+ * one that reaches a reader is the misleading one. When the connect deadline
+ * expires, `tripDbCircuit` tears the pool down, and postgres-js `terminate()`
+ * (`connection.js:425`) rejects the query that was in flight with
+ * `write CONNECTION_DESTROYED <host>:<port>`. That string reads as "the far end
+ * dropped us" while the truth is "we did not finish TCP + TLS + the Postgres
+ * startup handshake inside our own deadline" — a statement about our egress,
+ * carrying no information about the server. Reported verbatim it points every
+ * reader upstream, which is the one place the fault is not (WIC-2163/WIC-2092).
+ *
+ * The circuit already knows: `ctx.dbUnreachable` is set *synchronously* in
+ * `tripDbCircuit` before `sql.end()` is called, so it is always populated by the
+ * time the destroyed query rejects. Its presence is an exact signal — the
+ * watchdog at `createConnectBound`'s `arm()` is the only caller.
+ *
+ * A genuine server-side disconnect leaves `ctx.dbUnreachable` unset and so keeps
+ * its own message, which is what distinguishes the two.
+ */
+export function describeDbFailure(err: unknown, ctx: RequestContext | undefined): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const tripped = ctx?.dbUnreachable;
+  if (!(tripped instanceof DatabaseUnreachableError)) return message;
+
+  const endpoint = endpointOf(err);
+  return endpoint
+    ? `connect deadline exceeded: ${tripped.detail} (${endpoint})`
+    : `connect deadline exceeded: ${tripped.detail}`;
+}
+
+/**
  * Long enough that an ordinary cold Workers connect (tens to low hundreds of
  * milliseconds, through Hyperdrive or direct) is never cut short, short enough
  * that a refusing host spends a fraction of the 1000-subrequest budget instead
