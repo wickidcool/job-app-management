@@ -44,8 +44,8 @@ name: Supabase keep-alive & prod auth canary
 # probe fold in here rather than spawn a second cron file):
 #   * keepalive     — read-only `SELECT 1` every 3rd day, keeps the free-tier projects
 #                     out of the auto-pause window (WIC-1293).
-#   * auth-canary   — every 15 min, runs TWO independent probes against prod and fails
-#                     the run if EITHER regresses, without one masking the other:
+#   * auth-canary   — nominally every 15 min, runs TWO independent probes against prod
+#                     and fails the run if EITHER regresses, without one masking the other:
 #                       - auth plane: POSTs invalid canary credentials to `/api/auth/login`
 #                         and asserts a STRUCTURED rejection, catching the WIC-1281
 #                         total-auth outage every existing monitor stayed green through.
@@ -54,8 +54,21 @@ name: Supabase keep-alive & prod auth canary
 #                         probe is structurally blind to (it never dials Postgres). The
 #                         `/api/health` liveness check existed (WIC-1296) but nothing
 #                         polled it, so a ~10-day 503 went unseen by every monitor (WIC-2123).
-# Each job is gated on which schedule fired, so the 15-min cadence the canary needs does
-# NOT drag the keep-alive `SELECT 1` along with it.
+# Each job is gated on which schedule fired, so the canary cadence does NOT drag the
+# keep-alive `SELECT 1` along with it.
+#
+# ⚠️ ACTUAL CANARY CADENCE IS BEST-EFFORT, NOT 15 MIN (WIC-2125, measured 2026-09-05).
+#   GitHub Actions does NOT guarantee `schedule` delivery: high-frequency crons are
+#   throttled and silently dropped, worst near the top of the hour. Over 194.5h this
+#   canary delivered 39 of ~778 expected `*/15` ticks = 5.0%, median gap 191 min, with
+#   a measured 67h window that had no canary at all. Every delivered run succeeded and
+#   none were cancelled, so the loss is GitHub never *creating* the run — not this
+#   workflow's `concurrency` group and not any `[skip ci]`/`[skip deploy]` marker (those
+#   affect push/PR triggers only, never `schedule`). The offset cron below is a partial
+#   mitigation, NOT a guarantee. Effective MTTD for a prod outage is HOURS, not 15 min.
+#   The durable fix (a Cloudflare Worker Cron Trigger, immune to Actions throttling) is
+#   tracked separately and is human-gated on a credential no agent holds. Do not restate
+#   "every 15 minutes" as fact anywhere without re-measuring delivery first.
 
 on:
   schedule:
@@ -63,14 +76,16 @@ on:
     # top-of-hour scheduling congestion that delays GitHub cron runs.
     # -> keepalive job only.
     - cron: '17 6 */3 * *'
-    # Every 15 minutes -> auth-canary job only. Prod auth was 100% down for hours
-    # under WIC-1281 with no monitor going red; ~15-min detection is the target.
-    - cron: '*/15 * * * *'
+    # auth-canary job only. Nominal 15-min interval, OFFSET off the top of the hour
+    # (7,22,37,52 instead of 0,15,30,45) to dodge GitHub's worst scheduling congestion
+    # (WIC-2125). This is a best-effort mitigation: GitHub still drops most high-frequency
+    # ticks (measured 5% delivery), so treat the real cadence as hours, not 15 min.
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
 
 concurrency:
   # Per-schedule group so a slow 3-day keep-alive never cancels or queues behind a
-  # 15-min canary (and vice versa). cancel-in-progress stays off: never kill a touch.
+  # canary run (and vice versa). cancel-in-progress stays off: never kill a touch.
   group: supabase-keepalive-${{ github.event.schedule || 'dispatch' }}
   cancel-in-progress: false
 
@@ -80,7 +95,7 @@ permissions:
 jobs:
   keepalive:
     name: keep-alive (${{ matrix.env }})
-    # Only the 3-day cron (and manual dispatch) — never the 15-min canary schedule.
+    # Only the 3-day cron (and manual dispatch) — never the canary schedule.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.schedule == '17 6 */3 * *'
@@ -195,10 +210,10 @@ jobs:
   #   secret is required — a real credential would defeat the purpose.
   auth-canary:
     name: prod canary (auth + data plane)
-    # Only the 15-min cron (and manual dispatch) — never the 3-day keep-alive schedule.
+    # Only the canary cron (and manual dispatch) — never the 3-day keep-alive schedule.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.schedule == '*/15 * * * *'
+      github.event.schedule == '7,22,37,52 * * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -284,7 +299,7 @@ jobs:
       #   proves Supabase Auth REST is up, but it never dials Postgres, so a
       #   Hyperdrive/pooler egress fault is invisible to it. Every other green signal
       #   is blind too — `GET /api/*` returns 401 before Postgres is dialled, and the
-      #   keep-alive `SELECT 1` is gated to the 3-day schedule, not this 15-min one.
+      #   keep-alive `SELECT 1` is gated to the 3-day schedule, not this canary one.
       #   `/api/health` became a real, unauthenticated liveness check under WIC-1296,
       #   but nothing polled it. This step is that missing consumer.
       #
@@ -377,9 +392,9 @@ jobs:
         run: |
           set -uo pipefail
           TITLE="🔴 Prod canary FAILED — production auth or data plane may be down"
-          BODY=$(printf 'The scheduled production canary failed. It runs TWO independent probes every 15 minutes and reports both verdicts below; a failure in either plane fails the run without masking the other.\n\n- %s\n- %s\n\n**Auth plane** POSTs invalid canary credentials to `/api/auth/login` and expects the structured rejection `Invalid login credentials`, which only a live Supabase produces (WIC-1281/WIC-1296). It never dials Postgres.\n**Data plane** GETs `/api/health` and expects HTTP 200 with `status:ok`; HTTP 503 with `hyperdrive:false` / a destroyed `db` connection is the WIC-2092 Hyperdrive/pooler egress outage the auth probe is structurally blind to (WIC-2123). No other monitor catches this — `GET /api/*` returns 401 before Postgres is dialled, and the keep-alive `SELECT 1` runs only on the 3-day schedule.\n\nFailing run: %s\n\nRunbook: WIC-2092 (data plane — Hyperdrive provisioning is human-gated), WIC-1296 / WIC-1281 (auth plane). A paused Supabase project can only be restored by the account owner in the console.' "${AUTH_VERDICT:-⚠️ AUTH PLANE: no verdict recorded (probe did not run)}" "${DATAPLANE_VERDICT:-⚠️ DATA PLANE: no verdict recorded (probe did not run)}" "$RUN_URL")
+          BODY=$(printf 'The scheduled production canary failed. It runs TWO independent probes and reports both verdicts below; a failure in either plane fails the run without masking the other.\n\n- %s\n- %s\n\n**Auth plane** POSTs invalid canary credentials to `/api/auth/login` and expects the structured rejection `Invalid login credentials`, which only a live Supabase produces (WIC-1281/WIC-1296). It never dials Postgres.\n**Data plane** GETs `/api/health` and expects HTTP 200 with `status:ok`; HTTP 503 with `hyperdrive:false` / a destroyed `db` connection is the WIC-2092 Hyperdrive/pooler egress outage the auth probe is structurally blind to (WIC-2123). No other monitor catches this — `GET /api/*` returns 401 before Postgres is dialled, and the keep-alive `SELECT 1` runs only on the 3-day schedule.\n\n⚠️ **Cadence caveat (WIC-2125):** this canary is scheduled every 15 min but GitHub Actions delivers only ~5%% of high-frequency `schedule` ticks (measured: 39 of ~778 over 194.5h; median gap ~3h; up to a 67h blind window). Absence of this alert does NOT mean prod is healthy — effective MTTD is hours, not minutes. The durable fix is a Cloudflare Worker Cron Trigger (tracked in WIC-2125), human-gated on a credential.\n\nFailing run: %s\n\nRunbook: WIC-2092 (data plane — Hyperdrive provisioning is human-gated), WIC-1296 / WIC-1281 (auth plane). A paused Supabase project can only be restored by the account owner in the console.' "${AUTH_VERDICT:-⚠️ AUTH PLANE: no verdict recorded (probe did not run)}" "${DATAPLANE_VERDICT:-⚠️ DATA PLANE: no verdict recorded (probe did not run)}" "$RUN_URL")
           # Dedup: comment on the standing incident issue if one is already open,
-          # else open a fresh one. Avoids a new issue every 15 minutes during an outage.
+          # else open a fresh one. Avoids a new issue on every canary run during an outage.
           EXISTING=$(gh issue list --state open --search "in:title \"Prod canary FAILED\"" --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "${EXISTING:-}" ]; then
             gh issue comment "$EXISTING" --body "$BODY" && echo "Commented on open incident issue #${EXISTING}"
