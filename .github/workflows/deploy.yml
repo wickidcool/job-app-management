@@ -65,13 +65,33 @@ jobs:
       # masked it for exactly the fields most likely to be typed wrong.
       #
       # `npm ls` is the check that saw it — the tree was invalid as committed, so this
-      # was a red gate available the whole time and never run. Scoped to `zod` on
-      # purpose: a whole-tree `npm ls --all` is red today on two unrelated pre-existing
-      # skews (`esbuild@0.19.12` vs vite's `^0.27.0 || ^0.28.0`, and
-      # `@vitest/coverage-v8@1.6.1` vs `vitest@4.1.11`), tracked separately. Widen this
-      # to the full tree once those are resolved — a general gate beats a named one.
-      - name: Check zod resolves to a single valid copy
-        run: npm ls zod
+      # was a red gate available the whole time and never run.
+      #
+      # WIC-2132 widened it from `npm ls zod` to the whole tree. A named gate only ever
+      # catches the bug it was named after. The two rows that kept it named turned out
+      # NOT to be version skews: both are unmet OPTIONAL peers on a package hoisted for a
+      # different consumer (`esbuild@0.19.12` is correct for drizzle-kit's `^0.19.7`;
+      # `@vitest/coverage-v8@1.6.1` is an exact match for packages/api's `vitest@^1.6.0`,
+      # and packages/api is the only workspace that runs coverage at all). So there was
+      # nothing to resolve first, and `packages/api`'s coverage output was never wrong.
+      #
+      # A bare `npm ls --all` is therefore not the answer either — it would be red on
+      # that optional-peer noise on every run, forever, trading WIC-2126's false green
+      # for a permanent false red (cf. WIC-2122, WIC-2131). Instead the two rows are
+      # pinned in scripts/dependency-tree-baseline.json WITH their reason, shrink-only
+      # and bidirectionally, the same idiom as A11Y_BASELINE / AXE_BASELINE. Each
+      # exemption's stated classification is re-verified against the packages on disk on
+      # every run, so a peer that stops being optional goes red without anyone having to
+      # remember to revisit it. `--omit=peer` was evaluated and does not suppress these
+      # rows; `--omit=dev` does, only by deleting the entire dev tree from the check.
+      #
+      # The selftest runs first: it grades offline fixtures (new row, resolved row,
+      # expired exemption, non-invalid problem) so a regression in the checker itself
+      # cannot present as a clean tree.
+      - name: Check the dependency tree has no unexpected invalid rows
+        run: |
+          python3 scripts/dependency-tree-check.py --selftest
+          python3 scripts/dependency-tree-check.py
 
       - name: Run linter
         run: npm run lint
