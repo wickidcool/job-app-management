@@ -26,6 +26,7 @@ Deleting a resume announces the outcome to a screen reader through a live region
 **The same-name fixture is load-bearing, and that was measured rather than asserted.** Re-run with distinct filenames, the clear-removed defect produces two genuinely different strings, mutates the region twice and **passes** — a distinct-name fixture is structurally blind to this bug. Two assertions the e2e spec makes are deliberately *not* copied: that the region sits outside `#root` and wraps nothing focusable are vacuous in jsdom, where Testing Library renders into a bare `<div>` on `document.body` and there is no `#root` at all. They stay in the e2e spec.
 
 This does not reduce the need for WIC-2122. It adds a unit-layer guard to one behaviour that had none; the isolation/RLS coverage that WIC-2122 unblocks is untouched by it.
+
 ### Changed — `ResumeManager`'s delete announcer now uses the shared `Announcer`/`useAnnouncer` helper, and both announcements quote the name (2026-09-06)
 
 `pages/ResumeManager.tsx` had a hand-rolled `createPortal(<div className="sr-only" aria-live="polite">…)` block doing the same job as the helper WIC-1304 extracted. It is now `<Announcer message={announcement} />` over `useAnnouncer()`, so the page contains no `createPortal` and no `aria-live` of its own and the portal/mounting rationale lives in one place instead of two. No user-visible change to the delete path (WIC-1794).
