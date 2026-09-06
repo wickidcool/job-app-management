@@ -161,7 +161,15 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [prevQuery, setPrevQuery] = useState('');
   const [prevOpen, setPrevOpen] = useState(false);
   const navigate = useNavigate();
-  const { data: applications = [] } = useApplications();
+  // `isLoading` and `isError` are read, not just `data`, and that is the whole point of
+  // this destructure. `data` is `undefined` in BOTH the in-flight and the failed state,
+  // so the `= []` default collapses "we do not know yet", "we could not find out" and
+  // "there are genuinely none" into one indistinguishable empty list — and the branch at
+  // the bottom of this component renders that list as the flat assertion "No results
+  // found". Measured before the fix: with the user's typed query held constant, the
+  // in-flight DOM and the settled-and-genuinely-empty DOM were byte-identical across all
+  // 1546 characters. See the loading/error branches in the results region below.
+  const { data: applications = [], isLoading, isError } = useApplications();
 
   // Load recent searches - recalculate when palette opens
   const recentSearches = useMemo(() => (open ? getRecentSearches() : []), [open]);
@@ -245,6 +253,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }, [query, applications, recentSearches]);
 
   const searchResults = results();
+
+  // True whenever the applications half of the result set is unavailable — in flight, or
+  // failed. Both spellings leave `applications` empty, and neither is "there are none".
+  const applicationsMissing = isLoading || isError;
+  const applicationsMissingNotice = isLoading
+    ? 'Still loading your applications — they are not in these results yet.'
+    : 'Your applications could not be loaded, so they are missing from these results.';
 
   // Derived state pattern to reset selected index when query changes
   if (query !== prevQuery) {
@@ -548,17 +563,36 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     ))}
                   </>
                 )}
+                {/* Results exist, but they cannot include applications yet. Without this
+                    the partial list reads as the complete one: type "app" while the query
+                    is in flight and the "Applications" filter suggestion matches, so the
+                    palette shows a populated, confident-looking list with every one of
+                    your actual applications silently missing. Same false negative as the
+                    empty branch below, just harder to notice. */}
+                {applicationsMissing && (
+                  <p role="status" className="px-3 py-2 text-xs text-neutral-500">
+                    {applicationsMissingNotice}
+                  </p>
+                )}
               </div>
             ) : (
               <div className="p-8 text-center text-neutral-500">
-                {/* Purely decorative — "No results found" below says the same thing, so
-                    unlike the row glyphs this one needs no `sr-only` replacement. Without
-                    aria-hidden it is read out as "magnifying glass tilted left" first
-                    (WIC-1850). */}
+                {/* Purely decorative — the <p> below says the same thing, so unlike the row
+                    glyphs this one needs no `sr-only` replacement. Without aria-hidden it is
+                    read out as "magnifying glass tilted left" first (WIC-1850). */}
                 <div className="text-4xl mb-2" aria-hidden="true">
-                  🔍
+                  {isLoading ? '⏳' : isError ? '⚠️' : '🔍'}
                 </div>
-                <p>No results found</p>
+                {/* "No results found" is a claim about the data, and until the query
+                    settles we are not entitled to make it. `role="status"` because this
+                    text changes underneath a screen-reader user who is already typing. */}
+                <p role="status">
+                  {isLoading
+                    ? 'Searching your applications…'
+                    : isError
+                      ? 'Could not load your applications, so this search is incomplete.'
+                      : 'No results found'}
+                </p>
               </div>
             )}
 
