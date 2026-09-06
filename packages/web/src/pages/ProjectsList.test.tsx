@@ -71,7 +71,7 @@ describe('ProjectsList create-success announcement', () => {
     renderProjectsList();
     await createFirstProject('Acme Corp');
 
-    await waitFor(() => expect(liveRegion()).toHaveTextContent('Project Acme Corp created.'));
+    await waitFor(() => expect(liveRegion()).toHaveTextContent('Project "Acme Corp" created.'));
     expect(liveRegion()).toHaveAttribute('aria-live', 'polite');
   });
 

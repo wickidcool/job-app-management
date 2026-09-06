@@ -318,7 +318,7 @@ test.describe('ProjectsList — create project dialog', () => {
     await page.getByRole('button', { name: 'Create', exact: true }).click();
 
     await expect(page.getByRole('dialog')).toBeHidden();
-    await expect(liveRegion).toHaveText('Project Acme Corp created.');
+    await expect(liveRegion).toHaveText('Project "Acme Corp" created.');
     await expect(liveRegion).toHaveAttribute('aria-live', 'polite');
   });
 
