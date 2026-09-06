@@ -65,7 +65,7 @@ export function resolvePort(raw: string | undefined): number {
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(
-      `Invalid PORT: ${JSON.stringify(raw)} — must be an integer between 0 and 65535.`,
+      `Invalid PORT: ${JSON.stringify(raw)} — must be an integer between 0 and 65535.`
     );
   }
   return port;
