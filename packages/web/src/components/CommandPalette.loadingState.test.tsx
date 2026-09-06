@@ -26,10 +26,20 @@ import type { Application } from '../types/application';
  * only differing bytes in the whole subtree were the `value` attribute of the search input
  * — the user's own keystrokes, not anything the palette was telling them.
  *
- * That byte-identity is what `renders a DIFFERENT empty state ...` below pins directly,
- * and it is the assertion to keep if any other test here is ever dropped: every other
- * assertion in this file is satisfiable by a component that merely *has* a loading string
- * somewhere, whereas this one fails unless the two states actually diverge.
+ * That byte-identity is what `ANNOUNCES something different ...` below pins directly.
+ *
+ * ⚠️ AND THE FIRST VERSION OF THAT ASSERTION DID NOT WORK, which is worth recording rather
+ * than quietly fixing. It compared normalised `innerHTML`, and the docstring here claimed
+ * it was the sharpest test in the file — the one to keep if any other were dropped. The
+ * mutant matrix said otherwise: reverting the empty state's sentence to the unconditional
+ * "No results found" (mutant C — the exact original defect) left it **GREEN**, killing only
+ * the two `not.toHaveTextContent` tests. The empty state's glyph is picked by a *separate*
+ * expression from its sentence, so the markup still differed on `⏳` vs `🔍` — an
+ * `aria-hidden` decoration announced to nobody, which a sighted user cannot read a state
+ * off either when the sentence beneath it says the opposite. An assertion that reads as
+ * "the two states must diverge" was in fact satisfied by a difference carrying no
+ * information at all. It now compares **announced text**, with every `aria-hidden` subtree
+ * stripped, and mutant C kills it.
  *
  * WHY IT IS WORTH FIXING RATHER THAN TOLERATING AS A FLASH. Two reasons, and the second is
  * the one that matters:
@@ -96,9 +106,24 @@ async function type(query: string) {
   await userEvent.type(screen.getByRole('textbox'), query);
 }
 
-/** The dialog's markup with Radix's per-mount generated ids normalised away. */
-function normalisedHtml(dialog: HTMLElement) {
-  return dialog.innerHTML.replace(/radix-[_a-zA-Z0-9]+/g, 'RADIX_ID');
+/**
+ * The text the palette actually *communicates*, with every `aria-hidden` subtree removed.
+ *
+ * Comparing raw `innerHTML` here is not good enough, and the difference is not academic:
+ * the empty state's glyph (`⏳` / `⚠️` / `🔍`) is chosen by a **separate** expression from
+ * the sentence beneath it. Reverting only the sentence to the unconditional
+ * "No results found" — i.e. restoring the exact defect this file exists to pin — still
+ * leaves the two glyphs differing, so an `innerHTML` comparison goes GREEN on the bug.
+ * That glyph is `aria-hidden` decoration: it is announced to nobody, and a sighted user
+ * cannot read a state off an hourglass that the sentence contradicts.
+ *
+ * So the comparison is made over announced text only. Measured against that mutant, this
+ * is the difference between the assertion passing and failing.
+ */
+function announcedText(dialog: HTMLElement) {
+  const clone = dialog.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove());
+  return clone.textContent ?? '';
 }
 
 beforeEach(() => {
@@ -112,18 +137,21 @@ afterEach(() => {
 });
 
 describe('CommandPalette — an unsettled query is not "No results found" (WIC-2179)', () => {
-  it('renders a DIFFERENT empty state in flight than when genuinely empty', async () => {
-    // The exact comparison that measured the defect. Before the fix these two were equal.
+  it('ANNOUNCES something different in flight than when genuinely empty', async () => {
+    // The exact comparison that measured the defect. Before the fix these two were equal:
+    // byte-identical across all 1546 characters of markup, differing only in the search
+    // input's own `value`. Both queries below are the same length so that `value` cannot
+    // be the difference this assertion detects.
     STATE.isLoading = true;
     const dialog = renderPalette();
     await type(MATCHES_AN_APPLICATION);
-    const inFlight = normalisedHtml(dialog);
+    const inFlight = announcedText(dialog);
     cleanup();
 
     STATE.isLoading = false;
     const settled = renderPalette();
     await type(MATCHES_NOTHING);
-    const settledAbsent = normalisedHtml(settled);
+    const settledAbsent = announcedText(settled);
 
     expect(inFlight).not.toBe(settledAbsent);
   });
