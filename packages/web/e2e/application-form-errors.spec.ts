@@ -11,6 +11,16 @@ import { test, expect, type Page } from '@playwright/test';
  * Tests use mock auth to bypass authentication without a real backend.
  */
 
+// WIC-2201: gate on backend AVAILABILITY, never on credential presence. The old
+// guard was `!process.env.TEST_USER_EMAIL`, which treats "credentials exist" as
+// "a backend is up". CI has never started the API (playwright.config.ts runs
+// `npm run dev`, and root package.json maps `dev` to the @wic/web workspace only
+// — the API is `dev:api`, which nothing invokes), so provisioning the credential
+// woke these specs against a dead backend and took production deploys down.
+// Deliberately NOT AND-ed with a credential check: opting in without a backend
+// must fail LOUD rather than silently skip.
+const requiresLiveBackend = () => !process.env.E2E_LIVE_BACKEND;
+
 const MOCK_USER = {
   id: 'test-user-001',
   email: 'test@example.com',
@@ -63,11 +73,10 @@ async function setupBasicMocks(page: Page) {
 }
 
 test.describe('ApplicationForm - Server Validation Errors', () => {
-  // These tests require a real backend with server-side validation
-  // Skip when running without backend (no TEST_USER_EMAIL configured)
+  // These tests require a real backend with server-side validation.
   test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'Server validation tests require a running backend with TEST_USER_EMAIL configured'
+    requiresLiveBackend(),
+    'server validation requires a live API backend — set E2E_LIVE_BACKEND=1 in a job that boots dev:api'
   );
 
   test.beforeEach(async ({ page }) => {
@@ -249,10 +258,10 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
 });
 
 test.describe('ApplicationForm - Edit Mode Errors', () => {
-  // These tests require a real backend with existing applications
+  // These tests require a real backend with existing applications.
   test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'Edit mode tests require a running backend with TEST_USER_EMAIL configured'
+    requiresLiveBackend(),
+    'edit mode requires a live API backend — set E2E_LIVE_BACKEND=1 in a job that boots dev:api'
   );
 
   test.beforeEach(async ({ page }) => {

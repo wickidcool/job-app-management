@@ -382,17 +382,22 @@ jobs:
   # coverage signal (ADR-005 / WIC-201) lives in its OWN job so it can stay red
   # without taking the rest of the E2E suite or `deploy-production` down with it.
   #
-  # The isolation specs run ONLY when a real Supabase project and two test-user
-  # logins are present — they self-skip on an empty TEST_USER_EMAIL
-  # (multi-user-isolation.spec.ts:95,173,226,262,292,359). WIC-2122 route 1 is
-  # now done: the four E2E_TEST_USER* secrets and the SUPABASE_URL /
-  # SUPABASE_ANON_KEY vars are provisioned on the `dev` environment, and both
-  # this job and `e2e-tests` declare `environment: dev` to read them.
+  # WIC-2122 route 1 is done: the four E2E_TEST_USER* secrets and the
+  # SUPABASE_URL / SUPABASE_ANON_KEY vars are provisioned on the `dev`
+  # environment, which THIS job declares in order to read them.
   #
-  # This preflight stays even though credentials now exist: it is what makes a
-  # *future* silent-skip impossible — a rotated or deleted secret fails LOUD
-  # here instead of the specs quietly skipping and `e2e-tests` reading GREEN
-  # while asserting nothing about RLS isolation.
+  # ⛔ `e2e-tests` deliberately does NOT declare `environment: dev` — adding it
+  # made `main` undeployable (WIC-2201; see the guard comment on that job).
+  #
+  # ⚠️ This job's credential preflight is NOT a coverage signal. Since WIC-2201
+  # the isolation specs gate on an explicit `E2E_LIVE_BACKEND` opt-in, not on
+  # credential presence, because a credential is not a backend — CI starts no API
+  # at all. `E2E_LIVE_BACKEND` is unset everywhere today, so the specs skip
+  # regardless of what this job asserts. What the preflight still buys is a LOUD
+  # failure if a secret is rotated or deleted, so the credentials are known-good
+  # for the day WIC-2122 route 2 boots an in-job backend and turns the opt-in on.
+  # Until then this job proves the credentials exist and nothing more; do not
+  # read it as evidence that RLS isolation is covered.
   #
   # ⛔ This job is intentionally NOT in `deploy-production`'s `needs:` and is NOT
   # a required merge context (ruleset `skip-ci-sweep-required`, id 21489705, does
@@ -423,11 +428,14 @@ jobs:
           [ -z "$TEST_USER2_EMAIL" ]       && missing="$missing E2E_TEST_USER2_EMAIL"
           [ -z "$TEST_USER2_PASSWORD" ]    && missing="$missing E2E_TEST_USER2_PASSWORD"
           if [ -n "$missing" ]; then
-            echo "::error title=E2E isolation coverage did NOT run::Multi-user data-isolation specs (ADR-005 / WIC-201) self-skip without these, so a green E2E check would falsely assert RLS isolation coverage. Missing (names only):$missing"
-            echo "Restore coverage via WIC-2122 route 1: provision these on the 'dev' environment and add 'environment: dev' to this job (needs a human to mint live test-user credentials)." >&2
+            echo "::error title=E2E isolation credentials are MISSING::Multi-user data-isolation specs (ADR-005 / WIC-201) cannot run without these, so the isolation coverage in WIC-2122 route 2 cannot be turned on. Missing (names only):$missing"
+            echo "Provision these on the 'dev' environment (needs a human to mint live test-user credentials). Do NOT 'fix' this by adding 'environment: dev' to the e2e-tests job — that made main undeployable (WIC-2201)." >&2
             exit 1
           fi
-          echo "All isolation-test credentials present — multi-user data-isolation specs will run."
+          echo "All isolation-test credentials present and known-good."
+          echo "Isolation coverage is OFF: the specs gate on E2E_LIVE_BACKEND (WIC-2201), which is unset, so they SKIP."
+          echo "This job asserts credential presence only — it is NOT evidence of RLS isolation coverage."
+          echo "Enabling coverage needs a backend in CI, not a credential: WIC-2122 route 2 boots an in-job dev:api and sets E2E_LIVE_BACKEND=1 here."
 
   # WIC-1203: does this PR change anything that writes to the shared dev
   # database? Only such PRs need to serialize against each other (see the
