@@ -39,6 +39,23 @@ Verified three ways, not one: the audit's own flags now report **0**; dropping `
 ⚠️ **A stale dev server made the fixed e2e spec fail.** `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, and a `vite` process left over from the WIC-2124 investigation was still serving port 5173 **out of a different checkout** — one that still had the broken nested zod. The spec ran green against the fix only after that process was killed. A local Playwright pass certifies whichever tree the listener on 5173 was started from, not the one you are sitting in; check the port before believing either a pass or a failure.
 
 
+
+### Changed — `packages/api` runs vitest 4, `esbuild` nests under `drizzle-kit`, and the dependency-tree baseline is now EMPTY (2026-09-06)
+
+Both rows the WIC-2132 gate had to pin are **resolved rather than waived**, so `scripts/dependency-tree-baseline.json` ships with `"exempt": []` and a bare `npm ls --all` exits **0** on its own — the one clause of WIC-2129's acceptance that did not previously hold (WIC-2137).
+
+- **`@vitest/coverage-v8@1.6.1`** — `packages/api` moved from `vitest@^1.6.0` to `^4.1.11`, with `@vitest/coverage-v8` moved as the matched pair. The monorepo no longer runs two majors of its own test runner: both workspaces are on 4.1.11.
+- **`esbuild@0.19.12`** — the root now declares `esbuild: ^0.27.0`, which satisfies both `vite@8` copies and pushes drizzle-kit's own correct `0.19.12` down into `node_modules/drizzle-kit/node_modules/esbuild`. **The card's fence said not to do this because "drizzle-kit would break"; that premise was tested, not assumed, and it does not hold** — the break it predicts is a *shared* copy being raised, and npm nests instead. Verified: drizzle-kit resolves its nested `0.19.12`, both binaries execute, and `drizzle-kit generate` still loads `drizzle.config.ts` through `esbuild-register` (which declares esbuild as a peer at `>=0.12 <1`, so 0.27.7 satisfies it).
+
+**The migration was baselined before it started, because a non-collecting suite reports green.** Pre-migration on vitest 1.6.1: **85 files / 1651 tests**. Post-migration: **85 files / 1651 tests**, and `npm run test:coverage` exits 0 with **59 files instrumented** — one more than the 58 the old text reporter listed, so nothing silently stopped being measured.
+
+⚠️ **The coverage percentage moved a long way and no coverage got worse: 84.93% → 70.98% statements.** `@vitest/coverage-v8@4` remaps through `ast-v8-to-istanbul` instead of v1's line-based mapper, so the same executed code is scored against a stricter, AST-accurate denominator. The ruler changed, not the tests — the file inventory is a superset and every test still passes. No threshold is configured anywhere and `test:coverage` is not run in CI, so nothing gates on the number.
+
+**Three real breaks, all in test code, none in `src/`.** Four `vi.fn()` mocks were invoked with `new` while implemented as arrow functions; vitest 4 rejects that (`did not use 'function' or 'class'`), so they became function expressions — the other six `@anthropic-ai/sdk` mocks already used `class` and needed nothing. Separately, `packages/api` now sets `hookTimeout: 30_000`: six suites build a real PGlite database in `beforeAll`, vitest 4 enforces the 10s default on them where 1.6 did not, and **which** file trips it varies run to run (three different files across three runs, each passing in isolation) — contention, not a slow suite. Under 1.6 those same files took 13.3s and 14.3s end-to-end and passed.
+
+`packages/web`'s `vite` was refreshed 8.0.8 → 8.2.2 inside its existing `^8.0.4` range so both workspaces resolve one vite and one rolldown; without that, `vitest@4` pulled a second rolldown into `packages/api` and the gate went red on `@rolldown/binding-linux-x64-musl`. `--selftest` gains two arms that grade against an **empty** baseline, since the other seven use a hardcoded fixture and therefore pass no matter what the shipped file says (WIC-2110).
+
+
 ### Changed — The `npm ls` CI gate now covers the whole dependency tree, not just `zod`; and the two rows that kept it named are NOT version skews (2026-09-06)
 
 WIC-2126 shipped `npm ls zod` as a CI gate and deferred widening it to `npm ls --all` until "two unrelated pre-existing skews" were resolved. **Measured on a clean `npm ci` at `main` `3950ae76`: there are no skews to resolve.** Both rows are **unmet OPTIONAL peers on a package hoisted for a different consumer**, which npm reports as `invalid` (WIC-2132, carrying WIC-2129).

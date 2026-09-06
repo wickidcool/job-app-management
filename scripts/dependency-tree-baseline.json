@@ -1,33 +1,5 @@
 {
   "_comment": "Shrink-only baseline for scripts/dependency-tree-check.py (WIC-2132). Every entry needs a human-written `reason`. `classification` is re-verified against the packages on disk on every run; `observedVersion` is informational and is not part of the match key. This file may only shrink: an entry whose row no longer appears is a build failure, so a resolved skew must be deleted here in the same change.",
-  "exempt": [
-    {
-      "name": "@vitest/coverage-v8",
-      "observedVersion": "1.6.1",
-      "installPath": "node_modules/@vitest/coverage-v8",
-      "requiredBy": [
-        {
-          "range": "4.1.11",
-          "from": "packages/web/node_modules/vitest"
-        }
-      ],
-      "classification": "unmet_optional_peer",
-      "detail": "packages/web/node_modules/vitest (optional peer 4.1.11)",
-      "reason": "Unmet OPTIONAL peer of a package that belongs to a different consumer — not a version skew. The hoisted @vitest/coverage-v8@1.6.1 is installed for `packages/api`, which declares `vitest: ^1.6.0` AND `@vitest/coverage-v8: ^1.6.0` and resolves the hoisted 1.6.1 pair: an exact, self-consistent match. `packages/api` is the only workspace with a `test:coverage` script, so it is the only consumer of coverage at all. `packages/web` declares no coverage package, has no `test:coverage` script and never runs coverage; its nested vitest@4.1.11 merely lists `@vitest/coverage-v8: 4.1.11` as a peer marked `optional: true`, so npm walks up, finds api's copy, judges it against web's range and prints `invalid`. NOTHING IS MIS-PAIRED, and no coverage number this repo has quoted was ever wrong (WIC-2129's alarm to the contrary was measured false on WIC-2132). Removing this row legitimately means migrating packages/api from vitest 1.6.x to vitest 4 — tracked separately, not a prerequisite for this gate. Do NOT remove it by adding @vitest/coverage-v8 to packages/web: that installs a package web never imports, purely to satisfy an optional peer."
-    },
-    {
-      "name": "esbuild",
-      "observedVersion": "0.19.12",
-      "installPath": "node_modules/esbuild",
-      "requiredBy": [
-        {
-          "range": "^0.27.0 || ^0.28.0",
-          "from": "packages/web/node_modules/vite"
-        }
-      ],
-      "classification": "unmet_optional_peer",
-      "detail": "packages/web/node_modules/vite (optional peer ^0.27.0 || ^0.28.0)",
-      "reason": "Same shape as the row above: unmet OPTIONAL peer of a package that belongs to a different consumer. The hoisted esbuild@0.19.12 is CORRECT for its owner — `drizzle-kit` declares `esbuild: ^0.19.7`. `packages/web/node_modules/vite@8.0.8` lists `esbuild: ^0.27.0 || ^0.28.0` as a peer marked `optional: true`; npm walks up from web's vite, finds drizzle-kit's copy and judges it against vite's range. Do NOT raise root esbuild to ^0.27 to clear this — that breaks drizzle-kit, which requires ^0.19.7. (For the record, all four installed esbuild copies were enumerated on 2026-09-06 and each is correct for its own owner: `node_modules/esbuild@0.19.12` for drizzle-kit@0.21.4's `^0.19.7`; `node_modules/vite/node_modules/esbuild@0.21.5` for root vite@5.4.21's `^0.21.3`; `node_modules/tsx/node_modules/esbuild@0.27.7` for tsx@4.21.0's `~0.27.0`; `node_modules/@esbuild-kit/core-utils/node_modules/esbuild@0.18.20` for that package's own range. WIC-2129 attributed 0.27.7 to vite; it belongs to tsx.) Removing this row legitimately means nesting esbuild under drizzle-kit."
-    }
-  ]
+  "_empty": "EMPTY IS THE GOAL STATE, and it is the state as of WIC-2137. Both original entries were resolved, not waived: `@vitest/coverage-v8@1.6.1` by migrating packages/api from vitest 1.6 to vitest 4 (so the only coverage package in the tree is the 4.1.11 one its own vitest asks for), and `esbuild@0.19.12` by declaring esbuild ^0.27.0 at the root, which nests drizzle-kit's correct 0.19.12 under node_modules/drizzle-kit/ instead of hoisting it into the slot both vite copies resolve. `npm ls --all` now exits 0 on its own. Adding an entry here is a real decision: it must be a row that is genuinely benign AND cannot be resolved, with the reason written out at the length of the two WIC-2132 entries (see git history of this file for their form). Prefer fixing the tree.",
+  "exempt": []
 }
