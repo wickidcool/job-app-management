@@ -221,13 +221,39 @@ describe('CommandPalette — an unsettled query is not "No results found" (WIC-2
     expect(dialog).not.toHaveTextContent('could not be loaded');
   });
 
+  it('flags the no-query LANDING view too, where the rows just silently go missing', async () => {
+    // The third surface, and the quietest. With no query typed, `searchResults` is the
+    // landing menu (suggestions + recents), so it is non-empty and the empty state never
+    // renders — but the "Recent Applications" section simply has nothing in it. Measured
+    // in this state: the notice renders and the application row does not, so the absence
+    // is now narrated instead of silent.
+    //
+    // This surface had no positive test until WIC-2179 follow-up. It was covered by the
+    // implementation only incidentally, because the notice sits in the outer results
+    // `<div>` after both the `!query` and query blocks rather than inside either one.
+    STATE.isLoading = true;
+    localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(['remote backend']));
+    const dialog = renderPalette();
+
+    expect(dialog).toHaveTextContent('Still loading your applications');
+    expect(dialog).not.toHaveTextContent('Senior Engineer');
+    expect(dialog).not.toHaveTextContent('No results found');
+  });
+
   it('NEGATIVE CONTROL: the no-query landing view is unaffected once settled', async () => {
     // The `!query` branch shows suggestions and recents. It must keep showing the
     // application rows, so the notice must not fire on a healthy settled palette.
+    //
+    // ⚠️ BOTH notice strings are asserted absent, not just the loading one. Checking only
+    // "Still loading…" left this control one-sided, and measurably so: the mutant that
+    // forces `applicationsMissing = true` leaves `isLoading` false, so the notice renders
+    // with its *error* wording — and a control that names only the loading string stayed
+    // GREEN on it while its sibling control (which names both) went red.
     localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(['remote backend']));
     const dialog = renderPalette();
 
     expect(dialog).toHaveTextContent('Senior Engineer');
     expect(dialog).not.toHaveTextContent('Still loading your applications');
+    expect(dialog).not.toHaveTextContent('could not be loaded');
   });
 });
