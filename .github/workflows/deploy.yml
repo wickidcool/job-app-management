@@ -281,12 +281,27 @@ jobs:
     # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
     # red check in 15 min rather than a pending one for 6h.
     timeout-minutes: 15
-    # WIC-2122: SUPABASE_URL/SUPABASE_ANON_KEY (vars) and the four E2E_TEST_USER*
-    # secrets the isolation specs need are provisioned on the `dev` environment,
-    # not at the repo level. Without this, `vars.*`/`secrets.*` below resolve
-    # empty, the specs self-skip, and e2e-isolation-coverage going green (now
-    # that its own environment: dev is set) would assert nothing.
-    environment: dev
+    # WIC-2201: this job deliberately has NO `environment: dev`, and adding one
+    # breaks production deploys. 2a9482a7 (WIC-2122) added it so the isolation
+    # specs would stop self-skipping. They stopped skipping and started FAILING:
+    # the specs are gated on `test.skip(!process.env.TEST_USER_EMAIL, '...
+    # require a running backend ...')`, which treats "credentials exist" as
+    # "a backend is up". CI never starts the API -- playwright.config.ts runs
+    # `npm run dev`, and root package.json maps `dev` to the @wic/web workspace
+    # only (the API is `dev:api`, never invoked). So supplying the credential
+    # woke all 29 credential-gated specs against a dead backend -- and they span
+    # FOUR spec files, not just the isolation one: multi-user-isolation 15,
+    # application-form-errors 7, auth 5, document-storage 2 (= the whole of
+    # 9ed0c01a's "29 skipped"). Each fails
+    # on a ~30s timeout, retries 3x, the job blows the 15m timeout above, and the
+    # cancellation SKIPS deploy-production. Measured on run 34052242328 --
+    # e2e-tests cancelled at 15m14s, deploy-production skipped. The parent commit
+    # 9ed0c01a is the positive control: identical config without this key,
+    # 148 passed / 29 skipped in 2.7m.
+    #
+    # Re-enabling the specs needs a backend in CI, not a credential. Until then
+    # the honest gate is an explicit opt-in (E2E_LIVE_BACKEND) on the specs
+    # themselves -- see WIC-2201 / WIC-2199 §2 -- not an environment on this job.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
