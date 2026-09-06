@@ -94,7 +94,10 @@ export function ProjectsList() {
       setShowCreateModal(false);
       setNewProjectName('');
       setNewProjectDescription('');
-      announce(`Project ${createdName} created.`);
+      // Quoted, so a project named e.g. "created" or one ending in a period still
+      // reads as a parseable sentence aloud — and so this matches the delete path
+      // in `ResumeManager` (`Resume "resume.pdf" deleted.`). WIC-1794 / PR #252.
+      announce(`Project "${createdName}" created.`);
     } catch (error) {
       console.error('Failed to create project:', error);
       alert('Failed to create project. Please try again.');
