@@ -1,53 +1,11 @@
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as Dialog from '@radix-ui/react-dialog';
-import { z } from 'zod';
 import type { Application, ApplicationFormData, ApplicationStatus } from '../types/application';
 import { useEffect, useState } from 'react';
 import { APIError } from '../services/api/apiClient';
-
-// Zod validation schema based on component specs
-const applicationFormSchema = z.object({
-  jobTitle: z
-    .string()
-    .min(2, 'Job title must be at least 2 characters')
-    .max(200, 'Job title must be less than 200 characters'),
-  company: z
-    .string()
-    .min(2, 'Company name must be at least 2 characters')
-    .max(100, 'Company name must be less than 100 characters'),
-  url: z
-    .string()
-    .regex(/^https?:\/\/.+/, 'Must be a valid URL starting with http:// or https://')
-    .optional()
-    .or(z.literal('')),
-  location: z.string().optional(),
-  salaryRange: z.string().optional(),
-  jobDescription: z
-    .string()
-    .max(10000, 'Job description must be less than 10,000 characters')
-    .optional(),
-  status: z.enum([
-    'saved',
-    'applied',
-    'phone_screen',
-    'interview',
-    'offer',
-    'rejected',
-    'withdrawn',
-  ]),
-  linkCoverLetter: z.boolean().optional(),
-  coverLetterId: z.string().optional(),
-  // UC-5 Extended Tracking Fields
-  contact: z.string().max(200, 'Contact must be less than 200 characters').optional(),
-  compTarget: z.string().optional(),
-  nextAction: z.string().max(500, 'Next action must be less than 500 characters').optional(),
-  nextActionDue: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')
-    .optional()
-    .or(z.literal('')),
-});
+import { instantToDateTimeLocal } from '../utils/datetimeLocal';
+import { applicationFormSchema } from './applicationFormSchema';
 
 export interface ApplicationFormProps {
   open: boolean;
@@ -108,6 +66,11 @@ export function ApplicationForm({
           compTarget: application.compTarget || '',
           nextAction: application.nextAction || '',
           nextActionDue: application.nextActionDue || '',
+          // Not `application.interviewDate || ''`. The stored value is a full instant and
+          // the control needs `YYYY-MM-DDTHH:mm` *in the user's zone*; handing it the raw
+          // ISO string leaves the control blank, and slicing sixteen characters off it
+          // would show the UTC hour. WIC-2188.
+          interviewDate: instantToDateTimeLocal(application.interviewDate),
         }
       : {
           jobTitle: propDefaultValues?.jobTitle ?? '',
@@ -122,6 +85,7 @@ export function ApplicationForm({
           compTarget: propDefaultValues?.compTarget ?? '',
           nextAction: propDefaultValues?.nextAction ?? '',
           nextActionDue: propDefaultValues?.nextActionDue ?? '',
+          interviewDate: instantToDateTimeLocal(propDefaultValues?.interviewDate),
         },
   });
 
@@ -147,6 +111,7 @@ export function ApplicationForm({
               compTarget: application.compTarget || '',
               nextAction: application.nextAction || '',
               nextActionDue: application.nextActionDue || '',
+              interviewDate: instantToDateTimeLocal(application.interviewDate),
             }
           : {
               jobTitle: propDefaultValues?.jobTitle ?? '',
@@ -161,6 +126,7 @@ export function ApplicationForm({
               compTarget: propDefaultValues?.compTarget ?? '',
               nextAction: propDefaultValues?.nextAction ?? '',
               nextActionDue: propDefaultValues?.nextActionDue ?? '',
+              interviewDate: instantToDateTimeLocal(propDefaultValues?.interviewDate),
             }
       );
     }
@@ -521,6 +487,40 @@ export function ApplicationForm({
                     </p>
                   )}
                 </div>
+              </div>
+
+              {/*
+                Interview Date. `datetime-local`, not `date` like the Due Date control it sits
+                under — an interview happens at a time, and `InterviewPrepCard` renders a
+                countdown off this value, so a day alone would put the countdown up to a full
+                offset out. See the schema comment on `interviewDate` above. WIC-2188.
+              */}
+              <div className="mt-4">
+                <label
+                  htmlFor="interviewDate"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Interview Date &amp; Time
+                </label>
+                <input
+                  id="interviewDate"
+                  type="datetime-local"
+                  {...register('interviewDate')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-invalid={!!errors.interviewDate}
+                  aria-describedby={
+                    errors.interviewDate ? 'interviewDate-error' : 'interviewDate-hint'
+                  }
+                />
+                <p id="interviewDate-hint" className="mt-1 text-xs text-gray-500">
+                  When the interview is scheduled, in your local time. Leave empty to clear a
+                  scheduled interview.
+                </p>
+                {errors.interviewDate && (
+                  <p id="interviewDate-error" className="mt-1 text-sm text-red-600" role="alert">
+                    {errors.interviewDate.message}
+                  </p>
+                )}
               </div>
             </div>
 

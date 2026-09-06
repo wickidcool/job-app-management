@@ -30,6 +30,11 @@ function transformAPIApplication(apiApp: APIApplication): Application {
     compTarget: apiApp.compTarget,
     nextAction: apiApp.nextAction,
     nextActionDue: apiApp.nextActionDue,
+    // `?? undefined` rather than a passthrough: the API sends an explicit `null` for an
+    // unscheduled interview and `Application.interviewDate` is `string | undefined`.
+    // Normalising at the boundary keeps "no interview" a single value on the client side.
+    // WIC-2188.
+    interviewDate: apiApp.interviewDate ?? undefined,
   };
 }
 
@@ -189,6 +194,7 @@ export class ApplicationService {
       compTarget: data.compTarget,
       nextAction: data.nextAction,
       nextActionDue: data.nextActionDue,
+      interviewDate: data.interviewDate,
     };
 
     const response = await this.client.post<{ application: APIApplication }>(
@@ -220,6 +226,10 @@ export class ApplicationService {
       compTarget: data.compTarget,
       nextAction: data.nextAction,
       nextActionDue: data.nextActionDue,
+      // Forwarded verbatim, including `''`. That is not sloppiness about empty strings: `''`
+      // is the *clear* request and `undefined` is the leave-alone request, and collapsing
+      // them here would make a cleared interview date silently un-clearable. WIC-2188.
+      interviewDate: data.interviewDate,
     };
 
     const response = await this.client.patch<{ application: APIApplication }>(
