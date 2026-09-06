@@ -369,6 +369,19 @@ jobs:
           TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
           TEST_USER2_EMAIL: ${{ secrets.E2E_TEST_USER2_EMAIL }}
           TEST_USER2_PASSWORD: ${{ secrets.E2E_TEST_USER2_PASSWORD }}
+          # WIC-2207: wake the 8 UI-tier isolation tests in
+          # `multi-user-isolation.spec.ts`. They mock their auth AND their API
+          # responses, so unlike the `E2E_LIVE_BACKEND` tier they need no backend
+          # and no credentials — which is why this belongs here rather than
+          # waiting on WIC-2122.
+          #
+          # ⚠️ Deliberately NOT in the `e2e-isolation-coverage` job, which is
+          # where WIC-2207 originally proposed it. That job has no checkout, no
+          # Node and no Playwright install — it is a 2-minute credential
+          # preflight that runs zero tests, so the variable would have had
+          # nothing to gate. Setting it there would have read as coverage while
+          # changing nothing, which is the same class of defect this card fixed.
+          E2E_ISOLATION_UI: '1'
 
       - name: Upload Playwright report
         if: always()
