@@ -79,7 +79,7 @@ function prepResponse(interviewDate: string | undefined): GetInterviewPrepRespon
       id: 'prep_1',
       applicationId: APPLICATION_ID,
       interviewType: 'behavioral',
-      timeAvailable: '1_hour',
+      timeAvailable: '1hr',
       focusAreas: [],
       completeness: 80,
       stories: [],
@@ -116,10 +116,7 @@ function renderPage(interviewDate: string | undefined) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[`/applications/${APPLICATION_ID}/interview-prep`]}>
         <Routes>
-          <Route
-            path="/applications/:id/interview-prep"
-            element={<InterviewPrepPage />}
-          />
+          <Route path="/applications/:id/interview-prep" element={<InterviewPrepPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
