@@ -342,7 +342,7 @@ jobs:
       #   or downgrade WIC-2092 ("prod data layer down") by citing green runs from
       #   2026-09-05 or earlier — they assert nothing about the data plane. And do not
       #   open a regression card for "prod broke at 21:53Z" — nothing broke then; the
-      #   probe started looking. (WIC-2174; same class as the signature drift above.)
+      #   probe started looking. (WIC-2175; same class as the signature drift above.)
       #
       # SAFETY
       #   Read-only, unauthenticated GET. No credentials, no state change.
