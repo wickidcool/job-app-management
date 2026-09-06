@@ -326,23 +326,43 @@ jobs:
       #
       # ⛔ THIS WORKFLOW'S GREEN HISTORY PREDATES THIS STEP — do not read it as uptime
       #   The `prod canary (auth + data plane)` job did not exist until WIC-2123 landed in
-      #   `18d8a183`, 2026-09-05T22:03Z. Every earlier run of this workflow is green
-      #   because it only ever ran the keep-alive and the auth probe, neither of which
-      #   dials Postgres — NOT because the data plane was up. `gh run list` renders the
-      #   two indistinguishably, so the transition to red at 2026-09-05T21:53Z is this
-      #   instrument landing, not a regression: it is the first execution of the job,
-      #   from a `workflow_dispatch` on the WIC-2123 branch ten minutes before merge.
+      #   `18d8a183`, 2026-09-05T22:03Z. Every earlier run is green because on the
+      #   15-minute tick it ran only the auth probe, which does not dial Postgres — NOT
+      #   because the data plane was up. The `keep-alive` job *does* dial Postgres
+      #   (`psql … -c 'SELECT 1;'` against the same pooler host family), but it is gated
+      #   to `workflow_dispatch` and the `17 6 */3 * *` schedule, so it is SKIPPED on the
+      #   15-minute ticks that make up this history. `gh run list` renders "green because
+      #   healthy" and "green because unmeasured" indistinguishably, so the transition to
+      #   red at 2026-09-05T21:53Z is this instrument landing, not a regression: it is the
+      #   first execution of the job, from a `workflow_dispatch` on the WIC-2123 branch
+      #   ten minutes before merge.
       #
-      #   Measured 2026-09-06T11:0xZ: of the runs in which this job exists it is red
-      #   9/9, from its very first execution. It has never once observed a healthy data
-      #   plane. So this workflow's history contains NO evidence the data plane was ever
-      #   up, in either direction — it is silent before 21:53Z and uniformly red after.
+      #   Measured 2026-09-06T11:3xZ over all 50 runs of this workflow: of the 9 runs in
+      #   which this job exists it is red 9/9, from its very first execution, and the
+      #   data-plane STEP itself is `failure` in all 9 (not merely the run). It has never
+      #   once observed a healthy data plane, so the 15-minute tick history says nothing
+      #   about `/api/health`.
+      #
+      #   It is NOT silent about Postgres generally, and that distinction is the useful
+      #   part. The `keep-alive` job executed in 11 of those 50 runs, and
+      #   `keep-alive (production)` — including its `SELECT 1` step — succeeded in all
+      #   11, most recently 2026-09-06T10:33:20Z, in the very run whose data-plane probe
+      #   failed. psql from Actions reaches the pooler while the Worker's `/api/health`
+      #   does not. That contrast localizes WIC-2092 to the Worker->Postgres path
+      #   (Hyperdrive/egress, WIC-2097) rather than to Supabase being down — preserve it
+      #   rather than discarding this workflow wholesale.
+      #
+      #   ⚠️ If you widen the keep-alive `if:` gate above, re-derive this note. The reason
+      #   the tick history is uninformative is that the keep-alive is SKIPPED on those
+      #   ticks — not that it cannot reach Postgres. Change the gate and the stated reason
+      #   becomes the wrong test while still reading fine.
       #
       #   Two live cards turn on that distinction, in opposite directions. Do not close
       #   or downgrade WIC-2092 ("prod data layer down") by citing green runs from
-      #   2026-09-05 or earlier — they assert nothing about the data plane. And do not
+      #   2026-09-05 or earlier — they assert nothing about `/api/health`. And do not
       #   open a regression card for "prod broke at 21:53Z" — nothing broke then; the
-      #   probe started looking. (WIC-2175; same class as the signature drift above.)
+      #   probe started looking. (WIC-2175, corrected by WIC-2176; same class as the
+      #   signature drift above.)
       #
       # SAFETY
       #   Read-only, unauthenticated GET. No credentials, no state change.
