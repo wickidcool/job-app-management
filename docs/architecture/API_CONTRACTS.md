@@ -326,7 +326,9 @@ Returns all applications for the authenticated user.
 | `status` | string | No | Filter by status (comma-separated for multiple) |
 | `company` | string | No | Filter by company name (partial match) |
 | `search` | string | No | Search in job title and company |
-| `sortBy` | string | No | Sort field: `createdAt`, `updatedAt`, `company` (default: `updatedAt`) |
+| `interviewDateFrom` | string | No | Inclusive lower bound on `interviewDate`. ISO-8601 **with an offset** (`2026-09-01T00:00:00Z`); a date-only value is a `400`. Rows with no interview date are excluded. |
+| `interviewDateTo` | string | No | Inclusive upper bound on `interviewDate`, same format. `from > to` is a `400`, not an empty page. |
+| `sortBy` | string | No | Sort field: `createdAt`, `updatedAt`, `company`, `interviewDate` (default: `updatedAt`) |
 | `sortOrder` | string | No | `asc` or `desc` (default: `desc`) |
 | `limit` | number | No | Max results (default: 50, max: 100) |
 | `page` | string | No | Pagination cursor from the previous response's `nextPage`. Note this endpoint uses `page`/`nextPage`, not `cursor`/`nextCursor` — see [Pagination](#pagination). |
@@ -933,7 +935,12 @@ export interface ListApplicationsParams {
   status?: ApplicationStatus | ApplicationStatus[];
   company?: string;
   search?: string;
-  sortBy?: 'createdAt' | 'updatedAt' | 'company';
+  // Inclusive bounds on `interviewDate`; ISO-8601 with an offset. Rows whose
+  // interview date is NULL are excluded by either bound. Sorting by
+  // `interviewDate` places them last in BOTH directions.
+  interviewDateFrom?: string;
+  interviewDateTo?: string;
+  sortBy?: 'createdAt' | 'updatedAt' | 'company' | 'interviewDate';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
   page?: string;             // Opaque; from the previous response's `nextPage`
