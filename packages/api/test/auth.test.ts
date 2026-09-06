@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SignJWT, generateKeyPair, exportJWK, createLocalJWKSet, createRemoteJWKSet } from 'jose';
 import { buildApp } from '../src/app.js';
-import { _resetConfig } from '../src/config.js';
+import { _resetConfig, getConfig } from '../src/config.js';
 import { _resetJwksCache } from '../src/middleware/auth.js';
 // Mocked below; imported so the WIC-1554 cases can grade *whether a handler
 // ran*, not just the status code the middleware returned.
@@ -367,6 +367,188 @@ describe('Auth Middleware', () => {
 
       expect(res.status).toBe(200);
       expect(vi.mocked(listApplications)).toHaveBeenCalledWith(expect.anything(), DEV_OWNER);
+    });
+  });
+
+  /**
+   * WIC-2191 — a *blank* binding must fall through to config, not resolve to `''`.
+   *
+   * The middleware resolved both gate inputs with `??`, which falls back only on
+   * `null`/`undefined`. A Worker binding that is present-but-empty therefore won
+   * the coalesce as `''`, which is falsy, so `!supabaseUrl && !jwtSecret` was
+   * TRUE and the **local-dev bypass fired in a deployed Worker** — returning
+   * `next()` above the `Authorization` check, so no token was needed at all.
+   *
+   * The direction is what makes it worth a suite of its own. WIC-2183 was the
+   * same coercion class and failed *loud* (a 503). This one fails **open**: no
+   * error, no log line, a 200, and `userId` set to `LOCAL_DEV_USER_ID_DEFAULT` —
+   * the sentinel `migrations/0017_enforce_userid_not_null.sql` backfills every
+   * pre-tenancy row to. An unauthenticated caller would read and write as the
+   * tenant that owns the legacy data.
+   *
+   * These cases exercise the **binding** path (`app.request`'s third argument),
+   * which nothing in this file did before — every pre-existing case reaches the
+   * middleware through `process.env`/`getConfig()` with `c.env` undefined, so the
+   * `??` was never given a blank left-hand side to coalesce.
+   */
+  describe('WIC-2191 — a blank Worker binding does not open the local-dev bypass', () => {
+    const REAL_URL = 'https://project.supabase.co';
+
+    it('blank both bindings WITH config set: config wins, so a token is required', async () => {
+      process.env.SUPABASE_URL = REAL_URL;
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+      const app = buildApp();
+
+      const res = await app.request(
+        '/api/applications',
+        { method: 'GET' },
+        { SUPABASE_URL: '', SUPABASE_JWT_SECRET: '' }
+      );
+
+      // Pre-fix this was 200: `'' ?? config` is `''`, both gate inputs read
+      // falsy, and the bypass returned before the header was ever inspected.
+      expect(res.status).toBe(401);
+      expect((await res.json()).error.code).toBe('UNAUTHORIZED');
+      // The half that matters — no route was served for an unauthenticated caller.
+      expect(vi.mocked(listApplications)).not.toHaveBeenCalled();
+    });
+
+    it('blank both bindings WITH config set: the configured secret still authenticates', async () => {
+      process.env.SUPABASE_URL = REAL_URL;
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+      const app = buildApp();
+      const token = await signToken(TEST_JWT_SECRET, 'user-blank-binding');
+
+      const res = await app.request(
+        '/api/applications',
+        { method: 'GET', headers: { authorization: `Bearer ${token}` } },
+        { SUPABASE_URL: '', SUPABASE_JWT_SECRET: '' }
+      );
+
+      // Positive control. Without it the case above is satisfied by a middleware
+      // that 401s everything — i.e. by breaking auth rather than fixing it. This
+      // also pins that the fallback yields the *usable* configured secret, not
+      // merely a truthy value that fails verification.
+      expect(res.status).toBe(200);
+      expect(vi.mocked(listApplications)).toHaveBeenCalledWith(
+        expect.anything(),
+        'user-blank-binding'
+      );
+    });
+
+    it('blank both bindings and NO config: the bypass still fires — unconfigured is unconfigured', async () => {
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_JWT_SECRET;
+      const app = buildApp();
+
+      const res = await app.request(
+        '/api/applications',
+        { method: 'GET' },
+        { SUPABASE_URL: '', SUPABASE_JWT_SECRET: '' }
+      );
+
+      // ADR-010 D3 / the middleware comment at :69-72: the fix collapses "blank"
+      // into "absent in the binding" so the *config* fallback gets its turn. It
+      // must not tighten *when* the bypass fires. With nothing configured on
+      // either side there is genuinely no auth to enforce.
+      expect(res.status).toBe(200);
+      expect(vi.mocked(listApplications)).toHaveBeenCalledWith(expect.anything(), DEV_OWNER);
+    });
+
+    it('absent both bindings and no config: the bypass supplies the sentinel owner (no regression)', async () => {
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_JWT_SECRET;
+      const app = buildApp();
+
+      const res = await app.request('/api/applications', { method: 'GET' }, {});
+
+      expect(res.status).toBe(200);
+      expect(vi.mocked(listApplications)).toHaveBeenCalledWith(expect.anything(), DEV_OWNER);
+    });
+
+    it('blank SUPABASE_JWT_SECRET only: verification uses the configured secret, not an empty key', async () => {
+      // `SUPABASE_URL` absent on *both* sides, so the bypass gate turns entirely
+      // on the secret. Pre-fix: `'' ?? TEST_JWT_SECRET` is `''` → both inputs
+      // falsy → bypass → 200 for a token signed with anything at all.
+      delete process.env.SUPABASE_URL;
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+      const app = buildApp();
+      const wrongToken = await signToken('some-other-secret-32-chars-minimum!!', 'attacker');
+
+      const res = await app.request(
+        '/api/applications',
+        { method: 'GET', headers: { authorization: `Bearer ${wrongToken}` } },
+        { SUPABASE_JWT_SECRET: '' }
+      );
+
+      expect(res.status).toBe(401);
+      expect(vi.mocked(listApplications)).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The fix is `||`, deliberately NOT `?.trim() ||`.
+     *
+     * The card proposed mirroring line 77's `?.trim() ||` idiom. That is right
+     * for `LOCAL_DEV_USER_ID`, where the fallback is a safe sentinel, and wrong
+     * here, where the fallback decides whether auth runs at all: `'   '` is
+     * truthy, so today a whitespace-only binding takes the JWT path and 401s
+     * everything — fail-CLOSED. Adding `.trim()` would collapse it to `''`, fall
+     * through to an absent config, and open the very bypass this card closes.
+     *
+     * That is not hypothetical cover: `deploy.yml`'s guard is `[ -z "$X" ]`,
+     * which passes a whitespace-only secret. Trimming would move the one input
+     * CI cannot catch from the safe direction to the unsafe one.
+     */
+    it('whitespace-only binding stays fail-CLOSED — the fix must not trim', async () => {
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_JWT_SECRET;
+      const app = buildApp();
+
+      const res = await app.request(
+        '/api/applications',
+        { method: 'GET' },
+        { SUPABASE_URL: '   ', SUPABASE_JWT_SECRET: '   ' }
+      );
+
+      expect(res.status).toBe(401);
+      expect(vi.mocked(listApplications)).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * WIC-2191, config layer — `config.ts` built these with a bare `??` too, so a
+   * blank `process.env` value became `''` and the declared `string | null` type
+   * was not honest about it.
+   *
+   * The card asked for this "so `plugins/auth.ts` is covered". That premise does
+   * not hold and the test does not pretend otherwise: `src/plugins/auth.ts` is
+   * dead code — nothing imports `authPlugin`, `src/plugins` is in `tsconfig.json`'s
+   * `exclude`, and `fastify`/`fastify-plugin` are not dependencies, so the module
+   * cannot even be imported here to assert against. What is graded instead is the
+   * layer that is real and shared: `getConfig()`, which is the fallback side of
+   * every `c.env?.X ?? getConfig().x` call site in the live Hono middleware.
+   */
+  describe('WIC-2191 — getConfig() normalises a blank env var to null', () => {
+    it('blank SUPABASE_URL / SUPABASE_JWT_SECRET resolve to null, not the empty string', async () => {
+      process.env.SUPABASE_URL = '';
+      process.env.SUPABASE_JWT_SECRET = '';
+      _resetConfig();
+
+      const config = getConfig();
+      expect(config.supabaseUrl).toBeNull();
+      expect(config.supabaseJwtSecret).toBeNull();
+    });
+
+    it('a configured value is passed through byte-for-byte', async () => {
+      process.env.SUPABASE_URL = 'https://project.supabase.co';
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+      _resetConfig();
+
+      // Control: the normalisation must not trim, rewrite or otherwise touch a
+      // real value — `supabaseJwtSecret` is HS256 key material.
+      const config = getConfig();
+      expect(config.supabaseUrl).toBe('https://project.supabase.co');
+      expect(config.supabaseJwtSecret).toBe(TEST_JWT_SECRET);
     });
   });
 });

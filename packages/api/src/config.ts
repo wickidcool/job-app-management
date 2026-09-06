@@ -61,9 +61,16 @@ export function getConfig(): Config {
       nodeEnv: process.env.NODE_ENV ?? 'development',
       anthropicApiKey: cleanKey || null,
       llmModel: process.env.LLM_MODEL ?? 'claude-sonnet-4-6',
-      supabaseUrl: process.env.SUPABASE_URL ?? null,
+      // WIC-2191 — `||`, not `??`, on the two that gate `middleware/auth.ts`'s
+      // local-dev bypass: a blank env var must resolve to `null` rather than to
+      // `''`, so the declared `string | null` is honest and "unset" has exactly
+      // one representation on the fallback side of every `c.env?.X ?? getConfig().x`
+      // call site. Not `?.trim()` — see the note at `middleware/auth.ts:57`;
+      // whitespace-only must stay truthy (fail-closed), and `supabaseJwtSecret`
+      // is HS256 key material that must pass through byte-for-byte.
+      supabaseUrl: process.env.SUPABASE_URL || null,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? null,
-      supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
+      supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || null,
       r2Endpoint: process.env.R2_ENDPOINT ?? null,
       r2AccessKeyId: process.env.R2_ACCESS_KEY_ID ?? null,
       r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? null,
