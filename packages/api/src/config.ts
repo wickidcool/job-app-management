@@ -41,6 +41,68 @@ function normalizeAnalyticsSink(raw: string | undefined): Config['analyticsSink'
   return 'noop';
 }
 
+/** The documented defaults, kept as named constants so `.env.example` has one source of truth. */
+export const DEFAULT_PORT = 3000;
+export const DEFAULT_HOST = '127.0.0.1';
+
+/**
+ * WIC-2197 — resolve `PORT` so that *blank* means "unset", and invalid means a
+ * diagnosable error.
+ *
+ * `parseInt(process.env.PORT ?? '3000', 10)` coerced a present-but-empty `PORT`
+ * to `NaN` (`??` falls back only on `null`/`undefined`), and `index.ts` handed
+ * that straight to `serve()`. Node rejects it with `ERR_SOCKET_BAD_PORT:
+ * options.port should be >= 0 and < 65536. Received type number (NaN)` — which
+ * never names `PORT`, so a one-character `.env` slip surfaces as an opaque
+ * socket error. Same coercion family as WIC-2183 (`Number('')` is `0`).
+ *
+ * This one failed *loud*, unlike its `HOST` sibling below, so the fix is about
+ * diagnosability rather than safety: blank falls back to the documented default,
+ * and anything non-blank that is not a valid port throws naming the variable.
+ */
+export function resolvePort(raw: string | undefined): number {
+  if (!raw || raw.trim() === '') return DEFAULT_PORT;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(
+      `Invalid PORT: ${JSON.stringify(raw)} — must be an integer between 0 and 65535.`
+    );
+  }
+  return port;
+}
+
+/**
+ * WIC-2197 — resolve `HOST` so that a blank value cannot silently widen the bind.
+ *
+ * `process.env.HOST ?? '127.0.0.1'` let a present-but-empty `HOST` win the
+ * coalesce as `''`, and `index.ts` passes it to `serve({ hostname })`. Node
+ * treats an empty host as *unspecified* and binds the wildcard address —
+ * measured: `host: ''` yields `{"address":"::","family":"IPv6"}` (dual-stack, so
+ * IPv4 too), against `{"address":"127.0.0.1"}` for the default. The bind goes
+ * from loopback-only to every interface, with no error and no warning: the
+ * startup banner just prints `http://:::3000`.
+ *
+ * That matters because `HOST` is read *only* on the Node entry — i.e. local dev
+ * and self-host — which is the same configuration in which `middleware/auth.ts`
+ * takes its ADR-010 D3 bypass and serves every request as
+ * `LOCAL_DEV_USER_ID_DEFAULT`. Neither half is a defect alone; blank `HOST` plus
+ * the local-dev bypass is an unauthenticated, full-legacy-tenant API exposed to
+ * the local network.
+ *
+ * Blank is the shape the repo invites: `.env.example` ships `HOST=127.0.0.1`, and
+ * editing that to `HOST=` — the natural way to write "just use the default" —
+ * sets `''`, which `dotenv/config` loads as present-but-empty.
+ *
+ * Deliberately NOT `?.trim() ||`, for the reason recorded at `middleware/auth.ts`
+ * and repeated below on the Supabase pair: `'   '` is truthy and currently fails
+ * **closed** (measured: `listen({host:'  '})` → `ENOTFOUND`). Trimming would
+ * collapse it to `''` and route it into the wildcard bind — moving the one input
+ * that fails safely into the unsafe direction. `||` alone is what is wanted here.
+ */
+export function resolveHost(raw: string | undefined): string {
+  return raw || DEFAULT_HOST;
+}
+
 let _config: Config | null = null;
 
 export function _resetConfig(): void {
@@ -54,8 +116,8 @@ export function getConfig(): Config {
     const cleanKey = rawKey ? rawKey.trim().replace(/^["']|["']$/g, '') : null;
 
     _config = {
-      port: parseInt(process.env.PORT ?? '3000', 10),
-      host: process.env.HOST ?? '127.0.0.1',
+      port: resolvePort(process.env.PORT),
+      host: resolveHost(process.env.HOST),
       databaseUrl: process.env.DATABASE_URL ?? '',
       dataDir: process.env.DATA_DIR ?? './data',
       nodeEnv: process.env.NODE_ENV ?? 'development',
