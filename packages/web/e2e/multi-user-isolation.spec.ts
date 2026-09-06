@@ -158,7 +158,6 @@ async function setupMockAuth(page: Page) {
   });
 }
 
-
 async function mockApplicationsList(page: Page, applications: object[]) {
   await page.route(apiRoute('applications'), (route) =>
     route.fulfill({
@@ -186,10 +185,7 @@ async function mockApplicationNotFound(page: Page, appId: string) {
  * back undefined and `Dashboard.tsx` fell through to its `total: 0` default. That
  * defect was invisible while the glob above was also killing the page.
  */
-function dashboardResponse(stats: {
-  total: number;
-  byStatus: Record<string, number>;
-}) {
+function dashboardResponse(stats: { total: number; byStatus: Record<string, number> }) {
   return {
     stats: {
       total: stats.total,
