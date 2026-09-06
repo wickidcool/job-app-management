@@ -22,6 +22,24 @@ All notable changes to the Job Application Manager are documented here.
 No production code changes. The naming ruling itself is untouched and `constants/filterShortcuts.test.ts` still enforces it; whether the "Interviews This Week" shortcut should now be wired up and renamed is a separate product decision, open on WIC-2192.
 
 
+
+### Fixed — a blank `HOST` bound the dev API to every interface instead of loopback, in the one configuration where auth is bypassed (2026-09-06)
+
+`config.ts` resolved the bind address with `process.env.HOST ?? '127.0.0.1'`. `??` falls back only on `null`/`undefined`, so a **present-but-empty** `HOST` won the coalesce as `''` and `index.ts` handed it to `serve({ hostname })`. Node reads an empty host as *unspecified* and binds the wildcard: measured, `host: ''` yields `{"address":"::","family":"IPv6"}` — dual-stack, so IPv4 too — against `{"address":"127.0.0.1"}` for the default. Loopback-only becomes every interface, with no error, no warning, and a startup banner that just prints `http://:::3000` (WIC-2197).
+
+**Neither half is a defect; the composition is.** `HOST` is read only on the Node entry — local dev and self-host — which is the same configuration in which `middleware/auth.ts` takes its ADR-010 D3 bypass and serves every request as `LOCAL_DEV_USER_ID_DEFAULT`, the sentinel `migrations/0017` backfilled every pre-tenancy row to. So a blank `HOST` publishes an **unauthenticated, full-legacy-tenant API to the local network**. The bypass is deliberate and unchanged; what changes is that it can no longer be reached from off-box by accident.
+
+**Blank is the shape this repo invites.** `.env.example` ships `HOST=127.0.0.1` and `index.ts` imports `dotenv/config`; editing that line to `HOST=` — the natural way to write "just use the default" — sets present-but-empty. The user's edit means *default*; the old code heard *all interfaces*. The example file now says so at the line itself.
+
+**The fix is `||`, deliberately not the `?.trim() ||` idiom two fields below it** — the same call WIC-2191 made on `SUPABASE_URL`, for the same reason and with the same regression pin. A whitespace-only `HOST` is truthy, so it passes through and Node rejects it with `ENOTFOUND` — fail-**closed**. Trimming would collapse it to `''` and route it straight into the wildcard bind, moving the one input that fails safely into the unsafe direction.
+
+**`PORT` had the same coercion bug in the opposite direction, and is fixed as diagnosability rather than safety.** `parseInt(process.env.PORT ?? '3000', 10)` maps blank to `NaN`, which `serve()` rejects with `ERR_SOCKET_BAD_PORT: options.port should be >= 0 and < 65536. Received type number (NaN)` — a message that never names `PORT`. It failed loud, so nothing was ever exposed by it; it just cost the operator a Node-internal socket error for a one-character `.env` slip. Blank now resolves to the documented default and a non-blank invalid value throws naming the variable. Same family as WIC-2183 (`Number('')` is `0`).
+
+**Scope correction to WIC-2191's own note.** That entry recorded *"the card's sweep of the other `??`-guarded config fields was re-checked and holds — every other consumer tests them with truthiness, so blank and absent already behave identically there."* Sound for the `string | null` fields, whose consumers are truthiness tests. `host` and `port` are not among them: their consumer is `serve()`, which tests neither, and for which blank and absent emphatically differ. This closes that gap.
+
+**Graded by watching the tests fail first.** 14 new cases in `test/config-bind.test.ts`; against the unfixed coercion **6 fail**, and the 8 that pass are the positive controls (configured and absent values, which behave identically either way, as they must). `packages/api` is 89 files / 1716 tests green, against a 88 / 1702 baseline on `origin/main` — exactly conserved. `tsc -p packages/api` clean.
+
+
 ### Added — an interview date can now be entered, so the interview-prep countdown finally has something to count down to (2026-09-06)
 
 `applications.interview_date` shipped end to end on the API side in WIC-2023 — column, create, update, DTO — and the two surfaces that read it (`InterviewPrepCard`'s countdown and the exported quick reference in `QuickReferenceExport`) were already built and tested. Nothing wrote to it. Every row was `NULL`, so both render sites were permanently dark. This adds the missing writer: the field on the web `Application` and `ApplicationFormData` models, the three hand-written mapper sites between them and the wire, and a labelled control in the form's Extended Tracking block (WIC-2188).
