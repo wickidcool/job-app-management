@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { track } from '../services/analytics';
+import { Announcer } from '../components/Announcer';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { ResumeManagerTabs } from '../components/ResumeManagerTabs';
 import { EmptyState } from '../components/EmptyState';
 import { ConfirmationModal } from '../components/ConfirmationModal';
+import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useResumes, useDeleteResume } from '../hooks/useResumes';
 import { useGenerateDiff } from '../hooks/useCatalog';
 
@@ -33,7 +34,7 @@ export function ResumeManager() {
     id: string;
     fileName: string;
   } | null>(null);
-  const [deleteAnnouncement, setDeleteAnnouncement] = useState('');
+  const { message: announcement, announce, clear: clearAnnouncement } = useAnnouncer();
 
   // Where focus goes when a delete succeeds. The trigger is the per-row 🗑️ Delete
   // button, so the confirmed action destroys it — see WIC-1181. This has to be an
@@ -63,16 +64,19 @@ export function ResumeManager() {
   const handleDeleteClick = (id: string, fileName: string) => {
     setResumeToDelete({ id, fileName });
     setDeleteModalOpen(true);
-    // Clear the previous announcement as the dialog opens, so the next one is a
-    // real change to the live region rather than a re-set of the same string.
+    // Emptying the region as the dialog opens keeps the previous outcome from
+    // lingering in the accessibility tree while the user works on the next one.
+    // Emptying is itself silent, so this announces nothing — same reason
+    // `ProjectsList` clears on open.
+    //
+    // This clear is deliberately NOT what makes a repeated announcement audible.
     // Uploads dedupe on contentHash, not fileName (`resume.service.ts`), so two
-    // resumes called "resume.pdf" are ordinary — and deleting the second would
-    // otherwise assign a string identical to the first announcement, React would
-    // bail on Object.is, no text node would mutate, and assistive tech would say
-    // nothing at all about an irreversible action. Clearing here rather than
-    // around the set in handleConfirmDelete keeps the two writes in separate
-    // commits driven by separate user actions, so neither can be batched away.
-    setDeleteAnnouncement('');
+    // resumes called "resume.pdf" are ordinary, and deleting the second assigns a
+    // string identical to the first announcement. `useAnnouncer.announce` handles
+    // that case itself by alternating an unspoken marker, so the re-announce
+    // survives even if this clear is removed. Do not restore this line's old
+    // rationale: it described a `useState` the page no longer has.
+    clearAnnouncement();
   };
 
   const handleConfirmDelete = async () => {
@@ -86,7 +90,7 @@ export function ResumeManager() {
       // Moving focus is not the same as telling someone what happened. Delete is
       // the app's only irreversible action, and a screen-reader user who lands on
       // the list gets no confirmation from the focus move alone.
-      setDeleteAnnouncement(`Resume "${fileName}" deleted.`);
+      announce(`Resume "${fileName}" deleted.`);
     } catch (error) {
       console.error('Failed to delete resume:', error);
       alert('Failed to delete resume. Please try again.');
@@ -125,27 +129,15 @@ export function ResumeManager() {
       <ResumeManagerTabs />
 
       {/*
-        Announces the result of a delete, portalled to <body> so that it sits
-        *outside* #root rather than inside it.
+        Announces the result of a delete. `Announcer` portals the region to
+        <body>, so its position in this tree is presentational only — and the
+        reasons it must stay portalled, permanently mounted, and wrapping no
+        control live in that component rather than being restated here.
 
-        `aria-hidden` — the package Radix uses to hide the background behind a
-        modal — exempts `[aria-live]` elements, and the exemption covers the
-        node's entire ancestor chain. A live region rendered in place would
-        therefore stop #root itself being hidden behind every open dialog, which
-        is the WIC-1155 defect reached from the other side. As a body-level
-        sibling it is exempted on its own, hides nothing, and wraps no control,
-        so there is no interactive element for the exemption to leak.
-
-        It also has to be permanently mounted and merely change text: assistive
-        tech only announces updates to a region already in the accessibility
-        tree. For the same two reasons it must not move back into `EmptyState`.
+        The one page-specific point: for those same reasons it must not move
+        back inside `EmptyState`, which unmounts with the last resume.
       */}
-      {createPortal(
-        <div className="sr-only" aria-live="polite" aria-atomic="true">
-          {deleteAnnouncement}
-        </div>,
-        document.body
-      )}
+      <Announcer message={announcement} />
 
       <div
         ref={resumeListRef}

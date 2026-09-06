@@ -9,6 +9,17 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Changed — `ResumeManager`'s delete announcer now uses the shared `Announcer`/`useAnnouncer` helper, and both announcements quote the name (2026-09-06)
+
+`pages/ResumeManager.tsx` had a hand-rolled `createPortal(<div className="sr-only" aria-live="polite">…)` block doing the same job as the helper WIC-1304 extracted. It is now `<Announcer message={announcement} />` over `useAnnouncer()`, so the page contains no `createPortal` and no `aria-live` of its own and the portal/mounting rationale lives in one place instead of two. No user-visible change to the delete path (WIC-1794).
+
+The `clear()` on dialog-open is **kept, with its rationale rewritten**. It previously existed to defeat React's `Object.is` bail on a repeated announcement — two resumes can share a `fileName`, since uploads dedupe on `contentHash`. `useAnnouncer.announce` now handles repeats internally by alternating an unspoken U+200B, so the clear survives only for the reason `ProjectsList` keeps it: not leaving a stale outcome in the accessibility tree while the user works on the next one.
+
+⚠️ **The two mechanisms are now redundant on this path, and the e2e negative control can no longer isolate either one.** Measured as a 2×2 (`e2e/modal-focus.spec.ts` → "deleting a second identically-named resume announces it again, not silently"): real `announce` + clear → pass; **stubbed `announce` + clear → pass**; real `announce`, no clear → pass; stubbed `announce`, no clear → **fail**. The test goes red only when *both* are gone, because the clear writes `''` in a separate commit driven by a separate user action, so the following announcement is a real DOM change whether or not the marker logic runs. The repeat coverage did survive the migration — rows 3 and 4 show `announce` alone carries it — but a single-mutant control over `announce` is now vacuous here and should be stated as the two-mutant form.
+
+`ProjectsList`'s create-success announcement now quotes the project name (`Project "Acme Corp" created.`), matching `Resume "resume.pdf" deleted.` and closing the non-blocking note left on PR #252: unquoted, a project named `created` or one ending in a period produced a sentence that is hard to parse aloud. Its two pinned assertions move with it.
+
+
 ### Fixed — Layer 0 full-history secret audit is green again: 6 triaged-benign findings baselined, zero live credentials (2026-09-05)
 
 The scheduled Layer 0 audit (`.github/workflows/secret-history-audit.yml`) went **RED on 2026-08-31** and would have failed again on its next Monday fire. Re-scanned with the pinned gitleaks `8.28.0` and the workflow's exact flags: the live count was **6, not the 3 the failing run reported** — the 3 originals plus 3 more that landed in the five days since. **Every one is a false positive; no credential is exposed and nothing needs rotating.**
