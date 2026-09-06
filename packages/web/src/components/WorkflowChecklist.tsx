@@ -235,25 +235,41 @@ export function WorkflowChecklist({
   const totalCount = items.length - unknownCount;
   const progressPercent = totalCount === 0 ? 0 : (completedCount / totalCount) * 100;
 
+  // "more" is relative to the steps we already have an answer for, so with no
+  // known steps there is nothing for it to be more than and the word drops out
+  // along with the count line it refers to: "Checking 4 steps…" (WIC-2153).
+  const checkingLabel = `Checking ${unknownCount} ${totalCount === 0 ? '' : 'more '}${
+    unknownCount === 1 ? 'step' : 'steps'
+  }…`;
+
   return (
     <div className="bg-white rounded-lg border border-neutral-200 p-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-neutral-900">Application Workflow</h2>
           {/*
-            "steps" stays literal even when the denominator is 1: the count is
-            the surface `ApplicationDetail.artefactLoading.test.tsx` reads by a
+            The denominator's floor is 0, not 1: since WIC-2141 gave the fourth
+            row a tri-state, every row can be unknown at once, which is exactly
+            the cold page load — `ApplicationDetail` fires all four artefact
+            queries on mount and this renders as soon as the *application* query
+            resolves. "0 of 0 steps completed" states a settled figure over an
+            empty denominator, so the line is withheld rather than reworded; the
+            `Checking N steps…` line below carries the whole signal in that
+            window (WIC-2153). The *rendered* denominator therefore floors at 1.
+
+            At 1 "steps" stays literal: the count is the surface
+            `ApplicationDetail.artefactLoading.test.tsx` reads by a
             `/steps completed/` matcher, and pluralising it would make that
-            helper throw rather than assert.
+            helper miss the line. That helper is `queryByText`-based and returns
+            `null` for the suppressed case, so it reports absence instead of
+            throwing.
           */}
-          <p className="text-sm text-neutral-600">
-            {completedCount} of {totalCount} steps completed
-          </p>
-          {unknownCount > 0 && (
-            <p className="text-xs text-neutral-500">
-              Checking {unknownCount} more {unknownCount === 1 ? 'step' : 'steps'}…
+          {totalCount > 0 && (
+            <p className="text-sm text-neutral-600">
+              {completedCount} of {totalCount} steps completed
             </p>
           )}
+          {unknownCount > 0 && <p className="text-xs text-neutral-500">{checkingLabel}</p>}
         </div>
         <div className="text-right">
           {/*

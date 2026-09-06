@@ -247,3 +247,56 @@ describe('WorkflowChecklist — Job Fit Analysis step while its query is in flig
     );
   });
 });
+
+/**
+ * WIC-2153 — the header at a zero denominator.
+ *
+ * Reachable only since WIC-2141: while the fourth row was hardcoded settled,
+ * `totalCount = items.length - unknownCount` had a floor of 1. With four
+ * tri-states it can be 0, which is the cold page load, and the header read
+ * "0 of 0 steps completed" next to "Checking 4 more steps…".
+ *
+ * The component-level counterpart to the `all-in-flight` phase in
+ * `ApplicationDetail.artefactLoading.test.tsx`: that one proves the page can
+ * reach this state, these prove what the component does in it.
+ */
+describe('WorkflowChecklist — every step unknown (WIC-2153)', () => {
+  const allUnknown = {
+    fitAnalysisStatus: 'unknown',
+    coverLetterStatus: 'unknown',
+    resumeVariantStatus: 'unknown',
+    interviewPrepStatus: 'unknown',
+  } as const;
+
+  it('withholds the count line rather than stating a zero denominator', () => {
+    renderChecklist(allUnknown);
+
+    expect(screen.queryByText(/steps completed/)).not.toBeInTheDocument();
+    expect(screen.queryByText('0 of 0 steps completed')).not.toBeInTheDocument();
+  });
+
+  it('drops "more" from the checking line when no step is known', () => {
+    renderChecklist(allUnknown);
+
+    expect(screen.getByText('Checking 4 steps…')).toBeInTheDocument();
+  });
+
+  /**
+   * The discriminating half. A fix that dropped "more" unconditionally, or
+   * suppressed the count line unconditionally, passes both assertions above and
+   * fails this one — one known step is enough for both to be correct again.
+   */
+  it('keeps both lines as soon as one step is known', () => {
+    renderChecklist({ ...allUnknown, interviewPrepStatus: 'absent' });
+
+    expect(screen.getByText('0 of 1 steps completed')).toBeInTheDocument();
+    expect(screen.getByText('Checking 3 more steps…')).toBeInTheDocument();
+  });
+
+  it('withholds the percentage without rendering NaN', () => {
+    const { container } = renderChecklist(allUnknown);
+
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/NaN/);
+  });
+});
