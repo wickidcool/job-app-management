@@ -203,8 +203,11 @@ jobs:
       # fix" that no card tracked. This gates the hazard directly: a skip with no
       # reason string, which is the one shape a gated `test.skip(cond, 'why')`
       # cannot produce. It does NOT pin a skip *count* — the credential-gated band
-      # is expected to drain to zero when WIC-2122's `E2E_TEST_USER*` secrets land,
-      # and a pinned count would fight that.
+      # is expected to drain to zero when WIC-2122 route 1's `E2E_TEST_USER*`
+      # secrets land, and a pinned count would fight that. Until then, WIC-2131
+      # (route 2) makes the `e2e-tests` job below fail LOUD when those secrets are
+      # empty, so the credential-gated skip can no longer masquerade as a green
+      # isolation-coverage check.
       #
       # Lives here rather than in `e2e-tests` on purpose: this job runs
       # unconditionally, while `e2e-tests` is skipped on a `[skip deploy]` push.
@@ -290,6 +293,49 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         timeout-minutes: 6
         run: npx playwright install chromium
+
+      # WIC-2131 (WIC-2122 route 2): this job's headline signal is multi-user
+      # data-isolation coverage (ADR-005 / WIC-201), and that coverage runs ONLY
+      # when a real Supabase project and two test-user logins are present — the
+      # isolation specs self-skip on an empty TEST_USER_EMAIL
+      # (multi-user-isolation.spec.ts:95,173,226,262,292,359). None of the six
+      # values below exists at any level today (the four E2E_TEST_USER* secrets
+      # are unset; SUPABASE_URL / SUPABASE_ANON_KEY live on the `dev`/`production`
+      # environments and this job declares no `environment:`), so before WIC-2131
+      # the specs skipped and the job still went GREEN — a check that read as RLS
+      # isolation coverage while asserting nothing about it (run 33986788859:
+      # 48 skipped / 128 passed).
+      #
+      # This preflight makes that state impossible: if any value the isolation
+      # specs need is empty, the job fails LOUD here instead of passing green on a
+      # silent skip. A red check is the honest signal until real coverage is
+      # restored — that is WIC-2122 route 1 (provision these on the `dev`
+      # environment and add `environment: dev` to this job), which needs a human
+      # to mint live test-user credentials and is deliberately out of scope here.
+      # Mirrors the `missing=...; exit 1` secret preflight in the deploy-preview
+      # job below. Prints NAMES ONLY — never a secret value, prefix, or length.
+      - name: Assert isolation-test credentials are present
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
+          TEST_USER2_EMAIL: ${{ secrets.E2E_TEST_USER2_EMAIL }}
+          TEST_USER2_PASSWORD: ${{ secrets.E2E_TEST_USER2_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$VITE_SUPABASE_URL" ]      && missing="$missing SUPABASE_URL(var)"
+          [ -z "$VITE_SUPABASE_ANON_KEY" ] && missing="$missing SUPABASE_ANON_KEY(var)"
+          [ -z "$TEST_USER_EMAIL" ]        && missing="$missing E2E_TEST_USER_EMAIL"
+          [ -z "$TEST_USER_PASSWORD" ]     && missing="$missing E2E_TEST_USER_PASSWORD"
+          [ -z "$TEST_USER2_EMAIL" ]       && missing="$missing E2E_TEST_USER2_EMAIL"
+          [ -z "$TEST_USER2_PASSWORD" ]    && missing="$missing E2E_TEST_USER2_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error title=E2E isolation coverage did NOT run::Multi-user data-isolation specs (ADR-005 / WIC-201) self-skip without these, so a green E2E check would falsely assert RLS isolation coverage. Missing (names only):$missing"
+            echo "Restore coverage via WIC-2122 route 1: provision these on the 'dev' environment and add 'environment: dev' to this job (needs a human to mint live test-user credentials)." >&2
+            exit 1
+          fi
+          echo "All isolation-test credentials present — multi-user data-isolation specs will run."
 
       - name: Run E2E tests
         run: npx playwright test
