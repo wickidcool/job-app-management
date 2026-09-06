@@ -34,6 +34,16 @@ Reverting the key restores the pre-existing false positive in `e2e-isolation-cov
 No production code changes. The naming ruling itself is untouched and `constants/filterShortcuts.test.ts` still enforces it; whether the "Interviews This Week" shortcut should now be wired up and renamed is a separate product decision, open on WIC-2192.
 
 
+### Documentation — the product-name do-not-sweep list named a file that no longer matches, and omitted the largest surviving concentration (2026-09-06)
+
+`CONTENT_STYLE.md`'s Exception 1 tells a future product-name sweep what to leave alone. Three of its claims had gone stale, all in the safe direction, which is why nothing broke and why nobody noticed (WIC-1954 follow-up).
+
+It reported **18 occurrences across 15 files** still awaiting cleanup in the root `README.md`, `packages/api/`, `docs/architecture/` and `docs/analytics/`. Measured at `f1c01273`: **zero remain in all four paths** — that sweep ran, and the document went on presenting it as outstanding work. It also listed `e2e/auth.spec.ts` among the deliberate historical records; the file exists, the string does not, so the list was protecting nothing there.
+
+**The omission is the one that mattered.** `.gitleaks-baseline.json` holds **14 occurrences, the largest concentration outside `CHANGELOG.md`**, and it was on no list at all. A baseline quotes historical content by design — editing it invalidates the baseline and re-opens every finding it acknowledges — so it is squarely a do-not-sweep class, and it was the one class a sweep would have hit first and understood least.
+
+Replaced the prose list with a four-class table and a `git grep -c` derivation, on the rule that a file the command prints and the table does not is either a new occurrence or a new class. Counts in this note rot — twice now — so the note no longer carries one. Same reasoning as the changelog-count guidance in `CLAUDE.md`. No rule changed and no string moved; this is the enforcement list catching up to the tree.
+
 
 ### Fixed — a blank `HOST` bound the dev API to every interface instead of loopback, in the one configuration where auth is bypassed (2026-09-06)
 

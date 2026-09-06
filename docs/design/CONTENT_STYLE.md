@@ -111,19 +111,37 @@ four now carry the ruling:**
 All four read from one constant, `PRODUCT_NAME` in
 `packages/web/src/constants/title.ts`; change that line and all four move together. **This
 inventory is closed.** No user-facing string in `packages/web` says `Job Application
-Manager`. What survives is internal-only and out of scope for this document: the
-`jobtrail` package and deploy-target name, and the old name in prose outside
-`packages/web` — the root `README.md`, `packages/api/`, `docs/architecture/` and
-`docs/analytics/` — 18 occurrences across 15 files, enumerated on a child of WIC-1954 so
-they do not have to be re-derived. The four `packages/web/src` source comments this note
-previously listed, and the design-doc titles under `docs/design/`, were renamed under
-WIC-1954. Three classes of occurrence are *deliberately* left reading `Job Application
-Manager` and must not be swept: the historical quotations in
-[ROUTE_TITLE_CONVENTION.md](./ROUTE_TITLE_CONVENTION.md) and
-[NOTFOUND_PAGE_DESIGN_SPEC.md](./NOTFOUND_PAGE_DESIGN_SPEC.md), which are evidence of the
-old state and would falsify their own audits if updated; the `CHANGELOG.md` entries; and
-the source comments and one negative test assertion that exist precisely to record what
-the string used to be (`pages/Login.tsx`, `constants/title.test.ts`, `e2e/auth.spec.ts`).
+Manager`. Also out of scope, and not a survival: the `jobtrail` package and deploy-target
+name, which is internal and was never the product's name. The four `packages/web/src`
+source comments this note previously listed, and the design-doc **titles** under
+`docs/design/`, were renamed under WIC-1954 — the *filenames* were deliberately left
+alone, because renaming them would break every inbound `docs/` reference.
+
+**Everything still reading `Job Application Manager` is there on purpose. Do not sweep
+it.** Each occurrence falls in one of four classes:
+
+| class | where | why it stays |
+|---|---|---|
+| Historical quotations | [ROUTE_TITLE_CONVENTION.md](./ROUTE_TITLE_CONVENTION.md), [NOTFOUND_PAGE_DESIGN_SPEC.md](./NOTFOUND_PAGE_DESIGN_SPEC.md) | Evidence of the old state; updating them would falsify their own audits |
+| Release history | `CHANGELOG.md` | A shipped entry describes what shipped |
+| Deliberate record of the old string | `packages/web/src/pages/Login.tsx` (comment), `packages/web/src/constants/title.test.ts` (a *negative* assertion — it exists to fail if the name comes back) | Rewriting either destroys the thing it records; rewriting the assertion silently disarms it |
+| Scanner baseline | `.gitleaks-baseline.json` | Quotes historical content by design. Editing it invalidates the baseline and re-opens every finding it acknowledges |
+
+This document's own Exception 1 quotes the name too, in the reasoning above. That is the
+same class as the first row.
+
+Derive the set, do not trust a tally — this note twice carried counts that were stale
+within days of being written, and the guidance in `CLAUDE.md` about changelog counts
+applies verbatim here:
+
+```bash
+git grep -c "Job Application Manager" origin/main -- .
+```
+
+**Every file the command prints should be in the table above.** A file that is *not* is
+either a new occurrence that needs removing, or a new class that needs a row — decide
+which before you touch it. A file in the table that the command *stops* printing is fine
+and needs no edit; it means that record was legitimately retired elsewhere.
 
 #### The two copy rulings
 
