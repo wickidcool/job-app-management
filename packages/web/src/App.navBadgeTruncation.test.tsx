@@ -32,12 +32,17 @@ function stripComments(source: string): string {
 }
 
 /**
- * A *call* of the retired hook, not a mention of it. The module is still called
+ * The retired hook as an *identifier*, not as a mention of it. The module is still called
  * `hooks/useApplications` and is imported by a dozen files for `useApplication`,
  * `useCreateApplication` and friends, so a bare substring match would flag every one of
  * them. Requiring the `(` distinguishes the identifier from the path.
+ *
+ * It matches a `function useApplications(` definition as well as a `useApplications()`
+ * call, which is deliberate and is why the sweep below is named for references rather
+ * than calls — measured, not assumed: re-adding the export to the hook module reds both
+ * the sweep and the export assertion.
  */
-const CALLS_RETIRED_HOOK = /\buseApplications\s*\(/;
+const REFERENCES_RETIRED_HOOK = /\buseApplications\s*\(/;
 
 describe('App wires the truncation flag through to both nav surfaces (WIC-2181)', () => {
   const source = stripComments(appSource);
@@ -56,7 +61,7 @@ describe('App wires the truncation flag through to both nav surfaces (WIC-2181)'
     expect(
       source,
       'App.tsx calls useApplications() again; `truncated` is unreachable through it (WIC-2181)'
-    ).not.toMatch(CALLS_RETIRED_HOOK);
+    ).not.toMatch(REFERENCES_RETIRED_HOOK);
   });
 
   it('the retired-hook matcher would actually fire (control for the assertion above)', () => {
@@ -64,11 +69,11 @@ describe('App wires the truncation flag through to both nav surfaces (WIC-2181)'
     // matches nothing passes every negative assertion ever written against it. This is
     // the exact line `App.tsx` carried before this change.
     expect('  const { data: applications = [] } = use' + 'Applications();').toMatch(
-      CALLS_RETIRED_HOOK
+      REFERENCES_RETIRED_HOOK
     );
     // And it must not fire on the module path, which is what makes the scan usable.
     expect("import { useApplicationCollection } from './hooks/useApplications';").not.toMatch(
-      CALLS_RETIRED_HOOK
+      REFERENCES_RETIRED_HOOK
     );
   });
 
@@ -102,10 +107,10 @@ describe('the retired hook is deleted, not merely unreferenced (WIC-2181)', () =
     expect(Object.keys(sources)).toContain('./hooks/useApplications.ts');
   });
 
-  it('no file calls useApplications()', () => {
+  it('no file references useApplications as an identifier', () => {
     const offenders = Object.entries(sources)
       .filter(([file]) => file !== './App.navBadgeTruncation.test.tsx')
-      .filter(([, fileSource]) => CALLS_RETIRED_HOOK.test(stripComments(fileSource)))
+      .filter(([, fileSource]) => REFERENCES_RETIRED_HOOK.test(stripComments(fileSource)))
       .map(([file]) => file);
 
     expect(offenders).toEqual([]);
