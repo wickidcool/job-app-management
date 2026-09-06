@@ -9,6 +9,24 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Added — the resume delete announcement is pinned by a test that runs, while E2E stays credential-blocked (2026-09-06)
+
+Deleting a resume announces the outcome to a screen reader through a live region. The only committed pin for that was `packages/web/e2e/modal-focus.spec.ts:413-467`, and **it has not executed on any PR or on `main`**: the `E2E Tests` job's `Assert isolation-test credentials are present` step fails and `Run E2E tests` is skipped. That is WIC-2131's deliberate loud-red gate working as designed — restoring the six `VITE_SUPABASE_*` / `E2E_TEST_USER*` values is WIC-2122 and needs a human. Confirmed still failing on `main` at `a488932a`.
+
+So the behaviour was unpinned by anything that runs. Measured on PR #423 at `013da8d8`: removing the live region from `ResumeManager` outright left the web suite **fully green at 837/837**. `ResumeManager.outline.test.tsx` does render the page on both branches — injecting a throw reds both of its assertions — it simply grades heading levels, and a portalled `role="status"` is not a heading (WIC-2155).
+
+`packages/web/src/pages/ResumeManager.announce.test.tsx` closes that gap in jsdom in ~4s.
+
+**It counts writes rather than reading text, because reading the text cannot detect the defect.** Two resumes may legitimately share a filename — uploads dedupe on `contentHash`, not `fileName` — and after deleting the second one the region's text names the right file *either way*, since it is the first announcement still sitting there untouched. Only the sequence of writes separates the two worlds, so the test mirrors the e2e instrument: a `MutationObserver` on `body > [aria-live="polite"]`, filtered with that spec's own `/resume\.pdf.*deleted/i`. The page is driven through its real handlers — `handleDeleteClick` on open, `handleConfirmDelete` on confirm — over a resume list that actually shrinks through `resumeService`.
+
+**Deliberately implementation-agnostic, so it survives PR #423.** Two mechanisms independently produce the second write and either alone suffices: `handleDeleteClick` clearing the region as the dialog opens, and `useAnnouncer`'s zero-width `REPEAT_MARKER`. `main` has the first; #423 migrates the page onto `<Announcer>`/`useAnnouncer` and has both. The test asserts the contract both serve — two deletes, two announcements — and both implementations render the region as `body > div[aria-live="polite"]`, so the **identical file passes unmodified on `main` and on #423's tree**, verified by replaying it onto `013da8d8`. It pins the outcome across that migration instead of whichever mechanism is in the file today, and is not a merge hazard for #423.
+
+**Graded against the defect, not just observed green.** Removing the live region reds it (`live region not found`); removing the clear on `main` reds it at 1 write instead of 2, with the write sequence in the failure message. On #423's tree, removing the clear alone leaves it green — that is the redundancy in the production code, settled on #423 and consistent with the PR #326 / WIC-1918 ruling, and it is why only a two-mutant control discriminates there.
+
+**The same-name fixture is load-bearing, and that was measured rather than asserted.** Re-run with distinct filenames, the clear-removed defect produces two genuinely different strings, mutates the region twice and **passes** — a distinct-name fixture is structurally blind to this bug. Two assertions the e2e spec makes are deliberately *not* copied: that the region sits outside `#root` and wraps nothing focusable are vacuous in jsdom, where Testing Library renders into a bare `<div>` on `document.body` and there is no `#root` at all. They stay in the e2e spec.
+
+This does not reduce the need for WIC-2122. It covers one behaviour that was silently unguarded while the whole e2e layer is dark.
+
 ### Fixed — Layer 0 full-history secret audit is green again: 6 triaged-benign findings baselined, zero live credentials (2026-09-05)
 
 The scheduled Layer 0 audit (`.github/workflows/secret-history-audit.yml`) went **RED on 2026-08-31** and would have failed again on its next Monday fire. Re-scanned with the pinned gitleaks `8.28.0` and the workflow's exact flags: the live count was **6, not the 3 the failing run reported** — the 3 originals plus 3 more that landed in the five days since. **Every one is a false positive; no credential is exposed and nothing needs rotating.**
