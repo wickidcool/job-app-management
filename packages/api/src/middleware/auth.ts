@@ -55,9 +55,27 @@ function requireSubject(payload: { sub?: unknown }): string {
 }
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
-  const supabaseUrl = (c.env?.SUPABASE_URL as string | undefined) ?? getConfig().supabaseUrl;
+  // WIC-2191 — `||`, not `??`, on both: `??` falls back only on `null`/`undefined`,
+  // so a binding that is *present but empty* won the coalesce as `''`. `''` is
+  // falsy, so the bypass condition below read TRUE and returned `next()` above the
+  // `Authorization` check — an unauthenticated request served as the sentinel
+  // tenant, in a deployment whose config was set correctly the whole time.
+  //
+  // Blank is the realistic shape, not a contrivance: an Actions expression for a
+  // missing secret expands to the empty string, and `wrangler secret put` stores
+  // it and reports success (`set-worker-secrets.yml:96-101`; already observed on
+  // `ANTHROPIC_API_KEY`, run 33972091515).
+  //
+  // Deliberately NOT `?.trim() ||`, which is the idiom two lines below at :77 and
+  // the wrong one here. There the fallback is a safe sentinel; here it decides
+  // whether auth runs at all. `'   '` is truthy, so a whitespace-only binding
+  // currently takes the JWT path and 401s — fail-CLOSED. Trimming would collapse
+  // it to `''` and open the bypass, and `deploy.yml`'s `[ -z "$X" ]` guard does
+  // not reject whitespace-only, so that is precisely the input CI cannot catch.
+  // Not trimming also leaves `jwtSecret` untouched as HS256 key material.
+  const supabaseUrl = (c.env?.SUPABASE_URL as string | undefined) || getConfig().supabaseUrl;
   const jwtSecret =
-    (c.env?.SUPABASE_JWT_SECRET as string | undefined) ?? getConfig().supabaseJwtSecret;
+    (c.env?.SUPABASE_JWT_SECRET as string | undefined) || getConfig().supabaseJwtSecret;
 
   // Bypass when no Supabase config is present (local dev without auth).
   //

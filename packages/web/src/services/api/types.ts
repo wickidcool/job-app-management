@@ -37,6 +37,15 @@ export interface APIApplication {
   compTarget?: string;
   nextAction?: string;
   nextActionDue?: string;
+  /**
+   * ISO 8601 **instant with an offset**, or `null` when no interview is scheduled.
+   *
+   * `nextActionDue` above is a bare `YYYY-MM-DD` calendar day; this is not. The API builds
+   * it with `.toISOString()` off a `TIMESTAMPTZ` column
+   * (`packages/api/src/services/application.service.ts`) and sends an explicit `null`
+   * rather than omitting the key. WIC-2188.
+   */
+  interviewDate?: string | null;
 }
 
 /**
@@ -83,6 +92,8 @@ export interface CreateApplicationRequest {
   compTarget?: string;
   nextAction?: string;
   nextActionDue?: string;
+  /** ISO 8601 instant with an offset. `''` is accepted and stored as no date. WIC-2188. */
+  interviewDate?: string;
 }
 
 /**
@@ -103,6 +114,16 @@ export interface UpdateApplicationRequest {
   compTarget?: string;
   nextAction?: string;
   nextActionDue?: string;
+  /**
+   * ISO 8601 instant with an offset.
+   *
+   * `''` is how a caller **clears** a previously-scheduled date: the route's schema maps it
+   * to `undefined` while leaving the key present, and the service's `if ('interviewDate' in
+   * input)` then writes `NULL`. Omitting the key leaves the stored date alone — the two are
+   * different requests and the distinction is the reason this is not `?: string | undefined`
+   * in spirit only. WIC-2188.
+   */
+  interviewDate?: string;
 }
 
 /**
