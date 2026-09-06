@@ -24,12 +24,19 @@ import { ESLint } from 'eslint';
  * flag. Without the pairing, an assertion of "0 findings" is satisfied by a dead rule
  * rather than by the exemption under test.
  *
- * THE CASE THAT MATTERS MOST is `react-router's useLocation()`. This tree reads
- * `location.pathname` in 20+ places across components, hooks and tests, and every one of
- * them is correct. A name-matching implementation of this rule would report all of them,
- * so those cases are not decoration — they are the reason the rule resolves through scope
- * analysis, and they are paired with controls proving the rule is awake while it stays
- * silent on them.
+ * ⚠️ WHAT THE SCOPE ANALYSIS ACTUALLY BUYS — this docstring got it wrong first time round.
+ * It claimed the tree's 35 `location.pathname` reads were the reason for scope analysis,
+ * because "a name-matching implementation would report all of them". Measured under
+ * WIC-2173: force `isUnresolvedGlobal` to `return true` and `npm run lint` is rc=0 with ZERO
+ * findings. The rule visits only `AssignmentExpression` and `CallExpression`, so a read
+ * never reaches the resolution step at all — those 35 sites are excluded by reads-not-writes,
+ * under any resolution strategy.
+ *
+ * So the `useLocation()` cases below are pinning the SUITE's contract, not a live tree
+ * hazard, and that is worth saying plainly. The case that genuinely discriminates the two
+ * implementations on realistic source is `a local string named location, with .replace()
+ * called on it` — String.replace, an everyday idiom, which a name-matching rule flags as
+ * navigation. It is asserted below with the mutant direction spelled out.
  */
 
 const RULE_ID = 'local/no-reload-navigation';
@@ -131,6 +138,21 @@ const VIOLATING_CASES: readonly Case[] = [
     why: 'self is the same object again',
   },
   {
+    name: '`document.location.href = ...`',
+    body: "document.location.href = '/resumes/upload';",
+    why: 'document.location is a documented alias for window.location — the same object, and a commoner spelling than globalThis or self. Unlisted until WIC-2173.',
+  },
+  {
+    name: '`document.location.assign(...)`',
+    body: "document.location.assign('/resumes/upload');",
+    why: 'the method spelling through the document alias',
+  },
+  {
+    name: '`document.location = ...` (assigning the object itself)',
+    body: "document.location = '/resumes/upload';",
+    why: 'the legacy spelling through the document alias',
+  },
+  {
     name: 'an assignment inside a JSX handler',
     body: "return <button onClick={() => (window.location.href = '/x')}>Go</button>;",
     why: 'the authored shape — an arrow in an onAction/onClick prop, as ResumeManager had it',
@@ -201,6 +223,30 @@ describe('no-reload-navigation', () => {
       // developer who genuinely needs it will delete the rule instead.
       expect(message.message).toContain('eslint-disable-next-line');
     }, 60_000);
+
+    it('does NOT tell a `location.hash` write that it reloads the document (WIC-2173)', async () => {
+      // `hash` is in NAVIGATING_PROPERTIES and stays there — a hash write does set the URL
+      // behind the router's back. But it does not reload: it fires `hashchange` and scrolls,
+      // and the bundle, the document and the React Query cache all survive. The shared
+      // message asserted the opposite, in permanent text, so `hash` now has its own.
+      const [hashMessage] = await lintBody("window.location.hash = '#section';");
+      expect(hashMessage, 'the hash write must still be reported').toBeDefined();
+      expect(
+        hashMessage.message,
+        'a hash write does not reload the document; the message must not claim it does'
+      ).not.toContain('reloads the whole document');
+      expect(hashMessage.message).toContain('hashchange');
+      expect(hashMessage.message).toContain("navigate('#section')");
+
+      // Differential control, and the point of the pairing: every OTHER property in the set
+      // does reload, and must keep saying so. Without this, deleting the claim everywhere
+      // would satisfy the assertion above.
+      const [hrefMessage] = await lintBody("window.location.href = '/x';");
+      expect(
+        hrefMessage.message,
+        'the reload claim is correct for href and must survive the hash correction'
+      ).toContain('reloads the whole document');
+    }, 60_000);
   });
 
   describe('document navigation flags', () => {
@@ -214,11 +260,13 @@ describe('no-reload-navigation', () => {
     );
   });
 
-  describe("react-router's `useLocation()` is not the DOM global (the case that matters)", () => {
-    // This tree reads `location.pathname` in 20+ places — TopNavigation, BottomTabBar,
+  describe('a local binding named `location` is not the DOM global', () => {
+    // This tree reads `location.pathname` in 35 places — TopNavigation, BottomTabBar,
     // MobileNavigation, ResumeManagerTabs, RouteTitle, NotFound, useRouteFocusHandoff and
-    // several test harnesses. Every one is correct. A name-matching rule reports all of
-    // them, which is why resolution goes through scope analysis.
+    // several test harnesses. Every one is correct, but NONE of them is what the scope
+    // analysis protects: the rule never visits a read position, so a name-matching build of
+    // it leaves all 35 alone too (measured, WIC-2173). What scope analysis separates is a
+    // WRITE, or an `assign`/`replace` CALL, on a local named `location` — the cases below.
 
     it('does not flag a read of a `useLocation()` result', async () => {
       const source =
@@ -297,6 +345,45 @@ describe('no-reload-navigation', () => {
       const controlMessages = await lintSource(
         'export function Probe() {\n' + "  location.href = '/x';\n" + '  return null;\n' + '}\n'
       );
+      expect(
+        controlMessages.length,
+        'control failed, so the 0 above proves nothing'
+      ).toBeGreaterThan(0);
+    }, 60_000);
+
+    it('does not flag `.replace()` on a local STRING named `location` (the discriminating case)', async () => {
+      // ⭐ THE CASE THAT EARNS THE SCOPE ANALYSIS, and the only one here that a
+      // name-matching rule gets wrong on realistic source.
+      //
+      // `String.prototype.replace` and `Location.prototype.replace` share a name, and
+      // `replace` is in NAVIGATING_METHODS. So a local string that happens to be called
+      // `location` — trimming a leading slash off a path, an everyday idiom this tree uses
+      // the shape of in a dozen files — reaches the CallExpression visitor with
+      // `callee.property.name === 'replace'`. ONLY the scope resolution stops it: the
+      // binding has a definition, so `isWindowLocation` rejects it.
+      //
+      // Measured both directions under WIC-2173, in a `src/services/*.ts` path:
+      //   shipped rule            -> not flagged (asserted here)
+      //   `isUnresolvedGlobal` forced to `return true` -> FLAGGED
+      // That is a genuine false positive the shipped rule avoids, unlike the 35
+      // `location.pathname` reads, which a name-matching rule leaves alone as well.
+      const source =
+        'export function stripLeadingSlash(raw: string) {\n' +
+        '  const location = raw;\n' +
+        "  return location.replace(/^\\//, '');\n" +
+        '}\n';
+      const messages = await lintSource(source, 'src/services/__reload_probe__.ts');
+      expect(
+        messages.map((m) => m.message),
+        'String.replace on a local is not Location.replace'
+      ).toEqual([]);
+
+      // The differential control, same convention as every other negative case here: the
+      // SAME call with the local declaration removed resolves to the DOM global and MUST
+      // flag. Without it the 0 above is satisfied by a dead rule.
+      const controlSource =
+        'export function stripLeadingSlash() {\n' + "  location.replace('/x');\n" + '}\n';
+      const controlMessages = await lintSource(controlSource, 'src/services/__reload_probe__.ts');
       expect(
         controlMessages.length,
         'control failed, so the 0 above proves nothing'
@@ -391,6 +478,56 @@ describe('no-reload-navigation', () => {
       ).toBe(0);
 
       const controlMessages = await lintBody("window.location.href = '/x';");
+      expect(
+        controlMessages.length,
+        'control failed, so the 0 above proves nothing'
+      ).toBeGreaterThan(0);
+    }, 60_000);
+
+    it('does not see a CHAINED object expression (`window.document` / `window.top`)', async () => {
+      // WIC-2173 accepted bare `document.location` (see VIOLATING_CASES) but the object list
+      // is matched ONE LEVEL DEEP — a bare identifier. `window.document.location` is
+      // therefore the alias gap in another spelling, and `window.top.location` is a
+      // different document entirely, which no router call can reach. Pinned so that closing
+      // either is a deliberate act; zero sites on `main` for both.
+      const chained = await lintBody("window.document.location.href = '/x';");
+      expect(
+        chained.length,
+        'this gap has been closed — good, but update the rule KNOWN GAPS'
+      ).toBe(0);
+
+      const topFrame = await lintBody("window.top.location.href = '/x';");
+      expect(
+        topFrame.length,
+        'this gap has been closed — good, but update the rule KNOWN GAPS'
+      ).toBe(0);
+
+      // Control: the unchained spelling of the very same navigation MUST flag, or the two
+      // zeros above are satisfied by a rule that stopped reading `document` at all.
+      const controlMessages = await lintBody("document.location.href = '/x';");
+      expect(
+        controlMessages.length,
+        'control failed, so the 0s above prove nothing'
+      ).toBeGreaterThan(0);
+    }, 60_000);
+
+    it('does not flag a LOCAL binding named `document` (scope analysis covers the new object)', async () => {
+      // Adding `document` to the object list widens the rule's reach, so it also widens what
+      // the scope analysis has to hold back. A local named `document` is realistic in this
+      // tree — it is a resume/document app. Same differential convention as the `location`
+      // locals above.
+      const source =
+        'export function probe(document: { location: string }) {\n' +
+        "  document.location = '/x';\n" +
+        '  return document;\n' +
+        '}\n';
+      const messages = await lintSource(source);
+      expect(
+        messages.map((m) => m.message),
+        'a local binding named `document` is not the DOM document'
+      ).toEqual([]);
+
+      const controlMessages = await lintBody("document.location = '/x';");
       expect(
         controlMessages.length,
         'control failed, so the 0 above proves nothing'
