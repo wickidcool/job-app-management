@@ -255,7 +255,10 @@ describe('no-reload-navigation', () => {
       // The differential control, and the reason the 0 above is not vacuous: the SAME
       // write with the local declaration removed resolves to the global and MUST flag.
       const controlSource =
-        'export function Probe() {\n' + "  location.pathname = '/x';\n" + '  return null;\n' + '}\n';
+        'export function Probe() {\n' +
+        "  location.pathname = '/x';\n" +
+        '  return null;\n' +
+        '}\n';
       const controlMessages = await lintSource(controlSource);
       expect(
         controlMessages.length,
@@ -302,7 +305,7 @@ describe('no-reload-navigation', () => {
 
     it('does not flag a router location reached through `router.state.location`', async () => {
       // `WizardContainer.discardGuard.test.tsx` asserts on exactly this shape 5 times.
-      const messages = await lintBody("const p = router.state.location.pathname; void p;");
+      const messages = await lintBody('const p = router.state.location.pathname; void p;');
       expect(messages.map((m) => m.message)).toEqual([]);
     }, 60_000);
   });
@@ -310,7 +313,10 @@ describe('no-reload-navigation', () => {
   describe('reads of the real `window.location` are not navigation', () => {
     it('does not flag reading `window.location.href`', async () => {
       const messages = await lintBody('const url = window.location.href; void url;');
-      expect(messages.map((m) => m.message), 'a read navigates nowhere').toEqual([]);
+      expect(
+        messages.map((m) => m.message),
+        'a read navigates nowhere'
+      ).toEqual([]);
 
       // Control: the same property, written rather than read, MUST flag.
       const controlMessages = await lintBody("window.location.href = '/x';");
@@ -321,7 +327,9 @@ describe('no-reload-navigation', () => {
     }, 60_000);
 
     it('does not flag comparing `window.location.pathname`', async () => {
-      const messages = await lintBody("const atRoot = window.location.pathname === '/'; void atRoot;");
+      const messages = await lintBody(
+        "const atRoot = window.location.pathname === '/'; void atRoot;"
+      );
       expect(messages.map((m) => m.message)).toEqual([]);
 
       const controlMessages = await lintBody("window.location.pathname = '/';");
