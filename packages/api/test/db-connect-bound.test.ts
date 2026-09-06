@@ -127,6 +127,37 @@ describe('getDb() bounds the postgres-js initial connect loop', () => {
       });
     });
 
+    // A blank override is what a *misconfiguration* looks like at the edge, not
+    // what a typo looks like: `wrangler secret put` stores the empty string and
+    // prints "✨ Success!" when its input expands to nothing, which is exactly
+    // how `set-worker-secrets.yml` describes ANTHROPIC_API_KEY going empty on
+    // run 33972091515. `Number('')` is `0`, so before this was guarded a blank
+    // value armed a 0ms deadline and tripped the circuit on the first macrotask
+    // — every DB-touching request answering 503 "Database unreachable: no
+    // connection could be established" against a perfectly healthy database.
+    // That is byte-identical to what the real WIC-2092 data-plane outage emits,
+    // so the misconfiguration would be read as the outage.
+    it('treats a blank override as unset rather than as a 0ms deadline', async () => {
+      await runWithEnv(withDeadline(env, ''), async () => {
+        const db = getDb();
+        void db.execute(sql`select 1`).catch(() => {});
+        // Captured before `settle()`: the trip happens on a later macrotask, so
+        // the pool is still on the context here whether or not the bug is fixed
+        // — which is what lets the teardown below run in either case.
+        const pool = getRequestContext()?.sql as { end(o: { timeout: number }): Promise<unknown> };
+        try {
+          await settle();
+
+          // The default deadline is 1500ms and `settle()` waits 150ms, so this
+          // asserts the blank fell back to the default. With `Number('')`
+          // flowing through it is 0ms and this is already tripped.
+          expect(getRequestContext()?.dbUnreachable).toBeUndefined();
+        } finally {
+          await pool?.end({ timeout: 0 }).catch(() => {});
+        }
+      });
+    });
+
     it('does not cut short a connect that is still making progress', async () => {
       await runWithEnv(withDeadline(env, '60000'), async () => {
         const db = getDb();
@@ -157,6 +188,24 @@ describe('connect deadline configuration', () => {
     expect(resolveConnectDeadlineMs('-1')).toBe(DEFAULT_CONNECT_DEADLINE_MS);
     expect(resolveConnectDeadlineMs('250')).toBe(250);
     expect(resolveConnectDeadlineMs('0')).toBe(0);
+  });
+
+  // The `Number('')` trap `lib/pagination.ts` already documents and defends
+  // against (WIC-1308: "a cursor decoding to nothing would silently mean page
+  // one — the failure mode being fixed, just quieter"). Same coercion, same
+  // quiet direction: blank is not a number, so it must reach the default and
+  // not the instant-trip value that `'0'` deliberately still selects.
+  it('treats a blank override as unset, not as zero', () => {
+    expect(resolveConnectDeadlineMs('')).toBe(DEFAULT_CONNECT_DEADLINE_MS);
+    expect(resolveConnectDeadlineMs(' ')).toBe(DEFAULT_CONNECT_DEADLINE_MS);
+    expect(resolveConnectDeadlineMs('\n')).toBe(DEFAULT_CONNECT_DEADLINE_MS);
+    expect(resolveConnectDeadlineMs('\t  ')).toBe(DEFAULT_CONNECT_DEADLINE_MS);
+
+    // The escape hatch an explicit `'0'` provides is deliberate and stays —
+    // three cases in this file arm an immediate trip with it. A fix that made
+    // blank default by rejecting zero would break them, so pin it here too.
+    expect(resolveConnectDeadlineMs('0')).toBe(0);
+    expect(resolveConnectDeadlineMs(' 250 ')).toBe(250);
   });
 });
 
