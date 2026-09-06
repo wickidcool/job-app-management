@@ -7,8 +7,9 @@ import { test, expect, type Page } from '@playwright/test';
  *
  * Tiers:
  * 1. UI-level tests — mock API responses, run without Supabase/R2.
- * 2. Real storage tests — require TEST_USER_EMAIL/PASSWORD + R2 configured
- *    (VITE_SUPABASE_URL set and API with R2_ENDPOINT etc.).
+ * 2. Real storage tests — require a live API backend. Gated on E2E_LIVE_BACKEND;
+ *    the opting-in job must also supply TEST_USER_EMAIL/PASSWORD,
+ *    VITE_SUPABASE_URL and R2 config (R2_ENDPOINT etc.).
  *
  * Tests use mock auth to bypass authentication without a real backend.
  */
@@ -32,8 +33,15 @@ async function setupMockAuth(page: Page) {
   });
 }
 
-const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
-const hasTestUser = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
+// WIC-2201: gate on backend AVAILABILITY, never on credential presence. The old
+// guard was `!isAuthEnabled() || !hasTestUser()`, which treats "credentials
+// exist" as "a backend is up". CI has never started the API
+// (playwright.config.ts runs `npm run dev`, and root package.json maps `dev` to
+// the @wic/web workspace only — the API is `dev:api`, which nothing invokes), so
+// provisioning credentials woke these specs against a dead backend and took
+// production deploys down. Deliberately NOT AND-ed with a credential check:
+// opting in without a backend must fail LOUD rather than silently skip.
+const requiresLiveBackend = () => !process.env.E2E_LIVE_BACKEND;
 
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -294,8 +302,8 @@ test.describe('R2 Document Download - UI', () => {
 
 test.describe('Real Document Storage (requires Supabase + test user)', () => {
   test.skip(
-    !isAuthEnabled() || !hasTestUser(),
-    'Requires VITE_SUPABASE_URL and TEST_USER credentials'
+    requiresLiveBackend(),
+    'real document storage requires a live API backend — set E2E_LIVE_BACKEND=1 in a job that boots dev:api and supplies VITE_SUPABASE_URL + TEST_USER credentials + R2'
   );
 
   test('authenticated user can upload and see their resume', async ({ page }) => {

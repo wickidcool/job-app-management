@@ -76,11 +76,20 @@ test.describe('Authentication - UI Components', () => {
 });
 
 test.describe('Authentication - Auth Flow', () => {
-  const isAuthConfigured = () => {
-    return process.env.SUPABASE_URL && process.env.SUPABASE_JWT_SECRET;
-  };
+  // WIC-2201: gate on backend AVAILABILITY, never on credential/config presence.
+  // The old guard required SUPABASE_URL + SUPABASE_JWT_SECRET, treating "config
+  // exists" as "a backend is up". CI has never started the API
+  // (playwright.config.ts runs `npm run dev`, and root package.json maps `dev` to
+  // the @wic/web workspace only — the API is `dev:api`, which nothing invokes),
+  // so provisioning config woke these specs against a dead backend and took
+  // production deploys down. Deliberately NOT AND-ed with a config check:
+  // opting in without a backend must fail LOUD rather than silently skip.
+  const requiresLiveBackend = () => !process.env.E2E_LIVE_BACKEND;
 
-  test.skip(!isAuthConfigured(), 'Auth flow tests require backend Supabase configuration');
+  test.skip(
+    requiresLiveBackend(),
+    'auth flow requires a live API backend — set E2E_LIVE_BACKEND=1 in a job that boots dev:api and supplies SUPABASE_URL + SUPABASE_JWT_SECRET'
+  );
 
   test('should allow sign up with email', async ({ page }) => {
     await page.goto('/login');

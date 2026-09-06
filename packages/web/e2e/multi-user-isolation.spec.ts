@@ -6,26 +6,38 @@ import { test, expect, type Page } from '@playwright/test';
  * Verifies that the application correctly enforces per-user data isolation
  * for the cloud-deployed multi-user architecture.
  *
- * Two tiers:
- * 1. UI-level tests — mock API responses, run without Supabase (bypass mode).
- * 2. Real isolation tests — require two pre-existing Supabase test accounts.
- *    Set TEST_USER_EMAIL/PASSWORD and TEST_USER2_EMAIL/PASSWORD to enable.
+ * Two tiers, each behind its own explicit opt-in (WIC-2201):
+ * 1. UI-level tests — mock API responses, need no backend, but are timing-flaky
+ *    against mock auth. Gated on E2E_ISOLATION_UI.
+ * 2. Real isolation tests — require a live API and two pre-existing Supabase test
+ *    accounts. Gated on E2E_LIVE_BACKEND; supply TEST_USER_EMAIL/PASSWORD and
+ *    TEST_USER2_EMAIL/PASSWORD in the job that opts in.
  */
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Gates
 // ---------------------------------------------------------------------------
 
-const isAuthEnabled = () => !!process.env.VITE_SUPABASE_URL;
-const hasTestCredentials = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
+// WIC-2201: gate on backend AVAILABILITY, never on credential presence. The old
+// guard was `!process.env.TEST_USER_EMAIL`, which treats "credentials exist" as
+// "a backend is up". Those are unrelated: CI has never started the API
+// (playwright.config.ts runs `npm run dev`, and root package.json maps `dev` to
+// the @wic/web workspace only — the API is `dev:api`, which nothing invokes).
+// So provisioning the credential woke 29 specs against a dead backend, blew the
+// e2e-tests 15m timeout and SKIPPED deploy-production. See WIC-2122 / WIC-2199.
+//
+// Deliberately NOT AND-ed with a credential check: a job that opts in without a
+// backend or without credentials must fail LOUD, not silently skip. A silent
+// skip that reads as coverage is the exact defect this replaces.
+const requiresLiveBackend = () => !process.env.E2E_LIVE_BACKEND;
 
-const hasTwoTestUsers = () =>
-  !!(
-    process.env.TEST_USER_EMAIL &&
-    process.env.TEST_USER_PASSWORD &&
-    process.env.TEST_USER2_EMAIL &&
-    process.env.TEST_USER2_PASSWORD
-  );
+// The UI tier mocks its API responses, so it needs no backend — it is gated
+// separately only because it is timing-flaky against mock auth. Keeping it off
+// E2E_LIVE_BACKEND means turning the backend on does not also wake known-flaky
+// tests.
+const requiresIsolationUi = () => !process.env.E2E_ISOLATION_UI;
+
+const hasTestCredentials = () => !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -83,17 +95,16 @@ async function mockResumesList(page: Page, resumes: object[]) {
 }
 
 // ---------------------------------------------------------------------------
-// UI-Level Isolation Tests (mock auth, run without real backend)
-// Note: These tests are complex and flaky without a real backend.
-// Skip when TEST_USER_EMAIL is not set (i.e., no configured backend).
+// UI-Level Isolation Tests (mock auth, no backend required)
+// These mock their API responses, so they do NOT need a live backend — they are
+// gated only because they are timing-flaky against mock auth. Opt in with
+// E2E_ISOLATION_UI once that flake is fixed.
 // ---------------------------------------------------------------------------
 
 test.describe('Application Data Isolation - UI', () => {
-  // Skip these UI tests in CI - they have timing issues with mock auth
-  // The real isolation tests (with TEST_USER credentials) provide actual coverage
   test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'UI isolation tests skipped in CI - real isolation tests provide coverage'
+    requiresIsolationUi(),
+    'known timing-flaky against mock auth — set E2E_ISOLATION_UI=1 to run'
   );
 
   const USER_A_APP = {
@@ -168,10 +179,9 @@ test.describe('Application Data Isolation - UI', () => {
 });
 
 test.describe('Dashboard Stats Isolation - UI', () => {
-  // Skip these UI tests in CI - they have timing issues with mock auth
   test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'UI isolation tests skipped in CI - real isolation tests provide coverage'
+    requiresIsolationUi(),
+    'known timing-flaky against mock auth — set E2E_ISOLATION_UI=1 to run'
   );
 
   test('dashboard shows user-specific stats from API', async ({ page }) => {
@@ -221,10 +231,9 @@ test.describe('Dashboard Stats Isolation - UI', () => {
 });
 
 test.describe('Resume/Document Isolation - UI', () => {
-  // Skip these UI tests in CI - they have timing issues with mock auth
   test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'UI isolation tests skipped in CI - real isolation tests provide coverage'
+    requiresIsolationUi(),
+    'known timing-flaky against mock auth — set E2E_ISOLATION_UI=1 to run'
   );
 
   const USER_A_RESUME = {
@@ -289,8 +298,8 @@ test.describe('Resume/Document Isolation - UI', () => {
 
 test.describe('API Auth Token Propagation', () => {
   test.skip(
-    !isAuthEnabled() || !hasTestCredentials(),
-    'Requires VITE_SUPABASE_URL and TEST_USER credentials'
+    requiresLiveBackend(),
+    'requires a live API backend — set E2E_LIVE_BACKEND=1 in a job that boots dev:api and supplies VITE_SUPABASE_URL + TEST_USER credentials'
   );
 
   test('all API requests include Bearer token after login', async ({ page }) => {
@@ -356,8 +365,8 @@ test.describe('API Auth Token Propagation', () => {
 
 test.describe('Real Multi-User Data Isolation', () => {
   test.skip(
-    !isAuthEnabled() || !hasTwoTestUsers(),
-    'Requires VITE_SUPABASE_URL and two sets of TEST_USER credentials'
+    requiresLiveBackend(),
+    'requires a live API backend — set E2E_LIVE_BACKEND=1 in a job that boots dev:api and supplies VITE_SUPABASE_URL + TWO sets of TEST_USER credentials'
   );
 
   test('User A application is not visible to User B', async ({ browser }) => {
