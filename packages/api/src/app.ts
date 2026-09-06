@@ -20,7 +20,8 @@ import { authMiddleware } from './middleware/auth.js';
 import { httpsRedirect, securityHeaders } from './middleware/security.js';
 import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
-import { isDatabaseUnreachable } from './db/connect-bound.js';
+import { describeDbFailure, isDatabaseUnreachable } from './db/connect-bound.js';
+import { getRequestContext } from './db/context.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
 
 /**
@@ -108,7 +109,12 @@ export function buildApp() {
         await getDb().execute(sql`SELECT 1`);
         db = 'ok';
       } catch (err) {
-        db = err instanceof Error ? err.message : String(err);
+        // Report what actually failed. A connect-deadline trip surfaces as
+        // postgres-js's `CONNECTION_DESTROYED`, which names the pooler and
+        // reads as an upstream fault when the deadline is ours; see
+        // `describeDbFailure`. A real server-side disconnect keeps its own
+        // message, so the two never collapse into one string (WIC-2163).
+        db = describeDbFailure(err, getRequestContext());
       }
     }
     const status = db === 'ok' || db === 'not_applicable' ? 'ok' : 'degraded';
