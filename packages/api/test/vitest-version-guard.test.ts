@@ -90,13 +90,39 @@ describe('satisfies', () => {
   // WIC-2211. npm narrows the caret as leading zeros accumulate, so the plain
   // major-lock is wrong for 0.x — and wrong fail-OPEN, which is the one direction
   // this guard must never be. Declining to judge is the honest answer.
-  it('declines to judge a 0.x caret or tilde rather than answering fail-open', () => {
-    // Each pair is one npm would REJECT; the old major-lock rule accepted them.
-    expect(satisfies('0.9.0', '^0.5.7')).toBeNull();
-    expect(satisfies('0.0.9', '^0.0.3')).toBeNull();
-    expect(satisfies('0.9.0', '~0.5.7')).toBeNull();
-    // Declining is uniform: a 0.x range is never judged, even when it would agree.
+  it('declines to judge a 0.x caret that sits at or above its floor', () => {
+    // Each pair is one npm would REJECT; the plain major-lock rule accepted them.
+    // They are also the only cell where npm's zero-rules change the answer, so
+    // `null` here is the honest verdict rather than a guess in either direction.
+    expect(satisfies('0.9.0', '^0.5.7')).toBeNull(); // ^0.5.7 -> >=0.5.7 <0.6.0
+    expect(satisfies('0.0.9', '^0.0.3')).toBeNull(); // ^0.0.3 -> >=0.0.3 <0.0.4
+    // Declining is uniform *within that cell*: it does not depend on whether the
+    // answer would have agreed with npm.
     expect(satisfies('0.5.9', '^0.5.7')).toBeNull();
+  });
+
+  // WIC-2215. The above must be the ONLY 0.x cell that declines. The first cut of
+  // the exclusion ran before the floor check and the major comparison, discarding
+  // two answers that are correct whatever npm does with leading zeros — which made
+  // it strictly MORE fail-open than the bug it replaced, since the caller reads
+  // `null` and `true` as the same outcome. Every case below returned `null` (and so
+  // passed the build) at a2cc0736; none of them is ambiguous.
+  it('still rejects a 0.x caret below its floor, or outside its major', () => {
+    expect(satisfies('0.1.0', '^0.5.7')).toBe(false); // sub-floor, same major
+    expect(satisfies('0.0.1', '^0.0.3')).toBe(false); // sub-floor, zero minor
+    expect(satisfies('1.0.0', '^0.5.7')).toBe(false); // caret ceiling stays in major 0
+    expect(satisfies('0.5.7', '^1.2.3')).toBe(false); // and in the other direction
+  });
+
+  // WIC-2215. `~0.5.7` -> `>=0.5.7 <0.6.0` and `~0.0.3` -> `>=0.0.3 <0.1.0` are
+  // exactly the floor plus the major/minor lock — npm applies no zero-rule to a
+  // fully-specified tilde. Excluding it cost accuracy and bought nothing.
+  it('judges a 0.x tilde exactly, with no zero-rule exclusion', () => {
+    expect(satisfies('0.5.9', '~0.5.7')).toBe(true);
+    expect(satisfies('0.0.9', '~0.0.3')).toBe(true);
+    expect(satisfies('0.9.0', '~0.5.7')).toBe(false); // above the minor lock
+    expect(satisfies('0.4.0', '~0.5.7')).toBe(false); // below the floor
+    expect(satisfies('0.1.0', '~0.0.3')).toBe(false); // 0.0.x tilde locks the minor
   });
 
   it('still judges non-zero majors exactly, so declining 0.x costs no coverage', () => {

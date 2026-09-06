@@ -29,6 +29,22 @@ The entry below split the UI tier onto its own `E2E_ISOLATION_UI` gate and carri
 
 
 
+
+### Fixed — the `0.x` caret guard added below was placed too early, turning 5,850 correct rejections into passes (2026-09-06)
+
+The entry below fixed `satisfies()` blessing `0.9.0` under `^0.5.7`. Its remedy — `if (operator && want.major === 0) return null;` — was correct in intent and wrong in position (WIC-2215). It ran **before** the floor check and **before** the major comparison, discarding two answers that are right no matter what npm does with leading zeros: below the floor is out under every range shape, and a different major is out under every `0.x` caret, whose ceiling never leaves major 0.
+
+**It was strictly more fail-open than the rule it replaced, and it did not change the case it was written for.** The caller reads `if (ok === null || ok === true) return;` — `null` and `true` are the same build outcome — so `0.9.0` vs `^0.5.7` passed before and passed after. What did change was everything around it. Graded against real `semver` over 46,875 `(installed, range)` pairs, counting `null` as the pass the caller makes it: the original rule got **260** wrong, all confident `true`; the fix got **6,110** wrong, all `null`. **5,850 pairs that were correctly rejected began passing**, including `0.1.0` vs `^0.5.7` and `1.0.0` vs `^0.5.7`, where the majors plainly differ.
+
+The exclusion now sits after both checks, so it declines only in the one cell npm's zero-rules actually move: both majors `0`, installed at or above the floor. Verified by **set identity** rather than by count — the wrong-set is now exactly the original's, symmetric difference empty in both directions, differing only in character: 260 confident `true` became 260 honest `null`. That is what the entry below asked for, and nothing else. The 1.x+ path is byte-for-byte unchanged (0 disagreements across the sweep).
+
+**`~` never needed excluding.** `~0.5.7` → `>=0.5.7 <0.6.0` and `~0.0.3` → `>=0.0.3 <0.1.0` are exactly what the floor plus the major/minor lock already computes — npm applies no zero-rule to a fully-specified tilde. Zero of the residual wrong pairs involve one. The exclusion cost accuracy there and bought nothing, so tilde is judged again, and `0.9.0` vs `~0.5.7` now returns a correct `false` where it returned `null`.
+
+**The test gap that hid it was the absence of a sub-floor `0.x` case.** The suite asserted `^0.5.7`, `^0.0.3` and `~0.5.7` only at or above their floors, under an explicit "declining is uniform" rationale, so all 5,850 regressed pairs were uncovered and the four-mutant matrix could not reach them. Three cases now pin the boundary — sub-floor same-major, sub-floor zero-minor, and different-major — plus a tilde block asserting exact judgement in both directions. Every non-`null` expectation in the new tests was cross-checked against real `semver` rather than reasoned about.
+
+Worth recording as a method note: the first draft of a *full* npm zero-rule model written while investigating this was itself wrong in the fail-open direction — it locked the patch for `^0.0.5` but forgot to also lock the minor, blessing `0.9.5`. Declining that cell remains the cheaper correct answer.
+
+
 ### Fixed — the vitest runner guard explained every failure as a hoisted stranger, and blessed a mismatched `0.x` runner (2026-09-06)
 
 Three follow-ups to the guard added the same day, all found in review (WIC-2211). None changed its pass/fail decision; two made it lie about *why*, and one made it silent when it should not be.
