@@ -175,8 +175,38 @@ export function describeDbFailure(err: unknown, ctx: RequestContext | undefined)
  */
 export const DEFAULT_CONNECT_DEADLINE_MS = 1500;
 
+/**
+ * Resolve the deadline override, treating a **blank** value as absent.
+ *
+ * The blank check is not defensive tidying, it is the whole point: `Number('')`
+ * is `0`, and `0` is a meaningful value here — it arms the deadline on the first
+ * macrotask, which is how this module's own tests force an immediate trip. So a
+ * blank override does not fall back, it selects the most aggressive setting
+ * available, and every DB-touching request in the Worker answers `503 Database
+ * unreachable: no connection could be established` against a database that is
+ * perfectly healthy.
+ *
+ * Blank is the realistic shape of a misconfiguration at the edge rather than a
+ * hypothetical one. A GitHub Actions expression for a secret that does not exist
+ * expands to the empty string, and `wrangler secret put` then stores it and
+ * prints `✨ Success!` — `set-worker-secrets.yml` documents exactly that
+ * happening to `ANTHROPIC_API_KEY` on run 33972091515. There it disables a
+ * feature; here it would counterfeit the WIC-2092 data-plane outage, character
+ * for character, on a healthy deployment.
+ *
+ * `lib/pagination.ts` already carries this same trap and its remedy (WIC-1308):
+ * *"`Number('')` is `0`, so a cursor decoding to nothing would silently mean
+ * page one — the failure mode being fixed, just quieter."* Same coercion, same
+ * quiet direction, and this resolver was the copy without the guard.
+ *
+ * An explicit `'0'` keeps meaning zero. Rejecting zero outright would also make
+ * blank default, and it is the tempting one-character version of this fix, but
+ * it would take the instant-trip escape hatch with it.
+ */
 export function resolveConnectDeadlineMs(raw: string | undefined): number {
-  if (raw === undefined) return DEFAULT_CONNECT_DEADLINE_MS;
+  // `trim()` rather than `=== ''`: a value pushed through a shell or a YAML
+  // block can arrive as a lone newline, and `Number('\n')` is `0` too.
+  if (raw === undefined || raw.trim() === '') return DEFAULT_CONNECT_DEADLINE_MS;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_CONNECT_DEADLINE_MS;
 }

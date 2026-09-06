@@ -66,7 +66,10 @@ export interface Env {
   /**
    * Milliseconds a Workers request will wait for a database connection before
    * tearing the pool down and failing fast (WIC-2043). Defaults to
-   * `DEFAULT_CONNECT_DEADLINE_MS`; an unparseable value falls back to it.
+   * `DEFAULT_CONNECT_DEADLINE_MS`; an unparseable value falls back to it, and
+   * so does a **blank** one — `Number('')` is `0`, which is a valid setting
+   * here (immediate trip) rather than a rejected one, so blank had to be
+   * excluded explicitly. See `resolveConnectDeadlineMs`.
    */
   DB_CONNECT_DEADLINE_MS?: string;
 }
