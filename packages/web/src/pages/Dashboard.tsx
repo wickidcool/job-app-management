@@ -18,7 +18,12 @@ export function Dashboard() {
     isPending: dashboardPending,
     isError: dashboardError,
   } = useDashboard();
-  const { data: resumes = [], isPending: resumesPending, isError: resumesError } = useResumes();
+  // ⚠️ No `= []` default (WIC-2236), for the same reason `stats` below has no zeros object.
+  // The default collapsed "no measurement" into a measured `0` before the resume widget
+  // ever saw it, so the widget could not tell a user with genuinely no resumes from one
+  // whose list we failed to read — and it therefore had to treat `error` alone as proof
+  // that its counts were worthless. `undefined` is what makes the difference expressible.
+  const { data: resumes, isPending: resumesPending, isError: resumesError } = useResumes();
 
   const loading = dashboardPending || resumesPending;
 
@@ -59,7 +64,13 @@ export function Dashboard() {
       </div>
 
       <div className="mb-6">
-        <QuickWins attention={dashboardData?.attention} />
+        {/*
+          `error` is read here but `attention` is not gated on it (WIC-2236): a failed
+          refetch keeps the cached aggregates, so the flag only decides what this card
+          says when it has nothing — "couldn't load" rather than a "checking" claim that
+          outlives the request it describes.
+        */}
+        <QuickWins attention={dashboardData?.attention} error={dashboardError} />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -105,12 +116,16 @@ export function Dashboard() {
         </div>
 
         <DashboardResumeWidget
-          masterResumeCount={resumes.length}
-          exportCount={resumes.length}
+          // `resumes?.length`, not `resumes.length` — see the hook read above. Both props
+          // are fed from the one array, so they are measured together or not at all.
+          masterResumeCount={resumes?.length}
+          exportCount={resumes?.length}
           loading={loading}
           // A failed resumes request must not read as "you have none": `isError` leaves
           // `data` undefined permanently, so the empty branch would be a standing false
-          // claim rather than a flash (WIC-2227).
+          // claim rather than a flash (WIC-2227). It is now passed alongside the counts
+          // rather than instead of them, so a failed *refetch* over a warm cache keeps
+          // the figures and discloses that they are stale (WIC-2236).
           error={resumesError}
         />
 
