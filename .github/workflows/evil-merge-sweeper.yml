@@ -75,10 +75,29 @@ permissions:
   statuses: write
 
 concurrency:
-  group: evil-merge-sweeper
-  # Coalesce: every pass re-evaluates the full open-PR set from live API state,
-  # so a newer run wholly subsumes an older one. Fail-closed is preserved — any
-  # head a cancelled run had not reached simply stays `pending`.
+  # Key the group to the trigger's SCOPE, not the workflow (WIC-2166). This job
+  # has two shapes with two different coalescing stories, and a single repo-wide
+  # group is only correct for one of them:
+  #
+  #   - schedule / workflow_dispatch evaluate the FULL open-PR set from live API
+  #     state, so a newer full pass wholly subsumes an older one — cancelling an
+  #     in-flight full pass loses nothing. These share the `full-sweep` slot, so
+  #     the intended coalescing is preserved for exactly the runs it is true for.
+  #
+  #   - pull_request_target evaluates ONLY the triggering PR (see the job body
+  #     ~line 327). A newer edge run for PR B does NOT subsume an older edge run
+  #     for PR A — they cover disjoint PRs. Under one repo-wide group with
+  #     cancel-in-progress, B would cancel A and drop A's `evil-merge-sweep`
+  #     status, a REQUIRED context under ruleset `skip-ci-sweep-required`, off
+  #     PR A's head — leaving A unmergeable-by-the-rules until the next cron. Two
+  #     pushes to different PRs inside one run's lifetime is all it takes.
+  #
+  # Keying per PR number keeps cancel-in-progress useful (a rapid re-push to the
+  # SAME PR still coalesces onto its own older run) while making cross-PR
+  # cancellation impossible. Cost is bounded: concurrent edge runs are at most
+  # one per actively-pushed PR, ~9 tree reads each, well inside the 1,000
+  # REST/hour budget the header sizes against.
+  group: evil-merge-sweeper-${{ github.event.pull_request.number || 'full-sweep' }}
   cancel-in-progress: true
 
 jobs:
