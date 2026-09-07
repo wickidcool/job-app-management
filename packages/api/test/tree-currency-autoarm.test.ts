@@ -211,9 +211,7 @@ describe('tree-currency arm — what it does once armed (WIC-2228)', () => {
     );
     // It names the commits, exactly as the CLI does — the refusal has to be
     // actionable from inside a test run, where the operator did not ask for it.
-    expect(() => maybeAssertTreeCurrent({ cwd: work, env: LOCAL_ENV })).toThrow(
-      /shipped change 2/
-    );
+    expect(() => maybeAssertTreeCurrent({ cwd: work, env: LOCAL_ENV })).toThrow(/shipped change 2/);
   });
 
   it('explains that the refusal came from globalSetup, and how to get out', () => {
