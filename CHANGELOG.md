@@ -30,6 +30,10 @@ The entry below split the UI tier onto its own `E2E_ISOLATION_UI` gate and carri
 
 
 
+### Added — multi-user data-isolation coverage now actually runs in CI: `e2e-isolation-coverage` boots an in-job backend and executes the isolation specs (WIC-2122 route 2) (2026-09-07)
+
+The `e2e-isolation-coverage` job was a 2-minute credential preflight that ran zero tests; the RLS/multi-user isolation specs (`multi-user-isolation.spec.ts`, `application-form-errors.spec.ts`) self-skip unless `E2E_LIVE_BACKEND` is set, and it was set nowhere, so ADR-005's isolation guarantee had no live coverage. This job now checks out, installs Playwright, boots the Node API (`dev:api`, Hono on :3000) against the shared `dev` Supabase, health-gates it on `/health`, and runs those two spec files with `E2E_LIVE_BACKEND=1`. `e2e-tests` is untouched (the specs still skip there), and the job stays out of `deploy-production.needs` and the required-merge ruleset, so a red here is visible-but-harmless and never blocks a deploy. It deliberately does not migrate the dev DB (deploy-preview/deploy-production keep it current); a schema-changing PR may see transient red here, which is acceptable precisely because the job is non-gating.
+
 
 ### Fixed — the runner-version guard dropped prerelease tags, so `4.2.0-beta.1` passed a `^4.1.11` pin (2026-09-07)
 
