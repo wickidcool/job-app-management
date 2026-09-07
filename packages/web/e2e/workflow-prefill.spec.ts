@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
 
 /**
  * Workflow Pre-fill E2E Tests
@@ -70,6 +70,48 @@ async function mockApplicationApi(page: Page, appId = MOCK_APP_ID, httpStatus = 
         httpStatus === 404
           ? JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Application not found' } })
           : JSON.stringify({ application: MOCK_APPLICATION }),
+    })
+  );
+}
+
+/**
+ * Settle the four WorkflowChecklist artefact queries as "none exist".
+ *
+ * ⚠️ Load-bearing since WIC-2227, and the reason it had to be added at all: the
+ * `ApplicationDetail - header changes` block below mocked only `/api/auth/me` and
+ * `/api/applications/:id`, so the four artefact endpoints hit no backend in CI and their
+ * queries **failed**. Before WIC-2227 a failed query reached the checklist as `'absent'` —
+ * indistinguishable from "we looked and there is none" — so the "create this artefact"
+ * links rendered and those tests passed.
+ *
+ * **They were green because of the defect.** They asserted that the app offers to write a
+ * cover letter in a scenario where it never learned whether one already exists, which is
+ * exactly the duplicate-creation harm WIC-1630 and WIC-2227 exist to prevent. With the fix
+ * those rows are `'unknown'` and render inert, so the links are correctly absent and the
+ * assertions had nothing left to find.
+ *
+ * Mocking the endpoints empty restores the state in which those links ARE legitimate — the
+ * one the tests actually mean to assert — rather than relaxing the assertions to fit.
+ *
+ * Verified load-bearing: removing the call site below turns both tests red again.
+ *
+ * Anchored `RegExp`s, not globs: a pattern loose enough to match `/api/cover-letters` can
+ * also match the dev server's own module URLs under `/src/services/api/`, which fulfils a
+ * module script with JSON and leaves the app unmounted and the body empty (WIC-2207).
+ */
+async function mockArtefactApis(page: Page) {
+  const empty = (body: object) => (route: Route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+
+  await page.route(/\/api\/cover-letters(\?.*)?$/, empty({ coverLetters: [] }));
+  await page.route(/\/api\/resume-variants(\?.*)?$/, empty({ variants: [] }));
+  await page.route(/\/api\/catalog\/job-fit\/analyses(\?.*)?$/, empty({ analyses: [] }));
+  // The service maps this endpoint's 404 to `null`, which IS its settled-absent value.
+  await page.route(/\/api\/applications\/[^/]+\/interview-prep(\?.*)?$/, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'NOT_FOUND', message: 'No interview prep' } }),
     })
   );
 }
@@ -221,6 +263,9 @@ test.describe('ApplicationDetail - header changes', () => {
   test.beforeEach(async ({ page }) => {
     await setupMockAuth(page);
     await mockApplicationApi(page);
+    // Without this the four artefact queries fail and every checklist row is `'unknown'`,
+    // so the step links these tests assert on are correctly absent. See `mockArtefactApis`.
+    await mockArtefactApis(page);
   });
 
   test('header has Edit and Delete buttons but no "Generate Cover Letter" button', async ({
