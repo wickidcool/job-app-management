@@ -82,6 +82,29 @@ export interface UpdateStatusInput {
   version: number;
 }
 
+/**
+ * The sort keys `GET /api/applications` accepts, as a runtime value.
+ *
+ * One source of truth, consumed three ways: the route's `z.enum` validates
+ * against it, `ApplicationSortKey` is derived from it, and
+ * `test/application-sort-stability.test.ts` iterates it to assert that every
+ * key's ORDER BY ends in a unique tiebreaker (WIC-2260).
+ *
+ * That last one is why this is a `const` array rather than a union type. The
+ * tiebreaker invariant is only worth anything if it is checked over *all* the
+ * keys; a test with the list hand-copied into it goes quietly incomplete the
+ * first time someone adds a fifth key, which is exactly how three of the
+ * original four came to be missing a tiebreaker in the first place.
+ */
+export const APPLICATION_SORT_KEYS = [
+  'createdAt',
+  'updatedAt',
+  'company',
+  'interviewDate',
+] as const;
+
+export type ApplicationSortKey = (typeof APPLICATION_SORT_KEYS)[number];
+
 export interface ListApplicationsParams {
   status?: string;
   company?: string;
@@ -102,7 +125,7 @@ export interface ListApplicationsParams {
    */
   interviewDateFrom?: string;
   interviewDateTo?: string;
-  sortBy?: 'createdAt' | 'updatedAt' | 'company' | 'interviewDate';
+  sortBy?: ApplicationSortKey;
   sortOrder?: 'asc' | 'desc';
   limit?: number;
   page?: string;
