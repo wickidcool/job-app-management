@@ -65,6 +65,30 @@ describe('interviewCountdown — the regression: calendar days, not 24-hour bloc
       urgency: 'medium',
     });
   });
+
+  it('splits the 47-hour offset on the calendar boundary, not on the offset', () => {
+    // The one row of the header table with no assertion of its own. 47 hours is a single
+    // offset with TWO correct answers, because the label is decided by dates crossed rather
+    // than by hours elapsed — which is the entire thesis of this fix stated as one input.
+    //
+    // TZ pinned because 47 hours is exact-hour arithmetic: a DST transition inside the span
+    // would move the target by an hour and silently relabel it. June has none in this zone.
+    process.env.TZ = 'America/New_York';
+
+    // Evening: 10 Jun 20:00 -> 12 Jun 19:00. Two boundaries. Old ceil(47/24) also said 2, so
+    // this is the arm where old and new agree — 1380 of the day's 1440 start minutes.
+    expect(interviewCountdown(at(2026, 6, 12, 19).toISOString(), at(2026, 6, 10, 20))).toEqual({
+      text: 'In 2 days',
+      urgency: 'medium',
+    });
+
+    // Just after midnight: 10 Jun 00:30 -> 11 Jun 23:30. Same 47 hours, ONE boundary. The old
+    // code said "In 2 days" here and was wrong; this is a live defect arm of the original
+    // regression, not merely an unpinned boundary. It holds for 60 start minutes per day.
+    expect(
+      interviewCountdown(at(2026, 6, 11, 23, 30).toISOString(), at(2026, 6, 10, 0, 30))
+    ).toEqual({ text: 'Tomorrow', urgency: 'medium' });
+  });
 });
 
 describe('interviewCountdown — the same-day rung', () => {

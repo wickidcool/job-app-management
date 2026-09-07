@@ -20,7 +20,13 @@
  * |---|---|---|
  * | 25 hours away (tomorrow evening) | `In 2 days` | `Tomorrow` |
  * | 36 hours away | `In 2 days` | `Tomorrow` |
- * | 47 hours away | `In 2 days` | `In 2 days` |
+ * | 47 hours away | `In 2 days` | `In 2 days` — *usually*; see below |
+ *
+ * The last row is the only one whose answer depends on the time of day, which is the point:
+ * the label is decided by dates crossed, not by hours elapsed. Swept across all 1,440 start
+ * minutes, 47 hours reads `In 2 days` for 1,380 of them and `Tomorrow` for the 60 minutes
+ * after midnight — where the old elapsed-ceil said `In 2 days` and was wrong. Both arms are
+ * pinned in the test file.
  *
  * So `Tomorrow` rendered for a **60-minute window** — offsets in (23h, 24h] — out of the
  * ~24-hour band it names, and everything else that was genuinely tomorrow was announced as
