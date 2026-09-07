@@ -133,6 +133,82 @@ describe('satisfies', () => {
   it('returns null for a non-semver installed version', () => {
     expect(satisfies('not-a-version', '^4.1.11')).toBeNull();
   });
+
+  // WIC-2217. `parseVersion` matches a PREFIX, so a prerelease tag was silently
+  // dropped and the version judged as if it were the release. That made
+  // prereleases the one remaining input class returning a confident wrong answer
+  // in the fail-OPEN direction. Every row below returned `true` at c7e8c9d6 and
+  // is `false` in real semver@6.3.1 — the four rows measured in WIC-2217, in the
+  // order that card lists them.
+  it('rejects a prerelease under a prerelease-free range, in every modelled shape', () => {
+    expect(satisfies('4.2.0-beta.1', '^4.1.11')).toBe(false); // above the floor, same major
+    expect(satisfies('4.1.11-rc.1', '^4.1.11')).toBe(false); // prerelease OF the pinned version
+    expect(satisfies('4.1.12-next.0', '~4.1.11')).toBe(false); // inside the tilde's minor lock
+    expect(satisfies('4.1.11-0', '4.1.11')).toBe(false); // numeric tag, exact pin
+  });
+
+  // The answer is `false`, not `null`, and that distinction is the point. npm's
+  // rule here is unconditional — a prerelease satisfies a range only if some
+  // comparator has both the same `X.Y.Z` and a prerelease of its own — so this is
+  // a case the guard can answer correctly rather than one it has to decline.
+  // Declining instead would have converted a correct rejection into a pass, since
+  // the caller reads `null` and `true` identically. That is the WIC-2215 failure
+  // mode, and the filing's suggested one-line `return null` remedy would have
+  // reintroduced it on exactly this pair.
+  it('answers false rather than declining, keeping the rejection the caller acts on', () => {
+    expect(satisfies('1.6.1-beta.0', '^4.1.11')).toBe(false);
+    expect(satisfies('1.6.1-beta.0', '^4.1.11')).not.toBeNull();
+    // The real defect this file exists to catch, wearing a prerelease tag: it must
+    // still fail the build, not be waved through.
+    expect(() => assertPinnedVitest(fixture('^4.1.11', '1.6.1-beta.0'))).toThrow(
+      /executing on vitest 1\.6\.1-beta\.0/
+    );
+  });
+
+  // WIC-2217 AC 4. Build metadata is NOT a prerelease: semver ignores it for
+  // precedence, so `4.2.0+build.5` satisfies `^4.1.11` exactly as `4.2.0` does.
+  // The prerelease test must not over-decline onto it — which is why it reads only
+  // the part before the first `+` and anchors the hyphen at the patch.
+  it('still judges build metadata, which is not a prerelease', () => {
+    expect(satisfies('4.2.0+build.5', '^4.1.11')).toBe(true);
+    expect(satisfies('4.1.11+build.5', '4.1.11')).toBe(true);
+    expect(satisfies('4.1.10+build.5', '^4.1.11')).toBe(false);
+    // A hyphen INSIDE the build metadata is still not a prerelease tag.
+    expect(satisfies('4.2.0+build-5', '^4.1.11')).toBe(true);
+    // Both at once: the prerelease is the part before the `+`, so this one is.
+    expect(satisfies('4.2.0-rc.1+build.5', '^4.1.11')).toBe(false);
+  });
+
+  // A range that itself names a prerelease needs prerelease PRECEDENCE ordering
+  // (`rc.2 > rc.1`, numeric identifiers below alphanumeric), which this file
+  // deliberately does not model — same call as the `0.x` zero-rules. So it
+  // declines, but only where the answer actually depends on that ordering.
+  it('declines a range that names a prerelease, without discarding the certain answers', () => {
+    // One per operator: the decline has to be wired into all three branches, and a
+    // mutation run found the tilde branch was the one with no coverage. Dropping
+    // its decline alone costs 5,875 confidently wrong answers against semver — the
+    // caret and exact cases below cannot see it.
+    expect(satisfies('4.2.0', '^4.1.11-rc.1')).toBeNull();
+    expect(satisfies('4.1.11-rc.2', '^4.1.11-rc.1')).toBeNull();
+    expect(satisfies('4.1.11', '~4.1.11-rc.1')).toBeNull();
+    expect(satisfies('4.1.11-0', '~4.1.11-rc.1')).toBeNull(); // semver: false (`0` < `rc.1`)
+    expect(satisfies('4.1.11', '4.1.11-rc.1')).toBeNull();
+    // Below the floor by X.Y.Z, or outside the caret's major / the tilde's minor,
+    // is out however the tags order — a prerelease only moves a version within its
+    // own X.Y.Z. Those stay `false` rather than joining the decline.
+    expect(satisfies('4.1.10', '^4.1.11-rc.1')).toBe(false);
+    expect(satisfies('5.0.0', '^4.1.11-rc.1')).toBe(false);
+    expect(satisfies('4.2.0', '~4.1.11-rc.1')).toBe(false);
+    expect(satisfies('4.1.12', '4.1.11-rc.1')).toBe(false);
+  });
+
+  // The unmodellable-range check has to stay AHEAD of the prerelease rules: a
+  // multi-comparator range can hold a prerelease this function cannot see, and
+  // answering `false` on it would be a new confident wrong answer.
+  it('still declines a multi-comparator range even when the installed side is a prerelease', () => {
+    expect(satisfies('4.2.0-rc.1', '^4.1.11 || ^4.2.0-rc.1')).toBeNull();
+    expect(satisfies('4.2.0-rc.1', '>=4.1.11')).toBeNull();
+  });
 });
 
 /**

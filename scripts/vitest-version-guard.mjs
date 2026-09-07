@@ -34,6 +34,27 @@ function parseVersion(raw) {
   return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
 }
 
+/**
+ * WIC-2217. True if `raw` carries a semver PRERELEASE tag (`4.2.0-beta.1`).
+ *
+ * `parseVersion` matches a prefix, so it drops everything after the patch — which
+ * is correct for build metadata and silently wrong for a prerelease. The two are
+ * not the same thing and must not be conflated: build metadata is explicitly
+ * ignorable in semver precedence (`4.2.0+build.5` satisfies `^4.1.11`, exactly as
+ * `4.2.0` does), while a prerelease *lowers* the version below its own release and
+ * is excluded from ordinary ranges altogether.
+ *
+ * So the hyphen is anchored at the patch rather than looked for anywhere in the
+ * string, and that anchor is doing all the work: build metadata can only follow the
+ * numeric core, so `4.2.0+build-5` fails the test on the `+` and is correctly not a
+ * prerelease. A bare `/-/` would call it one. The same anchor is why the hyphen in a
+ * range like `1.2.3 - 2.3.4` does not register (that shape is declined earlier on
+ * the whitespace anyway).
+ */
+function hasPrerelease(raw) {
+  return /^\d+\.\d+\.\d+-/.test(String(raw).trim());
+}
+
 function compare(a, b) {
   return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
 }
@@ -74,6 +95,39 @@ function compare(a, b) {
  * `>=0.0.3 <0.1.0` are exactly what the floor plus the major/minor lock already
  * computes. Zero of the residual wrong pairs involve a tilde, so excluding it cost
  * accuracy and bought nothing.
+ *
+ * WIC-2217. Prereleases were the one remaining input class where this function
+ * returned a CONFIDENT wrong answer in the fail-OPEN direction — the exact failure
+ * mode the file exists to prevent. `parseVersion` matches a prefix, so
+ * `4.2.0-beta.1` parsed as `{4,2,0}` and was judged as if it were the release:
+ * `true` under `^4.1.11`, where npm says `false`. Graded against real `semver@6.3.1`
+ * over 2,296,875 pairs drawn from the release universe crossed with `{-0, -rc.1,
+ * -beta.1, -next.0, +build.5, -rc.1+build.5}`, that was **51,325 confidently wrong
+ * answers**, all of them passes.
+ *
+ * Two rules close it, and note that only the second one declines:
+ *
+ * 1. **A prerelease under a prerelease-free range is `false`, not `null`.** This is
+ *    not a guess — it is npm's rule, and it is unconditional: a version carrying a
+ *    prerelease satisfies a range only if some comparator in that range has both the
+ *    same `X.Y.Z` and a prerelease of its own. Every range this function models is
+ *    a single comparator set built from one version, so when that version has no
+ *    prerelease the answer is `false` for every prerelease input, whatever the
+ *    operator and whatever the numbers. Answering `false` here keeps the rejection
+ *    the old prefix-parse got right by accident (`1.6.1-beta.0` vs `^4.1.11`) instead
+ *    of converting it into a pass, which is what declining would have done. Declining
+ *    a case you can answer correctly is fail-open widening — the WIC-2215 lesson,
+ *    which is why this rule is `false` rather than the `null` the filing suggested.
+ * 2. **A range that itself names a prerelease is not modelled**, so every answer that
+ *    would have been `true` becomes `null`. Ordering prereleases (`rc.2 > rc.1 > rc`,
+ *    numeric identifiers below alphanumeric ones) is a second precedence system, and
+ *    this file's whole thesis is that declining beats implementing it badly. The
+ *    `false` answers are kept: below the floor by `X.Y.Z`, outside a caret's major,
+ *    or outside a tilde's minor are all out no matter how the prerelease tags order,
+ *    since a prerelease only ever moves a version *within* its own `X.Y.Z`.
+ *
+ * Build metadata is deliberately untouched by both: `4.2.0+build.5` is not a
+ * prerelease and is still judged `true` under `^4.1.11`, matching semver.
  */
 export function satisfies(installed, range) {
   const got = parseVersion(installed);
@@ -81,10 +135,20 @@ export function satisfies(installed, range) {
 
   const trimmed = String(range).trim();
   const operator = trimmed.startsWith('^') ? '^' : trimmed.startsWith('~') ? '~' : '';
-  const want = parseVersion(operator ? trimmed.slice(1) : trimmed);
+  const bare = operator ? trimmed.slice(1) : trimmed;
+  const want = parseVersion(bare);
   if (!want) return null;
   // A range with anything else in it (` || `, ` - `, `>=`) is not one we model.
-  if (/[|\s>=<*x]/i.test(operator ? trimmed.slice(1) : trimmed)) return null;
+  // This has to stay ahead of the prerelease rules below: a multi-comparator range
+  // can contain a prerelease that `hasPrerelease` cannot see (`^4.1.11 || ^4.2.0-rc.1`
+  // reads as prerelease-free), and rule 1 would then answer `false` on a pair npm
+  // accepts.
+  if (/[|\s>=<*x]/i.test(bare)) return null;
+
+  const wantPrerelease = hasPrerelease(bare);
+
+  // Rule 1 (WIC-2217). Unconditional, and fail-CLOSED, so it is safe this early.
+  if (hasPrerelease(installed) && !wantPrerelease) return false;
 
   // Below the floor is out under every range shape this function models.
   if (compare(got, want) < 0) return false;
@@ -94,10 +158,14 @@ export function satisfies(installed, range) {
     // At or above the floor inside major 0 is the only cell npm's zero-rules
     // move, so it is the only one worth declining. See WIC-2215 above.
     if (want.major === 0) return null;
-    return true;
+    return wantPrerelease ? null : true;
   }
-  if (operator === '~') return got.major === want.major && got.minor === want.minor;
-  return compare(got, want) === 0;
+  if (operator === '~') {
+    if (got.major !== want.major || got.minor !== want.minor) return false;
+    return wantPrerelease ? null : true;
+  }
+  if (compare(got, want) !== 0) return false;
+  return wantPrerelease ? null : true;
 }
 
 /**
