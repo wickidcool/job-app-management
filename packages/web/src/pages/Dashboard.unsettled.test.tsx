@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Dashboard } from './Dashboard';
 import { dashboardKeys } from '../hooks/useDashboard';
+import { resumeKeys } from '../hooks/useResumes';
 
 /**
  * WIC-2227 — the resume widget's "you have none" claim, for a request that failed or is
@@ -66,9 +67,16 @@ const REAL_STATS = {
   },
 };
 
-function aResume(name = 'Backend Engineer CV') {
-  return { id: 'r1', name, fileName: `${name}.pdf`, createdAt: new Date(), updatedAt: new Date() };
+function aResume(name = 'Backend Engineer CV', id = 'r1') {
+  return { id, name, fileName: `${name}.pdf`, createdAt: new Date(), updatedAt: new Date() };
 }
+
+/**
+ * Two, so the widget's counts read `2` — a value no other element on this page can
+ * produce while the stats fixture is all-zero, and one the old `= []` collapse could
+ * never fabricate.
+ */
+const TWO_RESUMES = [aResume('Backend Engineer CV', 'r1'), aResume('Platform CV', 'r2')];
 
 /**
  * @param seedDashboardStats settle the *dashboard* query from cache before rendering.
@@ -94,7 +102,12 @@ function aResume(name = 'Backend Engineer CV') {
 function renderDashboard({
   seedDashboardStats = false,
   staleDashboardStats,
-}: { seedDashboardStats?: boolean; staleDashboardStats?: typeof REAL_STATS } = {}) {
+  staleResumes,
+}: {
+  seedDashboardStats?: boolean;
+  staleDashboardStats?: typeof REAL_STATS;
+  staleResumes?: ReturnType<typeof aResume>[];
+} = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (seedDashboardStats) {
     client.setQueryData(dashboardKeys.stats(), STATS);
@@ -103,6 +116,9 @@ function renderDashboard({
     client.setQueryData(dashboardKeys.stats(), staleDashboardStats, {
       updatedAt: Date.now() - 120_000,
     });
+  }
+  if (staleResumes) {
+    client.setQueryData(resumeKeys.list(), staleResumes, { updatedAt: Date.now() - 120_000 });
   }
   render(
     <QueryClientProvider client={client}>
@@ -299,6 +315,108 @@ describe('Dashboard — an unread pipeline is not a zeroed one (WIC-2229)', () =
 
     // 1 call is what makes this a failed REFETCH rather than a cache read: the seeded entry
     // was backdated past `staleTime`, so the hook really did go back to the network.
+    expect(GET_STATS).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * WIC-2236 — the same fourth state as WIC-2233 item 1, on the sibling query.
+ *
+ * `useResumes` carries the identical `staleTime: 30000` with `refetchOnMount` left at its
+ * default, so the reachability argument is the one WIC-2233 established for `useDashboard`:
+ * Dashboard → elsewhere → back after 30s, transient failure. React Query's refetch error
+ * keeps the previous data, so the widget holds a real measurement while `isError` is true.
+ *
+ * This one degraded in the *safe* direction — an honest disclosure hiding a figure it had,
+ * not a false claim — which is why it is smaller than WIC-2233 item 1, and why nothing on
+ * the page contradicted it: no other surface renders resume counts. It is still worth
+ * fixing, because the two sibling components had ended up with opposite rules while each
+ * one's doc comment cited the other as its precedent.
+ *
+ * ## The caller side comes first, and is the half a guard change alone would have missed
+ *
+ * `error && !masterResumeCount` would have been wrong. `Dashboard` read
+ * `const { data: resumes = [] }` and passed `resumes.length`, so the `= []` default had
+ * already collapsed "no measurement" into a measured `0` before the widget saw it — the
+ * same collapse WIC-2229 removed from the stats path. The counts are now
+ * `number | undefined` and the guard is `error && !measured`.
+ */
+describe('Dashboard — a failed resumes refetch does not hide counts it is holding (WIC-2236)', () => {
+  it('CONTROL: over the same warm cache, a refetch that SUCCEEDS renders the counts', async () => {
+    // Load-bearing in the same two directions as the WIC-2229 control: it proves `2` is
+    // findable at all, and — because the value is the fixture's length rather than a
+    // constant — that the widget is wired to the response. It also pins the withholding
+    // below to the error branch rather than to the cache seeding.
+    GET_RESUMES.mockResolvedValue(TWO_RESUMES);
+
+    renderDashboard({ seedDashboardStats: true, staleResumes: TWO_RESUMES });
+
+    await waitFor(() => expect(GET_RESUMES).toHaveBeenCalledTimes(1));
+    // Master resumes and Exports, both fed from the one array.
+    await waitFor(() => expect(screen.getAllByText('2')).toHaveLength(2));
+    expect(screen.queryByText(/Couldn’t load your resumes/i)).toBeNull();
+    // No staleness note, because nothing is stale.
+    expect(screen.queryByText(/most recent successful load/i)).toBeNull();
+  });
+
+  it('a failed REFETCH keeps the resume counts, and says they are stale', async () => {
+    GET_RESUMES.mockRejectedValue(new Error('500'));
+    // Seeded fresh, so the RESUMES query is the only unsettled one and `loading` cannot be
+    // what is holding the widget off its counts — see `renderDashboard`.
+    renderDashboard({ seedDashboardStats: true, staleResumes: TWO_RESUMES });
+
+    // The disclosure is what makes keeping the figures honest rather than silent.
+    expect(await screen.findByText(/most recent successful load/i)).toBeTruthy();
+
+    // The cached measurement, on both rows. Pre-fix the widget rendered the banner and
+    // neither `2` survived.
+    expect(screen.getAllByText('2')).toHaveLength(2);
+    expect(screen.getByText(/Master resumes/i)).toBeTruthy();
+
+    // The no-measurement banner belongs to `error && !measured`, which this is not.
+    expect(screen.queryByText(/Couldn’t load your resumes/i)).toBeNull();
+    // And keeping the counts must not have reintroduced the WIC-2227 false claim.
+    expect(screen.queryByText(NO_RESUMES_CLAIM)).toBeNull();
+
+    // 1 call is what makes this a failed REFETCH rather than a cache read: the seeded
+    // entry was backdated past `staleTime`, so the hook really did go back to the network.
+    expect(GET_RESUMES).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * WIC-2236, second observation — `QuickWins` kept saying it was still checking after the
+ * request it describes had permanently failed.
+ *
+ * Not a *figure* claim, so it sits outside the WIC-2229 heading's stated scope, but it is
+ * a progress claim that outlives its request, on the same query object as two surfaces
+ * three inches away that do report the failure. `AttentionCard` was already correct — it
+ * gates its all-clear on `attention` being defined and says nothing otherwise.
+ */
+describe('Dashboard — a failed request is not a request in progress (WIC-2236)', () => {
+  it('CONTROL: while the dashboard request is genuinely pending, QuickWins says so', async () => {
+    // Without this, the assertion below is also satisfied by a card that simply lost its
+    // pending copy.
+    GET_STATS.mockReturnValue(new Promise(() => {}));
+    GET_RESUMES.mockResolvedValue([]);
+
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByText(/Checking your applications…/)).toBeTruthy());
+    expect(screen.queryByText(/Couldn’t load your quick wins/i)).toBeNull();
+  });
+
+  it('a FAILED dashboard request retires the "checking" claim instead of leaving it up', async () => {
+    GET_STATS.mockRejectedValue(new Error('500'));
+    GET_RESUMES.mockResolvedValue([]);
+
+    renderDashboard();
+
+    expect(await screen.findByText(/Couldn’t load your quick wins/i)).toBeTruthy();
+    expect(screen.queryByText(/Checking your applications…/)).toBeNull();
+    // Retiring the progress claim must not promote the card to an all-clear it has not
+    // measured — the direction `AttentionCard` already got right.
+    expect(screen.queryByText(/All caught up/i)).toBeNull();
     expect(GET_STATS).toHaveBeenCalledTimes(1);
   });
 });
