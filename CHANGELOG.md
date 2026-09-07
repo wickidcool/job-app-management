@@ -9,6 +9,18 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Added — a stale checkout certifies itself green, so `scripts/tree-currency-guard.mjs` refuses to certify one (2026-09-07)
+
+A checkout that is behind `origin/main` runs the stale *tests* against the stale *code*. They agree, and the tree reads green — so green-in-my-tree carries no information about whether a shipped fix is armed there. A guard cannot check its own currency: every file is stale together, including the assertions that would have caught it.
+
+**Measured, twice, in two independent trees on the same day.** The primary checkout sat 3 commits behind, missing `8f1c1978` (WIC-2217) — the fix that stopped the vitest version guard fail-opening on semver prereleases — so in that tree `4.2.0-beta.1` satisfied `^4.1.11`, a confidently wrong answer in the fail-open direction. A second workspace checkout was independently found **16 commits behind** with the same fix absent. This is a pattern across trees, not one operator forgetting to pull, which is why it needs a check rather than a reminder.
+
+**Asserts currency; never syncs.** The guard never resets, merges, or fast-forwards — a helper that resets to the remote drops local commits, a failure already reproduced byte-for-byte in this fleet. It reports the gap, names the shipped commits that are absent, and tells a tree carrying local work to reconcile rather than reset. A test pins that HEAD, the index, and an uncommitted file all survive a refusal.
+
+**The fetch is load-bearing, and it is refs-only.** Comparing against an `origin/main` nobody has fetched certifies a stale tree as current — the guard would fail open in exactly the direction it exists to close. So it updates remote-tracking refs by default (never the working tree, index, or HEAD) and exposes `--no-fetch` for callers that have already fetched. Every other unknown is likewise fail-closed: an unresolvable upstream or a non-repository refuses to certify instead of passing quietly.
+
+**Keyed on the hazard, not a consequence.** The predicate is "behind the remote", not "the vitest guard file differs", so an unrelated stale fix still trips it — pinned by a test whose missing commit touches only `docs/`. Both directions are exercised against real git repositories built by one fixture that differs solely in how far the remote has advanced, so neither direction is vacuous; a parameterised behind-count would have faked the only part that can realistically break.
+
 ### Fixed — the 8 `E2E_ISOLATION_UI` tests never had mock auth, so they asserted against the sign-in page; now green and turned on in CI (2026-09-06)
 
 The entry below split the UI tier onto its own `E2E_ISOLATION_UI` gate and carried forward the justification *"known timing-flaky against mock auth."* That premise was never measured, and it was wrong in both halves: the tests are not flaky, and they were not running against mock auth (WIC-2207).
