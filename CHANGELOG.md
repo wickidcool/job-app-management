@@ -52,6 +52,40 @@ The caller/callee seam is pinned by **two different tests on the two sides**, be
 
 **Known inconsistency, recorded rather than silently resolved:** `FilterPanel`'s own `This Week` date preset starts on **Sunday** and ends *today*. It is a different control over a different field, so the two are not interchangeable, but they do disagree about which day a week starts. Unifying them is a deliberate decision for its own card, not a drive-by.
 
+
+### Fixed — the interview countdown called tomorrow "In 2 days", and rendered "In NaN days" on a bad date
+
+`InterviewPrepCard`'s countdown measured days as `Math.ceil(diffMs / DAY_MS)` — how many
+24-hour blocks, rounded up — while labelling the result with the calendar words `Tomorrow`
+and `In 2 days`. The two questions diverge almost everywhere: an interview 25 hours out
+announced `In 2 days`, and so did one 36 or 47 hours out. `Tomorrow` was reachable only for
+offsets in the 60-minute window `(23h, 24h]`, because below that the `diffHours < 24` rung
+caught it and above it the `ceil` had already rolled over to 2. The screen whose entire job
+is telling you how long you have left to prepare was overstating that runway by a full day.
+
+Days are now counted as **calendar days in the browser's timezone**, the same unit and the
+same reasoning as `interviewWeek.ts` (WIC-2194): *an off-by-one-day interview window is
+indistinguishable from a correct one until someone misses an interview*. Both instants are
+normalised to local midnight and the difference rounded, so a DST-shortened 23-hour local day
+still counts as one day. The sub-day rungs stay elapsed-time on purpose — `In 10 hours` beats
+`Tomorrow` for a 09:00 interview seen at 23:00 the night before.
+
+Second defect in the same function: the guards **failed open** on an unparseable date. Every
+comparison against `NaN` is false, so `diffMs < 0`, `diffMinutes < 120`, `diffHours < 24` and
+all three `diffDays` tests declined in order and fell through to a final unconditional
+`return`, rendering `In NaN days`. An unparseable date now returns `null`, the state the
+component already handles by rendering nothing.
+
+The ladder moved to `utils/interviewCountdown.ts` as a pure function because it has seven
+rungs and the page-level test could only reach one: `InterviewPrepPage.interviewDate.test.tsx`
+pins the countdown at *exactly* 72 hours out, which is the single offset where the old and new
+arithmetic agree. That test stayed green across the whole defect and still passes unchanged.
+17 unit tests now address the rungs directly, and a four-mutant matrix confirms each kills its
+intended target — including one that initially **survived**: rewriting the `Number.isNaN`
+guard as a truthiness test on `diffMs` differs on exactly one input (`diffMs === 0`, the
+interview starting this instant) and passed every other assertion, so it got its own.
+
+
 ### Fixed — three more surfaces stated a figure they had never measured, and the sweep is now closed (2026-09-07)
 
 WIC-2227 fixed the sentence-level "you have none" claims and recorded that the mechanical cohort was larger: **15** sites read a query's `data` while reading neither `error` nor `isPending`. This finishes the triage of the remaining ten (WIC-2229). Three are real defects; the other seven are recorded as non-defects **with their reasons**, because "swept for symmetry" and "checked and found harmless" are different claims and only one of them is true here.
