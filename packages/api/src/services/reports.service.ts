@@ -2,6 +2,7 @@ import { eq, and, inArray, notInArray, lte, gte, asc, desc, isNotNull } from 'dr
 import { getDb } from '../db/client.js';
 import { applications, statusHistory } from '../db/schema.js';
 import { encodeCursor, parseCursor } from '../lib/pagination.js';
+import { parseDateOnly, formatDateOnly, calendarDaysBetween } from '../lib/date-only.js';
 import type {
   ApplicationStatus,
   ActiveStatus,
@@ -179,8 +180,12 @@ export async function getNeedsActionReport(
   const threshold = new Date(today);
   threshold.setDate(threshold.getDate() + days);
 
-  const todayStr = today.toISOString().split('T')[0];
-  const thresholdStr = threshold.toISOString().split('T')[0];
+  // WIC-2268: `today`/`threshold` are LOCAL midnights, so `toISOString()` would round-trip
+  // them through UTC and yield the previous calendar day in every positive-offset zone.
+  // These two strings are SQL filter bounds -- getting them wrong changes which rows the
+  // report returns at all, not just how they are badged.
+  const todayStr = formatDateOnly(today);
+  const thresholdStr = formatDateOnly(threshold);
 
   const conditions = [
     isNotNull(applications.nextActionDue),
@@ -209,10 +214,12 @@ export async function getNeedsActionReport(
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
 
-  const todayMs = today.getTime();
   const appsWithUrgency: NeedsActionApplication[] = page.map((r) => {
-    const dueDate = new Date(r.nextActionDue!);
-    const diffDays = Math.floor((dueDate.getTime() - todayMs) / (1000 * 60 * 60 * 24));
+    // WIC-2268: `nextActionDue` is a bare `YYYY-MM-DD` (a Postgres `date` column), which
+    // `new Date(...)` would parse as UTC midnight while `today` is LOCAL midnight --
+    // one calendar day off across the Americas.
+    const dueDate = parseDateOnly(r.nextActionDue!);
+    const diffDays = calendarDaysBetween(today, dueDate);
     let urgency: 'overdue' | 'due_soon' | 'upcoming';
     if (diffDays < 0) urgency = 'overdue';
     else if (diffDays <= 3) urgency = 'due_soon';
