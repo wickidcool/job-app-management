@@ -78,11 +78,12 @@ export function ApplicationDetail() {
   // letters yet for this role" and an unticked checklist — this card's own
   // defect, re-created at the tail. Residual: it still fails above 100.
   //
-  // `isLoading` is read alongside `data` because the `= []` default cannot tell
-  // "the request has not come back" from "there are none", and rendering the
-  // second while the first is true is a false negative stated as fact — for a
-  // whole round-trip, since `enabled: !!application` means this query cannot
-  // even start until the application resolves (WIC-1630).
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` (WIC-2227). The `= []` default cannot
+  // tell "the request has not come back" from "there are none", and rendering the second
+  // while the first is true is a false negative stated as fact. `isLoading` is
+  // `isPending && isFetching`, so it does not cover the two states where `data` is
+  // `undefined` with nothing in flight — *paused* and *failed* — which is why both flags
+  // are named here and folded into `coverLettersUnsettled` below (WIC-1630, WIC-2227).
   const {
     data: companyCoverLetters = [],
     isPending: coverLettersPending,
@@ -170,12 +171,13 @@ export function ApplicationDetail() {
   // that belong to no application, and a client filter over it could only
   // remove rows, never recover the one this page needed (WIC-1533).
   //
-  // `isLoading` is read alongside `data` for the same reason the three queries
-  // above do it: `fitAnalyses?.analyses?.[0]` is `undefined` both while the
-  // query is in flight and when it has come back empty, so reading `data` alone
-  // states "you have no analysis" as fact for a full round-trip. That was true
-  // of this row until WIC-2141 — WIC-1630 left it out because at the time the
-  // step was backed by no query at all, a premise WIC-1652 retired.
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` (WIC-2227), for the same reason the three
+  // queries above name both: `fitAnalyses?.analyses?.[0]` is `undefined` while the query
+  // is in flight, while it is *paused*, after it has *failed*, and when it has genuinely
+  // come back empty — so reading `data` alone states "you have no analysis" as fact in
+  // the first three. That was true of this row until WIC-2141 — WIC-1630 left it out
+  // because at the time the step was backed by no query at all, a premise WIC-1652
+  // retired.
   const {
     data: fitAnalyses,
     isPending: fitAnalysesPending,
