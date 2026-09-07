@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Dashboard } from './Dashboard';
+import { dashboardKeys } from '../hooks/useDashboard';
 
 /**
  * WIC-2227 — the resume widget's "you have none" claim, for a request that failed or is
@@ -58,8 +59,24 @@ function aResume(name = 'Backend Engineer CV') {
   return { id: 'r1', name, fileName: `${name}.pdf`, createdAt: new Date(), updatedAt: new Date() };
 }
 
-function renderDashboard() {
+/**
+ * @param seedDashboardStats settle the *dashboard* query from cache before rendering.
+ *
+ * Load-bearing for the paused test, and the reason this parameter exists at all. The page
+ * computes `loading = dashboardPending || resumesPending`, and going offline pauses BOTH
+ * queries — so `dashboardPending` alone holds `loading` true, and the resume widget never
+ * reaches its empty branch no matter what the resumes flag says. Measured: with both
+ * queries live, reverting `resumesPending` to `isLoading` left this file fully green, so
+ * the assertion was being satisfied by the sibling query rather than by the fix.
+ *
+ * Seeding the cache puts the dashboard query in `success`, which isolates the resumes
+ * query as the only thing `loading` can be reading.
+ */
+function renderDashboard({ seedDashboardStats = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (seedDashboardStats) {
+    client.setQueryData(dashboardKeys.stats(), STATS);
+  }
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
@@ -108,7 +125,8 @@ describe('Dashboard — an unread resume list is not an empty one (WIC-2227)', (
     // The user HAS a resume; rendering the empty state would contradict the fixture.
     GET_RESUMES.mockResolvedValue([aResume()]);
 
-    renderDashboard();
+    // Seeded so the RESUMES query is the only unsettled one — see `renderDashboard`.
+    renderDashboard({ seedDashboardStats: true });
 
     await waitFor(() => {
       expect(screen.queryByText(NO_RESUMES_CLAIM)).toBeNull();

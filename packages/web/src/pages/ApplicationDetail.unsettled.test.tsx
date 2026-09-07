@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -158,6 +158,40 @@ describe('ApplicationDetail — an unread artefact query is "unknown", not "abse
     expect(screen.getByText(CHECKING_LINE)).toBeTruthy();
     // The request really was attempted and really did fail.
     expect(LIST_COVER_LETTERS).toHaveBeenCalledTimes(1);
+  });
+
+  it('EVERY artefact row, not just the cover-letter one, stays unknown when its own query fails', async () => {
+    // The three tests above pin the cover-letter row. Mutation showed that was the ONLY
+    // row pinned: dropping `|| fitAnalysesError` or `|| interviewPrepError` from the other
+    // call sites left the whole file green (45/45). Four near-identical `it`s would close
+    // that, but this loops instead — and deliberately as a plain `it`, not `it.each`.
+    // `it.each([])` registers nothing, so if this array were ever emptied the check would
+    // disappear along with the thing it guards and the suite would report one FEWER test
+    // rather than one failure. A shrinking count is the signature of a disarmed control.
+    const rows: Array<[string, ReturnType<typeof vi.fn>]> = [
+      ['cover letters', LIST_COVER_LETTERS],
+      ['resume variants', LIST_RESUME_VARIANTS],
+      ['interview prep', GET_INTERVIEW_PREP],
+      ['fit analyses', LIST_FIT_ANALYSES],
+    ];
+
+    for (const [label, failing] of rows) {
+      settleAllEmpty();
+      failing.mockRejectedValue(new Error(`500 from ${label}`));
+
+      renderApplicationDetail();
+
+      // Exactly one row is unanswered, so the denominator is 3 rather than 4 — which is
+      // the assertion that would have caught each of the surviving mutants.
+      await waitFor(() => {
+        expect(screen.getByText(STEPS_COMPLETED).textContent, label).toMatch(
+          /0 of 3 steps completed/i
+        );
+      });
+      expect(screen.getByText(CHECKING_LINE), label).toBeTruthy();
+
+      cleanup();
+    }
   });
 
   it('a FAILED application request does not claim the application does not exist', async () => {
