@@ -10,10 +10,15 @@ import type { ApplicationStatus } from '../types/application';
 import { asRatio } from '../types/units';
 
 export function Dashboard() {
-  const { data: dashboardData, isLoading: dashboardLoading } = useDashboard();
-  const { data: resumes = [], isLoading: resumesLoading } = useResumes();
+  // ⚠️ `isPending`, NOT `isLoading` (WIC-2227). `isLoading` is `isPending && isFetching`,
+  // so it is false for a pending-but-*paused* query — what the default
+  // `networkMode: "online"` does the moment the browser reports itself offline — and
+  // `data` is still undefined there. Reading it let the resume widget below fall through
+  // to "No resumes yet" / "Upload Your First Resume" for a user who has resumes.
+  const { data: dashboardData, isPending: dashboardPending } = useDashboard();
+  const { data: resumes = [], isPending: resumesPending, isError: resumesError } = useResumes();
 
-  const loading = dashboardLoading || resumesLoading;
+  const loading = dashboardPending || resumesPending;
 
   const stats = dashboardData?.stats || {
     total: 0,
@@ -95,6 +100,10 @@ export function Dashboard() {
           masterResumeCount={resumes.length}
           exportCount={resumes.length}
           loading={loading}
+          // A failed resumes request must not read as "you have none": `isError` leaves
+          // `data` undefined permanently, so the empty branch would be a standing false
+          // claim rather than a flash (WIC-2227).
+          error={resumesError}
         />
 
         <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">

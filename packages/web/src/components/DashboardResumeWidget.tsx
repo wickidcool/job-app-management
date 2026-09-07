@@ -4,14 +4,49 @@ interface DashboardResumeWidgetProps {
   masterResumeCount?: number;
   exportCount?: number;
   loading?: boolean;
+  /**
+   * The resumes request failed, so the counts above carry no information.
+   *
+   * Distinct from `loading` rather than folded into it (WIC-2227): a failed query never
+   * settles into data, so rendering the skeleton would leave a loading animation on
+   * screen forever. Without this the counts default to `0`, `hasResumes` is false, and
+   * the widget states "No resumes yet" as fact for a user who may have many.
+   */
+  error?: boolean;
 }
 
 export function DashboardResumeWidget({
   masterResumeCount = 0,
   exportCount = 0,
   loading = false,
+  error = false,
 }: DashboardResumeWidgetProps) {
   const hasResumes = masterResumeCount > 0 || exportCount > 0;
+
+  // Ahead of both branches below: an unread count must not become a claim about the
+  // user's resumes, in either the "still checking" or the "you have none" direction.
+  if (error) {
+    return (
+      <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">📄</span>
+            <h2 className="text-lg font-semibold text-neutral-900">Your Resumes</h2>
+          </div>
+          <Link
+            to="/resumes"
+            className="text-sm text-primary-600 hover:text-primary-700"
+            aria-label="Go to Resume Manager"
+          >
+            →
+          </Link>
+        </div>
+        <p className="text-sm text-neutral-600">
+          Couldn&rsquo;t load your resumes. Please try again.
+        </p>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
