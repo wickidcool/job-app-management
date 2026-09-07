@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { applicationService } from '../services/api';
-import type { ApplicationCollection } from '../services/api/applicationService';
+import type {
+  ApplicationCollection,
+  ApplicationListFilters,
+} from '../services/api/applicationService';
 import type { Application, ApplicationFormData, ApplicationStatus } from '../types/application';
 
 /**
@@ -14,10 +17,15 @@ export const applicationKeys = {
   detail: (id: string) => [...applicationKeys.details(), id] as const,
 };
 
-type ApplicationFilters = {
+/**
+ * `ApplicationListFilters` narrowed to the app's status enum.
+ *
+ * The intersection is what keeps this from being a fifth hand-maintained copy of the
+ * service's filter shape: a parameter added there is available here without an edit, and
+ * `status` still rejects a string the enum does not have. WIC-2194.
+ */
+type ApplicationFilters = Omit<ApplicationListFilters, 'status'> & {
   status?: ApplicationStatus[];
-  company?: string;
-  search?: string;
 };
 
 /**

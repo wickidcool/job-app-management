@@ -122,6 +122,50 @@ describe('WIC-2189 — GET /api/applications interview-date query params', () =>
     expect(appService.listApplications).not.toHaveBeenCalled();
   });
 
+  /**
+   * WIC-2194 — the callee half of a two-sided fix.
+   *
+   * `packages/web` now builds these bounds with `utils/interviewWeek.ts`, formatted
+   * `yyyy-MM-dd'T'HH:mm:ss.SSSxxx`. That producer is pinned in its own web-side test; this
+   * one pins that *this* schema accepts the exact string it produces, so a change to
+   * either side reddens a test on that side rather than silently breaking the seam.
+   *
+   * The literals below are what the web helper emits for the week of Mon 2026-09-07 in a
+   * `+02:00` zone — millisecond precision, explicit numeric offset, `23:59:59.999` upper
+   * bound. Keep them in step with `interviewWeek.test.ts` if the format ever changes.
+   */
+  it('accepts the millisecond-precision offset instants the web client builds', async () => {
+    const res = await get(
+      '?status=interview,phone_screen' +
+        '&interviewDateFrom=2026-09-07T00%3A00%3A00.000%2B02%3A00' +
+        '&interviewDateTo=2026-09-13T23%3A59%3A59.999%2B02%3A00'
+    );
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(appService.listApplications).mock.calls[0][0]).toMatchObject({
+      interviewDateFrom: '2026-09-07T00:00:00.000+02:00',
+      interviewDateTo: '2026-09-13T23:59:59.999+02:00',
+    });
+  });
+
+  it('accepts the +00:00 spelling a UTC browser produces', async () => {
+    // date-fns' `xxx` token emits `+00:00` for a UTC clock, NOT `Z` (that is `XXX`). So a
+    // CI box on UTC and a developer in Berlin send materially different strings, and the
+    // UTC one is the spelling this repo's own test runners produce. Both are valid
+    // ISO-8601-with-offset; if only one were accepted the filter would work for some
+    // users and 400 for others, which is the kind of split nobody reproduces.
+    const res = await get(
+      '?interviewDateFrom=2026-09-07T00%3A00%3A00.000%2B00%3A00' +
+        '&interviewDateTo=2026-09-13T23%3A59%3A59.999%2B00%3A00'
+    );
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(appService.listApplications).mock.calls[0][0]).toMatchObject({
+      interviewDateFrom: '2026-09-07T00:00:00.000+00:00',
+      interviewDateTo: '2026-09-13T23:59:59.999+00:00',
+    });
+  });
+
   it('leaves the pre-existing query contract intact', async () => {
     const res = await get('?status=interview&company=Acme&search=eng&limit=10&sortBy=company');
 

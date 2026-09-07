@@ -68,6 +68,30 @@ export interface ApplicationCollection {
 }
 
 /**
+ * The filter shape `GET /api/applications` actually accepts.
+ *
+ * Declared once and shared by `buildListQuery`, `getAllPaged`, `getAll` and the
+ * `useApplicationCollection` hook. It was previously spelled out as four separate inline
+ * object literals, so adding a parameter meant editing all four and a miss was invisible:
+ * the extra key would simply be dropped by structural typing on the way down, and the
+ * request would go out without it. WIC-2194 needed exactly that edit.
+ */
+export interface ApplicationListFilters {
+  status?: string[];
+  company?: string;
+  search?: string;
+  /**
+   * WIC-2194 — inclusive interview-date bounds, ISO-8601 **with offset**.
+   *
+   * A date-only `YYYY-MM-DD` here is a **400**, by design: the API rejects it so that a
+   * bound cannot be silently read as UTC midnight and shift the window by a day. Build
+   * these with `utils/interviewWeek.ts` rather than by hand.
+   */
+  interviewDateFrom?: string;
+  interviewDateTo?: string;
+}
+
+/**
  * Application Service using real API
  * This service matches the interface of mockApplicationService
  * for easy drop-in replacement
@@ -79,10 +103,7 @@ export class ApplicationService {
     this.client = client;
   }
 
-  private buildListQuery(
-    filters?: { status?: string[]; company?: string; search?: string },
-    page?: string
-  ): string {
+  private buildListQuery(filters?: ApplicationListFilters, page?: string): string {
     const params = new URLSearchParams();
 
     if (filters?.status && filters.status.length > 0) {
@@ -95,6 +116,18 @@ export class ApplicationService {
 
     if (filters?.search) {
       params.append('search', filters.search);
+    }
+
+    // WIC-2194. Sent as-is: these are already offset-bearing instants (the API's
+    // `datetime({ offset: true })` contract), and `URLSearchParams` escapes the `+` in
+    // `+02:00` for us — hand-concatenating the query string would send it as a space and
+    // shift the bound by two hours.
+    if (filters?.interviewDateFrom) {
+      params.append('interviewDateFrom', filters.interviewDateFrom);
+    }
+
+    if (filters?.interviewDateTo) {
+      params.append('interviewDateTo', filters.interviewDateTo);
     }
 
     params.append('limit', String(APPLICATION_PAGE_SIZE));
@@ -115,11 +148,7 @@ export class ApplicationService {
    * This follows the cursor instead, and reports via `truncated` when it could
    * not finish rather than returning a partial set that looks complete.
    */
-  async getAllPaged(filters?: {
-    status?: string[];
-    company?: string;
-    search?: string;
-  }): Promise<ApplicationCollection> {
+  async getAllPaged(filters?: ApplicationListFilters): Promise<ApplicationCollection> {
     const applications: Application[] = [];
     let page: string | undefined;
     let totalCount = 0;
@@ -152,11 +181,7 @@ export class ApplicationService {
    * should use `getAllPaged` (or the dashboard aggregates) so they can tell a
    * complete answer from a partial one.
    */
-  async getAll(filters?: {
-    status?: string[];
-    company?: string;
-    search?: string;
-  }): Promise<Application[]> {
+  async getAll(filters?: ApplicationListFilters): Promise<Application[]> {
     const { applications } = await this.getAllPaged(filters);
     return applications;
   }

@@ -6,7 +6,7 @@ import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import { SavedFilterShortcuts } from './SavedFilterShortcuts';
 
 /**
- * Regression cover for WIC-1775.
+ * Regression cover for WIC-1775, updated by WIC-2194.
  *
  * Two surfaces offered a shortcut named `Interviews This Week` whose filter was
  * status-only — `{ status: ['interview', 'phone_screen'] }`, no date predicate anywhere.
@@ -18,26 +18,58 @@ import { SavedFilterShortcuts } from './SavedFilterShortcuts';
  * is why the ruling covers the whole shortcut row rather than the one label that was
  * reported. See docs/design/SAVED_FILTER_SHORTCUT_NAMING.md.
  *
+ * **The interview shortcut now carries the window instead of dropping the label.** The
+ * ruling rejected that fix on one stated condition — that no interview-date field existed
+ * — and the condition has flipped (WIC-2023/2188/2189). `Recently Applied` is untouched:
+ * there is still no "applied this week" server filter, so `Applied` remains the honest
+ * label, and the two shortcuts diverging here is the rule working rather than an
+ * inconsistency.
+ *
  * These assert the rendered label *and* the filter behind it together. Asserting either
  * alone is what let the original defect through: the label was defensible in isolation and
  * so was the filter, and only the pair is wrong.
  */
-describe('SavedFilterShortcuts — predefined shortcut labels name status, not time', () => {
-  it('offers no shortcut promising a time window', () => {
+describe('SavedFilterShortcuts — predefined shortcut labels match the filters behind them', () => {
+  it('offers no shortcut promising a window it does not apply', () => {
     render(<SavedFilterShortcuts onApplyFilter={vi.fn()} currentFilters={{}} />);
 
-    expect(screen.queryByRole('button', { name: /Interviews This Week/i })).toBeNull();
+    // `Recently Applied` stays banned — its filter is still status-only.
     expect(screen.queryByRole('button', { name: /Recently Applied/i })).toBeNull();
   });
 
-  it('names the interview-stage shortcut for the statuses it selects', async () => {
+  it('applies a real interview-date window under the windowed label', async () => {
     const onApplyFilter = vi.fn();
     render(<SavedFilterShortcuts onApplyFilter={onApplyFilter} currentFilters={{}} />);
 
     const shortcut = screen.getByRole('button', { name: FILTER_SHORTCUT_LABELS.interviewing });
     await userEvent.click(shortcut);
 
-    expect(onApplyFilter).toHaveBeenCalledWith({ status: ['interview', 'phone_screen'] });
+    const emitted = onApplyFilter.mock.calls[0][0];
+    expect(emitted.status).toEqual(['interview', 'phone_screen']);
+    // Offset-bearing instants, not `YYYY-MM-DD` — a date-only bound is a 400 at the API.
+    expect(emitted.interviewDateRange.from).toMatch(
+      /^\d{4}-\d{2}-\d{2}T00:00:00\.000(Z|[+-]\d{2}:\d{2})$/
+    );
+    expect(emitted.interviewDateRange.to).toMatch(
+      /^\d{4}-\d{2}-\d{2}T23:59:59\.999(Z|[+-]\d{2}:\d{2})$/
+    );
+  });
+
+  it('resolves the window at click time, not at module load', async () => {
+    // The shortcut list is a module-level constant. If the window were captured when the
+    // module was imported, a tab left open across Sunday midnight would keep filtering to
+    // last week under a label saying "this" — the same defect the wiring exists to fix.
+    const onApplyFilter = vi.fn();
+    render(<SavedFilterShortcuts onApplyFilter={onApplyFilter} currentFilters={{}} />);
+
+    const now = Date.now();
+    await userEvent.click(
+      screen.getByRole('button', { name: FILTER_SHORTCUT_LABELS.interviewing })
+    );
+
+    const { from, to } = onApplyFilter.mock.calls[0][0].interviewDateRange;
+    expect(new Date(from).getTime()).toBeLessThanOrEqual(now);
+    expect(new Date(to).getTime()).toBeGreaterThanOrEqual(now);
   });
 
   it('names the applied shortcut for the status it selects', async () => {
