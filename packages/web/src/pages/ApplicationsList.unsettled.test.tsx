@@ -109,9 +109,16 @@ describe('ApplicationsList — an unread application list is not an empty one (W
 
     renderApplicationsList();
 
-    expect(await screen.findByText(SAVED_COLUMN_EMPTY)).toBeTruthy();
-    // The tile is present and reads 0 — an honest measurement of an account with no rows.
-    expect(screen.getByText(OVERDUE_LABEL).parentElement?.textContent).toContain('0');
+    // Wait on the TILE, not on the column copy. The columns are the first thing to appear
+    // once the board stops skeletoning, so keying the wait on them let an intermediate
+    // render satisfy it while the tile was still a placeholder — a mutation cell
+    // (`loading={false}` on the board) reddened this control for a reason that had nothing
+    // to do with what it measures. The tile settling is the actual precondition.
+    await waitFor(() => {
+      expect(screen.getByText(OVERDUE_LABEL).parentElement?.textContent).toContain('0');
+    });
+    // An honest measurement of an account with no rows.
+    expect(screen.getByText(SAVED_COLUMN_EMPTY)).toBeTruthy();
     expect(screen.queryByText(FAILURE_DISCLOSURE)).toBeNull();
     expect(GET_ALL_PAGED).toHaveBeenCalledTimes(1);
   });
