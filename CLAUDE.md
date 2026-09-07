@@ -79,7 +79,37 @@ npm run test:e2e           # Playwright E2E tests
 
 npm run db:migrate         # Run migrations (reads DATABASE_URL)
 npm run db:push            # Push schema directly (dev only)
+
+npm run preflight          # Refuse to certify a suite result from a stale/dirty checkout — run BEFORE quoting one
 ```
+
+### Run `npm run preflight` before you quote a suite result
+
+A checkout behind `origin/main` runs the stale *tests* against the stale *code*. They agree, so the
+tree reads green — and that green carries **no information** about whether a shipped fix is armed
+there. A suite cannot detect this about itself: every file is stale together, including the
+assertions that would have caught it. Measured twice on 2026-09-07, in two independent trees on the
+same day — the primary checkout 3 commits behind (so `scripts/vitest-version-guard.mjs` was still
+fail-opening on semver prereleases, and `4.2.0-beta.1` satisfied `^4.1.11`), and a second workspace
+checkout 16 behind with the same fix absent.
+
+```bash
+npm run preflight                 # exit 0 = safe to quote; non-zero = do not
+npm run preflight -- --allow-dirty   # certify the commit graph alone, ignoring uncommitted work
+```
+
+It **asserts, and never syncs** — no reset, merge, or fast-forward, because a helper that resets to
+the remote drops local commits. It names the missing commits and leaves the reconciliation to you.
+Every unknown is fail-closed: an unresolvable upstream or a non-repository refuses rather than
+passing quietly.
+
+Two boundaries the pass states for itself, and you should not read past:
+
+- **Uncommitted work is its own refusal.** `behind == 0` only says the *committed* tree is current;
+  a working-tree edit can revert a shipped fix while the commit graph still reads clean.
+- **Commit currency only — dependency currency is unchecked.** A tree level with the remote has
+  still been found running its suite on an orphan vitest that answers a different question. That
+  half is `scripts/vitest-version-guard.mjs`, which arms itself from each package's `globalSetup`.
 
 ### One TypeScript compiler, and `strict` is declared, not inherited
 
