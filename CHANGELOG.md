@@ -100,6 +100,17 @@ The third arm is the one worth keeping: the wiring test matches a **call with an
 **`passed + failed` stays 23 in every arm**, so no mutant is passing by deleting tests rather than by failing them; the full package is **1794**, 23 over the previous 1771, and none of the new tests is an `it.each` that could quietly register zero. One arm was discarded as vacuous before it reached this table: the first `allowDirty: true` in the file is inside a comment, so a non-global substitution mutated prose and reported green.
 
 
+
+### Fixed — the union guard's `refs` mode reported `clean` for a revision that does not exist (2026-09-07)
+
+`git show <rev>:CHANGELOG.md` fails identically whether the **path** is absent at that revision or the **revision** itself does not exist, and `blob()` collapsed both to `None`. `check_pair` read that as *"the file does not exist on one side; nothing for the driver to do"* and returned no findings, so `refs --ours <anything-that-does-not-resolve>` printed `clean` and exited **0**. The module docstring already stated the contract it was breaking: *"Exit 0 clean, 1 findings, 2 could not evaluate (which is NOT a pass)"*.
+
+**The triggering shape is the documented one, not an adversarial one.** `--ours refs/pull/N/head` is what CLAUDE.md and WIC-2248 both prescribe for pre-push verification, and that ref resolves only in a checkout that has already fetched `refs/pull/*`. Anywhere else — a fresh clone, a worktree, a machine that fetched branches but not PR heads — the prescribed command answered `clean`, exit 0, without reading a byte of anyone's changelog. It did exactly that during WIC-2248's own verification, on the one PR that had genuinely welded an hour earlier.
+
+**CI was never exposed, and that is the reason this went unseen.** `.github/workflows/changelog-union-guard.yml` only ever invokes `selftest`, `pr --base-ref`, and `sweep`; the latter two reach git through `fetch_pr`, which fetches with `check=True` and raises. So the mode that could not be trusted was precisely the one a human drives by hand, where nothing downstream re-checks the answer. `check_pair` now resolves both revisions with `git rev-parse --verify` before reading either blob, and an unresolvable one raises `Unevaluable` — surfacing as exit **2**.
+
+Guarded by four new selftest controls, and verified by mutation rather than by assertion: deleting the resolve loop turns the three refusal controls **red**, which is what makes them controls. The fourth is a negative control in the opposite direction — a revision that genuinely exists and genuinely has no `CHANGELOG.md` must still be **clean**, since there is no file for the driver to corrupt. It passes in both arms, so it is pinning the over-correction the obvious fix would have shipped: turning every `None` into a refusal satisfies the first three controls and breaks every repository whose history predates the file. (WIC-2248)
+
 ### Fixed — the 8 `E2E_ISOLATION_UI` tests never had mock auth, so they asserted against the sign-in page; now green and turned on in CI (2026-09-06)
 
 The entry below split the UI tier onto its own `E2E_ISOLATION_UI` gate and carried forward the justification *"known timing-flaky against mock auth."* That premise was never measured, and it was wrong in both halves: the tests are not flaky, and they were not running against mock auth (WIC-2207).
