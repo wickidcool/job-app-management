@@ -288,12 +288,27 @@ def check_pair(ours: str, theirs: str, path: str = CHANGELOG, cwd: str | None = 
     `clean` and exited **0** for a revision that was never evaluated, which is exactly what
     the module contract above forbids -- 2 means could-not-evaluate, and that is NOT a pass.
 
-    The shape that hits it is ordinary, not adversarial: `refs --ours refs/pull/461/head`
-    in a checkout that has not fetched `refs/pull/*`, which is the form CLAUDE.md and
-    WIC-2248 both prescribe for pre-push verification. So the one mode a human drives by
-    hand was the one mode that could answer "clean" without looking. `pr` and `sweep` were
-    never exposed -- they reach git through `fetch_pr`, which fetches with `check=True` and
-    raises -- so this closes the gap without touching the paths CI runs. (WIC-2248)
+    The shape that hits it is ordinary, not adversarial, and the plainest form of it needs
+    no typo and no unusual fetch state. CLAUDE.md prescribes `refs --ours <your-branch>
+    --theirs <its base>` for pre-push verification, and a branch that exists only as a
+    remote-tracking ref is not a local rev -- so that literal command, typed verbatim in a
+    fresh clone or in a worktree that never created the local branch, answered `clean` and
+    exited 0 without reading a byte of anyone's changelog. Measured at 968ecc69:
+    `refs --ours fix/wic2248-union-check-failopen --theirs main` -> `clean`, rc 0; with this
+    fix, `UNEVALUATED`, rc 2. The `--ours refs/pull/N/head` form fails the same way in a
+    checkout that has not fetched `refs/pull/*` -- that shape is what WIC-2248 prescribes,
+    not CLAUDE.md, where `refs/pull` never appears as an argument to this script. Either
+    way, the one mode a human drives by hand was the one mode that could answer "clean"
+    without looking. `pr` and `sweep` were never exposed -- they reach git through
+    `fetch_pr`, which fetches with `check=True` and raises -- so this closes the gap without
+    touching the paths CI runs.
+
+    WHY THE RESOLVE LIVES HERE AND NOT IN `blob()`. The lower call site looks like the
+    tidier home for it, and it cannot be: `union_merge` calls `blob(tree, path)` with a
+    **tree** sha, which does not satisfy `^{commit}`. Pushing the guard down turns all six
+    fixtures plus the attr-source control red -- 7 failures, measured -- so `check_pair` is
+    not merely a fine placement, it is the only correct one short of changing `blob()`'s
+    signature. (WIC-2248)
     """
     for side, rev in (("ours", ours), ("theirs", theirs)):
         p = git("rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False, cwd=cwd)
@@ -701,9 +716,11 @@ def selftest() -> int:
         # `git show <rev>:CHANGELOG.md` fails the same way for a missing PATH and a missing
         # REVISION, so the None that blob() returns is ambiguous. Treating it uniformly as
         # "nothing to merge" made `refs --ours <typo>` print `clean` and exit 0. The
-        # realistic trigger is `--ours refs/pull/N/head` in a checkout that has not fetched
-        # `refs/pull/*` -- the exact command CLAUDE.md prescribes for pre-push verification,
-        # answering "clean" without reading a single byte of anyone's changelog.
+        # realistic trigger needs no typo: CLAUDE.md prescribes `refs --ours <your-branch>
+        # --theirs <its base>`, and a branch that exists only as a remote-tracking ref is not
+        # a local rev -- so that literal command, in a fresh clone, answered "clean" without
+        # reading a single byte of anyone's changelog. `--ours refs/pull/N/head` in a
+        # checkout that has not fetched `refs/pull/*` is the same failure by another route.
         #
         # (e) is the guard against over-correcting: a revision that genuinely exists and
         # genuinely has no CHANGELOG.md must STILL be clean. Without it, the obvious fix --
@@ -948,7 +965,14 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     if args.mode == "selftest":
-        return selftest()
+        # Wrapped for the same reason the rest of this file exists: an `Unevaluable` escaping
+        # fixture setup must exit 2 (could not evaluate), not 1 (findings). Fail-closed either
+        # way -- CI branches on zero/non-zero -- but the two codes mean different things.
+        try:
+            return selftest()
+        except Unevaluable as exc:
+            emit(f"UNEVALUATED: {exc}")
+            return 2
 
     if args.mode == "replay":
         try:
