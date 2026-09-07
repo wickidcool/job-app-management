@@ -8,7 +8,7 @@ import { interviewCountdown, calendarDaysBetween } from './interviewCountdown';
  * 72 hours out. That is the single offset where the old `Math.ceil(diffMs / DAY_MS)` and the
  * calendar arithmetic that replaced it return the same answer, so the page test stayed green
  * across the whole defect and could not have caught it. These tests exist because a ladder
- * with seven rungs needs seven assertions, not one.
+ * with eight rungs needs eight assertions, not one.
  *
  * Dates are built from local-time components (`new Date(y, m, d, h)`) rather than ISO strings
  * wherever the *calendar* boundary is the thing under test — an ISO string with a `Z` would
@@ -64,6 +64,55 @@ describe('interviewCountdown — the regression: calendar days, not 24-hour bloc
       text: 'In 2 days',
       urgency: 'medium',
     });
+  });
+});
+
+describe('interviewCountdown — the same-day rung', () => {
+  /**
+   * `diffDays === 0` is reachable and has its own rung, because the two rungs that bracket it
+   * both decline: `diffHours < 24` is false once more than 23 hours have elapsed
+   * (`Math.ceil` has rolled to 24), and the target is still on today's date so neither
+   * `diffDays === 1` nor `=== 2` matches. Without a rung of its own that lands on the default
+   * and renders the literal string `In 0 days`.
+   *
+   * TZ is pinned so the band is deterministic regardless of the runner's zone: the window is
+   * `diffMs` in (23h, 24h) with an unchanged local date, which needs the clock to read
+   * 00:00–00:58, and a DST transition inside the day would move `diffHours` off 24.
+   */
+  it('says "Today" for an interview later on the same calendar day', () => {
+    process.env.TZ = 'America/New_York';
+    // 00:00 -> 23:30 the same date: 23.5 hours elapsed, zero date boundaries crossed.
+    expect(
+      interviewCountdown(at(2026, 6, 10, 23, 30).toISOString(), at(2026, 6, 10, 0, 0))
+    ).toEqual({ text: 'Today', urgency: 'high' });
+  });
+
+  it('leaves the hours rung alone for a same-day interview under a day out', () => {
+    // The positive control: this case is also `diffDays === 0`, so a rung placed ABOVE the
+    // hours rung rather than below it would turn "In 6 hours" into "Today" and lose the
+    // precision that matters most. The two arms disagree, so the test above is live.
+    process.env.TZ = 'America/New_York';
+    expect(
+      interviewCountdown(at(2026, 6, 10, 18, 0).toISOString(), at(2026, 6, 10, 12, 0))
+    ).toEqual({ text: 'In 6 hours', urgency: 'high' });
+  });
+
+  it('never renders "In 0 days" from any minute of a day', () => {
+    // The defect stated as a sweep rather than as one instant. Every `now` minute of a
+    // 24-hour day against every offset from 1 minute to 48 hours: the string must not appear.
+    // At minute resolution the bad band is 59 `now` minutes per ordinary day, so a sweep that
+    // steps `now` only hourly would miss it 23 times out of 24.
+    process.env.TZ = 'America/New_York';
+    for (let nowMin = 0; nowMin < 24 * 60; nowMin++) {
+      const now = at(2026, 6, 10, 0, nowMin);
+      for (let offset = 1; offset <= 48 * 60; offset += 7) {
+        const target = new Date(now.getTime() + offset * 60_000);
+        const text = interviewCountdown(target.toISOString(), now)?.text;
+        if (text === 'In 0 days') {
+          throw new Error(`"In 0 days" at now=${now.toISOString()} offset=${offset}min`);
+        }
+      }
+    }
   });
 });
 

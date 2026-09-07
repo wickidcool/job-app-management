@@ -76,14 +76,33 @@ all three `diffDays` tests declined in order and fell through to a final uncondi
 `return`, rendering `In NaN days`. An unparseable date now returns `null`, the state the
 component already handles by rendering nothing.
 
-The ladder moved to `utils/interviewCountdown.ts` as a pure function because it has seven
+Third defect, and this one the calendar switch **introduced** (WIC-2261): moving to calendar
+arithmetic made `diffDays === 0` reachable for the first time, and the ladder had no rung for
+it. `Math.ceil(diffMs / DAY_MS)` can never return `0` for a positive `diffMs`, but
+`calendarDaysBetween` returns it for every interview later on today's date — and with the two
+bracketing rungs both declining (`diffHours < 24` is false once `Math.ceil` has rolled to 24,
+and neither calendar-word rung matches `0`) it reached the default and rendered the literal
+string `In 0 days`. The band is `diffMs` in `(23h, 24h)` with an unchanged local date, which
+requires the clock to read 00:00–00:58: **59 `now` minutes per ordinary day**, and **119** on
+a 25-hour fall-back DST day, where the extra hour widens it. There is now a `Today` rung,
+placed *below* the hours rung so that a same-day interview six hours out still gets the more
+precise `In 6 hours`. The old code was wrong here too — it said `Tomorrow` for an interview
+happening *today* — so what changed is that the wrong answer stopped being English.
+
+The ladder moved to `utils/interviewCountdown.ts` as a pure function because it has eight
 rungs and the page-level test could only reach one: `InterviewPrepPage.interviewDate.test.tsx`
 pins the countdown at *exactly* 72 hours out, which is the single offset where the old and new
 arithmetic agree. That test stayed green across the whole defect and still passes unchanged.
-17 unit tests now address the rungs directly, and a four-mutant matrix confirms each kills its
+20 unit tests now address the rungs directly, and a four-mutant matrix confirms each kills its
 intended target — including one that initially **survived**: rewriting the `Number.isNaN`
 guard as a truthiness test on `diffMs` differs on exactly one input (`diffMs === 0`, the
 interview starting this instant) and passed every other assertion, so it got its own.
+
+The `Today` rung carries the same shape of evidence, because the suite could not supply it:
+adding the three tests to the **unfixed** code reddens exactly the two that assert the rung
+while the third — the `In 6 hours` positive control that would catch the rung being placed too
+high — stays green, so the arms demonstrably disagree. Before the fix the full web suite was
+`1078/1078` with the bad string reachable, which is the coverage hole stated as a number.
 
 
 ### Fixed — three more surfaces stated a figure they had never measured, and the sweep is now closed (2026-09-07)

@@ -3,7 +3,7 @@
  *
  * ## Why this is a module and not eight lines inside the component
  *
- * The ladder has seven rungs and two of them were wrong for two different reasons (below).
+ * The ladder has eight rungs and three of them were wrong for three different reasons (below).
  * Neither was reachable from a page-level test: `InterviewPrepPage.interviewDate.test.tsx`
  * pins the countdown at *exactly* 72 hours out, which is the one offset where the old
  * elapsed-time arithmetic and the calendar arithmetic below agree. A test that can only
@@ -54,6 +54,28 @@
  * is exactly right and a calendar boundary is irrelevant — an interview at 09:00 tomorrow
  * seen at 23:00 tonight is better described as `In 10 hours` than as `Tomorrow`. Only the
  * rungs that use calendar *words* switched to calendar *arithmetic*.
+ *
+ * ## 4. `diffDays === 0` needs its own rung, between the hours rung and `Tomorrow`
+ *
+ * Switching the day rungs to calendar arithmetic made `0` reachable for the first time:
+ * `Math.ceil(diffMs / DAY_MS)` cannot return `0` for a positive `diffMs`, but
+ * `calendarDaysBetween` returns it for every interview later on today's date. The two rungs
+ * that bracket it both decline — `diffHours < 24` is false once `Math.ceil` has rolled to 24,
+ * and neither calendar-word rung matches `0` — so it reached the default and rendered the
+ * literal string `In 0 days`.
+ *
+ * The band is `diffMs` in (23h, 24h) with an unchanged local date, which requires the clock
+ * to read 00:00-00:58: **59 `now` minutes per ordinary day**, and **119** on a 25-hour
+ * fall-back DST day, where the extra hour widens it. A spring-forward 23-hour day cannot
+ * reach it at all.
+ *
+ * The rung sits *below* the hours rung on purpose. Placing it above would catch every
+ * same-day interview, turning `In 6 hours` into `Today` and discarding the precision on the
+ * offsets where it matters most.
+ *
+ * The old elapsed-time code was also wrong here — it said `Tomorrow` for an interview
+ * happening *today* — so this is not a regression the calendar switch introduced so much as
+ * one it made visible, and made ungrammatical.
  */
 
 const MINUTE_MS = 60_000;
@@ -121,6 +143,13 @@ export function interviewCountdown(
   }
 
   const diffDays = calendarDaysBetween(now, target);
+  // Below the hours rung deliberately, so a same-day interview six hours out still gets the
+  // more precise "In 6 hours". Above `Tomorrow` because without it a `0` falls through every
+  // remaining test to the default and renders "In 0 days" — see §4 of the header.
+  if (diffDays === 0) {
+    return { text: 'Today', urgency: 'high' };
+  }
+
   if (diffDays === 1) {
     return { text: 'Tomorrow', urgency: 'medium' };
   }
