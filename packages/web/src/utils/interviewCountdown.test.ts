@@ -79,11 +79,25 @@ describe('interviewCountdown — an unparseable date fails CLOSED', () => {
     expect(interviewCountdown(undefined, at(2026, 9, 7, 12))).toBeNull();
   });
 
-  it('does not confuse a valid epoch-0 date with a missing one', () => {
-    // The guard is `Number.isNaN`, not truthiness of the timestamp: 1970-01-01T00:00:00Z is a
-    // real instant whose getTime() is 0, and it must render as a past interview, not vanish.
+  it('treats a long-past epoch-0 date as completed rather than missing', () => {
+    // 1970-01-01T00:00:00Z is a real instant whose getTime() is 0. It must render as a past
+    // interview, not vanish.
     const result = interviewCountdown('1970-01-01T00:00:00.000Z', at(2026, 9, 7, 12));
     expect(result).toEqual({ text: 'Interview completed', urgency: 'past' });
+  });
+
+  it('still speaks when the interview is starting at this exact instant', () => {
+    // This is the assertion that pins the guard as `Number.isNaN(diffMs)` rather than a
+    // truthiness test on `diffMs`. The two differ on exactly one input — `diffMs === 0` — and
+    // the epoch-0 case above does NOT reach it, because there the *date* is zero while the
+    // *difference* is a large negative number. Rewriting the guard as `if (!diffMs)` survived
+    // every other test in this file: it blanks the card at the one moment the countdown is
+    // most load-bearing, when the interview is starting right now.
+    const now = at(2026, 9, 7, 12);
+    expect(interviewCountdown(now.toISOString(), now)).toEqual({
+      text: 'In 0 minutes',
+      urgency: 'critical',
+    });
   });
 });
 
