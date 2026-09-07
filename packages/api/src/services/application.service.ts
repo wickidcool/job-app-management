@@ -164,6 +164,77 @@ export async function getApplication(
   };
 }
 
+/**
+ * Resolves `sortBy`/`sortOrder` to an ORDER BY for the applications list.
+ *
+ * **Every branch ends in `asc(applications.id)`, and that is the point of this
+ * function existing.** WIC-2189 established the reasoning while fixing the
+ * `interviewDate` branch, and it is reproduced below because it was never
+ * specific to that column:
+ *
+ * > Offset pagination issues one query per page, and Postgres is free to order
+ * > an equal-ranked block differently between them — which silently drops some
+ * > rows from the result set and repeats others. A unique trailing key makes
+ * > the total order deterministic and the paging stable.
+ *
+ * That argument turns only on *ties existing*, never on which column produced
+ * them, so applying it to one of four sort keys left the other three exposed
+ * (WIC-2260). `company` is the sharpest case: applying to the same employer
+ * several times is ordinary use of this app, not an edge case, so
+ * `sortBy=company` is *expected* to produce large equal-ranked blocks — and it
+ * had no tiebreaker at all. `createdAt`/`updatedAt` tie more rarely but do tie,
+ * because both are set from one `now()` per statement, so anything written in a
+ * single batch shares a timestamp exactly.
+ *
+ * Collapsing the four branches into one array with a shared tail is what makes
+ * the invariant structural rather than something each new `case` has to
+ * remember: a fifth sort key added tomorrow inherits the tiebreaker by
+ * construction. `test/application-sort-stability.test.ts` asserts it over
+ * `sortBy`'s full enum rather than a hand-listed set, so a key added without a
+ * tiebreaker fails there too.
+ *
+ * The tiebreaker is `asc` in both directions, matching WIC-2189: ULIDs sort by
+ * creation time, so the tail reads oldest-first regardless of direction, which
+ * is a stable choice rather than a meaningful one.
+ */
+export function buildApplicationOrderBy(
+  sortBy: ListApplicationsParams['sortBy'],
+  order: ListApplicationsParams['sortOrder']
+): SQL[] {
+  const dir = order === 'asc' ? asc : desc;
+
+  // The unique trailing key. Appended to every branch below; see the note above.
+  const tiebreaker = asc(applications.id);
+
+  switch (sortBy) {
+    case 'createdAt':
+      return [dir(applications.createdAt), tiebreaker];
+    case 'company':
+      return [dir(applications.company), tiebreaker];
+    case 'interviewDate':
+      // WIC-2189 — NULLS LAST is pinned explicitly on *both* directions rather
+      // than inherited from Postgres.
+      //
+      // The default is NULLS LAST for ASC but NULLS FIRST for DESC, so a plain
+      // `DESC` would open the list with every application that has no interview
+      // scheduled. Most rows are NULL and will stay NULL for a long time, so
+      // that default does not merely misplace a few rows — it fills the entire
+      // first page with exactly the applications the sort was meant to push
+      // aside, and does it only in one of the two directions.
+      //
+      // This branch is also why the tiebreaker is not optional: the NULL block
+      // is the largest equal-ranked block the table produces.
+      return [
+        order === 'asc'
+          ? sql`${applications.interviewDate} asc nulls last`
+          : sql`${applications.interviewDate} desc nulls last`,
+        tiebreaker,
+      ];
+    default:
+      return [dir(applications.updatedAt), tiebreaker];
+  }
+}
+
 export async function listApplications(
   params: ListApplicationsParams,
   userId?: string
@@ -238,45 +309,7 @@ export async function listApplications(
 
   const offset = parseCursor(params.page, PAGE_NAMES);
 
-  const sortOrder = params.sortOrder === 'asc' ? asc : desc;
-  let orderBy: SQL[];
-  switch (params.sortBy) {
-    case 'createdAt':
-      orderBy = [sortOrder(applications.createdAt)];
-      break;
-    case 'company':
-      orderBy = [sortOrder(applications.company)];
-      break;
-    case 'interviewDate':
-      // WIC-2189 — NULLS LAST is pinned explicitly on *both* directions rather
-      // than inherited from Postgres.
-      //
-      // The default is NULLS LAST for ASC but NULLS FIRST for DESC, so a plain
-      // `DESC` would open the list with every application that has no interview
-      // scheduled. Most rows are NULL and will stay NULL for a long time, so
-      // that default does not merely misplace a few rows — it fills the entire
-      // first page with exactly the applications the sort was meant to push
-      // aside, and does it only in one of the two directions.
-      //
-      // `applications.id` is a load-bearing tiebreaker, not decoration. The NULL
-      // block is large and every row in it compares equal on the sort key, so
-      // its internal order is unspecified. Offset pagination issues one query
-      // per page, and Postgres is free to order an equal-ranked block
-      // differently between them — which silently drops some rows from the
-      // result set and repeats others. A unique trailing key makes the total
-      // order deterministic and the paging stable. ULIDs sort by creation time,
-      // so the tail reads oldest-first regardless of direction, which is a
-      // stable choice rather than a meaningful one.
-      orderBy = [
-        params.sortOrder === 'asc'
-          ? sql`${applications.interviewDate} asc nulls last`
-          : sql`${applications.interviewDate} desc nulls last`,
-        asc(applications.id),
-      ];
-      break;
-    default:
-      orderBy = [sortOrder(applications.updatedAt)];
-  }
+  const orderBy = buildApplicationOrderBy(params.sortBy, params.sortOrder);
 
   const [{ count }] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
