@@ -1,8 +1,23 @@
 import { APPLIED_WINDOW_LABEL } from '../constants/appliedWindow';
 import { toPercent, type Ratio } from '../types/units';
 
+/** The four cards, in render order. Named so the skeleton can be sized without a `stats`. */
+const STAT_LABELS = [
+  'Total',
+  // Rolling window, not the current calendar week — see constants/appliedWindow.ts.
+  APPLIED_WINDOW_LABEL,
+  'Response',
+  'In Review',
+];
+
 export interface DashboardStatsProps {
-  stats: {
+  /**
+   * Optional (WIC-2229). The caller's query leaves `data` undefined in all three unsettled
+   * states — pending, offline-paused and failed — and a required prop pushed it into
+   * inventing a zeros object to satisfy the type. Accepting `undefined` is what makes
+   * "no measurement" expressible here instead of being rounded to `0`.
+   */
+  stats?: {
     total: number;
     appliedThisWeek: number;
     /**
@@ -17,33 +32,52 @@ export interface DashboardStatsProps {
     inReview: number; // phone_screen + interview count
   };
   loading?: boolean;
+  /**
+   * The dashboard request failed, so no figure below can be stated.
+   *
+   * Distinct from `loading` rather than folded into it, for the same reason as
+   * `DashboardResumeWidget`: a failed query never settles, so the skeleton would animate
+   * forever.
+   */
+  error?: boolean;
 }
 
 /**
  * DashboardStats Component
  * Display key metrics at a glance
  */
-export function DashboardStats({ stats, loading = false }: DashboardStatsProps) {
-  // Stat configuration. Each entry carries its final display string: the unit
-  // conversion belongs next to the value it applies to, not in a shared
-  // `formatValue` that a differently-united number could be routed through.
-  const statItems = [
-    { display: stats.total.toString(), label: 'Total' },
-    // Rolling window, not the current calendar week — see constants/appliedWindow.ts.
-    { display: stats.appliedThisWeek.toString(), label: APPLIED_WINDOW_LABEL },
-    { display: `${Math.round(toPercent(stats.responseRate))}%`, label: 'Response' },
-    { display: stats.inReview.toString(), label: 'In Review' },
-  ];
+export function DashboardStats({ stats, loading = false, error = false }: DashboardStatsProps) {
+  // Ahead of the skeleton: a failed request has no settled state to wait for.
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+        <p className="text-red-700">Failed to load your dashboard statistics. Please try again.</p>
+      </div>
+    );
+  }
 
-  if (loading) {
+  // `!stats` is not redundant with `loading`, and it is not defensive padding: it is what
+  // keeps the numbers below unreachable without a measurement. A caller that forgets to
+  // pass `loading` still cannot make this component state a figure it was never given.
+  if (loading || !stats) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {statItems.map((_, index) => (
-          <StatCardSkeleton key={index} />
+        {STAT_LABELS.map((label) => (
+          <StatCardSkeleton key={label} />
         ))}
       </div>
     );
   }
+
+  // Stat configuration. Each entry carries its final display string: the unit
+  // conversion belongs next to the value it applies to, not in a shared
+  // `formatValue` that a differently-united number could be routed through.
+  const statItems = [
+    { display: stats.total.toString(), label: STAT_LABELS[0] },
+    { display: stats.appliedThisWeek.toString(), label: STAT_LABELS[1] },
+    { display: `${Math.round(toPercent(stats.responseRate))}%`, label: STAT_LABELS[2] },
+    { display: stats.inReview.toString(), label: STAT_LABELS[3] },
+  ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
