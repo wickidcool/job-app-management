@@ -38,4 +38,16 @@ tags = ["adr-0001", "db-credential"]
 
   [rules.allowlist]
   regexTarget = "match"
-  regexes = ['''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{8,}|redacted|your[-_]?password|changeme|placeholder)[^@\s]*@''']
+  regexes = [
+    # Userinfo half is a placeholder, so no credential is named.
+    '''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{8,}|redacted|your[-_]?password|changeme|placeholder)[^@\s]*@''',
+    # WIC-2243: host half is provably non-routable, so the string cannot name a live
+    # credential no matter what the userinfo says. Structural (host class), not
+    # corpus-derived, so it belongs here rather than in the baseline (Rev 6.2 §A.2.2).
+    # Loopback / unspecified address (RFC 5735).
+    '''(?i)@(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$''',
+    # RFC 2606 §2 reserved TLDs — guaranteed never resolvable.
+    '''(?i)@[^@\s]*\.(?:invalid|test|example|localhost)(?::\d+)?$''',
+    # RFC 2606 §3 reserved second-level example domains.
+    '''(?i)@(?:[^@\s]*\.)?example\.(?:com|net|org)(?::\d+)?$''',
+  ]
