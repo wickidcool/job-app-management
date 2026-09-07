@@ -66,11 +66,19 @@ const STATUS_HEADER_COLORS: Record<ActiveStatus, string> = {
  * boundaries crossed rather than 24-hour blocks elapsed. Routing the old parse through
  * `calendarDaysBetween` alone would still have been off by one.
  *
- * That pairing also settles the `floor`-vs-`ceil` disagreement with the server rather
- * than picking a side: once both operands are local midnights the quotient is a whole
- * number, so flooring, ceiling and rounding all agree. The old `Math.ceil` here against
- * the service's `Math.floor` (`reports.service.ts:214`) could disagree by a day on the
- * same row; nothing rounds a fraction any more, on either boundary.
+ * That pairing also settles the `floor`-vs-`ceil` disagreement with the server rather than
+ * picking a side: both ends now count *date boundaries crossed*, so the old `Math.ceil` here
+ * and the service's `Math.floor` (`reports.service.ts:214`) no longer describe different
+ * quantities on the same row.
+ *
+ * ⚠️ Do NOT read that as "there is no fraction left to round." The quotient inside
+ * `calendarDaysBetween` is whole only on DST-free intervals. A local day spanning a
+ * transition is 23 or 25 hours, so the quotient is 0.9583 or 1.0417 — measured, in
+ * `America/New_York`, on 2026-03-08 and 2026-11-01. That `Math.round` is **load-bearing**,
+ * and is pinned by a mutant in each direction: `ceil` reds the fall-back test and `floor`
+ * reds the spring-forward one (`parseDateOnly.test.ts`). Replacing it with truncation, or
+ * with "the quotient is whole now, just divide", reintroduces this bug class on exactly two
+ * days a year.
  */
 function daysUntilDue(nextActionDue: string | null | undefined): number | null {
   const due = parseDateOnly(nextActionDue);

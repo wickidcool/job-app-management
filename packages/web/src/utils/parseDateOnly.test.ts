@@ -124,11 +124,28 @@ describe('due-date arithmetic at the call sites (TZ-pinned)', () => {
     expect(daysUntilDue('2026-09-10', now)).toBe(0);
   });
 
-  it('counts a 25-hour fall-back local day as one day', () => {
-    // America/New_York falls back on 2026-11-01, making that local day 25 hours long.
+  /**
+   * The two DST intervals, which are the only reason `calendarDaysBetween` rounds at all.
+   *
+   * These must START on the transition day, not end on it. America/New_York falls back at
+   * 02:00 on 2026-11-01, so it is the local day *Nov 1* that is 25 hours long — the interval
+   * Oct 31 -> Nov 1 is an ordinary 24 hours and its quotient is exactly 1.0000, which floor,
+   * ceil and round all agree on. An earlier revision of this file used that interval under
+   * this test's name; it could not have failed. Measured quotients: Nov 1 -> Nov 2 = 1.0417,
+   * Mar 8 -> Mar 9 = 0.9583. Together they kill a `Math.round -> Math.ceil` mutant and a
+   * `Math.round -> Math.floor` mutant respectively, which is what makes the rounding in
+   * `calendarDaysBetween` load-bearing rather than decorative.
+   */
+  it('counts the 25-hour fall-back local day as one day', () => {
     process.env.TZ = 'America/New_York';
-    const now = new Date(2026, 9, 31, 12, 0, 0);
-    expect(daysUntilDue('2026-11-01', now)).toBe(1);
+    const now = new Date(2026, 10, 1, 12, 0, 0); // Nov 1, the 25-hour day itself
+    expect(daysUntilDue('2026-11-02', now)).toBe(1); // ceil would say 2
+  });
+
+  it('counts the 23-hour spring-forward local day as one day', () => {
+    process.env.TZ = 'America/New_York';
+    const now = new Date(2026, 2, 8, 12, 0, 0); // Mar 8, the 23-hour day itself
+    expect(daysUntilDue('2026-03-09', now)).toBe(1); // floor would say 0
   });
 
   it('the detail label renders the stored day verbatim across the year boundary', () => {

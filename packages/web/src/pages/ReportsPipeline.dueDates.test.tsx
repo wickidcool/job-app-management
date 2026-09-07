@@ -36,6 +36,17 @@ import { ReportsPipeline } from './ReportsPipeline';
 const OVERDUE_BADGE = '🔴 Overdue';
 const DUE_SOON_BADGE = '🟡 Due soon';
 
+/**
+ * The numeral in a summary-stat tile, read by its label.
+ *
+ * The tile is `<div>{stats.overdue}</div><div>Overdue</div>`, so the count is the label's
+ * previous sibling. An exact-string match is what keeps this off the row badges — the badge
+ * elements read "🔴 Overdue" and "🟡 Due soon", which are not equal to "Overdue" / "Due Soon".
+ */
+function tileCount(label: string): string {
+  return screen.getByText(label).previousElementSibling?.textContent ?? '';
+}
+
 const originalTZ = process.env.TZ;
 afterEach(() => {
   process.env.TZ = originalTZ;
@@ -103,6 +114,18 @@ describe('ReportsPipeline due-date badges (TZ-pinned)', () => {
     expect(screen.getByText(OVERDUE_BADGE)).toBeInTheDocument();
   });
 
+  it('buckets a row due TODAY into the Due Today tile, not Overdue, in America/New_York', async () => {
+    // The stats tile is a THIRD copy of this arithmetic, independent of the two badge
+    // helpers above. Reverting only its parse leaves every other test in this branch green
+    // — measured 24/24 — so without this assertion the aggregate ships uncovered.
+    process.env.TZ = 'America/New_York';
+    await renderWith(localDay(0));
+
+    // Reverted, this row reads Overdue=1 / Due Today=0.
+    expect(tileCount('Overdue')).toBe('0');
+    expect(tileCount('Due Today')).toBe('1');
+  });
+
   it('badges a row due in exactly 3 days as due soon in Europe/Berlin', async () => {
     // The `<= 3` boundary behaved as `<= 2` in positive-offset zones before the fix.
     process.env.TZ = 'Europe/Berlin';
@@ -126,5 +149,7 @@ describe('ReportsPipeline due-date badges (TZ-pinned)', () => {
     await renderWith(localDay(0));
 
     expect(screen.queryByText(OVERDUE_BADGE)).not.toBeInTheDocument();
+    expect(tileCount('Overdue')).toBe('0');
+    expect(tileCount('Due Today')).toBe('1');
   });
 });
