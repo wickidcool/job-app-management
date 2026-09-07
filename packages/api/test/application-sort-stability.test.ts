@@ -18,21 +18,30 @@ import { APPLICATION_SORT_KEYS } from '../src/types/index.js';
  *
  * ## Why there are two halves here, and which one is the control
  *
- * The behavioural half (paging over a block of identical companies) is the one
- * that describes the user-visible bug, but it is **not** a reliable detector:
- * whether an unordered block actually comes back differently between two
- * queries is up to the planner, and on a small in-process PGlite table it
- * generally does not. Measured against the pre-fix service, the paging test
- * below **passes without the tiebreaker** — the rows happen to come back in
- * insertion order both times. Keeping it anyway is deliberate: it pins the
- * user-facing contract and would catch a future change that reorders pages for
- * some other reason. But it certifies nothing on its own.
+ * The behavioural half pages over an equal-ranked block and asserts nothing is
+ * dropped or repeated. It describes the user-visible bug directly — but whether
+ * it *detects* the bug is up to the planner, so it is a detector for some sort
+ * keys and a contract pin for others. Measured by mutation, dropping the
+ * tiebreaker from one branch at a time:
  *
- * The SQL half is the control. It asserts the tiebreaker is *present in the
+ *   - `sortBy=company`   — the paging test **fails**. PGlite really does return
+ *                          that block in a different order across offset pages,
+ *                          so here the behavioural test is a genuine detector.
+ *   - `sortBy=createdAt` — the paging test **passes**. Same-shaped equal-ranked
+ *                          block, same missing tiebreaker, and the rows happen
+ *                          to come back consistently anyway.
+ *
+ * Those two are structurally identical and disagree, which is the whole reason
+ * the SQL half exists: a behavioural check over an unordered block is testing
+ * the planner's mood, and you cannot tell from a green run which of the two
+ * cases you are in.
+ *
+ * So the SQL half is the control. It asserts the tiebreaker is *present in the
  * emitted ORDER BY* for every key, which is the property the fix actually
- * establishes, and it is the half that goes red when the tiebreaker is removed.
- * A test that only demonstrated stable paging on PGlite would have been green
- * before the fix and green after it — the shape of a vacuous guard.
+ * establishes, and it goes red on every branch when the tiebreaker is removed —
+ * including the branches whose paging test stays green. A suite resting on the
+ * behavioural half alone would have certified `createdAt`, `updatedAt` and
+ * `interviewDate` while all three were still broken.
  *
  * It iterates `APPLICATION_SORT_KEYS` rather than a hand-listed set, so a fifth
  * sort key added without a tiebreaker fails here rather than being silently out
@@ -125,7 +134,9 @@ describe('WIC-2260 — sort stability across offset pages', () => {
   });
 
   describe('paging over an equal-ranked block', () => {
-    // Not a detector on PGlite (see the header) — a contract pin.
+    // A detector for `company` and a contract pin for `createdAt` — see the
+    // header for the mutation measurement, and do not assume a green run here
+    // means the tiebreaker is present.
     const seed = async (n: number) => {
       const { applications } = await import('../src/db/schema.js');
       for (let i = 0; i < n; i++) {
