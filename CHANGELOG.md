@@ -9,6 +9,20 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — the full-history secret audit went red on three strings that cannot name a credential (2026-09-07)
+
+The Layer 0 audit is the fleet's only historical-secret control, and it had been failing since 2026-09-06 on **three findings, none of them a secret**: a Hyperdrive `localConnectionString` pointing at `localhost:5432` (in `wrangler.jsonc` and quoted again in `README.md`), and a test fixture aimed at a `.invalid` host — the TLD RFC 2606 reserves precisely so that it can never resolve. `pc-db-connection-string` matched the `scheme://user:pass@host` shape and never looked at whether the host was reachable.
+
+**A permanently red audit is a deleted audit.** This is the failure mode WIC-2232 documented one day earlier in the prod canary: once a check is expected to be red, the next finding — a real one — arrives as no change at all. Two of the three findings sit on an unmerged branch, so a baseline entry was the wrong instrument as well as the weaker one: baseline fingerprints are commit-pinned, and those commits change SHA the moment the branch merges.
+
+**The allowlist is structural, so it lives in the config rather than the baseline** (ADR-0001 Addendum A Rev 6.2 §A.2.2). The existing entry already excused the *userinfo* half when the password is a visible placeholder; this adds the *host* half — RFC 5735 loopback and unspecified addresses, and the RFC 2606 reserved names `.invalid`, `.test`, `.example`, `.localhost`, `example.com|net|org`. A string addressed to a host that provably cannot be dialled names no live credential regardless of what precedes the `@`. Private RFC 1918 ranges are deliberately **not** excused: `10.0.0.5` is routable on some network, so a credential aimed at it is a real one.
+
+**Suppressing a false positive and killing the rule look identical from the audit's output** — both read as "findings went down" — so the count alone could never distinguish this fix from a disarmed rule, and a disarmed rule reports as *green*, which nobody investigates. `scripts/gitleaks-selftest.py` now asserts both directions against a synthetic corpus and runs **before** the scan. The decisive pair is one TLD apart: `…pooler.supabase.com` must be caught and `…pooler.supabase.invalid` must not, so an allowlist even slightly too broad fails. Both mutants were exercised — widening the allowlist to `@.+` reported all four must-catch cases as DISARMED, and reverting the fix reported all five must-allow cases as false positives, with all nine cases still registering in each run so neither direction went vacuous.
+
+**The corpus is assembled from fragments at runtime and never written as a literal.** A committed file containing whole connection strings would be flagged by the very full-history scan it protects, so the selftest would have broken the audit it exists to defend.
+
+**The weekly cron was the other half of the problem.** The audit runs Mondays 06:17 UTC, so a rule-set edit that disarmed a rule would have gone unexamined for up to seven days. `.gitleaks.toml`, the baseline, the selftest, and the workflow now also trigger the audit on `pull_request`, gating the config on the change that touches it. (WIC-2243)
+
 ### Added — a stale checkout certifies itself green, so `scripts/tree-currency-guard.mjs` refuses to certify one (2026-09-07)
 
 A checkout that is behind `origin/main` runs the stale *tests* against the stale *code*. They agree, and the tree reads green — so green-in-my-tree carries no information about whether a shipped fix is armed there. A guard cannot check its own currency: every file is stale together, including the assertions that would have caught it.
