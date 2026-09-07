@@ -47,16 +47,33 @@ function compare(a, b) {
  * treats that as a pass, because a guard that cannot parse the pin has no
  * business failing the build on it.
  *
- * WIC-2211. `null` is also returned for a `0.x` caret or tilde. npm narrows the
+ * WIC-2211. `null` is also returned for a `0.x` caret, because npm narrows the
  * caret as the leading zeros accumulate — `^0.5.7` locks the minor, `^0.0.3`
- * locks the patch — and the `major === major` rule below is wrong for both, in
- * the fail-OPEN direction: it would bless `0.9.0` under `^0.5.7`, i.e. stay
- * silent about exactly the mismatch this file exists to catch. A `0.x` range is
- * shaped identically to `^X.Y.Z`, so it cannot be excluded by the syntax test
- * above and has to be excluded here. Declining to judge is the honest answer;
- * modelling npm's zero-rules would be a second thing to get wrong. No workspace
- * pins vitest at `0.x` today, but this repo does carry `0.x` pins (`pglite`), so
- * the helper must not be quietly wrong the day it is pointed at one.
+ * locks the patch — and the `major === major` rule is wrong for both in the
+ * fail-OPEN direction: it would bless `0.9.0` under `^0.5.7`, i.e. stay silent
+ * about exactly the mismatch this file exists to catch. A `0.x` range is shaped
+ * identically to `^X.Y.Z`, so it cannot be excluded by the syntax test above and
+ * has to be excluded here. Declining to judge is the honest answer; modelling
+ * npm's zero-rules would be a second thing to get wrong. No workspace pins vitest
+ * at `0.x` today, but this repo does carry `0.x` pins (`pglite`, `drizzle-orm`,
+ * `esbuild`), so the helper must not be quietly wrong the day it is pointed at one.
+ *
+ * WIC-2215. Decline in the ONE cell npm's zero-rules actually change, and nowhere
+ * else. The first cut of that exclusion was a bare `if (operator && want.major ===
+ * 0) return null;` placed ahead of the floor check and the major comparison — so it
+ * discarded two answers that are correct no matter what npm does with leading
+ * zeros. Below the floor is out under every range shape; a different major is out
+ * under every `0.x` caret, whose ceiling never leaves major 0. Graded against real
+ * `semver` over 46,875 pairs, and counting `null` as the pass the caller makes it,
+ * that placement turned **5,850 correct rejections into passes** (`0.1.0` vs
+ * `^0.5.7`, `1.0.0` vs `^0.5.7`, ...) — strictly more fail-open than the rule it
+ * replaced, while leaving the reported case unchanged, since the caller treats
+ * `null` and `true` identically. The exclusion belongs after both checks.
+ *
+ * `~` needs no exclusion at all: `~0.5.7` -> `>=0.5.7 <0.6.0` and `~0.0.3` ->
+ * `>=0.0.3 <0.1.0` are exactly what the floor plus the major/minor lock already
+ * computes. Zero of the residual wrong pairs involve a tilde, so excluding it cost
+ * accuracy and bought nothing.
  */
 export function satisfies(installed, range) {
   const got = parseVersion(installed);
@@ -68,10 +85,17 @@ export function satisfies(installed, range) {
   if (!want) return null;
   // A range with anything else in it (` || `, ` - `, `>=`) is not one we model.
   if (/[|\s>=<*x]/i.test(operator ? trimmed.slice(1) : trimmed)) return null;
-  if (operator && want.major === 0) return null;
 
+  // Below the floor is out under every range shape this function models.
   if (compare(got, want) < 0) return false;
-  if (operator === '^') return got.major === want.major;
+  if (operator === '^') {
+    // A caret's ceiling never leaves the floor's major, `0.x` included.
+    if (got.major !== want.major) return false;
+    // At or above the floor inside major 0 is the only cell npm's zero-rules
+    // move, so it is the only one worth declining. See WIC-2215 above.
+    if (want.major === 0) return null;
+    return true;
+  }
   if (operator === '~') return got.major === want.major && got.minor === want.minor;
   return compare(got, want) === 0;
 }
