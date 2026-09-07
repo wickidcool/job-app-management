@@ -128,6 +128,13 @@ export function Dashboard() {
               as after a failed one. Both figures come off `stats`, so both are withheld
               together — a partially-populated activity list would be its own false claim
               (WIC-2229).
+
+              ⚠️ Gated on `stats`, deliberately NOT on `dashboardError` (WIC-2233). A failed
+              *refetch* keeps the previous data, so `dashboardError` is true while `stats`
+              is still a real measurement. Adding it here would blank this panel while
+              `QuickWins` and `AttentionCard` — same query object, same cached `attention` —
+              carried on rendering, which is the contradiction WIC-2233 was filed for, just
+              moved. `DashboardStats` discloses the stale refresh once, next to the figures.
             */}
             {stats ? (
               <>

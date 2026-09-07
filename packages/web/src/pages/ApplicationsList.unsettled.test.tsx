@@ -118,7 +118,14 @@ describe('ApplicationsList — an unread application list is not an empty one (W
       expect(screen.getByText(OVERDUE_LABEL).parentElement?.textContent).toContain('0');
     });
     // An honest measurement of an account with no rows.
-    expect(screen.getByText(SAVED_COLUMN_EMPTY)).toBeTruthy();
+    //
+    // ⚠️ `findByText`, not `getByText` (WIC-2233). This control asserts TWO surfaces and the
+    // wait above only covers one of them: re-anchoring it on the tile fixed the mutation
+    // cell it was meant to fix, but left the column copy un-awaited, so under
+    // `unsettled={false}` the tile settles on first render, the `waitFor` returns
+    // immediately, and this line ran while `KanbanBoard` was still skeletoning. Green today
+    // either way — it only surfaces under mutation. Wait on both surfaces you assert.
+    expect(await screen.findByText(SAVED_COLUMN_EMPTY)).toBeTruthy();
     expect(screen.queryByText(FAILURE_DISCLOSURE)).toBeNull();
     expect(GET_ALL_PAGED).toHaveBeenCalledTimes(1);
   });

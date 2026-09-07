@@ -33,11 +33,13 @@ export interface DashboardStatsProps {
   };
   loading?: boolean;
   /**
-   * The dashboard request failed, so no figure below can be stated.
+   * The dashboard request failed.
    *
    * Distinct from `loading` rather than folded into it, for the same reason as
    * `DashboardResumeWidget`: a failed query never settles, so the skeleton would animate
    * forever.
+   *
+   * ⚠️ It does **not** on its own mean there is no figure to show — see the guard below.
    */
   error?: boolean;
 }
@@ -48,7 +50,17 @@ export interface DashboardStatsProps {
  */
 export function DashboardStats({ stats, loading = false, error = false }: DashboardStatsProps) {
   // Ahead of the skeleton: a failed request has no settled state to wait for.
-  if (error) {
+  //
+  // ⚠️ `&& !stats` is the whole guard, and reordering these two branches is not a substitute
+  // for it (WIC-2233). React Query's *refetch* error keeps the previous data
+  // (`QueryObserverRefetchErrorResult`), so `error` and `stats` are both truthy after a
+  // failed refresh over a warm cache — reachable by ordinary navigation, since `staleTime`
+  // is 30s and `refetchOnMount` defaults to true. Gating on `error` alone made this the one
+  // place on the page that withheld a figure it actually had, while the sibling Recent
+  // Activity panel, `QuickWins` and `AttentionCard` all read the same cached object and kept
+  // rendering from it. Keeping the last good measurement is what makes those four agree;
+  // the staleness note below is what keeps that honest instead of silent.
+  if (error && !stats) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
         <p className="text-red-700">Failed to load your dashboard statistics. Please try again.</p>
@@ -80,10 +92,22 @@ export function DashboardStats({ stats, loading = false, error = false }: Dashbo
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {statItems.map((stat, index) => (
-        <StatCard key={index} value={stat.display} label={stat.label} />
-      ))}
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {statItems.map((stat, index) => (
+          <StatCard key={index} value={stat.display} label={stat.label} />
+        ))}
+      </div>
+      {/*
+        Only reachable with `error && stats` — a refresh that failed over figures we already
+        have. The cards above are a real measurement, just not the current one, so the
+        disclosure is that they are dated rather than that they are missing.
+      */}
+      {error && (
+        <p role="status" className="mt-2 text-sm text-neutral-500">
+          These figures are from your last successful load — the latest refresh didn’t go through.
+        </p>
+      )}
     </div>
   );
 }

@@ -82,11 +82,27 @@ function aResume(name = 'Backend Engineer CV') {
  *
  * Seeding the cache puts the dashboard query in `success`, which isolates the resumes
  * query as the only thing `loading` can be reading.
+ *
+ * @param staleDashboardStats seed the dashboard query from cache **and backdate it**, so
+ * mounting triggers a refetch instead of resting on the cached value.
+ *
+ * This is the only way to reach `isError` with `data` still defined — the fifth unsettled
+ * state, and the one `seedDashboardStats` above cannot produce. The backdate has to exceed
+ * the hook's `staleTime: 30000` or `refetchOnMount` finds the entry fresh and never calls
+ * `getStats`, which would leave the query in `success` and the test vacuous.
  */
-function renderDashboard({ seedDashboardStats = false } = {}) {
+function renderDashboard({
+  seedDashboardStats = false,
+  staleDashboardStats,
+}: { seedDashboardStats?: boolean; staleDashboardStats?: typeof REAL_STATS } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (seedDashboardStats) {
     client.setQueryData(dashboardKeys.stats(), STATS);
+  }
+  if (staleDashboardStats) {
+    client.setQueryData(dashboardKeys.stats(), staleDashboardStats, {
+      updatedAt: Date.now() - 120_000,
+    });
   }
   render(
     <QueryClientProvider client={client}>
@@ -240,5 +256,49 @@ describe('Dashboard — an unread pipeline is not a zeroed one (WIC-2229)', () =
     expect(screen.queryByText('0%')).toBeNull();
     // 0 calls is what makes this PAUSED rather than slow.
     expect(GET_STATS).toHaveBeenCalledTimes(0);
+  });
+
+  /**
+   * WIC-2233 item 1 — the fifth unsettled state, which the four above cannot reach.
+   *
+   * WIC-2229's thesis is that `data` is `undefined` in three states (pending, paused,
+   * failed), and every case above holds `data === undefined`. There is a fourth relevant
+   * state: React Query's **refetch** error keeps the previous data
+   * (`QueryObserverRefetchErrorResult`), so `stats` is defined while `isError` is true.
+   *
+   * `DashboardStats` gated on `error` alone and so withheld a figure it actually had, while
+   * the Recent Activity panel gates on `stats` alone and kept rendering that same cached
+   * figure — two surfaces contradicting each other off one query object. `QuickWins` and
+   * `AttentionCard` read `dashboardData?.attention` and side with Recent Activity, so
+   * stale-preferred is the resolution that makes all four agree with a single change;
+   * disclosure-preferred would have needed four.
+   *
+   * Reachability is ordinary navigation: `staleTime: 30000` with `refetchOnMount` default
+   * true means Dashboard → Applications → back after 30s refetches, and a transient failure
+   * lands here.
+   */
+  it('a failed REFETCH keeps the cached figures on every surface, and says they are stale', async () => {
+    GET_STATS.mockRejectedValue(new Error('500'));
+    GET_RESUMES.mockResolvedValue([]);
+
+    renderDashboard({ staleDashboardStats: REAL_STATS });
+
+    // The disclosure is what makes keeping the figures honest rather than silent.
+    expect(await screen.findByText(/last successful load/i)).toBeTruthy();
+
+    // The cached measurement, on BOTH surfaces — `7` is the Total card, and the two `3`s
+    // are In Review and Recent Activity's In Progress. Pre-fix the card read the banner
+    // and only one `3` survived.
+    expect(screen.getByText('7')).toBeTruthy();
+    expect(screen.getAllByText('3')).toHaveLength(2);
+    expect(screen.getByText(/^In Progress$/)).toBeTruthy();
+
+    // The no-measurement banner belongs to `error && !stats`, which this is not.
+    expect(screen.queryByText(/Failed to load your dashboard statistics/i)).toBeNull();
+    expect(screen.queryByText(/Couldn’t load your recent activity/i)).toBeNull();
+
+    // 1 call is what makes this a failed REFETCH rather than a cache read: the seeded entry
+    // was backdated past `staleTime`, so the hook really did go back to the network.
+    expect(GET_STATS).toHaveBeenCalledTimes(1);
   });
 });
