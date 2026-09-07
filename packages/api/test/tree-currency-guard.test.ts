@@ -145,7 +145,26 @@ describe('tree-currency-guard — fail-closed, not fail-open', () => {
   it('refuses when pointed at something that is not a work tree', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wic2222-nonrepo-'));
     scratch.push(dir);
-    expect(() => assertTreeCurrent({ cwd: dir, fetch: false })).toThrow();
+    // Assert the MESSAGE, not merely that it throws. A bare `.toThrow()` passed even
+    // when the work-tree clause was unreachable on this path: `rev-parse` exits 128
+    // on a non-repository, so the operator got raw `fatal: not a git repository`
+    // porcelain instead of a sentence naming the directory they passed. The clause's
+    // stated purpose ("a wrong cwd reports as a wrong cwd") was untested and untrue
+    // for the common case.
+    expect(() => assertTreeCurrent({ cwd: dir, fetch: false })).toThrow(/is not a git work tree/);
+    expect(() => assertTreeCurrent({ cwd: dir, fetch: false })).toThrow(dir);
+  });
+
+  it('refuses on a BARE repository, the other way to not be a work tree', () => {
+    // The two non-work-tree inputs fail differently and only this one reaches the
+    // `inside !== 'true'` clause: a bare repo answers `false` with exit 0, while a
+    // non-repository exits 128. Both must land on the same message.
+    const dir = mkdtempSync(join(tmpdir(), 'wic2222-bare-'));
+    scratch.push(dir);
+    const bare = join(dir, 'bare.git');
+    execFileSync('git', ['init', '--quiet', '--bare', '-b', 'main', bare]);
+    expect(git(['rev-parse', '--is-inside-work-tree'], bare)).toBe('false');
+    expect(() => assertTreeCurrent({ cwd: bare, fetch: false })).toThrow(/is not a git work tree/);
   });
 
   it('treats an unmeasured gap as not-current', () => {
@@ -175,6 +194,58 @@ describe('tree-currency-guard — keyed on the hazard, not a consequence (AC4)',
   });
 });
 
+describe('tree-currency-guard — a clean commit graph is not a clean tree (WIC-2224)', () => {
+  // `behind` cannot see uncommitted work, so a working-tree edit can revert a shipped
+  // fix while the tree still reads `behind == 0`. That reproduces the exact fail-open
+  // in this guard's opening paragraph through a different channel: the motivating
+  // defect was a MISSING COMMIT, and this is the same wrong answer as an EDIT.
+  it('refuses a tree that is level with the remote but carries uncommitted changes', () => {
+    const { work } = repo({ remoteAhead: 0 });
+    // Level with origin/main: certified green before this fix.
+    expect(inspectTree({ cwd: work, fetch: false }).behind).toBe(0);
+
+    writeFileSync(join(work, 'README.md'), 'reverted a shipped fix as a working-tree edit\n');
+    expect(() => assertTreeCurrent({ cwd: work })).toThrow(/uncommitted change/);
+    expect(() => assertTreeCurrent({ cwd: work })).toThrow(/Refusing to certify/);
+  });
+
+  it('reports the dirty paths with their porcelain status columns intact', () => {
+    const { work } = repo({ remoteAhead: 0 });
+    writeFileSync(join(work, 'untracked.ts'), 'new\n');
+    const measured = inspectTree({ cwd: work, fetch: false });
+    expect(measured.dirty).toContain('?? untracked.ts');
+  });
+
+  it('still certifies under --allow-dirty, and the escape hatch is opt-in only', () => {
+    const { work } = repo({ remoteAhead: 0 });
+    writeFileSync(join(work, 'wip.ts'), 'wip\n');
+    expect(() => assertTreeCurrent({ cwd: work, fetch: false })).toThrow();
+    const measured = assertTreeCurrent({ cwd: work, fetch: false, allowDirty: true });
+    expect(measured.behind).toBe(0);
+    expect(measured.dirty).toHaveLength(1);
+  });
+
+  it('does not let --allow-dirty rescue a tree that is actually behind', () => {
+    // The two refusals are independent; the dirty hatch must not widen the original.
+    const { work } = repo({ remoteAhead: 2 });
+    writeFileSync(join(work, 'wip.ts'), 'wip\n');
+    expect(() => assertTreeCurrent({ cwd: work, allowDirty: true })).toThrow(
+      /2 commits behind origin\/main/
+    );
+  });
+
+  it('reading status does not mutate the tree (AC3 still holds)', () => {
+    const { work } = repo({ remoteAhead: 0 });
+    writeFileSync(join(work, 'dirty.txt'), 'uncommitted\n');
+    const headBefore = git(['rev-parse', 'HEAD'], work);
+    const statusBefore = git(['status', '--porcelain'], work);
+    expect(() => assertTreeCurrent({ cwd: work, fetch: false })).toThrow();
+    expect(git(['rev-parse', 'HEAD'], work)).toBe(headBefore);
+    expect(git(['status', '--porcelain'], work)).toBe(statusBefore);
+    expect(readFileSync(join(work, 'dirty.txt'), 'utf8')).toBe('uncommitted\n');
+  });
+});
+
 describe('tree-currency-guard — the script is real and executable', () => {
   it('exists at the path the docs and CI reference', () => {
     const script = join(__dirname, '..', '..', '..', 'scripts', 'tree-currency-guard.mjs');
@@ -195,5 +266,20 @@ describe('tree-currency-guard — the script is real and executable', () => {
       stdio: 'pipe',
     });
     expect(ok).toMatch(/Tree is current/);
+    // The pass must state its own boundary. This tool's value is the trust its green
+    // buys, so a green that reads as blanket certification is worse than no green.
+    expect(ok).toMatch(/Not checked: installed dependencies/);
+  });
+
+  it('throws on a flag whose value is missing instead of grading a different tree', () => {
+    // `--cwd` with nothing after it yielded `undefined`, which `inspectTree`'s
+    // destructuring default silently restored to `process.cwd()` — so the operator
+    // asked about one tree and got a green about another, with no directory named.
+    const script = join(__dirname, '..', '..', '..', 'scripts', 'tree-currency-guard.mjs');
+    for (const flag of ['--cwd', '--upstream']) {
+      expect(() =>
+        execFileSync('node', [script, '--no-fetch', flag], { encoding: 'utf8', stdio: 'pipe' })
+      ).toThrow(new RegExp(`${flag} requires a value`));
+    }
   });
 });
