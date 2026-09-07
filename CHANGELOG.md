@@ -39,6 +39,40 @@ The guard added directly above was correct, fully tested, and **unreachable**. O
 Verified by mutation, since a reachability test that cannot fail is the defect it is checking for. Deleting the call site turns **3 red**; renaming it to `verify:tree` stays **green** (the predicate is the hazard, not the string); pointing it at an invocation that does not work turns **1 red**. The total stays **22 in every arm** — deliberately, and it is why the executable check is a plain `it` looping over call sites rather than `it.each`. `it.each([])` registers nothing, so with no call site left that check would have been deleted along with the thing it guards, and the suite would have reported one fewer test rather than one failure. A shrinking count is the signature of a disarmed control, not of a passing one.
 
 
+### Added — the tree-currency guard now arms itself before every local suite run on `main` (2026-09-07)
+
+Third and last increment of the same lineage. WIC-2222 shipped the guard with **zero call sites**, so it could never fire. WIC-2225 added `npm run preflight`, which made it *reachable*. Neither made it run **before a suite**, which was the stated remedy — and "reachable if you remember" is a convention, not a guard. The same class of gap, shipped-but-not-armed, had by then recurred twice in three commits.
+
+**It now runs from each package's `globalSetup`,** the same place `scripts/vitest-version-guard.mjs` lives, and for the same reason: `npx vitest run` bypasses npm scripts entirely, so a check outside the process being graded has an invocation that skips it. The two are halves of one question — the version guard asks *is this the right runner*, the arm asks *is this the right tree* — and both failures read green.
+
+**The obvious wiring would have been wrong, which is why the previous entry declined it.** `Lint & Test` checks out with `actions/checkout@v4` and no `fetch-depth`, i.e. depth 1, where `origin/main` does not resolve and the guard correctly fail-closes with `rc=1`. Arming it unconditionally hard-fails **every** CI run — a guard that gets deleted rather than one that fires. So `scripts/tree-currency-autoarm.mjs` inverts exactly one half of the policy and keeps the other: **measured and stale refuses; cannot-measure skips silently.** The inversion is safe because it is scoped to the unmeasurable case — it never turns a known-stale tree into a pass, and where it declines, the old refusal carried no information either.
+
+**The predicate is seven clauses, and clause five is the one that bounds the feature.** Arm only when `CI` is unset, no opt-out, a git work tree, on a named branch, that branch is `main`, tracking `origin`, and `origin/main` resolves. Being behind `origin/main` is a **defect on `main` and a normal state on a feature branch** — the same measurement, opposite meanings, and only one of them is refusable. A detached HEAD is a bisect, not a dev tree; a `main` tracking a fork is a different tree; an unset upstream still arms, because a fresh worktree often has no tracking ref and `origin/main` is the right default for a branch named `main`.
+
+**Dirty trees are not refused here, deliberately, and that is the opposite of `npm run preflight`.** Editing a file and running the tests is the entire inner development loop. Measured in this fleet's primary checkout the same day: `git status --porcelain` was non-empty on a tree exactly level with `origin/main` — five entries, all nested `wt-*` worktree directories that live there permanently. A dirty-refusing arm would have refused that tree on every run, forever, while never once being wrong about currency. So the arm grades the commit graph and the strict check stays on the explicit entry point, which is where someone asking to certify a result is already looking. A paired test pins that allowing dirt relaxes the `dirty` verdict **only** — a tree that is dirty *and* behind is still refused.
+
+**The fetch is load-bearing here too, and it is bounded.** Comparing against an `origin/main` nobody has fetched certifies a stale tree as current, so the arm fetches refs before grading — but it now sits in front of every local run, where an unreachable remote is a hang rather than an error. A 15s timeout degrades that to "cannot measure", which the predicate already skips. A test builds the gap *after* the fixture's last fetch and confirms it is still caught.
+
+**Every skip case is tested against a control that shows the same tree IS refused with that clause removed** — a skip test alone passes just as happily against an arm that never fires, which is the defect this lineage is about. The CI case and the feature-branch case each reuse the identical repository that arms, changing only the env or the branch. `env` is passed explicitly everywhere, because this suite runs in CI: reading the ambient `process.env` would take the `ci` skip branch and go green for the wrong reason, in exactly the environment the card requires be unaffected.
+
+Verified by mutation — eight arms, each leaving the import in place so the mutant still compiles:
+
+| mutation | red |
+|---|---|
+| `packages/api` wrapper: delete the call | **2** |
+| `packages/web` wrapper: delete the call | **1** |
+| `packages/api` wrapper: mention the identifier, never call it (`void maybeAssertTreeCurrent;`) | **2** |
+| drop the `env.CI` clause | **1** |
+| drop the branch clause (feature branches would be refused) | **1** |
+| `allowDirty: true` → `false` | **1** |
+| remove the fetch (grade against stale refs) | **5** |
+| point the arm at the package dir instead of the repo root | **1** |
+
+The third arm is the one worth keeping: the wiring test matches a **call with an options object**, not the identifier, because a bare `/maybeAssertTreeCurrent/` keeps matching the surviving import after the call is gone — which is exactly the shipped-but-not-armed shape this lineage is about. The eighth is pinned because pointing at `packages/api` is still inside the same work tree, so it grades the right thing for the wrong reason until someone vendors a nested repository.
+
+**`passed + failed` stays 23 in every arm**, so no mutant is passing by deleting tests rather than by failing them; the full package is **1794**, 23 over the previous 1771, and none of the new tests is an `it.each` that could quietly register zero. One arm was discarded as vacuous before it reached this table: the first `allowDirty: true` in the file is inside a comment, so a non-global substitution mutated prose and reported green.
+
+
 ### Fixed — the 8 `E2E_ISOLATION_UI` tests never had mock auth, so they asserted against the sign-in page; now green and turned on in CI (2026-09-06)
 
 The entry below split the UI tier onto its own `E2E_ISOLATION_UI` gate and carried forward the justification *"known timing-flaky against mock auth."* That premise was never measured, and it was wrong in both halves: the tests are not flaky, and they were not running against mock auth (WIC-2207).

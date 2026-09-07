@@ -111,6 +111,30 @@ Two boundaries the pass states for itself, and you should not read past:
   still been found running its suite on an orphan vitest that answers a different question. That
   half is `scripts/vitest-version-guard.mjs`, which arms itself from each package's `globalSetup`.
 
+#### On `main`, it arms itself — you do not have to remember (WIC-2228)
+
+`scripts/tree-currency-autoarm.mjs` runs the same check from each package's `globalSetup`, so a
+local checkout **on `main`** that is behind `origin/main` fails its own suite with no command typed.
+An earlier revision of this section said the guard was deliberately kept out of `globalSetup`; that
+held only for arming it *unconditionally*, which would hard-fail every CI run. The arm is
+conditional, and it inverts exactly one half of the CLI's policy:
+
+| | `npm run preflight` | the automatic arm |
+|---|---|---|
+| measured and behind | refuse | **refuse** |
+| cannot measure (CI, no upstream, offline) | refuse | **skip, silently** |
+| level but dirty | refuse | pass — commit graph only |
+
+It arms only when `CI` is unset, the branch is `main`, it tracks `origin`, and `origin/main`
+resolves. **A feature branch is never refused** — being behind `origin/main` is a defect on `main`
+and a normal state on a branch. Dirt is not refused either, because editing a file and running the
+tests is the whole inner loop; `npm run preflight` remains the strict check, and remains the thing
+to run before you quote a result.
+
+```bash
+WIC_SKIP_TREE_CURRENCY=1 npm test    # escape hatch; the result then certifies nothing
+```
+
 ### One TypeScript compiler, and `strict` is declared, not inherited
 
 `typescript` is pinned to the same `~6.0.2` in the root, `packages/web` and `packages/api`, so
