@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { FilterOptions } from './FilterPanel';
-import type { ApplicationStatus } from '../types/application';
-import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
+import { PREDEFINED_FILTER_SHORTCUTS } from '../constants/filterShortcuts';
 import { SAVED_FILTERS_KEY } from '../services/appStorage';
 
 interface SavedFilterShortcutsProps {
@@ -9,47 +8,18 @@ interface SavedFilterShortcutsProps {
   currentFilters: FilterOptions;
 }
 
+/**
+ * A user-saved shortcut. Predefined ones are **not** this shape — they live in
+ * `constants/filterShortcuts.ts` and carry a `buildFilters` thunk instead of a frozen
+ * `filters` object, because `Interviews This Week` has to resolve its window at click
+ * time (WIC-2194). Only `name` is ever rendered, so the two coexist behind `.name`.
+ */
 interface FilterShortcut {
   id: string;
   name: string;
   filters: FilterOptions;
   isPredefined: boolean;
 }
-
-const PREDEFINED_SHORTCUTS: FilterShortcut[] = [
-  {
-    id: 'needs-followup',
-    name: FILTER_SHORTCUT_LABELS.needsFollowUp,
-    filters: {
-      status: ['saved', 'applied', 'phone_screen'] as ApplicationStatus[],
-    },
-    isPredefined: true,
-  },
-  {
-    id: 'interviews-this-week',
-    name: FILTER_SHORTCUT_LABELS.interviewing,
-    filters: {
-      status: ['interview', 'phone_screen'] as ApplicationStatus[],
-    },
-    isPredefined: true,
-  },
-  {
-    id: 'recently-applied',
-    name: FILTER_SHORTCUT_LABELS.applied,
-    filters: {
-      status: ['applied'] as ApplicationStatus[],
-    },
-    isPredefined: true,
-  },
-  {
-    id: 'active-offers',
-    name: FILTER_SHORTCUT_LABELS.activeOffers,
-    filters: {
-      status: ['offer'] as ApplicationStatus[],
-    },
-    isPredefined: true,
-  },
-];
 
 function getSavedFilters(): FilterShortcut[] {
   try {
@@ -73,11 +43,18 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [newFilterName, setNewFilterName] = useState('');
 
-  const allShortcuts = [...PREDEFINED_SHORTCUTS, ...customFilters];
-
-  const handleApplyShortcut = (shortcut: FilterShortcut) => {
-    onApplyFilter(shortcut.filters);
-  };
+  // One render list over two different shapes. `buildFilters` is a thunk for both, so the
+  // click handler has no branch: a predefined shortcut resolves its window *now* rather
+  // than at module load, and a custom one just returns what the user saved.
+  const allShortcuts = [
+    ...PREDEFINED_FILTER_SHORTCUTS.map((s) => ({ ...s, isPredefined: true })),
+    ...customFilters.map((s) => ({
+      id: s.id,
+      name: s.name,
+      isPredefined: false,
+      buildFilters: () => s.filters,
+    })),
+  ];
 
   const handleSaveCurrentFilter = () => {
     if (!newFilterName.trim()) return;
@@ -107,14 +84,18 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
   // about them disagreeing. WIC-1613 adds `dateRange`, without which a window the user
   // had just set would be unsaveable while the panel below offered `Clear All` over
   // filters this bar denied were active. `activeOnly` was missing for the same reason
-  // and is added with it.
+  // and is added with it. WIC-2194 adds `interviewDateRange` on the same reasoning —
+  // without it, clicking `Interviews This Week` and then `+ Save Current` would silently
+  // save a status-only filter under whatever name the user typed, recreating the
+  // lying-label defect inside the user's own saved shortcuts.
   const hasActiveFilters = Boolean(
     currentFilters.search ||
     currentFilters.status?.length ||
     currentFilters.company?.length ||
     currentFilters.activeOnly ||
     currentFilters.dateRange?.start ||
-    currentFilters.dateRange?.end
+    currentFilters.dateRange?.end ||
+    currentFilters.interviewDateRange
   );
 
   return (
@@ -177,7 +158,7 @@ export function SavedFilterShortcuts({ onApplyFilter, currentFilters }: SavedFil
         {allShortcuts.map((shortcut) => (
           <div key={shortcut.id} className="inline-flex items-center gap-1">
             <button
-              onClick={() => handleApplyShortcut(shortcut)}
+              onClick={() => onApplyFilter(shortcut.buildFilters())}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 text-primary-700 rounded-md text-sm font-medium hover:bg-primary-100 transition-colors border border-primary-200"
             >
               {/* Decorative only — `isPredefined` is already conveyed by the absence of the

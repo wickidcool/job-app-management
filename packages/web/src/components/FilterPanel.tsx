@@ -1,6 +1,7 @@
 import { format, startOfMonth, startOfWeek, subMonths } from 'date-fns';
 import type { ApplicationStatus } from '../types/application';
 import type { DateRangeFilter } from '../utils/dateRangeFilter';
+import type { InterviewDateWindow } from '../utils/interviewWeek';
 
 export interface FilterOptions {
   search?: string;
@@ -19,6 +20,22 @@ export interface FilterOptions {
    * the common case, and the old type could not express it).
    */
   dateRange?: DateRangeFilter;
+  /**
+   * WIC-2194 — the interview-date window behind `Interviews This Week`.
+   *
+   * **This is not `dateRange`, and the two must not be conflated.** `dateRange` filters
+   * *date added / applied* (`appliedAt ?? createdAt`) client-side over the already-fetched
+   * collection; this one filters `interviewDate` **server-side**, and its bounds are
+   * ISO-8601 instants *with offset* rather than `YYYY-MM-DD` calendar days. Both facts are
+   * forced by the API contract — see `utils/interviewWeek.ts`.
+   *
+   * Server-side because the capability shipped in WIC-2189 and was unreachable from any
+   * client: filtering here instead would leave that validated path dark while building a
+   * second, divergent implementation of the same predicate — the drift class the shortcut
+   * naming ruling exists to prevent — and would only be correct up to the client's
+   * 5,000-row paging budget.
+   */
+  interviewDateRange?: InterviewDateWindow;
   activeOnly?: boolean;
 }
 
