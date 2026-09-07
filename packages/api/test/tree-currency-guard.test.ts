@@ -283,3 +283,77 @@ describe('tree-currency-guard — the script is real and executable', () => {
     }
   });
 });
+
+// A guard nothing invokes is indistinguishable from a guard that was never written.
+// This one shipped correct and fully tested, and then sat unreachable: outside its own
+// test file the only reference anywhere in the tree was one CHANGELOG line — no npm
+// script, no workflow step, no `globalSetup`, no git hook. Its own sibling
+// `scripts/vitest-version-guard.mjs` is wired into both packages' `globalSetup`, so the
+// asymmetry was invisible by inspection of either file alone.
+//
+// That is this repository's own recurring defect turned on the tool built to catch it:
+// shipped on `main` is not armed in the tree. So the reachability is pinned here rather
+// than left to a convention, and it is keyed on the HAZARD — "no call site invokes the
+// guard" — not on the string `preflight`. Renaming the script keeps these green;
+// deleting the last call site is what turns them red.
+const REPO_ROOT = join(__dirname, '..', '..', '..');
+const GUARD_REL = 'scripts/tree-currency-guard.mjs';
+
+describe('tree-currency-guard — the guard is reachable (a call site exists)', () => {
+  const scripts: Record<string, string> = JSON.parse(
+    readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')
+  ).scripts;
+
+  // Discovered, not written down. A hardcoded `scripts.preflight` would still pass on
+  // the day someone renames the entry point out from under the docs.
+  const callSites = Object.entries(scripts).filter(([, cmd]) => cmd.includes(GUARD_REL));
+
+  it('at least one root npm script invokes the guard', () => {
+    expect(callSites.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('every call site names a file that actually exists', () => {
+    // A call site pointing at a moved script is worse than none: `npm run` fails with a
+    // module-not-found rather than a currency verdict, which reads as tooling noise.
+    expect(callSites.length).toBeGreaterThanOrEqual(1);
+    for (const [, cmd] of callSites) {
+      expect(existsSync(join(REPO_ROOT, GUARD_REL))).toBe(true);
+      expect(cmd).toMatch(/^node\s/);
+    }
+  });
+
+  // The two tests above are both textual — they would pass on a command string with a
+  // typo in it. This one runs the exact string package.json holds, against the same
+  // two-direction fixture the rest of the file uses, so the wiring is proven to work
+  // rather than proven to be spelled correctly.
+  //
+  // Deliberately a plain `it` looping over the call sites rather than `it.each`.
+  // `it.each([])` registers NOTHING: deleting the last call site would delete this
+  // check along with it, and the suite would report one fewer test rather than one
+  // failure — a shrinking count being the exact signature of a disarmed control.
+  // Written this way the test count is fixed at three whatever package.json says, so
+  // removing the call site turns tests red instead of making them disappear.
+  it('each call site refuses a stale tree and certifies a current one, as invoked', () => {
+    expect(callSites.length).toBeGreaterThanOrEqual(1);
+    for (const [, cmd] of callSites) {
+      const [bin, ...args] = cmd.split(/\s+/);
+      const stale = repo({ remoteAhead: 1 });
+      const current = repo({ remoteAhead: 0 });
+
+      expect(() =>
+        execFileSync(bin, [...args, '--cwd', stale.work], {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          stdio: 'pipe',
+        })
+      ).toThrow(/1 commit behind origin\/main/);
+
+      const ok = execFileSync(bin, [...args, '--cwd', current.work], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        stdio: 'pipe',
+      });
+      expect(ok).toMatch(/Tree is current/);
+    }
+  });
+});
