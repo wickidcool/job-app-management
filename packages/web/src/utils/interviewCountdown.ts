@@ -4,11 +4,11 @@
  * ## Why this is a module and not eight lines inside the component
  *
  * The ladder has eight rungs and three of them were wrong for three different reasons (below).
- * Neither was reachable from a page-level test: `InterviewPrepPage.interviewDate.test.tsx`
- * pins the countdown at *exactly* 72 hours out, which is the one offset where the old
- * elapsed-time arithmetic and the calendar arithmetic below agree. A test that can only
- * reach one rung cannot pin the other six, so the rungs got a pure function they can
- * address directly.
+ * None of the three was reachable from a page-level test:
+ * `InterviewPrepPage.interviewDate.test.tsx` pins the countdown at *exactly* 72 hours out,
+ * which is the one offset where the old elapsed-time arithmetic and the calendar arithmetic
+ * below agree. A test that can only reach one rung cannot pin the other seven, so the rungs
+ * got a pure function they can address directly.
  *
  * ## 1. Days are CALENDAR days, local — not `Math.ceil` of elapsed milliseconds
  *

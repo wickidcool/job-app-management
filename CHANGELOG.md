@@ -93,16 +93,18 @@ The ladder moved to `utils/interviewCountdown.ts` as a pure function because it 
 rungs and the page-level test could only reach one: `InterviewPrepPage.interviewDate.test.tsx`
 pins the countdown at *exactly* 72 hours out, which is the single offset where the old and new
 arithmetic agree. That test stayed green across the whole defect and still passes unchanged.
-20 unit tests now address the rungs directly, and a four-mutant matrix confirms each kills its
+21 unit tests now address the rungs directly, and a four-mutant matrix confirms each kills its
 intended target — including one that initially **survived**: rewriting the `Number.isNaN`
 guard as a truthiness test on `diffMs` differs on exactly one input (`diffMs === 0`, the
 interview starting this instant) and passed every other assertion, so it got its own.
 
 The `Today` rung carries the same shape of evidence, because the suite could not supply it:
-adding the three tests to the **unfixed** code reddens exactly the two that assert the rung
-while the third — the `In 6 hours` positive control that would catch the rung being placed too
-high — stays green, so the arms demonstrably disagree. Before the fix the full web suite was
-`1078/1078` with the bad string reachable, which is the coverage hole stated as a number.
+adding the four tests to the **unfixed** code reddens exactly the three that assert the rung
+while the fourth — the `In 6 hours` positive control that would catch the rung being placed
+too high — stays green, so the arms demonstrably disagree. Before the fix the full web suite
+was `1078/1078` with the bad string reachable, which is the coverage hole stated as a number.
+The 25-hour fall-back day gets its own assertion because it is the widest exposure, and the
+`59 / 119 / 0` figures above were re-measured independently rather than carried over.
 
 
 ### Fixed — three more surfaces stated a figure they had never measured, and the sweep is now closed (2026-09-07)

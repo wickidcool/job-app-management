@@ -97,6 +97,19 @@ describe('interviewCountdown — the same-day rung', () => {
     ).toEqual({ text: 'In 6 hours', urgency: 'high' });
   });
 
+  it('holds on a 25-hour fall-back DST day, where the band is widest', () => {
+    // America/New_York falls back 2026-11-01, making that local day 25 hours long. The extra
+    // hour widens the exposed band from 59 `now` minutes to 119 — measured against the
+    // unfixed ladder at minute resolution, and 0 on a 23-hour spring-forward day, which
+    // cannot reach it at all. This is the worst case, so it gets its own assertion.
+    process.env.TZ = 'America/New_York';
+    // 00:00 EDT -> 23:30 EST the same date: 24.5 hours elapsed, still zero boundaries crossed,
+    // so `Math.ceil` has rolled past 24 and only the calendar rung can answer.
+    expect(
+      interviewCountdown(at(2026, 11, 1, 23, 30).toISOString(), at(2026, 11, 1, 0, 0))
+    ).toEqual({ text: 'Today', urgency: 'high' });
+  });
+
   it('never renders "In 0 days" from any minute of a day', () => {
     // The defect stated as a sweep rather than as one instant. Every `now` minute of a
     // 24-hour day against every offset from 1 minute to 48 hours: the string must not appear.
