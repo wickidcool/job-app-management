@@ -9,6 +9,7 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+
 ### Fixed — the full-history secret audit went red on three strings that cannot name a credential (2026-09-07)
 
 The Layer 0 audit is the fleet's only historical-secret control, and it had been failing since 2026-09-06 on **three findings, none of them a secret**: a Hyperdrive `localConnectionString` pointing at `localhost:5432` (in `wrangler.jsonc` and quoted again in `README.md`), and a test fixture aimed at a `.invalid` host — the TLD RFC 2606 reserves precisely so that it can never resolve. `pc-db-connection-string` matched the `scheme://user:pass@host` shape and never looked at whether the host was reachable.
