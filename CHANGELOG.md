@@ -73,6 +73,42 @@ Enumerating both `report()` versions × both modes × four tree states — holdi
 
 One pre-existing gap is recorded here rather than fixed, because this is now the paragraph a reader will trust on what the guard does *not* see. `VIOLATION`'s dotted-prefix group only traverses plain identifier segments, so `new Date(getRecord().nextActionDue)`, `new Date(rows[0].nextActionDue)` and `new Date((app as Application).nextActionDue)` all miss. The regex is byte-identical before and after this change — no regression — and there are **0** reachable sites in `packages/**` today: every line there that pairs `new Date(` with a date-only name is already flagged. It is the same class as the KNOWN LIMITATION in the script header, which is a statement about today's code and rots the same way.
 
+
+### Fixed — the resume upload progress counter read `0.0 MB / 0.0 MB` for the whole upload
+
+`ResumeUpload` carried its own private `formatFileSize` with no unit ladder: it divided by
+1024×1024 and always printed MB, while the two other copies in `packages/web`
+(`ResumeExportList`, `ResumeManager`) rendered B/KB/MB. The drifted copy was the one on the
+upload progress bar (WIC-2299).
+
+- **`.toFixed(1)` on MB has one step per ~105KB, and a resume is not that big.** The accepted
+  formats are `.pdf`/`.docx`/`.txt`, which run 2–80KB. A 42KB `.docx` rendered
+  `0.0 MB / 0.0 MB` at **every** progress event from 0% to 100% — the byte counter never
+  moved, and it asserted the file was zero-sized while the upload was healthy. Anything under
+  ~51KB showed a **total** of `0.0 MB`, which reads as a failed or empty file at the moment
+  the user is waiting to find out whether their resume went through.
+- **Same shape as WIC-1382**, where the duplicated upload *limit* went stale and refused a 7MB
+  resume the server would have accepted. That one was fixed by giving the number a single home
+  in `constants/upload.ts`; this gives the *rendering* one, in `utils/formatFileSize.ts`, and
+  routes the three copies of the B/KB/MB expression through it — `ResumeUpload`,
+  `ResumeExportList`, `ResumeManager`.
+- **That is a single home, not a guard, and two inline renderers are still outside it.**
+  `ResumeUploadZone:191` and `ProjectDetail:125` print `(bytes / 1024).toFixed(1)` KB with no MB
+  rung, so above 1MB they already disagree with the helper: a 7MB file reads `7168.0 KB` where
+  `formatFileSize` gives `7.0 MB`. Both predate this change (41f553a4, WIC-244) and neither sits
+  on the upload progress path, so they are left alone here rather than widening the fix. WIC-1382
+  shipped a home *and* the drift test that makes the home stick; this ships only the home, so
+  nothing mechanical prevents a fourth private copy. Migrating those two and adding that guard is
+  WIC-2308.
+- **The reachability half is pinned separately from the arithmetic.** A pure-function test
+  would pass on a component that never called the formatter, so
+  `ResumeUpload.progress.test.tsx` drives real `progress` events through the real component
+  and asserts on the rendered line — including that two different progress events produce two
+  *different* strings, since before the fix both were the identical `0.0 MB / 0.0 MB` and the
+  counter carried no information at all. The megabyte case is a deliberate control: it passes
+  before and after, so the change is scoped to the rungs that were missing.
+
+
 ### Fixed — the needs-action report mixed local and UTC midnights, in two places that break in *opposite* timezones (2026-09-07)
 
 `getNeedsActionReport` computed `today` as a **local** midnight and then used it two incompatible ways (WIC-2268, spun out of WIC-2267's client-side sweep). `next_action_due` is a Postgres `date` column served as a bare `YYYY-MM-DD`, and the function mishandled it at both ends:

@@ -1,5 +1,6 @@
 import type { ResumeExport, ExportFormat } from '../types/resume';
 import { formatDistance } from 'date-fns';
+import { formatFileSize } from '../utils/formatFileSize';
 
 interface ResumeExportListProps {
   exports: ResumeExport[];
@@ -18,12 +19,6 @@ export function ResumeExportList({
   onCreateNew,
   loading = false,
 }: ResumeExportListProps) {
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
   const getFormatIcon = (format: ExportFormat): string => {
     switch (format) {
       case 'pdf':
