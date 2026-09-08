@@ -68,6 +68,29 @@ WIC-2299 gave the byte formatter one home in `utils/formatFileSize.ts` and route
 
 **The migration had no coverage in either direction, which is the second finding.** All **50** tests across the 5 pre-existing suites that touch these two components pass identically before *and* after the swap, because `ProjectDetail.unsettled.test.tsx:44` builds its fixture with `size: 1024` — the single value where the inline expression and the helper agree (512 → `0.5 KB` vs `512 B`; 7340032 → `7168.0 KB` vs `7.0 MB`). A fixture parked on the one value where both arms agree makes a two-sided green meaningless. `ProjectDetail.fileSize.test.tsx` adds sizes off that boundary and was run against the unmigrated components to confirm it can fail: **2 assertions red, with a KB-band control green on both sides.**
 
+
+### Tooling — the changelog union guard read `clean` on a head whose committed tree held the weld, because syncing the branch is what blinded it (2026-09-08)
+
+`scripts/changelog-union-check.py` replayed `merge-tree(head, base)` and reported what the union *introduces*. Once a branch merges its base in there is no differing hunk left at the seam, so the replay reproduces the head and correctly reports that a no-op introduced nothing — while the weld the sync just wrote sits committed in the tree, invisible, and ships green.
+
+That is the standard remedy, not a corner case. Merge-first / sync-on-refusal is what this file prescribes for a `CONFLICTING` PR, so **the act that clears the conflict is the act that commits the corruption and silences the detector.**
+
+Measured on PR #469 against base `20d7c1a5` — same script, same invocation, three heads:
+
+| head | committed welds | before | now |
+|---|---|---|---|
+| `b8857373` pre-sync | 0 | `WELD`, rc 1 | `WELD`, rc 1 |
+| `2ebd99f0` synced | **1** | **`clean`, rc 0** | `COMMITTED_WELD`, rc 1 |
+| `e5a62c37` repaired | 0 | `clean`, rc 0 | `clean`, rc 0 |
+
+Rows 2 and 3 were one verdict for two opposite trees. `committed()` adds a second, orthogonal axis that reads the head's own tree, subtracted against the base so an inherited weld stays the base's problem rather than the branch's. It reports only the two classes with no benign reading: `MISFILED` is undefined without two parents, and committed duplicate bullets have known-benign pairs on `main`. **Syncing moves a finding from one axis to the other rather than resolving it; only repairing the file clears both.**
+
+Three fixtures added, and two existing expectations corrected rather than worked around — `misfiled-bullet` and `weld-already-on-branch` both build a committed weld on `ours`, so both now report one. That pairing is this repo's documented "a weld you commit is a misfile you have armed for whoever branches off you next", visible as cause and consequence on a single input for the first time.
+
+Both mutants were run, because a passing fixture proves nothing on its own: disabling the axis reds 4 fixtures (both new positives collapse to `clean`, which is the blindness), and removing the base subtraction reds `weld-inherited-from-base` alone — so that negative control is live and not vacuous. `replay` gains two `COMMITTED_WELD`s on PR #115 at `7890a2c`, verified against the trees before being accepted (head 2 welds, base 0, repaired head 0) and therefore true positives the introduced axis structurally could not see.
+
+Zero delta on the live queue: all three open PRs read `clean` before and after, so this adds capability without re-flagging existing work.
+
 ### Fixed — five surfaces told the user "you have none" when the request had FAILED or was offline-paused (2026-09-07)
 
 `data` is `undefined` in **three** React Query states — pending, paused and failed — so a `data: x = []` default with no `error` read collapses "don't know yet" and "couldn't find out" into the flat claim "you have none" (WIC-2227). Five sites carried it, and the failed half is **permanent**, not a flash: `isError` leaves `data` undefined forever, so a single 500 left a standing false statement on screen. This is the same class as WIC-2179 (`CommandPalette` / "No results found"), whose own code comment predicted these; the sweep was never done.
