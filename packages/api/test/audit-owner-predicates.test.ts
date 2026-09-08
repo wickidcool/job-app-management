@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -655,5 +655,159 @@ describe('[LAUNDER] route-layer owner laundering', () => {
       `${HANDLER}\nexport const h = () => serve(c.get('requestId') ?? undefined);\n`
     );
     expect(checksAt(r, 'LAUNDER')).toHaveLength(0);
+  });
+});
+
+/**
+ * The ungated population is pinned for growth (WIC-2300).
+ *
+ * The guard's `unique/pk-scoped` bucket is out of scope by design, and that is
+ * not what these cases test. They test that the bucket cannot GROW unnoticed —
+ * because a write only ever lands in it by *failing* to resolve to an owner
+ * term, so growth means the audit stopped seeing something it used to see.
+ *
+ * The mechanism is reproduced in miniature: the same `ownerScope` helper, once
+ * defined in the file that uses it and once imported. On `origin/main` dc333a0b
+ * that edit moved two DELETE paths and one UPDATE out of the gated set while
+ * `findings` stayed at 24 and the guard exited 0 — so the exit code is the thing
+ * under test here, not the finding list.
+ */
+describe('ungated-population pin', () => {
+  let root: string;
+
+  const SCHEMA_MIN = `
+import { pgTable, text, uuid } from 'drizzle-orm/pg-core';
+export const widgets = pgTable('widgets', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+});
+`;
+
+  /** The owner term resolvable inside the file — what `main` actually does. */
+  const IN_FILE = `import { eq, and, isNull } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
+import { widgets } from '../db/schema.js';
+declare const db: any;
+
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+export async function removeWidget(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), ownerScope(widgets, userId)));
+}
+`;
+
+  /** Byte-identical call sites; the helper now lives in `lib/`. The mutant. */
+  const IMPORTED = `import { eq, and } from 'drizzle-orm';
+import { widgets } from '../db/schema.js';
+import { ownerScope } from '../lib/owner-scope.js';
+declare const db: any;
+
+export async function removeWidget(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), ownerScope(widgets, userId)));
+}
+`;
+
+  const write = (source: string) =>
+    writeFileSync(join(root, 'src/services/subject.service.ts'), source);
+
+  /** Run the guard for its EXIT CODE — the `--json` path exits before the gate. */
+  function gate(): { status: number; stderr: string; stdout: string } {
+    const r = spawnSync('node', [SCRIPT, `--root=${root}`], { encoding: 'utf8' });
+    return { status: r.status ?? -1, stderr: r.stderr, stdout: r.stdout };
+  }
+
+  const acceptCurrentAsBaseline = () =>
+    spawnSync('node', [SCRIPT, `--root=${root}`, '--write-baseline'], { encoding: 'utf8' });
+
+  const ungatedOf = (source: string) => {
+    write(source);
+    const out = spawnSync('node', [SCRIPT, `--root=${root}`, '--json'], { encoding: 'utf8' });
+    return JSON.parse(out.stdout).stats.ungated as Array<Record<string, string>>;
+  };
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'ac-t0-ungated-'));
+    mkdirSync(join(root, 'src/db'), { recursive: true });
+    mkdirSync(join(root, 'src/services'), { recursive: true });
+    mkdirSync(join(root, 'src/routes'), { recursive: true });
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'src/db/schema.ts'), SCHEMA_MIN);
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  // The mechanism, isolated. If this pair ever stops differing, every gate case
+  // below goes vacuous while still passing — so assert the delta, not just the
+  // exit code.
+  it('reclassifies an owner-scoped write into the ungated bucket when the helper is imported', () => {
+    expect(ungatedOf(IN_FILE)).toEqual([]);
+    expect(ungatedOf(IMPORTED)).toEqual([
+      {
+        file: 'src/services/subject.service.ts',
+        bucket: 'unique',
+        verb: 'delete',
+        table: 'widgets',
+      },
+    ]);
+  });
+
+  it('fails when the extraction moves a write out of the gated set', () => {
+    write(IN_FILE);
+    acceptCurrentAsBaseline();
+    expect(gate().status).toBe(0);
+
+    write(IMPORTED);
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('MOVED OUT of the gated set');
+    expect(r.stderr).toContain("delete 'widgets'");
+    // The failure must not be misread as a new fail-open branch: the AC-T0
+    // finding list is unchanged, and the message has to say so.
+    expect(r.stderr).toContain('failed on the ungated population');
+  });
+
+  // The real WIC-2300 delta included a key going 1 -> 2. A set-valued pin sees
+  // that key as already present and stays green, so the counting is the check.
+  it('fails on a COUNT increase for a key already in the baseline', () => {
+    write(IMPORTED);
+    acceptCurrentAsBaseline();
+    expect(gate().status).toBe(0);
+
+    write(`${IMPORTED}
+export async function removeWidgetAgain(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), ownerScope(widgets, userId)));
+}
+`);
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('(1 -> 2)');
+  });
+
+  // Shrinkage means the guard can see a write it previously could not. That is
+  // the burndown direction and must never fail, or nobody will run it.
+  it('stays green when the ungated population shrinks', () => {
+    write(IMPORTED);
+    acceptCurrentAsBaseline();
+    write(IN_FILE);
+    const r = gate();
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('newly visible to the guard');
+  });
+
+  // Deleting the pin is the cheapest way to disarm this check, and an absent
+  // file must not read as an empty population.
+  it('fails when the ungated baseline is missing rather than passing silently', () => {
+    write(IMPORTED);
+    acceptCurrentAsBaseline();
+    expect(gate().status).toBe(0);
+
+    rmSync(join(root, 'scripts/owner-predicates.ungated.baseline.json'));
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('ungated-population baseline is MISSING');
   });
 });
