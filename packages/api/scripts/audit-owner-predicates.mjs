@@ -164,15 +164,26 @@ function parse(file) {
 /**
  * Owner-bearing tables, read out of the schema rather than hard-coded, so a new
  * table declared with a `user_id` column is in [NOWNER] scope the day it lands.
- * Returns Map<exported drizzle table name, owner column name>.
+ *
+ * Returns BOTH populations, because `owners` alone cannot tell the two reasons a
+ * write is skipped apart (WIC-2304):
+ *
+ *   `owners` -- Map<drizzle table name, {owner, unique}>, the [NOWNER] scope.
+ *   `all`    -- Set<every drizzle table name>, owner-bearing or not.
+ *
+ * A write whose table is in `all` but not in `owners` is skipped because the
+ * table genuinely has no owner column -- a decision the guard is entitled to
+ * make. A write whose table is in NEITHER is skipped because the guard could not
+ * work out which table it is, which is not a decision at all. See [UNRESOLVED].
  */
 function readOwnerTables() {
   const tables = new Map();
+  const all = new Set();
   let src;
   try {
     src = parse(join(API_ROOT, SCHEMA_PATH));
   } catch {
-    return tables; // no schema => [NOWNER] finds nothing; --stats says so
+    return { owners: tables, all }; // no schema => [NOWNER] finds nothing; --stats says so
   }
   for (const stmt of src.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
@@ -180,6 +191,7 @@ function readOwnerTables() {
       const init = decl.initializer;
       if (!ts.isIdentifier(decl.name) || !init || !ts.isCallExpression(init)) continue;
       if (!ts.isIdentifier(init.expression) || !/Table$/.test(init.expression.text)) continue;
+      all.add(decl.name.text);
       // pgTable('name', { columns }, ...) -- columns is the first object literal arg
       const columns = init.arguments.find((a) => ts.isObjectLiteralExpression(a));
       if (!columns) continue;
@@ -196,10 +208,10 @@ function readOwnerTables() {
       if (owner) tables.set(decl.name.text, { owner, unique });
     }
   }
-  return tables;
+  return { owners: tables, all };
 }
 
-const OWNER_TABLES = readOwnerTables();
+const { owners: OWNER_TABLES, all: ALL_TABLES } = readOwnerTables();
 
 /** The identifier a drizzle table argument refers to: `t` or `schema.t`. */
 function tableNameOf(arg) {
@@ -207,6 +219,34 @@ function tableNameOf(arg) {
   if (ts.isIdentifier(arg)) return arg.text;
   if (ts.isPropertyAccessExpression(arg)) return arg.name.text;
   return null;
+}
+
+/**
+ * Is this `.update(x)` / `.delete(x)` a DRIZZLE write, as opposed to
+ * `Map.prototype.delete`, `R2Bucket.delete` or `createHash().update`?
+ *
+ * Only asked of writes whose table argument did not resolve (see [UNRESOLVED]);
+ * a resolved write is already known to be drizzle by its table. Two independent
+ * signals, OR'd, because each covers the other's evasion:
+ *
+ *   receiver -- `db.update(t)` / `tx.update(t)`. Catches a chainless write
+ *               (`await db.delete(t)`) that the shape test cannot see.
+ *   shape    -- a `.set`/`.where`/`.returning` chained onto the call. Catches a
+ *               write through a handle under any other name, which the receiver
+ *               list cannot enumerate.
+ *
+ * OR'd rather than AND'd deliberately: this feeds a fail-closed gate, so the
+ * union (more sites flagged) is the safe direction. Measured on `baca0685` the
+ * union costs nothing -- the receiver tally over both scan dirs is exactly
+ * `db` 27 + `tx` 17 = 44, matching `stats.writeSites`, and the only other
+ * receivers are the four non-drizzle sites above, which both signals reject.
+ */
+const DB_RECEIVERS = new Set(['db', 'tx', 'trx', 'transaction']);
+const DRIZZLE_CHAIN = new Set(['set', 'where', 'returning']);
+function isDrizzleWrite(call, chained) {
+  const recv = call.expression.expression;
+  if (ts.isIdentifier(recv) && DB_RECEIVERS.has(recv.text)) return true;
+  return chained.some((c) => DRIZZLE_CHAIN.has(c.name));
 }
 
 /** The `.set(...).where(...)` calls chained onto an `.update(t)` / `.delete(t)`. */
@@ -720,6 +760,12 @@ const stats = {
   uniqueScopedWrites: [],
   /** Both buckets above, structured and line-agnostic, for the growth pin. */
   ungated: [],
+  /**
+   * Writes whose table argument resolves to no schema table at all, so the guard
+   * never decided anything about them (WIC-2304). Distinct from `ungated`: those
+   * were seen, classified, and consciously not gated on. These were not seen.
+   */
+  unresolvedWriteTables: [],
 };
 
 for (const scanDir of SCAN_DIRS) {
@@ -909,6 +955,29 @@ for (const scanDir of SCAN_DIRS) {
               );
             }
           }
+        } else if (
+          (!table || !ALL_TABLES.has(table)) &&
+          isDrizzleWrite(node, chainedCallsFrom(node))
+        ) {
+          // [UNRESOLVED] The write's table argument does not name any table in
+          // the schema, so the guard cannot say whether it is owner-bearing. It
+          // lands in NEITHER the findings baseline nor the ungated pin, which is
+          // the gap WIC-2300 left open: `tableNameOf` resolves an Identifier, so
+          // a helper taking its table as a PARAMETER resolves to the parameter
+          // name, `meta` is null, and the site is silently dropped. Measured on
+          // `baca0685`: a byte-equivalent ungated write reads 44/15/24 rc 0 in
+          // parameter shape and rc 1 as a literal.
+          //
+          // The `ALL_TABLES` test is what keeps this quiet enough to gate: a
+          // write against a real, deliberately owner-free table (`statusHistory`)
+          // resolves and is skipped as before. Only a name the schema does not
+          // declare at all reaches here.
+          stats.unresolvedWriteTables.push({
+            file: rel,
+            line: lineOf(node),
+            verb,
+            table: table ?? '<non-identifier>',
+          });
         }
       }
 
@@ -949,6 +1018,15 @@ if (process.argv.includes('--stats')) {
     `\nNOT gated on -- predicates we cannot see through (${stats.opaquePredicates.length}):`
   );
   for (const s of stats.opaquePredicates) console.log(`    ${s}`);
+  console.log(
+    `\nGATED -- writes whose table does not resolve to any schema table ` +
+      `(${stats.unresolvedWriteTables.length}):\n` +
+      '  these are counted in NEITHER population above and in no finding, so the\n' +
+      '  guard decided nothing about them. Any non-zero count FAILS the run.'
+  );
+  for (const s of stats.unresolvedWriteTables) {
+    console.log(`    ${s.file}:${s.line} ${s.verb} '${s.table}'`);
+  }
   process.exit(0);
 }
 
@@ -1106,15 +1184,58 @@ const blindSpots =
   `${stats.uniqueScopedWrites.length} unique/pk-scoped write(s) and ` +
   `${stats.opaquePredicates.length} unresolved predicate(s) not gated on (--stats)`;
 
-if (regressions.length === 0 && ungatedGrowth.length === 0 && ungatedBaselinePresent) {
+// [UNRESOLVED] is gated at ZERO, with no baseline (WIC-2304). It is the one
+// population here that needs neither -- the other two are frozen because
+// `origin/main` carries a large pre-existing set, and this one measured EMPTY on
+// `baca0685` once narrowed to drizzle writes (see isDrizzleWrite). A baseline
+// file would only be somewhere to hide the first instance.
+//
+// Gating at zero is also what makes the pin above complete. The ungated pin
+// fails when a write MOVES OUT of the gated set; this fails when one never
+// entered either set, which is the escape it cannot see: `tableNameOf` resolves
+// a helper's table PARAMETER to the parameter name, so the site is attributed to
+// no table and counted nowhere. Measured on `baca0685`: 44/15/24 rc 0 both clean
+// and with such a write added -- byte-identical, hence invisible.
+const unresolvedWrites = stats.unresolvedWriteTables;
+
+if (
+  regressions.length === 0 &&
+  ungatedGrowth.length === 0 &&
+  ungatedBaselinePresent &&
+  unresolvedWrites.length === 0
+) {
   console.log(
     `audit-owner-predicates: no new owner-absent branches. ` +
       `${findings.length} baselined site(s) remain${fixed ? `, ${fixed} fixed since baseline` : ''}.\n` +
       `  scope: fail-open predicates + owner-absent writes; ${blindSpots}.\n` +
       `  ungated population pinned at ${stats.ungated.length} site(s) across ` +
-      `${ungatedBaseline.size} key(s)${ungatedShrank ? `, ${ungatedShrank} newly visible to the guard` : ''}.`
+      `${ungatedBaseline.size} key(s)${ungatedShrank ? `, ${ungatedShrank} newly visible to the guard` : ''}.\n` +
+      `  0 write(s) with an unresolvable table.`
   );
   process.exit(0);
+}
+
+if (unresolvedWrites.length > 0) {
+  console.error(
+    `audit-owner-predicates: ${unresolvedWrites.length} drizzle write(s) whose TABLE\n` +
+      `could not be resolved to any table in the schema.\n` +
+      `\n` +
+      `These are counted in NO population this guard reports -- not the findings\n` +
+      `baseline, not the ungated pin (--stats). The guard did not decide they were\n` +
+      `safe; it never saw which table they touch, so it decided nothing at all. A\n` +
+      `reviewer reading either artifact would not know they exist.\n` +
+      `\n` +
+      `The usual cause is a shared write helper that takes its table as a PARAMETER:\n` +
+      `  function touch(tbl, id) { return db.update(tbl).set(...).where(eq(tbl.id, id)); }\n` +
+      `'tbl' is not a schema table, so the write is attributed to nothing.\n` +
+      `\n` +
+      `Pass the table literally at each call site, so the audit can attribute the\n` +
+      `write to a table and check its predicate for an owner term.\n`
+  );
+  for (const s of unresolvedWrites.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)) {
+    console.error(`    ${s.file}:${s.line}  ${s.verb} '${s.table}'`);
+  }
+  console.error('');
 }
 
 if (!ungatedBaselinePresent) {
@@ -1151,9 +1272,14 @@ if (ungatedGrowth.length > 0) {
 }
 
 if (regressions.length === 0) {
+  const why = [
+    ungatedGrowth.length > 0 && 'the ungated population',
+    !ungatedBaselinePresent && 'a missing baseline',
+    unresolvedWrites.length > 0 && 'an unresolvable write table',
+  ].filter(Boolean);
   console.error(
     `  ${findings.length} baselined finding(s) unchanged -- ` +
-      `this run failed on the ungated population, not on a new fail-open branch.`
+      `this run failed on ${why.join(' and ')}, not on a new fail-open branch.`
   );
   process.exit(1);
 }
