@@ -1,0 +1,58 @@
+[
+  {
+    "file": "src/services/application.service.ts",
+    "bucket": "unique",
+    "verb": "update",
+    "table": "applications",
+    "count": 1
+  },
+  {
+    "file": "src/services/cover-letter.service.ts",
+    "bucket": "unique",
+    "verb": "update",
+    "table": "coverLetters",
+    "count": 1
+  },
+  {
+    "file": "src/services/interviewPrep.service.ts",
+    "bucket": "unique",
+    "verb": "update",
+    "table": "interviewPreps",
+    "count": 6
+  },
+  {
+    "file": "src/services/interviewPrep.service.ts",
+    "bucket": "unique",
+    "verb": "update",
+    "table": "interviewPrepStories",
+    "count": 2
+  },
+  {
+    "file": "src/services/onboarding.service.ts",
+    "bucket": "unique",
+    "verb": "update",
+    "table": "onboardingStatus",
+    "count": 2
+  },
+  {
+    "file": "src/services/personal-info.service.ts",
+    "bucket": "unique",
+    "verb": "update",
+    "table": "personalInfo",
+    "count": 1
+  },
+  {
+    "file": "src/services/resume-variant.service.ts",
+    "bucket": "unique",
+    "verb": "update",
+    "table": "resumeVariants",
+    "count": 1
+  },
+  {
+    "file": "src/services/resume.service.ts",
+    "bucket": "unique",
+    "verb": "delete",
+    "table": "resumes",
+    "count": 1
+  }
+]

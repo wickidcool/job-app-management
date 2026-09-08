@@ -718,6 +718,8 @@ const stats = {
   writeSites: 0,
   opaquePredicates: [],
   uniqueScopedWrites: [],
+  /** Both buckets above, structured and line-agnostic, for the growth pin. */
+  ungated: [],
 };
 
 for (const scanDir of SCAN_DIRS) {
@@ -871,6 +873,14 @@ for (const scanDir of SCAN_DIRS) {
         if (meta) {
           stats.writeSites += 1;
           const site = `${rel}:${lineOf(node)} ${verb} '${table}'`;
+          // Recorded structurally as well as for display, because the ungated
+          // population is pinned (below) on file+verb+table and MUST NOT carry a
+          // line number: the edit that moves a write into this bucket also shifts
+          // every line around it, so a line-keyed diff of this list reports the
+          // whole file as churn and buries the real delta. Measured in WIC-2300:
+          // 23 entries of churn (13 added, 10 removed) carrying 3 real moves,
+          // so 20 are spurious.
+          const ungatedSite = (bucket) => ({ file: rel, bucket, verb, table });
           const wheres = chainedCallsFrom(node)
             .filter((c) => c.name === 'where')
             .flatMap((c) => c.call.arguments);
@@ -882,12 +892,14 @@ for (const scanDir of SCAN_DIRS) {
               // owner-scoped: clean
             } else if (v.some((r) => r.opaque)) {
               stats.opaquePredicates.push(site);
+              stats.ungated.push(ungatedSite('opaque'));
             } else if (v.some((r) => r.unique)) {
               // Scoped by a primary key / unique column, so the write matches at
               // most one row and cannot fan out across tenants. Whether the id
               // was itself owner-checked upstream is an IDOR question this guard
               // does not answer -- counted here so it is not silently dropped.
               stats.uniqueScopedWrites.push(site);
+              stats.ungated.push(ungatedSite('unique'));
             } else {
               report(
                 node,
@@ -961,6 +973,41 @@ const tally = (list) => {
   return m;
 };
 
+// ---------------------------------------------------------------------------
+// Second baseline: the UNGATED population (WIC-2300).
+//
+// That the bucket is out of this guard's scope is not in question. What was
+// unguarded is its SIZE. A write lands in it only by *failing* to resolve to an
+// owner term, so the bucket growing means the guard stopped seeing something it
+// used to see -- and nothing reported that, because `findings` was unchanged and
+// the count is printed only behind `--stats`, which never gates.
+//
+// Measured on `origin/main` dc333a0b: extracting the 5x byte-identical
+// `ownerScope` helper into `lib/` -- an obviously-correct dedup with direct
+// precedent in `lib/pagination.ts` -- moves two DELETE paths and one UPDATE out
+// of the gated set, because the audit can no longer resolve the predicate to an
+// owner term inside the file that uses it. Baselined findings stayed at 24 and
+// the guard exited 0 both before and after. CI would have merged it.
+//
+// So: pin the population and fail on GROWTH. Keyed file+verb+table, never line
+// (see ungatedSite above). Counted rather than a set -- the third of the three
+// sites was a 1 -> 2 bump on a key that already existed, which a set-valued pin
+// cannot see.
+//
+// This gates a COVERAGE change, not a vulnerability. A genuinely new pk-scoped
+// write is a legitimate way to trip it, and re-baselining is the right response
+// once you have confirmed the id is owner-checked upstream. The failure text
+// says so, because a guard whose remedy is unclear gets silenced rather than
+// answered.
+// ---------------------------------------------------------------------------
+const UNGATED_BASELINE_PATH = join(API_ROOT, 'scripts/owner-predicates.ungated.baseline.json');
+const ungatedKeyOf = (s) => `${s.file} ${s.bucket} ${s.verb} ${s.table}`;
+const ungatedTally = (list) => {
+  const m = new Map();
+  for (const s of list) m.set(ungatedKeyOf(s), (m.get(ungatedKeyOf(s)) ?? 0) + 1);
+  return m;
+};
+
 if (process.argv.includes('--write-baseline')) {
   const { writeFileSync } = await import('node:fs');
   const out = [...tally(findings).entries()]
@@ -970,7 +1017,17 @@ if (process.argv.includes('--write-baseline')) {
       return { file, check, detail, count };
     });
   writeFileSync(BASELINE_PATH, `${JSON.stringify(out, null, 2)}\n`);
-  console.log(`audit-owner-predicates: wrote baseline with ${findings.length} finding(s).`);
+  const ungatedOut = [...ungatedTally(stats.ungated).entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, count]) => {
+      const [file, bucket, verb, table] = k.split(' ');
+      return { file, bucket, verb, table, count };
+    });
+  writeFileSync(UNGATED_BASELINE_PATH, `${JSON.stringify(ungatedOut, null, 2)}\n`);
+  console.log(
+    `audit-owner-predicates: wrote baseline with ${findings.length} finding(s) ` +
+      `and ${stats.ungated.length} ungated site(s).`
+  );
   process.exit(0);
 }
 
@@ -1010,20 +1067,95 @@ const fixed = [...baseline.entries()].reduce(
   0
 );
 
+// The ungated population is pinned for GROWTH only (WIC-2300). Shrinkage is a
+// win -- a write leaving this bucket means the guard can now see it -- so it is
+// reported, never failed on, exactly as the findings baseline treats `fixed`.
+let ungatedBaseline = new Map();
+let ungatedBaselinePresent = true;
+try {
+  for (const e of JSON.parse(readFileSync(UNGATED_BASELINE_PATH, 'utf8'))) {
+    ungatedBaseline.set(`${e.file} ${e.bucket} ${e.verb} ${e.table}`, e.count);
+  }
+} catch {
+  // Absent baseline must not fail open. `findings` can honestly be empty, so its
+  // baseline is allowed to be missing; the ungated set is non-empty on any real
+  // tree, so a missing file here means the pin was deleted or never written --
+  // which is precisely the disarm this check exists to notice.
+  ungatedBaselinePresent = false;
+}
+
+const ungatedCurrent = ungatedTally(stats.ungated);
+const ungatedGrowth = [];
+for (const [k, count] of ungatedCurrent) {
+  const allowed = ungatedBaseline.get(k) ?? 0;
+  if (count > allowed) {
+    const [file, bucket, verb, table] = k.split(' ');
+    ungatedGrowth.push({ file, bucket, verb, table, was: allowed, now: count });
+  }
+}
+const ungatedShrank = [...ungatedBaseline.entries()].reduce(
+  (n, [k, count]) => n + Math.max(0, count - (ungatedCurrent.get(k) ?? 0)),
+  0
+);
+
 // A guard that prints only its own findings makes its blind spots invisible,
 // which is how a green run came to be read as tree-wide owner-scoping health.
-// The counts below are NOT gated on; `--stats` lists the sites (WIC-1672).
+// The counts below are NOT gated on individually; `--stats` lists the sites
+// (WIC-1672). Their total population IS gated, for growth (WIC-2300).
 const blindSpots =
   `${stats.uniqueScopedWrites.length} unique/pk-scoped write(s) and ` +
   `${stats.opaquePredicates.length} unresolved predicate(s) not gated on (--stats)`;
 
-if (regressions.length === 0) {
+if (regressions.length === 0 && ungatedGrowth.length === 0 && ungatedBaselinePresent) {
   console.log(
     `audit-owner-predicates: no new owner-absent branches. ` +
       `${findings.length} baselined site(s) remain${fixed ? `, ${fixed} fixed since baseline` : ''}.\n` +
-      `  scope: fail-open predicates + owner-absent writes; ${blindSpots}.`
+      `  scope: fail-open predicates + owner-absent writes; ${blindSpots}.\n` +
+      `  ungated population pinned at ${stats.ungated.length} site(s) across ` +
+      `${ungatedBaseline.size} key(s)${ungatedShrank ? `, ${ungatedShrank} newly visible to the guard` : ''}.`
   );
   process.exit(0);
+}
+
+if (!ungatedBaselinePresent) {
+  console.error(
+    `audit-owner-predicates: the ungated-population baseline is MISSING.\n` +
+      `  expected: ${relative(API_ROOT, UNGATED_BASELINE_PATH)}\n` +
+      `This file pins the writes the guard deliberately does not gate on, so that\n` +
+      `the set cannot GROW unnoticed. Deleting it disarms that check silently.\n` +
+      `Regenerate with --write-baseline only if you meant to accept the current set.\n`
+  );
+}
+
+if (ungatedGrowth.length > 0) {
+  const added = ungatedGrowth.reduce((n, g) => n + (g.now - g.was), 0);
+  console.error(
+    `audit-owner-predicates: ${added} write(s) MOVED OUT of the gated set\n` +
+      `across ${ungatedGrowth.length} key(s). The guard's coverage shrank.\n` +
+      `\n` +
+      `This is not itself a vulnerability -- these writes are pk/unique-scoped, so\n` +
+      `they match at most one row. It means the audit can no longer resolve their\n` +
+      `predicate to an owner term, so they are no longer checked for one. The usual\n` +
+      `cause is a change that moved an owner-scope helper out of the file that uses\n` +
+      `it; see the WIC-2300 note above UNGATED_BASELINE_PATH.\n` +
+      `\n` +
+      `Either restore the in-file owner term, or -- if these are genuinely new\n` +
+      `pk-scoped writes -- confirm each id is owner-checked upstream and re-run with\n` +
+      `--write-baseline to accept them deliberately.\n`
+  );
+  for (const g of ungatedGrowth.sort((a, b) => a.file.localeCompare(b.file))) {
+    const delta = g.was ? `  (${g.was} -> ${g.now})` : '  (new)';
+    console.error(`    ${g.file}  ${g.verb} '${g.table}'  [${g.bucket}]${delta}`);
+  }
+  console.error('');
+}
+
+if (regressions.length === 0) {
+  console.error(
+    `  ${findings.length} baselined finding(s) unchanged -- ` +
+      `this run failed on the ungated population, not on a new fail-open branch.`
+  );
+  process.exit(1);
 }
 
 console.error(
