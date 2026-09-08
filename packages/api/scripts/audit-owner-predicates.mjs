@@ -878,7 +878,8 @@ for (const scanDir of SCAN_DIRS) {
           // line number: the edit that moves a write into this bucket also shifts
           // every line around it, so a line-keyed diff of this list reports the
           // whole file as churn and buries the real delta. Measured in WIC-2300:
-          // 3 real moves, 23 spurious ones.
+          // 23 entries of churn (13 added, 10 removed) carrying 3 real moves,
+          // so 20 are spurious.
           const ungatedSite = (bucket) => ({ file: rel, bucket, verb, table });
           const wheres = chainedCallsFrom(node)
             .filter((c) => c.name === 'where')
