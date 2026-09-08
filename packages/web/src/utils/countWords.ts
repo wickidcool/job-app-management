@@ -7,9 +7,12 @@
  * editor pane at `CoverLetterGenerator:625` — each spelling the same expression by hand.
  * They happened to agree, which is the state every duplicated helper in this repo has been
  * in right up until it stopped: `constants/upload.ts` exists because a duplicated upload
- * *limit* drifted (WIC-1382), and `utils/formatFileSize.ts` because a duplicated *byte
- * formatter* drifted (WIC-2299). Same class, one layer over. Giving the expression one home
- * is the convention this repo has already paid for twice.
+ * *limit* drifted (WIC-1382). Same class, one layer over. Giving the expression one home is
+ * the convention that card paid for.
+ *
+ * A second instance of the same convention is in flight but **not yet on `main`** —
+ * `utils/formatFileSize.ts`, for a duplicated *byte formatter* (WIC-2299, PR #478). Do not
+ * cite it as settled precedent until that lands; today the count is one.
  *
  * It also makes the count checkable on its own. The gating defect this module was extracted
  * for lives in the *render*, not the arithmetic, and separating the two is what let the
