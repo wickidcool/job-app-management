@@ -90,7 +90,16 @@ upload progress bar (WIC-2299).
 - **Same shape as WIC-1382**, where the duplicated upload *limit* went stale and refused a 7MB
   resume the server would have accepted. That one was fixed by giving the number a single home
   in `constants/upload.ts`; this gives the *rendering* one, in `utils/formatFileSize.ts`, and
-  routes all three call sites through it so a fourth private copy cannot drift again.
+  routes the three copies of the B/KB/MB expression through it — `ResumeUpload`,
+  `ResumeExportList`, `ResumeManager`.
+- **That is a single home, not a guard, and two inline renderers are still outside it.**
+  `ResumeUploadZone:191` and `ProjectDetail:125` print `(bytes / 1024).toFixed(1)` KB with no MB
+  rung, so above 1MB they already disagree with the helper: a 7MB file reads `7168.0 KB` where
+  `formatFileSize` gives `7.0 MB`. Both predate this change (41f553a4, WIC-244) and neither sits
+  on the upload progress path, so they are left alone here rather than widening the fix. WIC-1382
+  shipped a home *and* the drift test that makes the home stick; this ships only the home, so
+  nothing mechanical prevents a fourth private copy. Migrating those two and adding that guard is
+  WIC-2308.
 - **The reachability half is pinned separately from the arithmetic.** A pure-function test
   would pass on a component that never called the formatter, so
   `ResumeUpload.progress.test.tsx` drives real `progress` events through the real component
