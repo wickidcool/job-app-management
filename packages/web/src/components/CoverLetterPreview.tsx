@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { CoverLetterVariant } from '../services/api/types';
+import { countWords } from '../utils/countWords';
 
 /**
  * Semantic depth for this component's heading. `1` is deliberately excluded: the
@@ -60,8 +61,14 @@ export function CoverLetterPreview({
     }
   };
 
-  const calculatedWordCount =
-    wordCount || (content.trim() === '' ? 0 : content.trim().split(/\s+/).length);
+  /**
+   * `??`, not `||` (WIC-2301). `wordCount` is `number | undefined`, and `0` is a real count
+   * a caller is entitled to assert — `CoverLetterDetail` passes exactly `0` for a blank
+   * letter. Under `||` that authoritative zero was discarded and the count silently
+   * recomputed from `content`, so the prop stopped being the source of truth precisely at
+   * the value the caller most needed to pin.
+   */
+  const calculatedWordCount = wordCount ?? countWords(content);
 
   const Heading = `h${headingLevel}` as `h${CoverLetterPreviewHeadingLevel}`;
 
@@ -151,12 +158,28 @@ export function CoverLetterPreview({
       </div>
 
       {/* Footer Stats */}
-      {(wordCount || variant) && (
+      {/*
+        The word count renders unconditionally, and the `•` before the variant is a
+        *separator* that now has something to separate (WIC-2301). Both halves were wrong:
+
+          - The chip was gated on the `wordCount` **prop** rather than on
+            {@link calculatedWordCount}, so the fallback above was dead code for its only
+            intended consumer. `CoverLetterGenerator` passes no `wordCount`, so its preview
+            pane showed no count at all — beside its own editor pane, which shows one.
+            And `{wordCount && …}` on a genuine `0` does not hide the chip, it renders the
+            **number** `0` as a bare unlabelled glyph where "📊 0 words" belongs.
+          - The `•` was welded to the variant block, so with the chip absent the footer
+            opened with a dangling separator: "• professional tone • standard length".
+
+        The count is always computable from `content`, so the chip is always honest and the
+        separator always has a left-hand side. The outer guard tests `!== undefined` rather
+        than truthiness for the same reason the ternary above uses `??`: a caller passing a
+        real `0` with no variant is asking for a footer, not opting out of one.
+      */}
+      {(wordCount !== undefined || variant) && (
         <div className="px-8 py-4 border-t bg-gray-50 text-sm text-gray-600">
           <div className="max-w-3xl mx-auto flex items-center gap-4">
-            {wordCount && (
-              <span className="flex items-center gap-2">📊 {calculatedWordCount} words</span>
-            )}
+            <span className="flex items-center gap-2">📊 {calculatedWordCount} words</span>
             {variant && (
               <>
                 <span>•</span>

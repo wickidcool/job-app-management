@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { CoverLetterPreview } from './CoverLetterPreview';
+import type { CoverLetterVariant } from '../services/api/types';
 import { describeOutline, findOutlineSkips, getOutline } from '../test/headingOutline';
 import generatorSource from './CoverLetterGenerator.tsx?raw';
 import detailSource from '../pages/CoverLetterDetail.tsx?raw';
@@ -256,5 +257,157 @@ describe('CoverLetterPreview — heading level (WIC-1563, WIC-1569)', () => {
     expect(describeOutline(outline)).toBe(
       'h2 "Review & edit" -> h3 "📝 Editor" -> h3 "Cover Letter Preview"'
     );
+  });
+});
+
+/**
+ * The footer, which had no cover at all before WIC-2301 — no assertion in this file
+ * mentioned the word count, the tone, or the `•` between them. Three defects lived in the
+ * sixteen lines it occupies, and all three were visible in the rendered DOM.
+ *
+ * The root cause is one mistake made three times: **truthiness applied to a number whose
+ * `0` is real.** `wordCount` is `number | undefined`, so `||` and `&&` both fold the
+ * legitimate count `0` in with "no count supplied", and the component acted on the fold in
+ * two different directions — recomputing a count the caller had authoritatively given it,
+ * and rendering the bare number `0` as a text node where a labelled chip belonged.
+ *
+ * The `•` was the third: it lived *inside* the variant block, so it rendered whenever the
+ * variant did, whether or not anything preceded it to separate.
+ */
+describe('footer stats (WIC-2301)', () => {
+  const VARIANT: CoverLetterVariant = {
+    tone: 'professional',
+    length: 'standard',
+    emphasis: 'balanced',
+  };
+
+  const footerOf = (container: HTMLElement) => {
+    const footer = container.querySelector('.border-t');
+    if (!footer) throw new Error('no footer rendered');
+    return footer;
+  };
+
+  /**
+   * `CoverLetterGenerator` passes `variant` and **no** `wordCount` — read off the host
+   * source below rather than assumed, because the whole finding rests on that call shape.
+   * A test that invented the shape would be pinning its own fixture.
+   */
+  it('is the generator that passes a variant and no wordCount', () => {
+    const call = generatorSource.slice(
+      generatorSource.indexOf('<CoverLetterPreview'),
+      generatorSource.indexOf('/>', generatorSource.indexOf('<CoverLetterPreview')) + 2
+    );
+    expect(call).toContain('variant={variant}');
+    expect(call).not.toContain('wordCount');
+  });
+
+  /** …and `CoverLetterDetail` that passes both, which is the `wordCount === 0` route. */
+  it('is the detail page that passes a wordCount alongside the variant', () => {
+    const call = detailSource.slice(
+      detailSource.indexOf('<CoverLetterPreview'),
+      detailSource.indexOf('/>', detailSource.indexOf('<CoverLetterPreview')) + 2
+    );
+    expect(call).toContain('wordCount={wordCount}');
+    expect(call).toContain('variant={variant}');
+    // The value it passes is `countWords(content)`, so `0` is reachable whenever the stored
+    // content is blank — which `content: z.string().min(1)` on the API permits as `' '`.
+    expect(detailSource).toContain('const wordCount = countWords(coverLetter.content)');
+  });
+
+  /**
+   * The generator's own preview pane. Pre-fix this rendered
+   * `•professional tone•standard length` — no count at all, opening on a dangling
+   * separator — while the editor pane immediately beside it showed a word count. The
+   * `calculatedWordCount` fallback existed precisely for this caller and could never run,
+   * because the chip displaying it was gated on the prop the caller does not pass.
+   */
+  it('shows a word count computed from content when the caller passes none', () => {
+    const { container } = render(
+      <CoverLetterPreview
+        content={LETTER}
+        variant={VARIANT}
+        showExportActions={false}
+        headingLevel={3}
+      />
+    );
+    expect(footerOf(container).textContent).toContain('📊 11 words');
+  });
+
+  /**
+   * The separator, asserted structurally rather than by string matching: the first element
+   * in the footer row must be the count, so the `•` always has a left-hand side. Pre-fix
+   * the first child *was* the `•`.
+   */
+  it('does not open the footer with a dangling separator', () => {
+    const { container } = render(
+      <CoverLetterPreview
+        content={LETTER}
+        variant={VARIANT}
+        showExportActions={false}
+        headingLevel={3}
+      />
+    );
+    const row = footerOf(container).firstElementChild;
+    expect(row?.firstElementChild?.textContent).toBe('📊 11 words');
+    expect(footerOf(container).textContent?.startsWith('•')).toBe(false);
+  });
+
+  /**
+   * The bare-`0` render. `{wordCount && …}` evaluates to the **number** `0`, which React
+   * renders as a text node — so a blank letter's footer read `0•professional tone…`: an
+   * unlabelled digit where "📊 0 words" belonged, and the one state in which the user most
+   * needs to be told the count is zero rather than left to guess what the `0` refers to.
+   */
+  it('labels a zero count instead of rendering a bare 0', () => {
+    const { container } = render(
+      <CoverLetterPreview content="   " variant={VARIANT} wordCount={0} />
+    );
+    const footer = footerOf(container);
+    expect(footer.textContent).toContain('📊 0 words');
+    expect(footer.textContent?.startsWith('0')).toBe(false);
+  });
+
+  /**
+   * A caller's authoritative `0` must survive, rather than being discarded by `||` and
+   * recomputed from `content`. Content and count disagree here on purpose — that is the
+   * only way to tell which of the two the component actually rendered.
+   */
+  it('honours an explicit zero over the content it disagrees with', () => {
+    const { container } = render(
+      <CoverLetterPreview content={LETTER} variant={VARIANT} wordCount={0} />
+    );
+    expect(footerOf(container).textContent).toContain('📊 0 words');
+    expect(footerOf(container).textContent).not.toContain('11 words');
+  });
+
+  /**
+   * The control. A non-zero `wordCount` was never affected by any of the three defects, and
+   * this case renders byte-identically before and after the fix — which is what makes the
+   * change a scoped repair of the zero/absent handling rather than a behaviour change to
+   * the footer at large.
+   */
+  it('renders an ordinary non-zero count unchanged', () => {
+    const { container } = render(
+      <CoverLetterPreview content={LETTER} variant={VARIANT} wordCount={7} />
+    );
+    expect(footerOf(container).textContent).toBe('📊 7 words•professional tone•standard length');
+  });
+
+  /**
+   * The outer guard, which the fix moved from truthiness to `!== undefined`. Both shipped
+   * call sites pass a variant, so this shape is not reachable through the app today — it
+   * pins the prop *contract* rather than a route, and is labelled as such so nobody reads
+   * it as a user-facing claim. Without it the `||`→`!== undefined` change has no test that
+   * dies when it is reverted, since a present variant carries the guard on its own.
+   */
+  it('renders the footer for an explicit zero even with no variant', () => {
+    const { container } = render(<CoverLetterPreview content="   " wordCount={0} />);
+    expect(footerOf(container).textContent).toBe('📊 0 words');
+  });
+
+  /** A caller with neither a count nor a variant still opts out of the footer entirely. */
+  it('renders no footer when the caller supplies neither a count nor a variant', () => {
+    const { container } = render(<CoverLetterPreview content={LETTER} />);
+    expect(container.querySelector('.border-t')).toBeNull();
   });
 });
