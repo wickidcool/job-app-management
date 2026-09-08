@@ -1232,7 +1232,9 @@ if (unresolvedWrites.length > 0) {
       `Pass the table literally at each call site, so the audit can attribute the\n` +
       `write to a table and check its predicate for an owner term.\n`
   );
-  for (const s of unresolvedWrites.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)) {
+  for (const s of unresolvedWrites.sort(
+    (a, b) => a.file.localeCompare(b.file) || a.line - b.line
+  )) {
     console.error(`    ${s.file}:${s.line}  ${s.verb} '${s.table}'`);
   }
   console.error('');
