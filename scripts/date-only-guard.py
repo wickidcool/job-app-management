@@ -213,10 +213,14 @@ def report(hits: list[tuple[str, int, str]], strict: bool) -> int:
     # retire; seeding this with LEGACY there was a seed-but-never-consume (WIC-2281 review,
     # note 2). ⚠️ It was NOT the false-RETIRE bug, and an earlier revision of this comment
     # said it was (corrected by WIC-2284). Under the old code `fresh == hits` in --strict, so
-    # the notice was reachable only when the scan found nothing at all -- exactly the state in
-    # which the pins really are gone. It was true in the only state that could print it.
-    # The false RETIRE came from the line-based scan missing a Prettier-wrapped pin, and is
-    # fixed in scan_text, not here. One behaviour change to know about: flipping --strict
+    # the notice was reachable only when the scan found nothing at all. With the wrapped-call
+    # gap closed that is now the state in which the pins really are gone; under the OLD scan
+    # it was not -- wrapping all four pins Prettier-style made --strict print "the fix landed"
+    # at rc 0 over four live calls, so it could make exactly the false statement about #469
+    # that WIC-2284 said it never made (measured, WIC-2286; one flat pin left over yields
+    # VIOLATIONS rc 1 instead, so it takes all four). Either way the falsity came from the
+    # blind scan and not from the seeding, which is what WIC-2284's re-credit turns on: the
+    # fix is in scan_text, not here. One behaviour change to know about: flipping --strict
     # before the LEGACY entries are deleted used to print a true "delete these four" notice
     # and now prints silence. Inert in CI, which runs the default mode.
     legacy_left = [] if strict else list(LEGACY)
