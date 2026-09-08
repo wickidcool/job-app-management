@@ -213,12 +213,21 @@ def report(hits: list[tuple[str, int, str]], strict: bool) -> int:
     # retire; seeding this with LEGACY there was a seed-but-never-consume (WIC-2281 review,
     # note 2). ⚠️ It was NOT the false-RETIRE bug, and an earlier revision of this comment
     # said it was (corrected by WIC-2284). Under the old code `fresh == hits` in --strict, so
-    # the notice was reachable only when the scan found nothing at all. With the wrapped-call
-    # gap closed that is now the state in which the pins really are gone; under the OLD scan
-    # it was not -- wrapping all four pins Prettier-style made --strict print "the fix landed"
-    # at rc 0 over four live calls, so it could make exactly the false statement about #469
-    # that WIC-2284 said it never made (measured, WIC-2286; one flat pin left over yields
-    # VIOLATIONS rc 1 instead, so it takes all four). Either way the falsity came from the
+    # the notice was reachable only when the scan found nothing at all -- which is NOT the same
+    # as the pins being gone, because the scan has blind spots. Under the OLD scan, wrapping all
+    # four pins Prettier-style made --strict print "the fix landed" at rc 0 over four live calls,
+    # so it could make exactly the false statement about #469 that
+    # WIC-2284 said it never made (measured, WIC-2286; one flat pin left over yields
+    # VIOLATIONS rc 1 instead, so under --strict it takes all four). ⚠️ Closing the wrapped-call
+    # gap removed ONE of those blind spots, not all: an earlier revision of this comment said
+    # scan-silence now meant the pins really were gone, and that is false on the CURRENT scan
+    # (narrowed by WIC-2290). The dotted-prefix gap in the KNOWN LIMITATION block above still
+    # reproduces it, and in the DEFAULT mode CI runs rather than --strict: rewriting the pins as
+    # `new Date((app as Application).nextActionDue)` prints "RETIRE: 4 ... the fix landed." and
+    # "clean (0 pinned legacy, 0 new)" at rc 0 over four live calls, and ONE such pin suffices
+    # (RETIRE: 1, rc 0) -- the "all four" above belongs to the --strict path, not to this notice.
+    # Control: the same pin as `app!.nextActionDue`, a shape the regex sees, is VIOLATIONS rc 1.
+    # Either way the falsity came from the
     # blind scan and not from the seeding, which is what WIC-2284's re-credit turns on: the
     # fix is in scan_text, not here. One behaviour change to know about: flipping --strict
     # before the LEGACY entries are deleted used to print a true "delete these four" notice
