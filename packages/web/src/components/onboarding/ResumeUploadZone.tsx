@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { resumeService } from '../../services/api';
 import { MAX_RESUME_SIZE_BYTES } from '../../constants/upload';
+import { formatFileSize } from '../../utils/formatFileSize';
 import type { Resume } from '../../services/api';
 
 interface UploadError {
@@ -188,7 +189,7 @@ export function ResumeUploadZone({
         </div>
         <p className="text-lg font-semibold text-success-900">Resume uploaded!</p>
         <p className="mt-1 text-sm text-success-700">
-          {uploadedResume.fileName} ({(uploadedResume.fileSize / 1024).toFixed(1)} KB)
+          {uploadedResume.fileName} ({formatFileSize(uploadedResume.fileSize)})
         </p>
         <button
           type="button"

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { CoverLetterPreview } from '../components/CoverLetterPreview';
+import { countWords } from '../utils/countWords';
 import {
   useCoverLetter,
   useDeleteCoverLetter,
@@ -128,8 +129,7 @@ export function CoverLetterDetail() {
     );
   }
 
-  const wordCount =
-    coverLetter.content.trim() === '' ? 0 : coverLetter.content.trim().split(/\s+/).length;
+  const wordCount = countWords(coverLetter.content);
 
   // The outreach composer's only entry point (WIC-1530). `coverLetterId` is what keeps
   // the API's `JOB_CONTEXT_REQUIRED` guard satisfied; `company` and `jobTitle` are the

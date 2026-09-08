@@ -2,27 +2,44 @@
 
 **Project:** Careerpin
 **Owner:** Copywriter / Editor, with UI/UX Developer
-**Status:** 🟡 Proposed — **not adopted, and not currently pending.** See below.
+**Status:** 🟡 Proposed — **not adopted. A board decision is pending on WIC-1066.** See below.
 **Created:** August 19, 2026
 
 ---
 
 ## Adoption status — read this before citing this document
 
-**No board sign-off is on file, and none is awaiting an answer.** Both confirmations raised on
-WIC-1066 closed unanswered — one expired, one was cancelled — so the sentence-case decision this
-document proposes has never actually been made. Tracked in WIC-1066, with the measurement in
-WIC-2096.
+**No board sign-off is on file, and a decision is currently awaiting an answer.** Three asks have
+been raised on WIC-1066. The first two confirmations closed unanswered — `04635cbe` expired,
+`0e57d4ef` was cancelled — and a third, `ask_user_questions` `ad302b8d`, has been **pending with the
+board since 2026-09-05T18:03Z**. So the sentence-case decision this document proposes has never been
+made, but it is live, not abandoned. **Do not close WIC-1066 on the reasoning that it has no
+decision path.** Tracked in WIC-1066, with the measurement in
+[`CASING_MIGRATION_INVENTORY.md`](./CASING_MIGRATION_INVENTORY.md).
 
-**The rule below is not reflected in the codebase.** Measured 2026-09-05 against `main` @ `d5f6b45`,
-across `packages/web/src` (headings and button/link labels, non-test source, multi-word strings):
-**77 title case against 13 sentence case** — statistically unmoved from the 93 / 7 that prompted
-this document on 2026-08-19. No migration was ever staged.
+**The rule below is not reflected in the codebase.** Do not quote a number from this section —
+re-run [`ui-string-casing-inventory.py`](./ui-string-casing-inventory.py), which is committed
+precisely so this stops being re-argued by hand. At `main` @ `cb74ea4e` (2026-09-07) it reports
+**356 title case against 448 sentence case** over the strings the rule governs. No migration was
+ever staged.
 
-Concretely: **all five ❌ examples under "The rule" are live on `main`**, and three of the five ✅
-forms appear zero times. `Back to dashboard` — the string WIC-1063 arbitrated, and the reason this
-document exists — does not appear in the codebase at all; `JobFitAnalysis.tsx` and
-`ApplicationDetail.tsx` both render `← Back to Dashboard`.
+Read that ratio carefully, because it is not the one this section used to report: **the tree is
+already 56% sentence case.** The earlier hand counts (93 / 7, then 77 / 13) scanned only headings
+and button/link text nodes in `.tsx`, which is why they read as a ~13:1 title-case habit. Over every
+string the inventory reaches — JSX text, props, and string literals — it is roughly 4:5 *against*
+title case, because that population also includes the validation messages, confirm dialogs and empty
+states this document already notes are sentence case in the tree. That inverts the cost
+comparison the board is being asked to decide: migrating **to** sentence case is 356 strings, and
+withdrawing the standard and inverting **to** title case is 448 — so withdrawing is the more
+expensive option, not the cheaper one.
+
+Concretely: **all five ❌ examples under "The rule" are live on `main`**, and four of the five ✅
+forms appear zero times. The exception is `Back to dashboard` — the string WIC-1063 arbitrated, and
+the reason this document exists — which is live once, at `packages/web/src/pages/NotFound.copy.ts:23`.
+This section previously stated that string does not appear in the codebase at all; that was wrong at
+the commit it cited, because the hand regex read `.tsx` components and the string lives in a `.ts`
+copy module. Its ❌ form is rendered at three sites — `JobFitAnalysis.tsx:500`,
+`ApplicationDetail.tsx:266`, `ApplicationDetail.tsx:282` — all as `← Back to Dashboard`.
 
 **So cite this as a proposal, not as house style.** Two clauses are exceptions to that caution and
 *are* in force independently, because CI enforces them: the ALL-CAPS treatment rule (WIC-1209, via
