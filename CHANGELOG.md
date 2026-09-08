@@ -49,6 +49,17 @@ The control is therefore the SQL half, which asserts the emitted ORDER BY ends i
 
 
 
+
+### Tooling — a CI tripwire now fails the build if a `date` column is handed to `new Date(...)`
+
+The `nextActionDue` timezone bug shipped to production **twice**, in mirror-image halves — the SQL-bound side (WIC-2268) and the label side (WIC-2267) — because both are silent under `TZ=UTC`, which is what CI runs. Nothing in the suite fails when a *new* call site reintroduces the same parse: the behavioural test on `reports.service.needsAction` covers the call sites that exist, not the one someone adds next week. `scripts/date-only-guard.py` gates that hazard directly, and runs in the `Lint & Test` job.
+
+It does **not** pin a violation count. A count-based floor is byte-indistinguishable from a disarmed guard, so the four call sites still awaiting PR #469 are pinned by their exact normalised source line instead: an entry stops matching the moment anyone edits it, and any *other* occurrence anywhere in the tree fails the build immediately. When #469 lands, those four stop matching and the script prints a RETIRE notice naming the entries to delete, after which the CI step moves to `--strict` and the script carries no exceptions at all. That notice is deliberately non-fatal — the merge that *fixes* the bug must not be the merge that turns `main` red.
+
+The self-test is the load-bearing half and runs on every invocation: a tree scan reporting zero is byte-indistinguishable from a scanner that silently matches nothing. It asserts both directions — 10 spellings that must flag, including optional chaining and non-null assertions, and 7 that must not. `new Date(application.interviewDate)` is among the negatives and must stay there: `interviewDate` is `timestamp({ withTimezone: true })`, not a `date` column, so that call is **correct**. Writing the fixtures is what caught the pattern missing `new Date(app!.nextActionDue)`.
+
+Known limitation, stated in the script header rather than left to be discovered: the pattern keys on **identifier names**, so a date-only value carried in a differently-named variable is invisible to it. This is a reintroduction tripwire for the known contract, not a type-level proof; the type-level fix is a branded `DateOnlyString`, which is a larger change.
+
 ### Fixed — the needs-action report mixed local and UTC midnights, in two places that break in *opposite* timezones (2026-09-07)
 
 `getNeedsActionReport` computed `today` as a **local** midnight and then used it two incompatible ways (WIC-2268, spun out of WIC-2267's client-side sweep). `next_action_due` is a Postgres `date` column served as a bare `YYYY-MM-DD`, and the function mishandled it at both ends:
