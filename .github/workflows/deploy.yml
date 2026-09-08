@@ -266,23 +266,31 @@ jobs:
       # test on `reports.service.needsAction` covers the call sites that exist, not the
       # one someone adds next week.
       #
-      # This does NOT pin a violation count. The four still-unfixed sites are pinned by
-      # exact normalised source line, so a count-based floor -- which would be
-      # byte-indistinguishable from a disarmed guard -- is not what is running here; any
-      # new occurrence anywhere in the tree fails immediately. When PR #469 lands, those
-      # four stop matching and the script prints a RETIRE notice naming the entries to
-      # delete, then this step moves to `--strict`. The notice is deliberately non-fatal:
-      # the merge that FIXES the bug must not be the merge that turns `main` red.
+      # This does NOT pin a violation count, and as of WIC-2322 it pins nothing at all.
+      # PR #469 landed, the four `packages/web` sites stopped matching, the script printed
+      # its RETIRE notice naming them, and the `LEGACY` list is now empty -- so this step
+      # runs `--strict` and EVERY occurrence anywhere in the tree is fatal, with no
+      # exceptions and no allowlist. The staged retirement was the point: the notice is
+      # deliberately non-fatal so that the merge which FIXES the bug is not the merge that
+      # turns `main` red.
+      #
+      # ⛔ If you ever need to pin a site again, add it to `LEGACY` *and* drop `--strict`
+      # here for exactly as long as that pin lives. Under `--strict` the pins are never
+      # consulted, so a pin added while this flag is on is silently inert.
       #
       # The selftest runs first and is the load-bearing half. A tree scan reporting zero
       # is byte-indistinguishable from a scanner that silently matches nothing, so the
       # fixtures assert both directions -- 10 spellings that must flag, and 7 that must
       # not, including `new Date(application.interviewDate)`, which is TIMESTAMPTZ and
-      # therefore correct. Pure stdlib, no network, ~30ms.
+      # therefore correct. That argument now carries the whole step: with `LEGACY` empty a
+      # clean `--strict` run and a dead scanner print the same thing, so the fixtures are
+      # the only reason to believe the zero. They cover the retirement machinery too, on a
+      # synthetic pin list rather than on `LEGACY` -- driving them from the real list made
+      # all four arms vacuous the moment it was emptied. Pure stdlib, no network, ~30ms.
       - name: Audit date-only parsing of `nextActionDue`
         run: |
           python3 scripts/date-only-guard.py --selftest
-          python3 scripts/date-only-guard.py
+          python3 scripts/date-only-guard.py --strict
 
       - name: Run tests
         run: npm run test

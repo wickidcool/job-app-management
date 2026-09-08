@@ -78,25 +78,37 @@ re-check rather than re-derive: **0** lines in `packages/**` currently end in a 
 wrap is **66**. Neither number is a proof about the pattern -- both are statements about
 today's code, and both rot.
 
-LEGACY, and why it is not a baseline
-------------------------------------
-Four call sites on `main` are still unfixed today. They are not a rolling baseline and
-this guard does not "allow N violations": each is pinned by its **exact normalised
-source line**, so the entry stops matching the moment anyone edits it, and any *other*
-`new Date(<date-only>)` anywhere in the tree fails the build immediately. A count-based
-floor would have been byte-indistinguishable from a disarmed guard; this is not.
+LEGACY is EMPTY, and the machinery is kept on purpose (WIC-2322)
+----------------------------------------------------------------
+The four `packages/web` call sites this guard was born pinning are gone: PR #469 landed,
+the RETIRE notice fired naming all four, and the entries were deleted. CI now runs
+`--strict`, so **every** occurrence anywhere in the tree is fatal and this file carries no
+exceptions at all. The pins were never a rolling baseline -- each was keyed to its exact
+normalised source line, so a count-based floor, which would have been
+byte-indistinguishable from a disarmed guard, is not what was running here.
 
-All four are fixed by PR #469. When it lands they stop matching, and the guard prints a
-RETIRE notice naming the entries to delete. That notice is deliberately **not** fatal in
-the default mode -- turning `main` red on the merge that *fixes* the bug would make this
-guard hostile to its own remedy. Once the notice appears, delete the `LEGACY` entries and
-flip the workflow to `--strict`; at that point every occurrence is fatal and this file
-carries no exceptions at all.
+An empty list is the intended steady state, not an oversight. Do not delete the pin
+machinery around it: it is what lets the next reintroduction be pinned and scheduled out
+rather than allowlisted forever.
+
+⚠️ An empty `LEGACY` is byte-indistinguishable from a disarmed guard by exit code alone,
+and emptying it silently broke this file's own selftest. All four RETIRE arms were driven
+from `LEGACY` itself, so with the list empty `pin_hits` degenerates to `[]`: two arms
+failed outright and the other two went vacuous by comparing `[]` against `[]`. The arms
+now run on SELFTEST_PINS -- a synthetic list that never empties -- plus a wiring arm that
+drives the live default binding. Keep it that way. The RETIRE path has to stay tested
+*after* its last real pin is gone, because the next pin someone adds is the whole reason
+it exists.
+
+If you do add a pin, add it below with the PR that removes it named beside it, and flip
+the workflow off `--strict` for exactly as long as that pin lives -- under `--strict` the
+pins are never consulted, so a pin added while it is on is silently inert (see the note in
+`report`).
 
 Usage
 -----
     python3 scripts/date-only-guard.py              # fatal on new violations only
-    python3 scripts/date-only-guard.py --strict     # fatal on LEGACY too (post-#469)
+    python3 scripts/date-only-guard.py --strict     # fatal on LEGACY too; what CI runs
     python3 scripts/date-only-guard.py --selftest   # fixtures, offline, no repo needed
 
 Pure stdlib, no network. Run from the repository root.
@@ -136,16 +148,12 @@ IS_TEST = re.compile(r"\.(test|spec)\.")
 
 # Pinned by exact normalised source line, not by count. Each entry is removed by the PR
 # named beside it; when it stops matching, delete the entry (see RETIRE notice).
-LEGACY = [
-    # PR #469 (WIC-2267) -- packages/web label half.
-    ("packages/web/src/pages/ReportsPipeline.tsx", "const due = new Date(nextActionDue);"),
-    ("packages/web/src/pages/ReportsPipeline.tsx", "return new Date(nextActionDue) < today;"),
-    ("packages/web/src/pages/ReportsPipeline.tsx", "const due = new Date(app.nextActionDue);"),
-    (
-        "packages/web/src/pages/ApplicationDetail.tsx",
-        "{format(new Date(application.nextActionDue), 'MMM d, yyyy')}",
-    ),
-]
+#
+# EMPTY as of WIC-2322 -- the four PR #469 (WIC-2267) `packages/web` pins were retired once
+# that PR landed and the RETIRE notice named them. This is the steady state; see the
+# docstring before adding to it, and note that a pin added while CI runs `--strict` is
+# inert.
+LEGACY: list[tuple[str, str]] = []
 
 
 def normalise(line: str) -> str:
@@ -208,7 +216,11 @@ def collect() -> list[tuple[str, int, str]]:
     return hits
 
 
-def report(hits: list[tuple[str, int, str]], strict: bool) -> int:
+def report(
+    hits: list[tuple[str, int, str]],
+    strict: bool,
+    legacy: list[tuple[str, str]] = LEGACY,
+) -> int:
     # Under --strict the pins are not consulted at all, so nothing can be "left over" to
     # retire; seeding this with LEGACY there was a seed-but-never-consume (WIC-2281 review,
     # note 2). ⚠️ It was NOT the false-RETIRE bug, and an earlier revision of this comment
@@ -222,7 +234,10 @@ def report(hits: list[tuple[str, int, str]], strict: bool) -> int:
     # gap removed ONE of those blind spots, not all: an earlier revision of this comment said
     # scan-silence now meant the pins really were gone, and that is false on the CURRENT scan
     # (narrowed by WIC-2290). The dotted-prefix gap in the KNOWN LIMITATION block above still
-    # reproduces it, and in the DEFAULT mode CI runs rather than --strict: rewriting the pins as
+    # reproduces it, in the DEFAULT mode -- which is the mode CI ran at the time; as of
+    # WIC-2322 CI runs --strict and LEGACY is empty, so the false RETIRE has no pin left to
+    # make a false claim about. That is the list being empty, not the blind spot being
+    # closed: re-read this paragraph before adding a pin. Rewriting the pins as
     # `new Date((app as Application).nextActionDue)` prints "RETIRE: 4 ... the fix landed." and
     # "clean (0 pinned legacy, 0 new)" at rc 0 over four live calls, and ONE such pin suffices
     # (RETIRE: 1, rc 0) -- the "all four" above belongs to the --strict path, not to this notice.
@@ -231,8 +246,20 @@ def report(hits: list[tuple[str, int, str]], strict: bool) -> int:
     # blind scan and not from the seeding, which is what WIC-2284's re-credit turns on: the
     # fix is in scan_text, not here. One behaviour change to know about: flipping --strict
     # before the LEGACY entries are deleted used to print a true "delete these four" notice
-    # and now prints silence. Inert in CI, which runs the default mode.
-    legacy_left = [] if strict else list(LEGACY)
+    # and now prints silence.
+    #
+    # ⚠️ That last consequence was recorded here as "Inert in CI, which runs the default
+    # mode." As of WIC-2322 that is FALSE: CI runs `--strict`. It is inert today only
+    # because LEGACY is empty, so neither mode has a pin to say anything about -- which is
+    # a statement about today's list, not about the code, and it rots the moment someone
+    # adds a pin. Add one while `--strict` is live and you get silence exactly where the
+    # notice used to be, and the pin itself is never consulted. That is why the docstring
+    # says to flip the workflow off `--strict` for a pin's lifetime.
+    #
+    # `legacy` is a parameter rather than a direct read of the global so the selftest can
+    # drive these four arms from a synthetic list; with LEGACY empty, driving them from
+    # the global makes every one of them vacuous. See SELFTEST_PINS.
+    legacy_left = [] if strict else list(legacy)
     fresh: list[tuple[str, int, str]] = []
 
     for hit in hits:
@@ -316,6 +343,25 @@ MUST_NOT_FLAG_WRAPPED = [
     "const iv = new Date(\n  application.interviewDate\n);",  # TIMESTAMPTZ, still correct
 ]
 
+# Synthetic pins for the RETIRE arms, deliberately NOT the live LEGACY list (WIC-2322).
+#
+# The four arms assert what the notice claims about the world -- "the fix landed" -- so
+# they need a list with entries in it to be present or absent. Driving them from LEGACY
+# worked only while LEGACY was non-empty; the moment it was emptied, `pin_hits` became
+# `[]` and the suite reported: arm 1 and arm 4 FAILED outright, and arms 2 and 3 passed
+# vacuously by comparing `[]` with `[]`. So retiring the last real pin would have taken
+# the RETIRE machinery's only coverage with it, at exactly the moment the machinery
+# became dormant and stopped being exercised by any real CI run. These paths are dead
+# code until someone adds the next pin, which is precisely when a silent break is most
+# expensive.
+#
+# The paths must be plausible but the file must not exist -- these are fed to `report`
+# directly as pre-collected hits, never scanned off disk.
+SELFTEST_PINS = [
+    ("packages/web/src/pages/Fixture.tsx", "const due = new Date(nextActionDue);"),
+    ("packages/web/src/pages/Fixture.tsx", "const due = new Date(app.nextActionDue);"),
+]
+
 
 def selftest() -> int:
     failures = []
@@ -360,13 +406,13 @@ def selftest() -> int:
     # so it has to be driven by pin *absence* and by nothing else. A one-armed check here
     # would pass against a notice that always prints, and equally against one that never
     # does; four arms is what pins the notice to the world rather than to a mode.
-    def run(hits, strict):
+    def run(hits, strict, legacy=SELFTEST_PINS):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            rc = report(hits, strict)
+            rc = report(hits, strict, legacy)
         return rc, buf.getvalue()
 
-    pin_hits = [(path, 1, code) for path, code in LEGACY]
+    pin_hits = [(path, 1, code) for path, code in SELFTEST_PINS]
 
     rc, out = run([], False)  # pins all absent, default -> notice, non-fatal
     if "RETIRE" not in out or rc != 0:
@@ -378,8 +424,28 @@ def selftest() -> int:
     if "RETIRE" in out or rc != 0:
         failures.append("default mode: present pins must be consumed silently")
     rc, out = run(pin_hits, True)  # pins present, strict -> every one is fatal
-    if rc != 1 or f"VIOLATIONS: {len(LEGACY)}" not in out:
-        failures.append("--strict must fail on every LEGACY occurrence")
+    if rc != 1 or f"VIOLATIONS: {len(SELFTEST_PINS)}" not in out:
+        failures.append("--strict must fail on every pinned occurrence")
+
+    # Wiring (WIC-2322). The four arms above prove the machinery works on SOME list; they
+    # cannot tell you production is wired to the list that ships, because they pass their
+    # own. So drive the DEFAULT binding -- no `legacy=` -- and require an unpinned
+    # violation fatal. With LEGACY empty that is the whole post-retirement contract in one
+    # assertion: nothing is exempt. It also fails loudly if anyone re-points the default at
+    # a placeholder, which is the specific way a parameterised guard goes quiet.
+    unpinned = [("packages/web/src/pages/X.tsx", 7, "const due = new Date(nextActionDue);")]
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = report(unpinned, False)
+    if rc != 1 or "VIOLATIONS: 1" not in buf.getvalue():
+        failures.append("live LEGACY: an unpinned violation must be fatal in default mode")
+
+    # The same hit under --strict, for the mode CI actually runs.
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = report(unpinned, True)
+    if rc != 1 or "VIOLATIONS: 1" not in buf.getvalue():
+        failures.append("live LEGACY: an unpinned violation must be fatal under --strict")
 
     # Guard the guard: a shrinking fixture list is how a self-test goes quiet without
     # ever failing. Pin both counts.
@@ -388,12 +454,18 @@ def selftest() -> int:
         len(MUST_NOT_FLAG),
         len(MUST_FLAG_WRAPPED),
         len(MUST_NOT_FLAG_WRAPPED),
+        len(SELFTEST_PINS),
     )
-    if counts != (10, 7, 2, 1):
+    if counts != (10, 7, 2, 1, 2):
         failures.append(
             f"fixture count changed: {counts} = positive / negative / wrapped positive / "
-            "wrapped negative, expected (10, 7, 2, 1). Update this assertion deliberately."
+            "wrapped negative / retire pins, expected (10, 7, 2, 1, 2). Update this "
+            "assertion deliberately."
         )
+    # SELFTEST_PINS is what keeps the RETIRE arms non-vacuous now that LEGACY is empty;
+    # emptying it would hollow all four exactly as emptying LEGACY did (WIC-2322).
+    if not SELFTEST_PINS:
+        failures.append("SELFTEST_PINS is empty, which makes all four RETIRE arms vacuous")
 
     for f in failures:
         print(f"  {f}")
