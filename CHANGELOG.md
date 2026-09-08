@@ -44,6 +44,10 @@ The last four are killed by **disjoint** tests, which is what shows the boundari
 
 A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `nextActionDue` to `'2026-09-20T00:00:00Z'`, a datetime shape the endpoint never sends for a `date` column.
 
+### Tooling — the ban on an `environment:` key in the `e2e-tests` job is now mechanical, not a comment (2026-09-08)
+
+Adding `environment: dev` to `deploy.yml`'s `e2e-tests` job has broken production deploys twice (WIC-2201 / WIC-2204): the dev-scoped `E2E_TEST_USER*` secrets resolve, wake ~29 backend-dependent Playwright specs against a backend CI never starts, the job blows its 15-minute timeout, and `deploy-production` (which `needs: e2e-tests`) is skipped — so `main` silently ships nothing. Until now the only thing stopping a re-add was an in-file comment, which did not stop it the first time. A new `pull_request_target` workflow, `e2e-environment-guard.yml`, now fails the build when the `e2e-tests` job declares any `environment:` key, running `scripts/deploy-e2e-environment-guard.py`. The check **parses** the YAML and asserts on `jobs['e2e-tests']` only, so the legitimate `environment: dev` on `e2e-isolation-coverage` (WIC-2122 route 2, not in `deploy-production.needs`) and on `deploy-preview` is untouched — a grep would red-line `main`, since three of the five `environment: dev` lines on `main` are prose. `pull_request_target` is used, and the check lives outside `deploy.yml`, for the same reason as `skip-ci-guard.yml`: the change it guards can break `deploy.yml`'s own ability to run, and `[skip ci]` must not suppress it (WIC-2262).
+
 ### Fixed — the last two byte renderers still printed KB-only, and nothing stopped a fourth from appearing (2026-09-08)
 
 WIC-2299 gave the byte formatter one home in `utils/formatFileSize.ts` and routed three call sites through it. It did not route all five, and it shipped **no guard** — so the convention was a coincidence, not an invariant. This closes both halves (WIC-2308, re-keyed by WIC-2310).
