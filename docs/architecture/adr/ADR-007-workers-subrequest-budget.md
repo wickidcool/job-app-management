@@ -347,9 +347,20 @@ this endpoint.**
 
 **The second half remains unverified and is still inference.** Nothing here
 observes what Cloudflare's TLS stack does with `rejectUnauthorized: false`; that
-still needs the deploy. What the measurement does is remove every *competing*
-explanation that a decision-maker would reasonably want ruled out first, because
-each is cheaper to fix than provisioning Hyperdrive:
+still needs the deploy.
+
+**Credit where it is due: the credential branch was already closed by WIC-2214**
+(2026-09-06), and by a *stronger* method than anything below — `deploy.yml`
+builds `DATABASE_URL` in one shell block used both for migrations and for the
+Worker secret push, so run `34065995060` doing real DDL in under 3 s **is** a
+direct test of the string the Worker receives. The rows below re-derive that
+result independently from outside CI; they corroborate it and do not replace it.
+
+What they add is a **stronger form of the claim**. WIC-2214 established that the
+credential *is* good. The probes below establish that a bad credential could not
+have produced this signature *even if it were wrong* — which is the part that
+actually forecloses the branch, because it holds without depending on any
+particular secret's current value:
 
 | candidate cause | probe | verdict |
 |---|---|---|
