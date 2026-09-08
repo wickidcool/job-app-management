@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ParsedResume, UploadState, UploadProgress } from '../types/resume';
 import { apiClient } from '../services/api';
 import { track, getSessionId } from '../services/analytics';
+import { formatFileSize } from '../utils/formatFileSize';
 
 interface ResumeUploadProps {
   onUploadComplete: (resumeId: string, parsedData: ParsedResume) => void;
@@ -263,10 +264,6 @@ export function ResumeUpload({
       track('resume_upload_cta_clicked', { resume_id: parsedData.id, cta: 'view_details' });
     }
   }, [parsedData]);
-
-  const formatFileSize = (bytes: number): string => {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
 
   return (
     <div className="w-full">
