@@ -145,6 +145,29 @@ The caller/callee seam is pinned by **two different tests on the two sides**, be
 **Known inconsistency, recorded rather than silently resolved:** `FilterPanel`'s own `This Week` date preset starts on **Sunday** and ends *today*. It is a different control over a different field, so the two are not interchangeable, but they do disagree about which day a week starts. Unifying them is a deliberate decision for its own card, not a drive-by.
 
 
+
+### Fixed — the cover-letter preview hid the word count on the generator, and showed a blank letter a bare unlabelled `0` (2026-09-08)
+
+`CoverLetterPreview`'s footer gated its word-count chip on the `wordCount` **prop** rather than on the count it computes. One mistake made three times — **truthiness applied to a number whose `0` is real** — and it failed in two opposite directions at once (WIC-2301).
+
+Measured in the rendered DOM at `main` = `dc333a0b`, not inferred from the source:
+
+| call shape | footer text, before |
+|---|---|
+| `CoverLetterGenerator` (variant, **no** `wordCount`) | `•professional tone•standard length` |
+| `CoverLetterDetail`, blank letter (`wordCount={0}`) | `0•professional tone•standard length` |
+| `CoverLetterDetail`, ordinary (`wordCount={7}`) | `📊 7 words•professional tone•standard length` |
+
+- **The generator's preview pane showed no count at all, and opened on a dangling `•`.** `calculatedWordCount` carried a fallback that exists precisely for a caller passing no `wordCount` — but the chip rendering it was gated on the prop, so **the fallback was dead code for its only intended consumer.** The user saw the editor pane counting words and the preview pane beside it silently not. This is the happy path: `variant` there is `useState({…})`, always defined, so the footer always rendered and always without a count.
+- **A blank letter rendered a naked `0`.** `{wordCount && …}` on a genuine `0` does not hide the chip — it evaluates to the *number* `0`, which React renders as a text node. `📊 0 words` became an unlabelled digit, in the one state where the user most needs telling the count is zero. Reachable through the API rather than a click path, and recorded that way: the update schema is `content: z.string().min(1)`, which rejects `''` and **admits `' '`**; the generator's own save path guards `!editableContent.trim()`.
+- **An authoritative `0` from the caller was discarded** and the count silently recomputed from `content`, so the prop stopped being the source of truth at the one value a caller most needs to pin.
+
+The chip now renders unconditionally off the computed count, so the `•` is a separator with a guaranteed left-hand side; `??` replaces `||` and `!== undefined` replaces truthiness on the outer guard.
+
+The word-count expression had **three byte-identical copies** — `CoverLetterPreview`, `CoverLetterDetail`, and `CoverLetterGenerator`'s editor pane — and now has one home in `utils/countWords.ts`. That follows a convention this repo has already paid for once: `constants/upload.ts` exists because a duplicated upload *limit* drifted (WIC-1382). Same class, one layer over. A second instance is in flight but **not yet on `main`** — `utils/formatFileSize.ts`, for a duplicated *byte formatter* (WIC-2299, PR #478) — so it is a precedent this change anticipates rather than one it can lean on. The copies had not drifted yet; the point is that they no longer can.
+
+**Two controls pass before and after**, which is what makes this a scoped repair rather than a change to the footer at large: the `wordCount={7}` case is byte-identical across the fix, and the whole `countWords` unit suite is unaffected — the defect was in the gate, never the arithmetic. Four render tests fail on unmodified `main` and pass with the fix. Three mutants die: `??`→`||`, `!== undefined`→truthy, and dropping the empty-string branch in `countWords` — `''.split(/\s+/)` is `['']`, length **1**, so that branch is the only thing standing between a blank letter and a confident "1 words".
+
 ### Fixed — the interview countdown called tomorrow "In 2 days", and rendered "In NaN days" on a bad date
 
 `InterviewPrepCard`'s countdown measured days as `Math.ceil(diffMs / DAY_MS)` — how many
