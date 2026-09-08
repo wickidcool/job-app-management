@@ -10,9 +10,15 @@
  * *limit* drifted (WIC-1382). Same class, one layer over. Giving the expression one home is
  * the convention that card paid for.
  *
- * A second instance of the same convention is in flight but **not yet on `main`** —
- * `utils/formatFileSize.ts`, for a duplicated *byte formatter* (WIC-2299, PR #478). Do not
- * cite it as settled precedent until that lands; today the count is one.
+ * A second instance of the same convention has since landed — `utils/formatFileSize.ts`,
+ * for a duplicated *byte formatter* (WIC-2299, PR #478, merged as `5ff5323c`). When this
+ * module shipped it was still in flight, so the docstring said the count was one; it is now
+ * two, and both are settled precedent.
+ *
+ * Neither home is self-enforcing. A home only stops the next private copy if something fails
+ * when one appears, and this module has no such guard — check whether
+ * `formatFileSize.drift.test.ts` exists (WIC-2308) before citing either one as protected
+ * rather than merely tidy.
  *
  * It also makes the count checkable on its own. The gating defect this module was extracted
  * for lives in the *render*, not the arithmetic, and separating the two is what let the
