@@ -9,17 +9,25 @@
 
 ## Adoption status — read this before citing this document
 
-**No board sign-off is on file, and a decision is currently awaiting an answer.** Three asks have
-been raised on WIC-1066. The first two confirmations closed unanswered — `04635cbe` expired,
-`0e57d4ef` was cancelled — and a third, `ask_user_questions` `ad302b8d`, has been **pending with the
-board since 2026-09-05T18:03Z**. So the sentence-case decision this document proposes has never been
-made, but it is live, not abandoned. **Do not close WIC-1066 on the reasoning that it has no
-decision path.** Tracked in WIC-1066, with the measurement in
+**No board sign-off is on file, and a decision is currently awaiting an answer.** The asks raised on
+WIC-1066 have a long tail of failures: `04635cbe` and `ad302b8d` expired unanswered, and `0e57d4ef`
+and `5b6d40bf` were cancelled and re-raised — `5b6d40bf` because the cost comparison it carried was
+wrong. As of this writing one ask is live and pending. So the sentence-case decision this document
+proposes has never been made, but it is live, not abandoned. **Do not close WIC-1066 on the
+reasoning that it has no decision path.** Tracked in WIC-1066, with the measurement in
 [`CASING_MIGRATION_INVENTORY.md`](./CASING_MIGRATION_INVENTORY.md).
+
+**The live ask's id is deliberately not written down here.** It has changed three times in fifty
+hours, and every revision of this paragraph that pinned one was stale within days — the last one
+inside five minutes of the correction that introduced it. Read the newest `pending` interaction on
+WIC-1066 instead: `GET /api/issues/{WIC-1066}/interactions`. One property of it is worth stating,
+because the wording this replaces implied otherwise: its resolver policy is `anyone`, not
+`human_only`, so an agent *is* permitted to resolve it. None should. It is a brand judgement that
+commits real migration effort, and it is the board's to make.
 
 **The rule below is not reflected in the codebase.** Do not quote a number from this section —
 re-run [`ui-string-casing-inventory.py`](./ui-string-casing-inventory.py), which is committed
-precisely so this stops being re-argued by hand. At `main` @ `cb74ea4e` (2026-09-07) it reports
+precisely so this stops being re-argued by hand. At `main` @ `f97ae1ae` (2026-09-08) it reports
 **356 title case against 448 sentence case** over the strings the rule governs. No migration was
 ever staged.
 
@@ -28,10 +36,21 @@ already 56% sentence case.** The earlier hand counts (93 / 7, then 77 / 13) scan
 and button/link text nodes in `.tsx`, which is why they read as a ~13:1 title-case habit. Over every
 string the inventory reaches — JSX text, props, and string literals — it is roughly 4:5 *against*
 title case, because that population also includes the validation messages, confirm dialogs and empty
-states this document already notes are sentence case in the tree. That inverts the cost
-comparison the board is being asked to decide: migrating **to** sentence case is 356 strings, and
-withdrawing the standard and inverting **to** title case is 448 — so withdrawing is the more
-expensive option, not the cheaper one.
+states this document already notes are sentence case in the tree.
+
+**Do not read that ratio as a cost comparison — this section did, and it was wrong.** It used to
+argue that migrating **to** sentence case costs 356 strings while withdrawing the standard costs
+448, "so withdrawing is the more expensive option." **That claim is retracted.** The two numbers are
+not the same kind of number: 356 is a work-list, and 448 is a headcount. A large share of the 448 is
+full sentences — validation messages, confirm dialogs, empty-state prose — that **no title-case
+house style converts.** `Are you sure you want to delete this application?` does not become `Are You
+Sure You Want To Delete This Application?` under any standard, so those strings are not work under
+either outcome. Priced like-for-like the ordering reverses: withdrawing is the **cheaper**
+direction, not the more expensive one.
+
+**The priced comparison lives in the live ask on WIC-1066, and deliberately not here.** Two homes
+for one number is how the inverted claim above survived two corrections to this section. The ask is
+what the board answers from; read the figures there.
 
 Concretely: **all five ❌ examples under "The rule" are live on `main`**, and four of the five ✅
 forms appear zero times. The exception is `Back to dashboard` — the string WIC-1063 arbitrated, and
