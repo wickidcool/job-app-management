@@ -20,6 +20,25 @@ import { TARGETED_LIST_PAGE_MAX, itemsForApplication } from '../constants/applic
 import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
+import { parseDateOnly } from '../utils/parseDateOnly';
+
+/**
+ * Render `nextActionDue` — a bare `YYYY-MM-DD` calendar day — as a human date.
+ *
+ * WIC-2267: this used to be `format(new Date(value), 'MMM d, yyyy')`, which parses the
+ * date-only form as **UTC midnight**. In every negative-offset zone that renders the
+ * *previous* day, so a stored `2026-01-01` displayed as "Dec 31, 2025" — wrong day, month
+ * and year. `parseDateOnly` reads it as the local wall date it denotes.
+ *
+ * On an unparseable value it falls back to the raw string rather than a formatted date.
+ * That is also a crash fix: date-fns `format` throws `RangeError` on an invalid `Date`,
+ * so a malformed column value used to take down the whole detail route, and this is the
+ * only site that formats the field without a guard.
+ */
+function formatDueDate(value: string): string {
+  const due = parseDateOnly(value);
+  return due ? format(due, 'MMM d, yyyy') : value;
+}
 
 /**
  * The page shell, carrying this route's top-level heading (WIC-2050).
@@ -542,7 +561,7 @@ export function ApplicationDetail() {
                 <div>
                   <dt className="text-sm font-medium text-gray-500">Next Action Due</dt>
                   <dd className="text-sm text-gray-900">
-                    {format(new Date(application.nextActionDue), 'MMM d, yyyy')}
+                    {formatDueDate(application.nextActionDue)}
                   </dd>
                 </div>
               )}

@@ -9,6 +9,45 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — a date-only `nextActionDue` was parsed as UTC midnight, so the Americas saw the wrong day (2026-09-07)
+
+`next_action_due` is a Postgres `date` column (`schema.ts:52`, `mode: 'string'`), so the API serves a bare `YYYY-MM-DD` denoting a **wall calendar day**. Per ECMAScript, `new Date('2026-09-10')` parses the date-only form as **UTC midnight**, while every comparison in `packages/web` is against **local** midnight. The two disagree by exactly one calendar day in any negative-offset zone — the whole Americas — and break a different boundary in positive-offset zones. UTC is clean, which is why this survived CI (WIC-2267).
+
+Four sites parsed it that way. Measured across 8 zones × 6 base dates (both DST transitions and the year boundary) × all 1440 start minutes: in `America/New_York` a row due **today** was badged "Overdue" on 8,640/120,960 samples and mis-bucketed on 24,480/120,960; in `Europe/Berlin` a row due in exactly 3 days was **not** badged "Due soon". Each fires on all 1440 minutes, so it was all day, every day, not a narrow time-of-day window. London is clean in GMT and broken in BST — the defect tracks the sign of the UTC offset exactly, which is the signature of this parse rather than a coincidence.
+
+**Only one of the four ships to a user, and it is the worst one.** `ApplicationDetail` rendered a stored `2026-01-01` as **"Dec 31, 2025"** — wrong day, month *and* year. The other three are in `ReportsPipeline`, which `App.tsx` routes to `<Navigate to="/applications" replace />`; that page renders for nobody, so those are latent rather than user-visible, and the original framing of all four as shipped badges is corrected here. Fixing them anyway keeps the file honest while it is unrouted, which is exactly when a regression would go unnoticed.
+
+The root cause is the **parse**, so routing through the existing `calendarDaysBetween` is not sufficient on its own — that helper normalises both operands to local midnight, but handing it `new Date('2026-09-10')` still starts from UTC midnight and stays off by one. A new `utils/parseDateOnly.ts` reads the string as the local wall date it denotes, and the four sites now pair it with `calendarDaysBetween`. It is deliberately stricter than date-fns `parseISO`: it rejects anything that is not date-only, because this codebase carries a look-alike `interviewDate` (`TIMESTAMPTZ`) that must **not** be parsed as a calendar day, and both `types.ts` and `applicationFormSchema.ts` currently warn about that confusion in prose only. It returns `null` rather than a guessed date, which is also a crash fix at the one unguarded site: date-fns `format` throws `RangeError` on an invalid `Date`, so a malformed value used to take down the whole detail route.
+
+**On `floor` vs `ceil`, the open question:** the pairing settles it rather than picking a side. The client used `Math.ceil` and the service uses `Math.floor` (`reports.service.ts:214`), so the same row could bucket differently on `/reports/pipeline` and `/reports/needs-action`. With both operands collapsed to local midnight the two ends count the same quantity — *date boundaries crossed* — rather than one of them counting elapsed 24-hour blocks, and that is what removes the disagreement.
+
+That is **not** the same as saying the fraction is gone, and an earlier draft of this entry did claim exactly that. The quotient inside `calendarDaysBetween` is whole only on DST-free intervals: a local day spanning a transition is 23 or 25 hours, so in `America/New_York` 2026-03-08 → 03-09 divides to 0.9583 and 2026-11-01 → 11-02 to 1.0417 — `floor` and `ceil` are each wrong in one of those directions. The correctness therefore rests on that helper's `Math.round`, which is **load-bearing rather than decorative**. Both directions are now pinned by a mutant, so a later "the quotient is whole now, just divide" simplification reds a test instead of silently reintroducing this bug class on two days a year.
+
+The remaining divergence is the service's own copy of this parse (`new Date(r.nextActionDue!)` against a local-midnight `todayMs`), correct only while the API process runs in UTC; that is `packages/api` and is tracked separately rather than swept in here.
+
+`components/ApplicationCard.tsx` and `pages/ApplicationsList.tsx` were **not** affected and are unchanged — they have always used `startOfDay(parseISO(...))`, which reads date-only as local. They are the precedent this fix generalises.
+
+Twenty-six tests across three files (6 + 5 + 15), every assertion pinned to a non-UTC zone via `process.env.TZ` following `interviewCountdown.test.ts`; asserting under the default UTC environment passes against the broken code and proves nothing. Each file carries a `utcControl` that must stay green against *both* implementations, so a pinning that silently stopped taking effect reads as suspicious rather than as proof. The two page-level guards go through `render` rather than calling the helpers, because a helper can be correct while the page still calls `new Date()`.
+
+Every claim below is a measured mutant run, not a reading of the diff:
+
+| mutant | red | killed by |
+|---|---|---|
+| `parseDateOnly` parse only, local → UTC midnight (validation kept) | **15** | all three files; the 4 `utcControl`s and the null-handling test survive, as they must |
+| `ApplicationDetail.formatDueDate` reverted alone | **3** | with the literal string "Dec 31, 2025" in the DOM |
+| stats-tile aggregate parse reverted alone | **1** | `ReportsPipeline.dueDates` (New York) |
+| `isDueSoon` reverted alone | **1** | `ReportsPipeline.dueDates` (Berlin) |
+| `calendarDaysBetween` `Math.round` → `Math.ceil` | **1** | `parseDateOnly.test` fall-back (Nov 1 → Nov 2) |
+| `calendarDaysBetween` `Math.round` → `Math.floor` | **1** | `parseDateOnly.test` spring-forward (Mar 8 → Mar 9) |
+
+The last four are killed by **disjoint** tests, which is what shows the boundaries are pinned separately rather than one defect measured repeatedly. Two of those rows exist because review caught the first draft asserting coverage it did not have: the aggregate mutant originally red **0** tests — the stats tile is a third copy of this arithmetic and nothing rendered it — and the DST fixture ran `Oct 31 → Nov 1`, an ordinary 24-hour interval whose quotient is exactly `1.0000`, so no rounding mutant could ever have died to it. Post-fix the zone sweep reports 0 wrong across 10 zones, including the half-hour `Asia/Kolkata` and 45-minute `Pacific/Chatham` offsets.
+
+A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `nextActionDue` to `'2026-09-20T00:00:00Z'`, a datetime shape the endpoint never sends for a `date` column.
+
+### Tooling — the ban on an `environment:` key in the `e2e-tests` job is now mechanical, not a comment (2026-09-08)
+
+Adding `environment: dev` to `deploy.yml`'s `e2e-tests` job has broken production deploys twice (WIC-2201 / WIC-2204): the dev-scoped `E2E_TEST_USER*` secrets resolve, wake ~29 backend-dependent Playwright specs against a backend CI never starts, the job blows its 15-minute timeout, and `deploy-production` (which `needs: e2e-tests`) is skipped — so `main` silently ships nothing. Until now the only thing stopping a re-add was an in-file comment, which did not stop it the first time. A new `pull_request_target` workflow, `e2e-environment-guard.yml`, now fails the build when the `e2e-tests` job declares any `environment:` key, running `scripts/deploy-e2e-environment-guard.py`. The check **parses** the YAML and asserts on `jobs['e2e-tests']` only, so the legitimate `environment: dev` on `e2e-isolation-coverage` (WIC-2122 route 2, not in `deploy-production.needs`) and on `deploy-preview` is untouched — a grep would red-line `main`, since three of the five `environment: dev` lines on `main` are prose. `pull_request_target` is used, and the check lives outside `deploy.yml`, for the same reason as `skip-ci-guard.yml`: the change it guards can break `deploy.yml`'s own ability to run, and `[skip ci]` must not suppress it (WIC-2262).
+
 ### Fixed — the last two byte renderers still printed KB-only, and nothing stopped a fourth from appearing (2026-09-08)
 
 WIC-2299 gave the byte formatter one home in `utils/formatFileSize.ts` and routed three call sites through it. It did not route all five, and it shipped **no guard** — so the convention was a coincidence, not an invariant. This closes both halves (WIC-2308, re-keyed by WIC-2310).
