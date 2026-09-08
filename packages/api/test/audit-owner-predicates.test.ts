@@ -811,3 +811,200 @@ export async function removeWidgetAgain(id: string, userId: string) {
     expect(r.stderr).toContain('ungated-population baseline is MISSING');
   });
 });
+
+// ---------------------------------------------------------------------------
+// [UNRESOLVED] -- the escape the ungated pin above structurally cannot see
+// (WIC-2304). That pin fails when a write MOVES OUT of the gated set. This one
+// fails when a write never entered EITHER set, because `tableNameOf` resolved
+// its table to a helper's parameter name instead of a schema table.
+//
+// The two directions are NOT the same test and neither implies the other:
+//
+//   ADDITION   -- a new ungated write in parameter shape. writeSites 1 -> 1,
+//                 ungated unchanged, so the pin is byte-identical to clean.
+//   CONVERSION -- an existing counted write rewritten into parameter shape.
+//                 writeSites 1 -> 0. The pin SEES this and deliberately does
+//                 not fail on it, because shrinkage is the burndown direction.
+//
+// Both exited 0 before this gate. Assert both, and assert the counters, so a
+// future change that makes one of them merely *reported* fails here.
+// ---------------------------------------------------------------------------
+describe('[UNRESOLVED] writes whose table does not resolve to a schema table', () => {
+  let root: string;
+
+  const SCHEMA_MIN = `
+import { pgTable, text, uuid } from 'drizzle-orm/pg-core';
+export const widgets = pgTable('widgets', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+});
+export const globals = pgTable('globals', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+});
+`;
+
+  const HEAD = `import { eq, and } from 'drizzle-orm';
+import { widgets, globals } from '../db/schema.js';
+declare const db: any;
+`;
+
+  /** One ordinary owner-scoped write, so the tree is non-empty and green. */
+  const CLEAN = `${HEAD}
+export async function removeWidget(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), eq(widgets.userId, userId)));
+}
+`;
+
+  const write = (source: string) =>
+    writeFileSync(join(root, 'src/services/subject.service.ts'), source);
+
+  function gate(): { status: number; stderr: string; stdout: string } {
+    const r = spawnSync('node', [SCRIPT, `--root=${root}`], { encoding: 'utf8' });
+    return { status: r.status ?? -1, stderr: r.stderr, stdout: r.stdout };
+  }
+
+  const acceptCurrentAsBaseline = () =>
+    spawnSync('node', [SCRIPT, `--root=${root}`, '--write-baseline'], { encoding: 'utf8' });
+
+  const statsOf = (source: string) => {
+    write(source);
+    const out = spawnSync('node', [SCRIPT, `--root=${root}`, '--json'], { encoding: 'utf8' });
+    return JSON.parse(out.stdout).stats as {
+      writeSites: number;
+      ungated: Array<Record<string, string>>;
+      unresolvedWriteTables: Array<Record<string, string | number>>;
+    };
+  };
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'ac-t0-unresolved-'));
+    mkdirSync(join(root, 'src/db'), { recursive: true });
+    mkdirSync(join(root, 'src/services'), { recursive: true });
+    mkdirSync(join(root, 'src/routes'), { recursive: true });
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'src/db/schema.ts'), SCHEMA_MIN);
+    write(CLEAN);
+    acceptCurrentAsBaseline();
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('is empty on a clean tree, so the gate starts armed at zero', () => {
+    const s = statsOf(CLEAN);
+    expect(s.unresolvedWriteTables).toEqual([]);
+    expect(gate().status).toBe(0);
+  });
+
+  // ADDITION. The counters the two existing pins read are byte-identical to
+  // CLEAN, which is exactly why this escaped before -- assert that explicitly,
+  // or the test passes for the wrong reason if the classification ever moves.
+  it('fails on a NEW ungated write whose table is a helper parameter', () => {
+    const clean = statsOf(CLEAN);
+    const s = statsOf(`${CLEAN}
+export async function touch(tbl: any, id: string) {
+  await db.update(tbl).set({ label: 'x' }).where(eq(tbl.id, id));
+}
+`);
+    expect(s.writeSites).toBe(clean.writeSites);
+    expect(s.ungated).toEqual(clean.ungated);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('could not be resolved to any table in the schema');
+    expect(r.stderr).toContain("update 'tbl'");
+  });
+
+  // CONVERSION. The mirror image: the ungated pin does see the write leave, and
+  // deliberately reports rather than fails. Without this gate that is an exit 0.
+  it('fails when an EXISTING counted write is rewritten into parameter shape', () => {
+    const clean = statsOf(CLEAN);
+    const s = statsOf(`${HEAD}
+export async function removeWidget(id: string, userId: string) {
+  const tbl = widgets;
+  await db.delete(tbl).where(and(eq(tbl.id, id), eq(tbl.userId, userId)));
+}
+`);
+    expect(s.writeSites).toBe(clean.writeSites - 1);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+    expect(gate().status).toBe(1);
+  });
+
+  // Negative controls. The gate is at zero with no baseline to absorb a false
+  // positive, so noise here is not a nuisance -- it is a permanently red main.
+  // These are the four real shapes that tripped the first draft on `baca0685`:
+  // Map.delete, R2Bucket.delete (scalar and array), createHash().update.
+  it('ignores non-drizzle .update/.delete calls', () => {
+    const s = statsOf(`${CLEAN}
+import { createHash } from 'node:crypto';
+declare const r2: { delete(k: string | string[]): Promise<void> };
+
+export function evict(buckets: Map<string, number>, key: string) {
+  buckets.delete(key);
+}
+export function hash(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+export async function removeObject(key: string, keys: string[]) {
+  await r2.delete(key);
+  await r2.delete(keys.slice(0, 100));
+}
+`);
+    expect(s.unresolvedWriteTables).toEqual([]);
+    expect(gate().status).toBe(0);
+  });
+
+  // A write against a real table that simply has no owner column is a decision
+  // the guard is entitled to make, and must stay silent -- this is the whole
+  // reason the check tests membership in ALL_TABLES rather than OWNER_TABLES.
+  it('ignores a write against a declared but owner-free table', () => {
+    const s = statsOf(`${CLEAN}
+export async function relabel(id: string) {
+  await db.update(globals).set({ label: 'x' }).where(eq(globals.id, id));
+}
+`);
+    expect(s.unresolvedWriteTables).toEqual([]);
+    expect(gate().status).toBe(0);
+  });
+
+  // The receiver list cannot enumerate every name a db handle might take, so
+  // the chain shape has to carry it alone. Kill the receiver signal and the
+  // site must still be caught.
+  it('catches a parameter-shaped write through a differently-named handle', () => {
+    const s = statsOf(`${CLEAN}
+declare const database: any;
+export async function touch(tbl: any, id: string) {
+  await database.update(tbl).set({ label: 'x' }).where(eq(tbl.id, id));
+}
+`);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+    expect(gate().status).toBe(1);
+  });
+
+  // ...and symmetrically, a chainless write has no shape to match, so the
+  // receiver signal has to carry that one. Neither signal alone is sufficient.
+  it('catches a chainless parameter-shaped write via the receiver', () => {
+    const s = statsOf(`${CLEAN}
+export async function wipe(tbl: any) {
+  await db.delete(tbl);
+}
+`);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+    expect(gate().status).toBe(1);
+  });
+
+  it('names the unresolved gate in the failure summary, not the ungated pin', () => {
+    write(`${CLEAN}
+export async function touch(tbl: any, id: string) {
+  await db.update(tbl).set({ label: 'x' }).where(eq(tbl.id, id));
+}
+`);
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('failed on an unresolvable write table');
+    expect(r.stderr).not.toContain('failed on the ungated population');
+  });
+});
