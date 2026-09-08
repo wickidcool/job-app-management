@@ -49,6 +49,12 @@ contract, not a type-level proof. The type-level fix is a branded `DateOnlyStrin
 that never structurally satisfies the `Date` constructor; that is a larger change and
 is not what this card bought.
 
+Same class, second face (WIC-2284): the dotted prefix below only traverses *plain
+identifier* segments, so `new Date(getRecord().nextActionDue)`, `new Date(rows[0]
+.nextActionDue)` and `new Date((app as Application).nextActionDue)` all miss. Unchanged
+by any revision of this file and **0** reachable sites in `packages/**` today, so it is
+recorded rather than fixed -- but it is a statement about today's code, and it rots.
+
 Second, and this one is *closed* rather than merely stated (raised in the WIC-2281
 review). The scan is line-based, so a call Prettier has wrapped splits the two halves of
 the pattern across two physical lines, and a naive per-line scan sees neither:
@@ -204,8 +210,15 @@ def collect() -> list[tuple[str, int, str]]:
 
 def report(hits: list[tuple[str, int, str]], strict: bool) -> int:
     # Under --strict the pins are not consulted at all, so nothing can be "left over" to
-    # retire. Seeding this with LEGACY there made --strict print a RETIRE notice claiming
-    # four fixes had landed when it had simply never looked (WIC-2281 review, note 2).
+    # retire; seeding this with LEGACY there was a seed-but-never-consume (WIC-2281 review,
+    # note 2). ⚠️ It was NOT the false-RETIRE bug, and an earlier revision of this comment
+    # said it was (corrected by WIC-2284). Under the old code `fresh == hits` in --strict, so
+    # the notice was reachable only when the scan found nothing at all -- exactly the state in
+    # which the pins really are gone. It was true in the only state that could print it.
+    # The false RETIRE came from the line-based scan missing a Prettier-wrapped pin, and is
+    # fixed in scan_text, not here. One behaviour change to know about: flipping --strict
+    # before the LEGACY entries are deleted used to print a true "delete these four" notice
+    # and now prints silence. Inert in CI, which runs the default mode.
     legacy_left = [] if strict else list(LEGACY)
     fresh: list[tuple[str, int, str]] = []
 
@@ -332,7 +345,8 @@ def selftest() -> int:
 
     # The RETIRE notice, all four arms. It is a claim about the world ("the fix landed"),
     # so it has to be driven by pin *absence* and by nothing else. A one-armed check here
-    # would pass against a notice that always prints -- which is the defect this covers.
+    # would pass against a notice that always prints, and equally against one that never
+    # does; four arms is what pins the notice to the world rather than to a mode.
     def run(hits, strict):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
