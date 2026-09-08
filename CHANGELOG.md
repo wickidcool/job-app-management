@@ -94,6 +94,24 @@ Enumerating both `report()` versions × both modes × four tree states — holdi
 One pre-existing gap is recorded here rather than fixed, because this is now the paragraph a reader will trust on what the guard does *not* see. `VIOLATION`'s dotted-prefix group only traverses plain identifier segments, so `new Date(getRecord().nextActionDue)`, `new Date(rows[0].nextActionDue)` and `new Date((app as Application).nextActionDue)` all miss. The regex is byte-identical before and after this change — no regression — and there are **0** reachable sites in `packages/**` today: every line there that pairs `new Date(` with a date-only name is already flagged. It is the same class as the KNOWN LIMITATION in the script header, which is a statement about today's code and rots the same way.
 
 
+
+### Tooling — the date-only guard's four `LEGACY` pins are retired and CI now runs `--strict`, with the retirement machinery kept armed on a synthetic list (2026-09-08)
+
+WIC-2279 shipped the guard carrying four pinned `packages/web` call sites, and prescribed its own retirement: when PR #469 lands they stop matching, the guard prints a RETIRE notice naming them, and the entries are deleted and the workflow flipped to `--strict`. The notice fired. This is that step (WIC-2322).
+
+- **The four `LEGACY` entries are gone and the list is empty.** `.github/workflows/deploy.yml` runs `python3 scripts/date-only-guard.py --strict`, so every `new Date(<date-only>)` anywhere in the tree is fatal and the file carries no exceptions at all.
+
+**Emptying the list silently disarmed the guard's own selftest, and that is the substance of this change rather than the two-line deletion.** All four RETIRE arms were driven from `LEGACY` itself, so with the list empty `pin_hits` degenerates to `[]`: two arms **failed outright** and the other two passed **vacuously**, comparing `[]` against `[]`. Retiring the last real pin would therefore have taken the retirement machinery's only coverage with it — at exactly the moment that machinery went dormant and stopped being exercised by any real CI run. The arms now run on `SELFTEST_PINS`, a synthetic two-entry list that never empties, and `report()` takes the pin list as a parameter so the fixtures can drive it.
+
+**A synthetic list tests the machinery but not that production is wired to it, so two wiring arms drive the live default binding** — no `legacy=` — and require an unpinned violation fatal in *both* modes. With `LEGACY` empty that is the whole post-retirement contract in one assertion: nothing is exempt. It is also what fails if anyone re-points the default at a placeholder, which is the specific way a parameterised guard goes quiet.
+
+**Graded on mutants, not on rc 0** — an empty `LEGACY` is byte-indistinguishable from a disarmed guard by exit code alone. Each of the four deleted lines replanted into its original file turns `--strict` **red and names it**, 4 of 4, with the tree restoring to rc 0. Five mutations of the guard's own machinery — emptying `SELFTEST_PINS`, re-pointing the default binding, suppressing the RETIRE notice, making `--strict` consult the pins, and forcing `report()` to return 0 — are each caught by the selftest, 5 of 5, and the last is caught **only** by the new wiring arms.
+
+**The ordering is load-bearing and measured in both directions.** Verified on the merge result rather than the branch tree: with #469 present, `--strict` and `--selftest` are both rc 0; merged onto a `main` *without* #469, `--strict` is rc 1 naming all four live sites. So this must land after #469, not before — which is why it is a separate card, and why bundling it into #469 would also have widened what that PR's approval covered.
+
+**Two limitations carried forward unchanged, not re-derived.** The pattern keys on **identifier names**, so a date-only value in a differently-named variable is invisible to it; and a Prettier break *deeper* than the one-line join is still unreached. Both are statements about today's code and both rot. One consequence recorded in the script did rot and is corrected here: the note "inert in CI, which runs the default mode" is now false — CI runs `--strict`. It is inert today only because the list is empty, so a pin added while `--strict` is on is never consulted and prints nothing. The docstring and the workflow both now say to drop `--strict` for exactly as long as any future pin lives.
+
+
 ### Fixed — the resume upload progress counter read `0.0 MB / 0.0 MB` for the whole upload
 
 `ResumeUpload` carried its own private `formatFileSize` with no unit ladder: it divided by
