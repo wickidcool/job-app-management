@@ -11,6 +11,7 @@ import type {
 import { StarEntryPicker } from './StarEntryPicker';
 import { CoverLetterPreview } from './CoverLetterPreview';
 import { useGenerateCoverLetter, useUpdateCoverLetter } from '../hooks/useCoverLetters';
+import { countWords } from '../utils/countWords';
 
 interface CoverLetterGeneratorProps {
   fitAnalysisId?: string;
@@ -621,12 +622,7 @@ export function CoverLetterGenerator({
                         <div className="px-4 py-3 bg-gray-50 border-t text-sm space-y-1">
                           <div className="flex items-center gap-2 text-green-600">
                             <span>✅</span>
-                            <span>
-                              {editableContent.trim() === ''
-                                ? 0
-                                : editableContent.trim().split(/\s+/).length}{' '}
-                              words
-                            </span>
+                            <span>{countWords(editableContent)} words</span>
                           </div>
                           <div className="flex items-center gap-2 text-green-600">
                             <span>✅</span>

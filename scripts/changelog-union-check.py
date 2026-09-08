@@ -280,7 +280,41 @@ def analyse(ours: str, theirs: str, union: str) -> list[dict]:
 
 
 def check_pair(ours: str, theirs: str, path: str = CHANGELOG, cwd: str | None = None) -> list[dict]:
-    """Simulate `git merge <theirs>` on branch `ours` and report what union introduced."""
+    """Simulate `git merge <theirs>` on branch `ours` and report what union introduced.
+
+    RESOLVE BEFORE READING. `git show <rev>:<path>` fails identically for "the path is
+    absent at that rev" and "that rev does not exist", and `blob()` returns None for both.
+    Treating the second as "nothing for the driver to do" is a fail-open: it printed
+    `clean` and exited **0** for a revision that was never evaluated, which is exactly what
+    the module contract above forbids -- 2 means could-not-evaluate, and that is NOT a pass.
+
+    The shape that hits it is ordinary, not adversarial, and the plainest form of it needs
+    no typo and no unusual fetch state. CLAUDE.md prescribes `refs --ours <your-branch>
+    --theirs <its base>` for pre-push verification, and a branch that exists only as a
+    remote-tracking ref is not a local rev -- so that literal command, typed verbatim in a
+    fresh clone or in a worktree that never created the local branch, answered `clean` and
+    exited 0 without reading a byte of anyone's changelog. Measured at 968ecc69:
+    `refs --ours fix/wic2248-union-check-failopen --theirs main` -> `clean`, rc 0; with this
+    fix, `UNEVALUATED`, rc 2. The `--ours refs/pull/N/head` form fails the same way in a
+    checkout that has not fetched `refs/pull/*` -- that shape is what WIC-2248 prescribes,
+    not CLAUDE.md, where `refs/pull` never appears as an argument to this script. Either
+    way, the one mode a human drives by hand was the one mode that could answer "clean"
+    without looking. `pr` and `sweep` were never exposed -- they reach git through
+    `fetch_pr`, which fetches with `check=True` and raises -- so this closes the gap without
+    touching the paths CI runs.
+
+    WHY THE RESOLVE LIVES HERE AND NOT IN `blob()`. The lower call site looks like the
+    tidier home for it, and it cannot be: `union_merge` calls `blob(tree, path)` with a
+    **tree** sha, which does not satisfy `^{commit}`. Pushing the guard down turns all six
+    fixtures plus the attr-source control red -- 7 failures, measured -- so `check_pair` is
+    not merely a fine placement, it is the only correct one short of changing `blob()`'s
+    signature. (WIC-2248)
+    """
+    for side, rev in (("ours", ours), ("theirs", theirs)):
+        p = git("rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False, cwd=cwd)
+        if p.returncode != 0 or not p.stdout.strip():
+            raise Unevaluable(f"--{side} does not resolve to a commit: {rev}")
+
     ours_text = blob(ours, path, cwd=cwd)
     theirs_text = blob(theirs, path, cwd=cwd)
     if ours_text is None or theirs_text is None:
@@ -676,6 +710,54 @@ def selftest() -> int:
             emit("  PASS  a head that deleted `merge=union` is refused, so --attr-source is load-bearing")
 
         # ------------------------------------------------------------------------------
+        # UNEVALUATED MUST NOT READ AS CLEAN (WIC-2248). Two assertions, in opposite
+        # directions, because the fix and the bug it replaces are one line apart.
+        #
+        # `git show <rev>:CHANGELOG.md` fails the same way for a missing PATH and a missing
+        # REVISION, so the None that blob() returns is ambiguous. Treating it uniformly as
+        # "nothing to merge" made `refs --ours <typo>` print `clean` and exit 0. The
+        # realistic trigger needs no typo: CLAUDE.md prescribes `refs --ours <your-branch>
+        # --theirs <its base>`, and a branch that exists only as a remote-tracking ref is not
+        # a local rev -- so that literal command, in a fresh clone, answered "clean" without
+        # reading a single byte of anyone's changelog. `--ours refs/pull/N/head` in a
+        # checkout that has not fetched `refs/pull/*` is the same failure by another route.
+        #
+        # (e) is the guard against over-correcting: a revision that genuinely exists and
+        # genuinely has no CHANGELOG.md must STILL be clean. Without it, the obvious fix --
+        # turning every None into a refusal -- passes (d) and breaks every repository whose
+        # history predates the file.
+        # ------------------------------------------------------------------------------
+        emit("unevaluated-is-not-a-pass controls:")
+
+        for label, bad_ours, bad_theirs in (
+            ("a nonexistent --ours", "no-such-branch-abcdef", "weld-theirs"),
+            ("a nonexistent --theirs", "weld-ours", "no-such-branch-abcdef"),
+            ("an all-zeroes sha", "0" * 40, "weld-theirs"),
+        ):
+            try:
+                found = check_pair(bad_ours, bad_theirs, cwd=root)
+                failures.append(f"{label} was reported as {found or 'clean'} instead of refusing")
+                emit(f"  FAIL  {label} reported {found or 'clean'} -- unevaluated read as a pass")
+            except Unevaluable:
+                emit(f"  PASS  {label} is refused rather than reported clean")
+
+        # (e) The negative control. A real commit with no CHANGELOG.md is genuinely clean:
+        #     there is no file for the driver to corrupt. This must NOT become a refusal.
+        git("checkout", "--quiet", "-B", "no-changelog", "base", cwd=root)
+        git("rm", "--quiet", CHANGELOG, cwd=root)
+        git("commit", "--quiet", "-m", "a history that predates CHANGELOG.md", cwd=root)
+        git("checkout", "--quiet", "weld-ours", cwd=root)
+        try:
+            found = check_pair("no-changelog", "weld-theirs", cwd=root)
+            ok = found == []
+            emit(f"  {'PASS' if ok else 'FAIL'}  a real commit without {CHANGELOG} is still clean, not refused")
+            if not ok:
+                failures.append(f"a commit without {CHANGELOG} reported {found} instead of clean")
+        except Unevaluable as exc:
+            failures.append(f"a real commit without {CHANGELOG} was refused -- the fix over-corrects: {exc}")
+            emit(f"  FAIL  a real commit without {CHANGELOG} was refused: {exc}")
+
+        # ------------------------------------------------------------------------------
         # The detector must never gate on GitHub's mergeability signals.
         # ------------------------------------------------------------------------------
         hits = _source_consults_mergeability()
@@ -883,7 +965,14 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     if args.mode == "selftest":
-        return selftest()
+        # Wrapped for the same reason the rest of this file exists: an `Unevaluable` escaping
+        # fixture setup must exit 2 (could not evaluate), not 1 (findings). Fail-closed either
+        # way -- CI branches on zero/non-zero -- but the two codes mean different things.
+        try:
+            return selftest()
+        except Unevaluable as exc:
+            emit(f"UNEVALUATED: {exc}")
+            return 2
 
     if args.mode == "replay":
         try:

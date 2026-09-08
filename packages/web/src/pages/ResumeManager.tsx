@@ -9,12 +9,7 @@ import { ConfirmationModal } from '../components/ConfirmationModal';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useResumes, useDeleteResume } from '../hooks/useResumes';
 import { useGenerateDiff } from '../hooks/useCatalog';
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import { formatFileSize } from '../utils/formatFileSize';
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString('en-US', {

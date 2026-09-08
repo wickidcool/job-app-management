@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useApplicationCollection } from '../hooks/useApplications';
-import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
+import { FILTER_SHORTCUT_LABELS, INTERVIEWS_THIS_WEEK_PATH } from '../constants/filterShortcuts';
 import { RECENT_SEARCHES_KEY } from '../services/appStorage';
 
 interface CommandPaletteProps {
@@ -25,7 +25,10 @@ const SUGGESTED_FILTERS = [
   {
     id: 'interviews',
     title: FILTER_SHORTCUT_LABELS.interviewing,
-    path: '/applications?status=interview,phone_screen',
+    // Status **and** the interview-date window, from one constant shared with
+    // `SavedFilterShortcuts` — the two surfaces used to agree only on the label, which is
+    // how they came to promise the same window and apply different filters (WIC-2194).
+    path: INTERVIEWS_THIS_WEEK_PATH,
     icon: '🤝',
   },
   {

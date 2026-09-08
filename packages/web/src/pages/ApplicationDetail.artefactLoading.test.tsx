@@ -122,21 +122,28 @@ function renderDetail(phase: Phase) {
   const loading = phase === 'in-flight' || phase === 'all-in-flight';
   const fitLoading = phase === 'fit-in-flight' || phase === 'all-in-flight';
 
+  // `isPending`/`isError`, not `isLoading`: the page reads those since WIC-2227, and a
+  // hand-written mock is an ALLOWLIST — a flag it forgets arrives as `undefined`, which is
+  // falsy, so every row would silently read as settled and this whole file would go green
+  // against the very collapse it exists to catch.
   vi.mocked(useApplication).mockReturnValue({
     data: application,
-    isLoading: false,
+    isPending: false,
+    isError: false,
   } as ReturnType<typeof useApplication>);
 
   // React Query leaves `data` undefined until a query settles. The page's
   // `= []` default is what silently turns that into "there are none".
   vi.mocked(useCoverLetters).mockReturnValue({
     data: loading ? undefined : [],
-    isLoading: loading,
+    isPending: loading,
+    isError: false,
   } as unknown as ReturnType<typeof useCoverLetters>);
 
   vi.mocked(useResumeVariants).mockReturnValue({
     data: loading ? undefined : { variants: [] },
-    isLoading: loading,
+    isPending: loading,
+    isError: false,
   } as unknown as ReturnType<typeof useResumeVariants>);
 
   // The service maps this endpoint's 404 to `null`, so settled-absent is
@@ -144,7 +151,8 @@ function renderDetail(phase: Phase) {
   // `!!interviewPrep?.interviewPrep` flattens both to `false`.
   vi.mocked(useInterviewPrepByApplication).mockReturnValue({
     data: loading ? undefined : null,
-    isLoading: loading,
+    isPending: loading,
+    isError: false,
   } as unknown as ReturnType<typeof useInterviewPrepByApplication>);
 
   // Job Fit Analysis is backed by a real query (`useJobFitAnalyses`, added by
@@ -154,7 +162,8 @@ function renderDetail(phase: Phase) {
   // the only unsettled query in `fit-in-flight` (WIC-2141).
   vi.mocked(useJobFitAnalyses).mockReturnValue({
     data: fitLoading ? undefined : { analyses: [] },
-    isLoading: fitLoading,
+    isPending: fitLoading,
+    isError: false,
   } as unknown as ReturnType<typeof useJobFitAnalyses>);
 
   return render(
@@ -390,10 +399,11 @@ describe('ApplicationDetail — artefact steps while their queries are in flight
  * "we looked and there is none" for a full round-trip — the exact collapse
  * WIC-1630 was filed about, one row over.
  *
- * The suite could not catch it because this file pinned the fit query
- * `isLoading: false` in both phases by construction, so no value of the mock
- * could exercise the in-flight row. The fix is a third phase, not a flipped
- * flag: the settled-fit control above still has to hold for rows 1-3.
+ * The suite could not catch it because this file pinned the fit query settled in
+ * both phases by construction (then through `isLoading: false`; the flag the page
+ * reads is `isPending` since WIC-2227), so no value of the mock could exercise
+ * the in-flight row. The fix is a third phase, not a flipped flag: the
+ * settled-fit control above still has to hold for rows 1-3.
  */
 describe('ApplicationDetail — the Job Fit Analysis step while its query is in flight (WIC-2141)', () => {
   describe('AC-1 — an in-flight fit step does not render as settled-incomplete', () => {

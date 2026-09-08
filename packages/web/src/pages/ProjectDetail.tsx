@@ -5,6 +5,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useProjectFiles } from '../hooks/useProjects';
 import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { formatFileSize } from '../utils/formatFileSize';
 
 /**
  * This route's top-level heading, rendered on the loading branch as well as the loaded one
@@ -33,7 +34,12 @@ function ProjectDetailHeading({ name, subtitle }: { name: string; subtitle: Reac
 export function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const { data: files = [], isLoading } = useProjectFiles(projectId!);
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` with a `= []` default — see the note in
+  // `ProjectsList.tsx` for the mechanism (WIC-2227). The stake is higher here than an
+  // empty state: the subtitle below renders `files.length` as prose, so a `= []` default
+  // states "0 files in this project" as a FACT about a project whose file list was never
+  // successfully read.
+  const { data: files, isPending, isError } = useProjectFiles(projectId!);
 
   const projectName = projectId ? decodeURIComponent(projectId).replace(/-/g, ' ') : '';
 
@@ -42,7 +48,7 @@ export function ProjectDetail() {
   const heading = projectName || DYNAMIC_TITLE_FALLBACKS.project;
   useDocumentTitle(heading);
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <ProjectDetailHeading
@@ -53,6 +59,28 @@ export function ProjectDetail() {
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-24 animate-pulse rounded-lg bg-neutral-200"></div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  // An early return rather than a ternary in the subtitle below, deliberately: it makes
+  // `files.length` UNREACHABLE on the error path, so the count cannot be rendered from a
+  // list that was never read. A ternary would leave that expression one edit away from
+  // being restored.
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <Breadcrumb
+          trail={[
+            { label: 'Dashboard', href: '/' },
+            { label: 'Projects', href: '/projects' },
+            { label: projectName, href: `/projects/${projectId}` },
+          ]}
+        />
+        <ProjectDetailHeading name={heading} subtitle="File list unavailable" />
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-700">Failed to load project files. Please try again.</p>
         </div>
       </div>
     );
@@ -94,9 +122,7 @@ export function ProjectDetail() {
                   <span className="text-2xl">📄</span>
                   <div>
                     <h2 className="font-semibold text-neutral-900">{file.fileName}</h2>
-                    <p className="mt-1 text-sm text-neutral-600">
-                      {(file.size / 1024).toFixed(1)} KB
-                    </p>
+                    <p className="mt-1 text-sm text-neutral-600">{formatFileSize(file.size)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">

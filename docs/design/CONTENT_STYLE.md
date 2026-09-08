@@ -2,27 +2,63 @@
 
 **Project:** Careerpin
 **Owner:** Copywriter / Editor, with UI/UX Developer
-**Status:** 🟡 Proposed — **not adopted, and not currently pending.** See below.
+**Status:** 🟡 Proposed — **not adopted. A board decision is pending on WIC-1066.** See below.
 **Created:** August 19, 2026
 
 ---
 
 ## Adoption status — read this before citing this document
 
-**No board sign-off is on file, and none is awaiting an answer.** Both confirmations raised on
-WIC-1066 closed unanswered — one expired, one was cancelled — so the sentence-case decision this
-document proposes has never actually been made. Tracked in WIC-1066, with the measurement in
-WIC-2096.
+**No board sign-off is on file, and a decision is currently awaiting an answer.** The asks raised on
+WIC-1066 have a long tail of failures: `04635cbe` and `ad302b8d` expired unanswered, and `0e57d4ef`
+and `5b6d40bf` were cancelled and re-raised — `5b6d40bf` because the cost comparison it carried was
+wrong. As of this writing one ask is live and pending. So the sentence-case decision this document
+proposes has never been made, but it is live, not abandoned. **Do not close WIC-1066 on the
+reasoning that it has no decision path.** Tracked in WIC-1066, with the measurement in
+[`CASING_MIGRATION_INVENTORY.md`](./CASING_MIGRATION_INVENTORY.md).
 
-**The rule below is not reflected in the codebase.** Measured 2026-09-05 against `main` @ `d5f6b45`,
-across `packages/web/src` (headings and button/link labels, non-test source, multi-word strings):
-**77 title case against 13 sentence case** — statistically unmoved from the 93 / 7 that prompted
-this document on 2026-08-19. No migration was ever staged.
+**The live ask's id is deliberately not written down here.** It has changed three times in fifty
+hours, and every revision of this paragraph that pinned one was stale within days — the last one
+inside five minutes of the correction that introduced it. Read the newest `pending` interaction on
+WIC-1066 instead: `GET /api/issues/{WIC-1066}/interactions`. One property of it is worth stating,
+because the wording this replaces implied otherwise: its resolver policy is `anyone`, not
+`human_only`, so an agent *is* permitted to resolve it. None should. It is a brand judgement that
+commits real migration effort, and it is the board's to make.
 
-Concretely: **all five ❌ examples under "The rule" are live on `main`**, and three of the five ✅
-forms appear zero times. `Back to dashboard` — the string WIC-1063 arbitrated, and the reason this
-document exists — does not appear in the codebase at all; `JobFitAnalysis.tsx` and
-`ApplicationDetail.tsx` both render `← Back to Dashboard`.
+**The rule below is not reflected in the codebase.** Do not quote a number from this section —
+re-run [`ui-string-casing-inventory.py`](./ui-string-casing-inventory.py), which is committed
+precisely so this stops being re-argued by hand. At `main` @ `f97ae1ae` (2026-09-08) it reports
+**356 title case against 448 sentence case** over the strings the rule governs. No migration was
+ever staged.
+
+Read that ratio carefully, because it is not the one this section used to report: **the tree is
+already 56% sentence case.** The earlier hand counts (93 / 7, then 77 / 13) scanned only headings
+and button/link text nodes in `.tsx`, which is why they read as a ~13:1 title-case habit. Over every
+string the inventory reaches — JSX text, props, and string literals — it is roughly 4:5 *against*
+title case, because that population also includes the validation messages, confirm dialogs and empty
+states this document already notes are sentence case in the tree.
+
+**Do not read that ratio as a cost comparison — this section did, and it was wrong.** It used to
+argue that migrating **to** sentence case costs 356 strings while withdrawing the standard costs
+448, "so withdrawing is the more expensive option." **That claim is retracted.** The two numbers are
+not the same kind of number: 356 is a work-list, and 448 is a headcount. A large share of the 448 is
+full sentences — validation messages, confirm dialogs, empty-state prose — that **no title-case
+house style converts.** `Are you sure you want to delete this application?` does not become `Are You
+Sure You Want To Delete This Application?` under any standard, so those strings are not work under
+either outcome. Priced like-for-like the ordering reverses: withdrawing is the **cheaper**
+direction, not the more expensive one.
+
+**The priced comparison lives in the live ask on WIC-1066, and deliberately not here.** Two homes
+for one number is how the inverted claim above survived two corrections to this section. The ask is
+what the board answers from; read the figures there.
+
+Concretely: **all five ❌ examples under "The rule" are live on `main`**, and four of the five ✅
+forms appear zero times. The exception is `Back to dashboard` — the string WIC-1063 arbitrated, and
+the reason this document exists — which is live once, at `packages/web/src/pages/NotFound.copy.ts:23`.
+This section previously stated that string does not appear in the codebase at all; that was wrong at
+the commit it cited, because the hand regex read `.tsx` components and the string lives in a `.ts`
+copy module. Its ❌ form is rendered at three sites — `JobFitAnalysis.tsx:500`,
+`ApplicationDetail.tsx:266`, `ApplicationDetail.tsx:282` — all as `← Back to Dashboard`.
 
 **So cite this as a proposal, not as house style.** Two clauses are exceptions to that caution and
 *are* in force independently, because CI enforces them: the ALL-CAPS treatment rule (WIC-1209, via

@@ -8,6 +8,7 @@ import {
   deleteApplication,
   updateApplicationStatus,
 } from '../services/application.service.js';
+import { APPLICATION_SORT_KEYS } from '../types/index.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
 import { requireOwner } from './require-owner.js';
@@ -148,7 +149,10 @@ const listQuerySchema = z
     search: z.string().optional(),
     interviewDateFrom: interviewDateBound,
     interviewDateTo: interviewDateBound,
-    sortBy: z.enum(['createdAt', 'updatedAt', 'company', 'interviewDate']).optional(),
+    // WIC-2260 — validated against the same array the service switches on and
+    // the tiebreaker test iterates, so a new sort key cannot reach the query
+    // builder without also being covered by that test.
+    sortBy: z.enum(APPLICATION_SORT_KEYS).optional(),
     sortOrder: z.enum(['asc', 'desc']).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
     page: z.string().optional(),

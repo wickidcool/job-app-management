@@ -20,6 +20,25 @@ import { TARGETED_LIST_PAGE_MAX, itemsForApplication } from '../constants/applic
 import { DYNAMIC_TITLE_FALLBACKS } from '../constants/title';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { ApplicationStatus, ApplicationFormData } from '../types/application';
+import { parseDateOnly } from '../utils/parseDateOnly';
+
+/**
+ * Render `nextActionDue` — a bare `YYYY-MM-DD` calendar day — as a human date.
+ *
+ * WIC-2267: this used to be `format(new Date(value), 'MMM d, yyyy')`, which parses the
+ * date-only form as **UTC midnight**. In every negative-offset zone that renders the
+ * *previous* day, so a stored `2026-01-01` displayed as "Dec 31, 2025" — wrong day, month
+ * and year. `parseDateOnly` reads it as the local wall date it denotes.
+ *
+ * On an unparseable value it falls back to the raw string rather than a formatted date.
+ * That is also a crash fix: date-fns `format` throws `RangeError` on an invalid `Date`,
+ * so a malformed column value used to take down the whole detail route, and this is the
+ * only site that formats the field without a guard.
+ */
+function formatDueDate(value: string): string {
+  const due = parseDateOnly(value);
+  return due ? format(due, 'MMM d, yyyy') : value;
+}
 
 /**
  * The page shell, carrying this route's top-level heading (WIC-2050).
@@ -44,7 +63,17 @@ export function ApplicationDetail() {
   const [isEditOpen, setIsEditOpen] = useState(false);
 
   // Fetch data using React Query
-  const { data: application, isLoading: loading } = useApplication(id);
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` (WIC-2227). `isLoading` is
+  // `isPending && isFetching`, so it is false for a pending-but-*paused* query — and
+  // `application` is `undefined` there, which fell straight through to the
+  // `if (!application)` guard below and rendered **"Application not found"**. That is the
+  // worst false claim on this page: the record exists, we simply could not reach it.
+  //
+  // Splitting `isError` out is what keeps the not-found branch honest. `getById` maps a
+  // 404 to `null` and rethrows every other failure (`applicationService.ts:167-178`), so
+  // once the pending and error cases are handled ahead of it, a `null` here means the
+  // server really did answer, and really does not have this application.
+  const { data: application, isPending, isError } = useApplication(id);
 
   // Mirrors the page <h1> (`application.jobTitle`). The fallback covers the loading and
   // not-found renders, so the tab never reads `undefined — Careerpin` and never keeps the
@@ -68,17 +97,25 @@ export function ApplicationDetail() {
   // letters yet for this role" and an unticked checklist — this card's own
   // defect, re-created at the tail. Residual: it still fails above 100.
   //
-  // `isLoading` is read alongside `data` because the `= []` default cannot tell
-  // "the request has not come back" from "there are none", and rendering the
-  // second while the first is true is a false negative stated as fact — for a
-  // whole round-trip, since `enabled: !!application` means this query cannot
-  // even start until the application resolves (WIC-1630).
-  const { data: companyCoverLetters = [], isLoading: coverLettersLoading } = useCoverLetters(
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` (WIC-2227). The `= []` default cannot
+  // tell "the request has not come back" from "there are none", and rendering the second
+  // while the first is true is a false negative stated as fact. `isLoading` is
+  // `isPending && isFetching`, so it does not cover the two states where `data` is
+  // `undefined` with nothing in flight — *paused* and *failed* — which is why both flags
+  // are named here and folded into `coverLettersUnsettled` below (WIC-1630, WIC-2227).
+  const {
+    data: companyCoverLetters = [],
+    isPending: coverLettersPending,
+    isError: coverLettersError,
+  } = useCoverLetters(
     { company: application?.company, limit: TARGETED_LIST_PAGE_MAX },
     { enabled: !!application }
   );
   const coverLetters = application ? itemsForApplication(companyCoverLetters, application) : [];
   const latestCoverLetter = coverLetters[0];
+  // Named once because two surfaces read it — the checklist row and the Cover Letters
+  // section below — and they must not be able to drift apart.
+  const coverLettersUnsettled = coverLettersPending || coverLettersError;
 
   // Resume variants written for this application. Reconstructed exactly as the
   // cover letters above are, and for the same reason: `resume_variants` has no
@@ -86,7 +123,11 @@ export function ApplicationDetail() {
   // over-matching `ilike '%…%'`) and `itemsForApplication` makes it exact. The
   // two artefacts deliberately share one predicate rather than a copy — see the
   // module header for why (WIC-1536).
-  const { data: companyResumeVariants, isLoading: resumeVariantsLoading } = useResumeVariants(
+  const {
+    data: companyResumeVariants,
+    isPending: resumeVariantsPending,
+    isError: resumeVariantsError,
+  } = useResumeVariants(
     { company: application?.company, limit: TARGETED_LIST_PAGE_MAX },
     { enabled: !!application }
   );
@@ -106,16 +147,34 @@ export function ApplicationDetail() {
   // null`, so a truthy-but-empty body would otherwise tick a step for a prep
   // that is not there. `ApplicationDetail.pageCap.test.tsx` serves exactly that
   // body and caught it.
-  const { data: interviewPrep, isLoading: interviewPrepLoading } =
-    useInterviewPrepByApplication(id);
+  const {
+    data: interviewPrep,
+    isPending: interviewPrepPending,
+    isError: interviewPrepError,
+  } = useInterviewPrepByApplication(id);
   const hasInterviewPrep = !!interviewPrep?.interviewPrep;
 
-  // The four artefact steps, as the checklist reads them. `isLoading` is only
-  // ever true for an enabled, unsettled query in React Query v5 (it is
-  // `isPending && isFetching`), so a disabled query reads as settled rather
-  // than pinning a row at "unknown" forever.
-  const artefactStatus = (loading: boolean, present: boolean): ArtefactStatus =>
-    loading ? 'unknown' : present ? 'present' : 'absent';
+  // The four artefact steps, as the checklist reads them.
+  //
+  // ⚠️ The parameter is `unsettled` (`isPending || isError`), NOT `isLoading` (WIC-2227).
+  // `ArtefactStatus` is `'unknown' | 'absent' | 'present'` precisely so a row can decline
+  // to answer, and reading `isLoading` made that third state unreachable in two cases:
+  //
+  //   - **paused** — `isLoading` is `isPending && isFetching`, so it is FALSE for a query
+  //     that is pending but paused (`fetchStatus: "paused"`), which is what the default
+  //     `networkMode: "online"` does the moment the browser reports itself offline; and
+  //   - **failed** — `isError` leaves `data` undefined *permanently*.
+  //
+  // In both, `present` is false and the row rendered the definitive `'absent'`: a checklist
+  // stating as fact that the user has not written a cover letter, when the truth is that we
+  // could not find out. A three-state type defeated by a two-branch truthiness collapse.
+  //
+  // The superseded comment here defended `isLoading` on the grounds that a *disabled* query
+  // must not pin a row at "unknown" forever. That concern does not apply at this point in
+  // the render: every call site below sits past the `if (!application) return` guard, so
+  // `enabled: !!application` is necessarily true and the disabled state is unreachable.
+  const artefactStatus = (unsettled: boolean, present: boolean): ArtefactStatus =>
+    unsettled ? 'unknown' : present ? 'present' : 'absent';
 
   // Job fit analyses for this application, which — like the interview prep and
   // unlike the two artefact lists above — are *looked up* rather than
@@ -131,16 +190,18 @@ export function ApplicationDetail() {
   // that belong to no application, and a client filter over it could only
   // remove rows, never recover the one this page needed (WIC-1533).
   //
-  // `isLoading` is read alongside `data` for the same reason the three queries
-  // above do it: `fitAnalyses?.analyses?.[0]` is `undefined` both while the
-  // query is in flight and when it has come back empty, so reading `data` alone
-  // states "you have no analysis" as fact for a full round-trip. That was true
-  // of this row until WIC-2141 — WIC-1630 left it out because at the time the
-  // step was backed by no query at all, a premise WIC-1652 retired.
-  const { data: fitAnalyses, isLoading: fitAnalysesLoading } = useJobFitAnalyses(
-    { applicationId: id, limit: 1 },
-    { enabled: !!id }
-  );
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` (WIC-2227), for the same reason the three
+  // queries above name both: `fitAnalyses?.analyses?.[0]` is `undefined` while the query
+  // is in flight, while it is *paused*, after it has *failed*, and when it has genuinely
+  // come back empty — so reading `data` alone states "you have no analysis" as fact in
+  // the first three. That was true of this row until WIC-2141 — WIC-1630 left it out
+  // because at the time the step was backed by no query at all, a premise WIC-1652
+  // retired.
+  const {
+    data: fitAnalyses,
+    isPending: fitAnalysesPending,
+    isError: fitAnalysesError,
+  } = useJobFitAnalyses({ applicationId: id, limit: 1 }, { enabled: !!id });
   const latestFitAnalysis = fitAnalyses?.analyses?.[0];
   // "An analysis exists", not "an analysis scored something". An unscored
   // analysis — empty catalog, or a job description naming no required skills —
@@ -196,13 +257,33 @@ export function ApplicationDetail() {
     }
   };
 
-  if (loading) {
+  if (isPending) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-4xl mx-auto px-6 py-12">
           <ApplicationDetailHeading>{heading}</ApplicationDetailHeading>
           <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
             <p className="text-gray-500">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Ahead of the not-found branch, and distinct from it: a failed request is not evidence
+  // that the application does not exist (WIC-2227).
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-4xl mx-auto px-6 py-12">
+          <ApplicationDetailHeading>{heading}</ApplicationDetailHeading>
+          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+            <p className="text-gray-500 mb-4">
+              Couldn&rsquo;t load this application. Please try again.
+            </p>
+            <Link to="/" className="text-blue-600 hover:text-blue-700">
+              ← Back to Dashboard
+            </Link>
           </div>
         </div>
       </div>
@@ -309,14 +390,23 @@ export function ApplicationDetail() {
             applicationId={id!}
             status={application.status}
             hasJobDescription={!!application.jobDescription}
-            fitAnalysisStatus={artefactStatus(fitAnalysesLoading, hasFitAnalysis)}
+            fitAnalysisStatus={artefactStatus(
+              fitAnalysesPending || fitAnalysesError,
+              hasFitAnalysis
+            )}
             fitScore={fitScore}
             jobFitAnalysisId={latestFitAnalysis?.id}
-            coverLetterStatus={artefactStatus(coverLettersLoading, coverLetters.length > 0)}
+            coverLetterStatus={artefactStatus(coverLettersUnsettled, coverLetters.length > 0)}
             coverLetterId={latestCoverLetter?.id}
-            resumeVariantStatus={artefactStatus(resumeVariantsLoading, resumeVariants.length > 0)}
+            resumeVariantStatus={artefactStatus(
+              resumeVariantsPending || resumeVariantsError,
+              resumeVariants.length > 0
+            )}
             resumeVariantId={latestResumeVariant?.id}
-            interviewPrepStatus={artefactStatus(interviewPrepLoading, hasInterviewPrep)}
+            interviewPrepStatus={artefactStatus(
+              interviewPrepPending || interviewPrepError,
+              hasInterviewPrep
+            )}
           />
         </div>
 
@@ -332,12 +422,21 @@ export function ApplicationDetail() {
             </Link>
           </div>
           {/*
-            Driven by the same `coverLettersLoading` as the checklist step above
+            Driven by the same `coverLettersUnsettled` as the checklist step above
             so the two surfaces cannot disagree: the section saying "checking"
             while the row next to it says "none yet" is the half-fix WIC-1630
             was split out of WIC-1533 to avoid.
+
+            The failed branch is split out rather than folded into "Checking…" so the
+            two surfaces stay consistent WITHOUT this one lying in the other direction:
+            a permanently-failed query is not "checking", and saying so would leave a
+            spinner-shaped message on screen forever (WIC-2227).
           */}
-          {coverLettersLoading ? (
+          {coverLettersError ? (
+            <p className="text-sm text-gray-500">
+              Couldn&rsquo;t load cover letters for this role. Please try again.
+            </p>
+          ) : coverLettersPending ? (
             <p className="text-sm text-gray-500" aria-busy="true">
               Checking for cover letters…
             </p>
@@ -462,7 +561,7 @@ export function ApplicationDetail() {
                 <div>
                   <dt className="text-sm font-medium text-gray-500">Next Action Due</dt>
                   <dd className="text-sm text-gray-900">
-                    {format(new Date(application.nextActionDue), 'MMM d, yyyy')}
+                    {formatDueDate(application.nextActionDue)}
                   </dd>
                 </div>
               )}

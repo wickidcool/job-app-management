@@ -15,6 +15,18 @@ interface QuickWinsProps {
    * the *least* recently updated rows is blind to every row it should find.
    */
   attention?: DashboardAttention;
+  /**
+   * The dashboard request failed (WIC-2236).
+   *
+   * Only consulted where `attention` is absent. "Checking your applications…" is a claim
+   * about a request in flight, and a failed query never settles — so without this the
+   * card sat there saying it was still checking, permanently, three inches from two
+   * sibling surfaces that had already reported the same failure.
+   *
+   * A failed *refetch* keeps the cached `attention`, so this flag does not blank the rows
+   * above: same rule as the Recent Activity panel it shares a query with.
+   */
+  error?: boolean;
 }
 
 /**
@@ -52,7 +64,7 @@ interface QuickWin {
   applicationId?: string;
 }
 
-export function QuickWins({ attention }: QuickWinsProps) {
+export function QuickWins({ attention, error = false }: QuickWinsProps) {
   const quickWins: QuickWin[] = [];
   const samples = attention?.samples;
   const counts = attention?.counts;
@@ -179,7 +191,19 @@ export function QuickWins({ attention }: QuickWinsProps) {
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <p className="text-sm text-neutral-500">Checking your applications…</p>
+            {/*
+              A failed request is not a request in progress (WIC-2236). Splitting these
+              is the same move the Recent Activity panel makes on this query, and for the
+              same reason: `isError` never settles, so the "checking" copy would stay on
+              screen forever. The copy is distinct from that panel's and from the stat
+              cards' — three surfaces read this one query, and identical sentences on one
+              screen make a page-level `getByText` ambiguous.
+            */}
+            <p className="text-sm text-neutral-500">
+              {error
+                ? 'Couldn’t load your quick wins. Please try again.'
+                : 'Checking your applications…'}
+            </p>
           </div>
         )}
       </div>

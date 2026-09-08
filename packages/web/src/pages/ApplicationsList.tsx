@@ -14,6 +14,8 @@ import {
 import { useDebounce } from '../hooks/useDebounce';
 import { filterByDateRange } from '../utils/dateRangeFilter';
 import { parseStatusParam } from '../constants/applicationStatus';
+import { INTERVIEW_WINDOW_PARAM, INTERVIEW_WINDOW_THIS_WEEK } from '../constants/filterShortcuts';
+import { interviewWeekWindow } from '../utils/interviewWeek';
 import type { Application, ApplicationStatus } from '../types/application';
 import { DEFAULT_STALE_THRESHOLD_DAYS, isStale } from '../constants/stale';
 
@@ -46,20 +48,72 @@ function calculatePipelineStats(applications: Application[]) {
   return { active: activeApps.length, overdue, dueToday, dueSoon, stale };
 }
 
+/**
+ * One pipeline-summary tile.
+ *
+ * Extracted from five inlined copies (WIC-2229) so the `unsettled` gate is written once.
+ * The tiles were the only part of this page with NO loading gate — `KanbanBoard` took
+ * `loading` and skeletoned, while these rendered `calculatePipelineStats([])` — so a slow
+ * request stated "Active 0 / Overdue 0 / …" for as long as it took to arrive. Five inline
+ * ternaries would have made that one careless edit away from returning.
+ */
+function PipelineStat({
+  value,
+  label,
+  valueClassName,
+  unsettled,
+}: {
+  value: number;
+  label: string;
+  valueClassName: string;
+  unsettled: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-white p-3">
+      {unsettled ? (
+        <div
+          className="mb-1 h-8 w-10 animate-pulse rounded bg-neutral-200"
+          role="status"
+          aria-label={`Loading ${label} count`}
+        />
+      ) : (
+        <div className={`text-2xl font-bold ${valueClassName}`}>{value}</div>
+      )}
+      <div className="text-sm text-neutral-600">{label}</div>
+    </div>
+  );
+}
+
 export function ApplicationsList() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const statusParam = searchParams.get('status');
+  const interviewWindowParam = searchParams.get(INTERVIEW_WINDOW_PARAM);
 
-  // The command palette links here as `/applications?status=interview,phone_screen`. Until
+  // The command palette links here as
+  // `/applications?status=interview,phone_screen&interviewWindow=this-week`. Until
   // WIC-1775 that query string was never read, so every shortcut landed on the unfiltered
   // list and the label above it was false whatever it said.
+  //
+  // WIC-2194 adds the window half. It arrives as the *marker* `this-week` rather than as
+  // resolved instants, and is resolved here, on arrival — so a bookmarked or shared link
+  // means "this week" whenever it is followed, not the week it was created in. An
+  // unrecognised value yields no window at all, matching how `parseStatusParam` drops
+  // unknown status tokens rather than forwarding them.
+  const windowFromParam = (value: string | null) =>
+    value === INTERVIEW_WINDOW_THIS_WEEK ? interviewWeekWindow() : undefined;
+
   const [filters, setFilters] = useState<FilterOptions>(() => {
     const status = parseStatusParam(statusParam);
-    return status.length > 0 ? { status } : {};
+    const interviewDateRange = windowFromParam(interviewWindowParam);
+    return {
+      ...(status.length > 0 ? { status } : {}),
+      ...(interviewDateRange ? { interviewDateRange } : {}),
+    };
   });
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [prevStatusParam, setPrevStatusParam] = useState(statusParam);
+  const [prevInterviewWindowParam, setPrevInterviewWindowParam] = useState(interviewWindowParam);
 
   // Re-apply when a shortcut navigates here while this page is already mounted — the
   // initialiser above only runs on first render. This is the derived-state-during-render
@@ -71,6 +125,24 @@ export function ApplicationsList() {
     if (status.length > 0) {
       setFilters((prev) => ({ ...prev, status }));
     }
+  }
+
+  // Tracked separately from `statusParam`, not folded into it: navigating from
+  // `Interviews This Week` to `Applied` changes both params, but navigating *away* from
+  // the interviews shortcut drops this one alone. Keying only on `statusParam` would
+  // leave last week's window applied under the new shortcut's label — the same defect,
+  // one navigation later.
+  if (interviewWindowParam !== prevInterviewWindowParam) {
+    setPrevInterviewWindowParam(interviewWindowParam);
+    setFilters((prev) => {
+      const interviewDateRange = windowFromParam(interviewWindowParam);
+      if (interviewDateRange) return { ...prev, interviewDateRange };
+      // `delete` on a copy rather than a rest-destructure: the lint config rejects the
+      // unused binding that `const { interviewDateRange: _x, ...rest }` leaves behind.
+      const next = { ...prev };
+      delete next.interviewDateRange;
+      return next;
+    });
   }
 
   // `filters` updates on every keystroke so that `FilterPanel` can stay controlled (it
@@ -87,11 +159,26 @@ export function ApplicationsList() {
       // API only supports single company partial match, not multiple exact matches
       // We'll handle multiple companies via client-side filtering
       company: undefined,
+      // WIC-2194 — server-side, unlike `company`/`activeOnly`/`dateRange` below. The
+      // capability shipped in WIC-2189 and had no client caller, so filtering here
+      // instead would have left that validated path dark while duplicating its predicate,
+      // and would only have been correct up to `getAllPaged`'s 5,000-row budget. These
+      // bounds are already offset-bearing instants; `interviewWeekWindow` is the only
+      // thing that should ever construct them.
+      interviewDateFrom: filters.interviewDateRange?.from,
+      interviewDateTo: filters.interviewDateRange?.to,
     }),
-    [filters.status, debouncedSearch]
+    [filters.status, debouncedSearch, filters.interviewDateRange]
   );
 
-  const { data: collection, isLoading } = useApplicationCollection(apiFilters);
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` (WIC-2227/WIC-2229). `isLoading` is
+  // `isPending && isFetching`, so it is false for a pending-but-*paused* query, and it is
+  // false for a failed one — `data` is undefined in all three states. This page had no
+  // `isError` read at all, so a failed `getAllPaged` rendered the whole account as empty:
+  // five zeroed pipeline tiles and six "No <status> applications" board columns, with
+  // `isPartialView` correctly suppressed, which made it read as an authoritative complete
+  // view of nothing.
+  const { data: collection, isPending, isError } = useApplicationCollection(apiFilters);
   // Memoised so the `?? []` fallback does not hand a fresh array to the
   // downstream useMemo deps on every render.
   const rawApplications = useMemo(() => collection?.applications ?? [], [collection]);
@@ -183,6 +270,28 @@ export function ApplicationsList() {
     'withdrawn',
   ];
 
+  // An early return rather than a banner above the board, deliberately, and the same
+  // reasoning as `ProjectDetail` (WIC-2227): it makes `pipelineStats` and the board's own
+  // per-column empty states UNREACHABLE on the error path. Both derive from
+  // `collection?.applications ?? []`, so leaving either rendered would keep the false claim
+  // one careless edit from returning. The filter controls go with them — there is nothing
+  // to filter, and offering to narrow a list that was never read is its own small lie.
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <Breadcrumb trail={breadcrumbTrail} />
+
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-neutral-900">Applications</h1>
+        </div>
+
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-700">Failed to load your applications. Please try again.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       <Breadcrumb trail={breadcrumbTrail} />
@@ -203,28 +312,36 @@ export function ApplicationsList() {
 
       {/* Pipeline Stats Summary */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-        <div className="rounded-lg border border-neutral-200 bg-white p-3">
-          <div className="text-2xl font-bold text-neutral-900">{pipelineStats.active}</div>
-          <div className="text-sm text-neutral-600">Active</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-white p-3">
-          <div className="text-2xl font-bold text-red-600">{pipelineStats.overdue}</div>
-          <div className="text-sm text-neutral-600">Overdue</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-white p-3">
-          <div className="text-2xl font-bold text-orange-600">{pipelineStats.dueToday}</div>
-          <div className="text-sm text-neutral-600">Due Today</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-white p-3">
-          <div className="text-2xl font-bold text-yellow-600">{pipelineStats.dueSoon}</div>
-          <div className="text-sm text-neutral-600">Due Soon</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-white p-3">
-          <div className="text-2xl font-bold text-neutral-600">{pipelineStats.stale}</div>
-          <div className="text-sm text-neutral-600">
-            Stale ({DEFAULT_STALE_THRESHOLD_DAYS}+ days)
-          </div>
-        </div>
+        <PipelineStat
+          value={pipelineStats.active}
+          label="Active"
+          valueClassName="text-neutral-900"
+          unsettled={isPending}
+        />
+        <PipelineStat
+          value={pipelineStats.overdue}
+          label="Overdue"
+          valueClassName="text-red-600"
+          unsettled={isPending}
+        />
+        <PipelineStat
+          value={pipelineStats.dueToday}
+          label="Due Today"
+          valueClassName="text-orange-600"
+          unsettled={isPending}
+        />
+        <PipelineStat
+          value={pipelineStats.dueSoon}
+          label="Due Soon"
+          valueClassName="text-yellow-600"
+          unsettled={isPending}
+        />
+        <PipelineStat
+          value={pipelineStats.stale}
+          label={`Stale (${DEFAULT_STALE_THRESHOLD_DAYS}+ days)`}
+          valueClassName="text-neutral-600"
+          unsettled={isPending}
+        />
       </div>
 
       <div className="mb-4 space-y-3">
@@ -284,7 +401,7 @@ export function ApplicationsList() {
         onCardClick={(id) => navigate(`/applications/${id}`)}
         onEdit={(id) => navigate(`/applications/${id}`)}
         onDelete={handleDelete}
-        loading={isLoading}
+        loading={isPending}
       />
 
       <FloatingActionButton

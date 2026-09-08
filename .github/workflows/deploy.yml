@@ -256,6 +256,42 @@ jobs:
           python3 scripts/e2e-skip-floor-check.py --selftest
           python3 scripts/e2e-skip-floor-check.py
 
+      # WIC-2279: `applications.next_action_due` is a Postgres `date`, served by drizzle
+      # as a bare `YYYY-MM-DD`. `new Date('2026-01-01')` parses that as UTC midnight, so
+      # a local formatter renders the *previous* calendar day in every negative-offset
+      # zone -- wrong day, month and year, and a row due today badges "Overdue". It
+      # shipped to production twice, in mirror-image halves (WIC-2268 the SQL side,
+      # WIC-2267 the label side), because both are silent under `TZ=UTC` -- which is
+      # exactly what this pipeline runs. No existing signal can see it: the behaviour
+      # test on `reports.service.needsAction` covers the call sites that exist, not the
+      # one someone adds next week.
+      #
+      # This does NOT pin a violation count, and as of WIC-2322 it pins nothing at all.
+      # PR #469 landed, the four `packages/web` sites stopped matching, the script printed
+      # its RETIRE notice naming them, and the `LEGACY` list is now empty -- so this step
+      # runs `--strict` and EVERY occurrence anywhere in the tree is fatal, with no
+      # exceptions and no allowlist. The staged retirement was the point: the notice is
+      # deliberately non-fatal so that the merge which FIXES the bug is not the merge that
+      # turns `main` red.
+      #
+      # ⛔ If you ever need to pin a site again, add it to `LEGACY` *and* drop `--strict`
+      # here for exactly as long as that pin lives. Under `--strict` the pins are never
+      # consulted, so a pin added while this flag is on is silently inert.
+      #
+      # The selftest runs first and is the load-bearing half. A tree scan reporting zero
+      # is byte-indistinguishable from a scanner that silently matches nothing, so the
+      # fixtures assert both directions -- 10 spellings that must flag, and 7 that must
+      # not, including `new Date(application.interviewDate)`, which is TIMESTAMPTZ and
+      # therefore correct. That argument now carries the whole step: with `LEGACY` empty a
+      # clean `--strict` run and a dead scanner print the same thing, so the fixtures are
+      # the only reason to believe the zero. They cover the retirement machinery too, on a
+      # synthetic pin list rather than on `LEGACY` -- driving them from the real list made
+      # all four arms vacuous the moment it was emptied. Pure stdlib, no network, ~30ms.
+      - name: Audit date-only parsing of `nextActionDue`
+        run: |
+          python3 scripts/date-only-guard.py --selftest
+          python3 scripts/date-only-guard.py --strict
+
       - name: Run tests
         run: npm run test
 

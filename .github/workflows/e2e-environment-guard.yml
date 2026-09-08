@@ -1,0 +1,111 @@
+name: E2E Environment Guard
+
+# WIC-2262, enforcing WIC-2204 / WIC-2201.
+#
+# WHAT IT GUARDS
+#
+# The `e2e-tests` job in `.github/workflows/deploy.yml` must NEVER declare a
+# job-level `environment:` key. Naming an environment makes the dev-scoped
+# `E2E_TEST_USER*` secrets resolve, which wakes ~29 credential-gated Playwright
+# specs against a backend CI never starts. They time out, `e2e-tests` blows its
+# 15-minute limit, and because `deploy-production` declares
+# `needs: [lint-and-test, e2e-tests]` a cancelled `e2e-tests` SKIPS the deploy —
+# `main` then silently ships nothing. Measured on run 34052242328 (e2e-tests
+# cancelled at 15m14s, deploy-production skipped), reverted in PR #446.
+#
+# The check is `scripts/deploy-e2e-environment-guard.py`: it PARSES deploy.yml
+# with PyYAML and asserts on `jobs['e2e-tests']` only. It is deliberately narrow
+# because `e2e-isolation-coverage` and `deploy-preview` legitimately carry
+# `environment: dev` and must stay. A grep would red-line `main` on day one
+# (three of the five `environment: dev` lines on `main` are prose) and get
+# disabled — do NOT replace the parse with grep.
+#
+# WHY `pull_request_target` AND WHY A SEPARATE FILE (same reasoning as
+# skip-ci-guard.yml and changelog-union-guard.yml):
+# `[skip ci]` suppresses both `push` and `pull_request`, so a check that must be
+# unsuppressable cannot live on those events. And the change this guard exists to
+# catch can break deploy.yml's OWN ability to run — so the guard must not live
+# inside deploy.yml. `pull_request_target` is not skippable and runs from the
+# BASE branch, so it always produces a check run.
+#
+# SECURITY. `pull_request_target` grants a base-repo token. This job downgrades
+# to read-only, references no secrets, and NEVER CHECKS OUT OR EXECUTES PR HEAD
+# CODE. On a PR it checks out the trusted default branch (which carries the
+# guard script), then reads the PR head's deploy.yml as a git BLOB with
+# `git show` — data, never anything that runs. That is also why fork PRs need no
+# special case. On `push`/`workflow_dispatch` it checks the ref's own working
+# tree.
+
+on:
+  pull_request_target:
+    # `branches:` filters the BASE branch; `['**']` covers stacked PRs (WIC-1138).
+    branches: ['**']
+    # `edited` catches a retarget, which emits no push/synchronize.
+    types: [opened, synchronize, reopened, edited]
+  push:
+    # Green-on-`main` evidence, and the trigger that self-tests a freshly merged
+    # guard script.
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: e2e-environment-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: e2e-tests must declare no environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Trusted code only. On a PR this is the DEFAULT branch (never PR head);
+      # the guard script is read from here. On push/dispatch it is the ref's own
+      # tree, which is what we want to check.
+      - name: Check out trusted tree (never PR head code)
+        uses: actions/checkout@v4
+        with:
+          ref: >-
+            ${{ github.event_name == 'pull_request_target'
+                && github.event.repository.default_branch
+                || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      # Runs on every trigger, including the ones that find no PR. A green
+      # self-test is the load-bearing evidence that the guard flags the change it
+      # exists to catch — a run that reports "OK" on a clean tree is otherwise
+      # indistinguishable from a guard that can no longer fire.
+      - name: Self-test the guard against fixtures
+        run: python3 scripts/deploy-e2e-environment-guard.py --selftest
+
+      - name: Resolve which deploy.yml to check
+        id: target
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            # Read the PR HEAD's deploy.yml as DATA only — fetched as a git object
+            # and dumped with `git show`. It is never checked out and never run.
+            git fetch --no-tags --depth=1 origin \
+              "pull/${{ github.event.pull_request.number }}/head"
+            git show FETCH_HEAD:.github/workflows/deploy.yml \
+              > "$RUNNER_TEMP/deploy.yml"
+            echo "path=$RUNNER_TEMP/deploy.yml" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=.github/workflows/deploy.yml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Guard — e2e-tests must not declare an environment
+        run: |
+          python3 scripts/deploy-e2e-environment-guard.py \
+            --file "${{ steps.target.outputs.path }}"

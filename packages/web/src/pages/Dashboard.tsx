@@ -6,31 +6,49 @@ import { QuickWins } from '../components/QuickWins';
 import { useDashboard } from '../hooks/useDashboard';
 import { useResumes } from '../hooks/useResumes';
 import { APPLIED_WINDOW_METRIC_LABEL } from '../constants/appliedWindow';
-import type { ApplicationStatus } from '../types/application';
-import { asRatio } from '../types/units';
 
 export function Dashboard() {
-  const { data: dashboardData, isLoading: dashboardLoading } = useDashboard();
-  const { data: resumes = [], isLoading: resumesLoading } = useResumes();
+  // ⚠️ `isPending`, NOT `isLoading` (WIC-2227). `isLoading` is `isPending && isFetching`,
+  // so it is false for a pending-but-*paused* query — what the default
+  // `networkMode: "online"` does the moment the browser reports itself offline — and
+  // `data` is still undefined there. Reading it let the resume widget below fall through
+  // to "No resumes yet" / "Upload Your First Resume" for a user who has resumes.
+  const {
+    data: dashboardData,
+    isPending: dashboardPending,
+    isError: dashboardError,
+  } = useDashboard();
+  // ⚠️ No `= []` default (WIC-2236), for the same reason `stats` below has no zeros object.
+  // The default collapsed "no measurement" into a measured `0` before the resume widget
+  // ever saw it, so the widget could not tell a user with genuinely no resumes from one
+  // whose list we failed to read — and it therefore had to treat `error` alone as proof
+  // that its counts were worthless. `undefined` is what makes the difference expressible.
+  const { data: resumes, isPending: resumesPending, isError: resumesError } = useResumes();
 
-  const loading = dashboardLoading || resumesLoading;
+  const loading = dashboardPending || resumesPending;
 
-  const stats = dashboardData?.stats || {
-    total: 0,
-    byStatus: {} as Record<ApplicationStatus, number>,
-    appliedThisWeek: 0,
-    appliedThisMonth: 0,
-    responseRate: asRatio(0),
-  };
+  // ⚠️ No `|| { total: 0, byStatus: {}, … }` fallback here (WIC-2229). PR #458 moved this
+  // page off `isLoading`, but left the zeros object in place — so a FAILED `GET /dashboard`
+  // still rendered "0 / 0 / 0% / 0" and "In Progress 0" as measured facts about the user's
+  // pipeline. `byStatus` defaulting to `{}` made it worse than a plain zero: the arithmetic
+  // below produced `undefined + undefined` = `NaN`, which `|| 0` laundered into a confident
+  // `0`. The three unsettled states (pending, paused, failed) all leave `stats` undefined,
+  // and none of them entitles this page to state a number — so the number is now
+  // unrepresentable without one, rather than defaulted.
+  const stats = dashboardData?.stats;
 
-  const displayStats = {
-    total: stats.total,
-    appliedThisWeek: stats.appliedThisWeek,
-    responseRate: stats.responseRate,
-    inReview: stats.byStatus.phone_screen + stats.byStatus.interview || 0,
-  };
+  const displayStats = stats
+    ? {
+        total: stats.total,
+        appliedThisWeek: stats.appliedThisWeek,
+        responseRate: stats.responseRate,
+        inReview: stats.byStatus.phone_screen + stats.byStatus.interview || 0,
+      }
+    : undefined;
 
-  const inProgressCount = (stats.byStatus.phone_screen || 0) + (stats.byStatus.interview || 0);
+  const inProgressCount = stats
+    ? (stats.byStatus.phone_screen || 0) + (stats.byStatus.interview || 0)
+    : undefined;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -42,11 +60,17 @@ export function Dashboard() {
       </div>
 
       <div className="mb-6">
-        <DashboardStats stats={displayStats} loading={loading} />
+        <DashboardStats stats={displayStats} loading={loading} error={dashboardError} />
       </div>
 
       <div className="mb-6">
-        <QuickWins attention={dashboardData?.attention} />
+        {/*
+          `error` is read here but `attention` is not gated on it (WIC-2236): a failed
+          refetch keeps the cached aggregates, so the flag only decides what this card
+          says when it has nothing — "couldn't load" rather than a "checking" claim that
+          outlives the request it describes.
+        */}
+        <QuickWins attention={dashboardData?.attention} error={dashboardError} />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -92,9 +116,17 @@ export function Dashboard() {
         </div>
 
         <DashboardResumeWidget
-          masterResumeCount={resumes.length}
-          exportCount={resumes.length}
+          // `resumes?.length`, not `resumes.length` — see the hook read above. Both props
+          // are fed from the one array, so they are measured together or not at all.
+          masterResumeCount={resumes?.length}
+          exportCount={resumes?.length}
           loading={loading}
+          // A failed resumes request must not read as "you have none": `isError` leaves
+          // `data` undefined permanently, so the empty branch would be a standing false
+          // claim rather than a flash (WIC-2227). It is now passed alongside the counts
+          // rather than instead of them, so a failed *refetch* over a warm cache keeps
+          // the figures and discloses that they are stale (WIC-2236).
+          error={resumesError}
         />
 
         <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
@@ -105,15 +137,45 @@ export function Dashboard() {
             </div>
           </div>
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-neutral-600">In Progress</span>
-              <span className="font-semibold text-neutral-900">{inProgressCount}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              {/* Rolling window, not the current calendar week — see constants/appliedWindow.ts. */}
-              <span className="text-neutral-600">{APPLIED_WINDOW_METRIC_LABEL}</span>
-              <span className="font-semibold text-neutral-900">{stats.appliedThisWeek}</span>
-            </div>
+            {/*
+              Same rule as the stat cards above, and this panel needed it more: it had no
+              loading gate at all, so it stated "In Progress 0" during the request as well
+              as after a failed one. Both figures come off `stats`, so both are withheld
+              together — a partially-populated activity list would be its own false claim
+              (WIC-2229).
+
+              ⚠️ Gated on `stats`, deliberately NOT on `dashboardError` (WIC-2233). A failed
+              *refetch* keeps the previous data, so `dashboardError` is true while `stats`
+              is still a real measurement. Adding it here would blank this panel while
+              `QuickWins` and `AttentionCard` — same query object, same cached `attention` —
+              carried on rendering, which is the contradiction WIC-2233 was filed for, just
+              moved. `DashboardStats` discloses the stale refresh once, next to the figures.
+            */}
+            {stats ? (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-neutral-600">In Progress</span>
+                  <span className="font-semibold text-neutral-900">{inProgressCount}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  {/* Rolling window, not the current calendar week — see constants/appliedWindow.ts. */}
+                  <span className="text-neutral-600">{APPLIED_WINDOW_METRIC_LABEL}</span>
+                  <span className="font-semibold text-neutral-900">{stats.appliedThisWeek}</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-neutral-500">
+                {/*
+                  Not "Checking your applications…" — that is `QuickWins`'s unsettled copy
+                  and it renders from the same query, so the two panels would show the same
+                  sentence twice on the same screen. (It also made an early draft of the
+                  test ambiguous, which is how it was noticed.)
+                */}
+                {dashboardError
+                  ? 'Couldn’t load your recent activity. Please try again.'
+                  : 'Checking your recent activity…'}
+              </p>
+            )}
             <Link
               to="/applications"
               className="mt-4 block rounded-lg border border-primary-600 px-4 py-2 text-center text-sm font-medium text-primary-600 hover:bg-primary-50"

@@ -39,7 +39,14 @@ function ProjectsListHeading({ actions }: { actions?: ReactNode }) {
 
 export function ProjectsList() {
   const navigate = useNavigate();
-  const { data: projects = [], isLoading } = useProjects();
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` with a `= []` default. `data` is
+  // `undefined` in THREE states — pending, paused and failed — so a bare `= []` collapses
+  // "don't know yet" and "couldn't find out" into the definitive claim "you have none",
+  // which this page renders as "Create Your First Project" (WIC-2227). In React Query v5
+  // `isLoading` is `isPending && isFetching`, so it is false for a query that is pending
+  // but *paused* — exactly what the default `networkMode: "online"` does the moment the
+  // browser reports itself offline. Same class as WIC-2179 / `CommandPalette`.
+  const { data: projects, isPending, isError } = useProjects();
   const createProject = useCreateProject();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -104,7 +111,7 @@ export function ProjectsList() {
     }
   };
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <ProjectsListHeading />
@@ -156,7 +163,15 @@ export function ProjectsList() {
         }
       />
 
-      {projects.length === 0 ? (
+      {isError ? (
+        // A failed request must never fall through to the empty state below: `isError`
+        // leaves `data` undefined permanently, so "Create Your First Project" would be a
+        // standing false claim rather than a flash. Copy and markup match the established
+        // pattern in `ResumeManager.tsx`.
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-700">Failed to load projects. Please try again.</p>
+        </div>
+      ) : projects.length === 0 ? (
         <EmptyState
           variant="no-documents"
           onAction={handleOpenCreate}

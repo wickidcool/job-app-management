@@ -126,3 +126,42 @@ describe('the Ratio/Percent unit brands', () => {
     expect(typeof notARatioEither).toBe('number');
   });
 });
+
+/**
+ * WIC-2229. `stats` became optional so the caller could stop inventing a zeros object to
+ * satisfy a required prop, and the `!stats` clause in the loading guard is what makes that
+ * safe. It is deliberately NOT reachable from `Dashboard` — that page's `loading` covers
+ * pending and paused, and its `error` covers failed — so the page-level suite in
+ * `Dashboard.unsettled.test.tsx` cannot kill a mutant that drops it. This is that mutant's
+ * only executioner.
+ *
+ * The property being pinned is not "renders a skeleton". It is that **no caller can make
+ * this component state a figure it was never given**, including one that forgets `loading`.
+ */
+describe('DashboardStats — no stats, no figure (WIC-2229)', () => {
+  it('renders the skeleton, not zeros, when `stats` is absent and `loading` is unset', () => {
+    cleanup();
+    render(<DashboardStats />);
+
+    expect(screen.getAllByRole('status', { name: 'Loading statistics' })).toHaveLength(4);
+    // The specific fabrications the old required-prop shape produced. `0%` in particular
+    // can be rendered by nothing else in this component.
+    expect(screen.queryByText('0%')).toBeNull();
+    expect(screen.queryByText('0')).toBeNull();
+  });
+
+  it('CONTROL: given stats and no `loading`, it does render the figures', () => {
+    // Without this, the assertion above is satisfied by a component that has lost its
+    // ability to render at all.
+    cleanup();
+    render(
+      <DashboardStats
+        stats={{ total: 9, appliedThisWeek: 2, responseRate: asRatio(0.5), inReview: 1 }}
+      />
+    );
+
+    expect(screen.getByText('9')).toBeTruthy();
+    expect(screen.getByText('50%')).toBeTruthy();
+    expect(screen.queryByRole('status', { name: 'Loading statistics' })).toBeNull();
+  });
+});

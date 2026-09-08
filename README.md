@@ -126,6 +126,7 @@ npm run db:migrate
 | `npm run lint`                    | Lint all packages                                     |
 | `npm run test`                    | Run unit tests (Vitest) across packages               |
 | `npm run test:e2e`                | Run Playwright E2E tests                              |
+| `npm run preflight`               | Refuse to certify a suite result from a stale tree    |
 | `npm run format`                  | Format with Prettier                                  |
 | `npm run db:migrate`              | Run database migrations                               |
 | `npm run db:push`                 | Push schema changes directly (dev only)               |

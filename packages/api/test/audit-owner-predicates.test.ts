@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -655,5 +655,356 @@ describe('[LAUNDER] route-layer owner laundering', () => {
       `${HANDLER}\nexport const h = () => serve(c.get('requestId') ?? undefined);\n`
     );
     expect(checksAt(r, 'LAUNDER')).toHaveLength(0);
+  });
+});
+
+/**
+ * The ungated population is pinned for growth (WIC-2300).
+ *
+ * The guard's `unique/pk-scoped` bucket is out of scope by design, and that is
+ * not what these cases test. They test that the bucket cannot GROW unnoticed —
+ * because a write only ever lands in it by *failing* to resolve to an owner
+ * term, so growth means the audit stopped seeing something it used to see.
+ *
+ * The mechanism is reproduced in miniature: the same `ownerScope` helper, once
+ * defined in the file that uses it and once imported. On `origin/main` dc333a0b
+ * that edit moved two DELETE paths and one UPDATE out of the gated set while
+ * `findings` stayed at 24 and the guard exited 0 — so the exit code is the thing
+ * under test here, not the finding list.
+ */
+describe('ungated-population pin', () => {
+  let root: string;
+
+  const SCHEMA_MIN = `
+import { pgTable, text, uuid } from 'drizzle-orm/pg-core';
+export const widgets = pgTable('widgets', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+});
+`;
+
+  /** The owner term resolvable inside the file — what `main` actually does. */
+  const IN_FILE = `import { eq, and, isNull } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
+import { widgets } from '../db/schema.js';
+declare const db: any;
+
+function ownerScope<T extends { userId: PgColumn }>(table: T, userId?: string) {
+  return userId ? eq(table.userId, userId) : isNull(table.userId);
+}
+
+export async function removeWidget(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), ownerScope(widgets, userId)));
+}
+`;
+
+  /** Byte-identical call sites; the helper now lives in `lib/`. The mutant. */
+  const IMPORTED = `import { eq, and } from 'drizzle-orm';
+import { widgets } from '../db/schema.js';
+import { ownerScope } from '../lib/owner-scope.js';
+declare const db: any;
+
+export async function removeWidget(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), ownerScope(widgets, userId)));
+}
+`;
+
+  const write = (source: string) =>
+    writeFileSync(join(root, 'src/services/subject.service.ts'), source);
+
+  /** Run the guard for its EXIT CODE — the `--json` path exits before the gate. */
+  function gate(): { status: number; stderr: string; stdout: string } {
+    const r = spawnSync('node', [SCRIPT, `--root=${root}`], { encoding: 'utf8' });
+    return { status: r.status ?? -1, stderr: r.stderr, stdout: r.stdout };
+  }
+
+  const acceptCurrentAsBaseline = () =>
+    spawnSync('node', [SCRIPT, `--root=${root}`, '--write-baseline'], { encoding: 'utf8' });
+
+  const ungatedOf = (source: string) => {
+    write(source);
+    const out = spawnSync('node', [SCRIPT, `--root=${root}`, '--json'], { encoding: 'utf8' });
+    return JSON.parse(out.stdout).stats.ungated as Array<Record<string, string>>;
+  };
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'ac-t0-ungated-'));
+    mkdirSync(join(root, 'src/db'), { recursive: true });
+    mkdirSync(join(root, 'src/services'), { recursive: true });
+    mkdirSync(join(root, 'src/routes'), { recursive: true });
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'src/db/schema.ts'), SCHEMA_MIN);
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  // The mechanism, isolated. If this pair ever stops differing, every gate case
+  // below goes vacuous while still passing — so assert the delta, not just the
+  // exit code.
+  it('reclassifies an owner-scoped write into the ungated bucket when the helper is imported', () => {
+    expect(ungatedOf(IN_FILE)).toEqual([]);
+    expect(ungatedOf(IMPORTED)).toEqual([
+      {
+        file: 'src/services/subject.service.ts',
+        bucket: 'unique',
+        verb: 'delete',
+        table: 'widgets',
+      },
+    ]);
+  });
+
+  it('fails when the extraction moves a write out of the gated set', () => {
+    write(IN_FILE);
+    acceptCurrentAsBaseline();
+    expect(gate().status).toBe(0);
+
+    write(IMPORTED);
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('MOVED OUT of the gated set');
+    expect(r.stderr).toContain("delete 'widgets'");
+    // The failure must not be misread as a new fail-open branch: the AC-T0
+    // finding list is unchanged, and the message has to say so.
+    expect(r.stderr).toContain('failed on the ungated population');
+  });
+
+  // The real WIC-2300 delta included a key going 1 -> 2. A set-valued pin sees
+  // that key as already present and stays green, so the counting is the check.
+  it('fails on a COUNT increase for a key already in the baseline', () => {
+    write(IMPORTED);
+    acceptCurrentAsBaseline();
+    expect(gate().status).toBe(0);
+
+    write(`${IMPORTED}
+export async function removeWidgetAgain(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), ownerScope(widgets, userId)));
+}
+`);
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('(1 -> 2)');
+  });
+
+  // Shrinkage means the guard can see a write it previously could not. That is
+  // the burndown direction and must never fail, or nobody will run it.
+  it('stays green when the ungated population shrinks', () => {
+    write(IMPORTED);
+    acceptCurrentAsBaseline();
+    write(IN_FILE);
+    const r = gate();
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('newly visible to the guard');
+  });
+
+  // Deleting the pin is the cheapest way to disarm this check, and an absent
+  // file must not read as an empty population.
+  it('fails when the ungated baseline is missing rather than passing silently', () => {
+    write(IMPORTED);
+    acceptCurrentAsBaseline();
+    expect(gate().status).toBe(0);
+
+    rmSync(join(root, 'scripts/owner-predicates.ungated.baseline.json'));
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('ungated-population baseline is MISSING');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// [UNRESOLVED] -- the escape the ungated pin above structurally cannot see
+// (WIC-2304). That pin fails when a write MOVES OUT of the gated set. This one
+// fails when a write never entered EITHER set, because `tableNameOf` resolved
+// its table to a helper's parameter name instead of a schema table.
+//
+// The two directions are NOT the same test and neither implies the other:
+//
+//   ADDITION   -- a new ungated write in parameter shape. writeSites 1 -> 1,
+//                 ungated unchanged, so the pin is byte-identical to clean.
+//   CONVERSION -- an existing counted write rewritten into parameter shape.
+//                 writeSites 1 -> 0. The pin SEES this and deliberately does
+//                 not fail on it, because shrinkage is the burndown direction.
+//
+// Both exited 0 before this gate. Assert both, and assert the counters, so a
+// future change that makes one of them merely *reported* fails here.
+// ---------------------------------------------------------------------------
+describe('[UNRESOLVED] writes whose table does not resolve to a schema table', () => {
+  let root: string;
+
+  const SCHEMA_MIN = `
+import { pgTable, text, uuid } from 'drizzle-orm/pg-core';
+export const widgets = pgTable('widgets', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+});
+export const globals = pgTable('globals', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+});
+`;
+
+  const HEAD = `import { eq, and } from 'drizzle-orm';
+import { widgets, globals } from '../db/schema.js';
+declare const db: any;
+`;
+
+  /** One ordinary owner-scoped write, so the tree is non-empty and green. */
+  const CLEAN = `${HEAD}
+export async function removeWidget(id: string, userId: string) {
+  await db.delete(widgets).where(and(eq(widgets.id, id), eq(widgets.userId, userId)));
+}
+`;
+
+  const write = (source: string) =>
+    writeFileSync(join(root, 'src/services/subject.service.ts'), source);
+
+  function gate(): { status: number; stderr: string; stdout: string } {
+    const r = spawnSync('node', [SCRIPT, `--root=${root}`], { encoding: 'utf8' });
+    return { status: r.status ?? -1, stderr: r.stderr, stdout: r.stdout };
+  }
+
+  const acceptCurrentAsBaseline = () =>
+    spawnSync('node', [SCRIPT, `--root=${root}`, '--write-baseline'], { encoding: 'utf8' });
+
+  const statsOf = (source: string) => {
+    write(source);
+    const out = spawnSync('node', [SCRIPT, `--root=${root}`, '--json'], { encoding: 'utf8' });
+    return JSON.parse(out.stdout).stats as {
+      writeSites: number;
+      ungated: Array<Record<string, string>>;
+      unresolvedWriteTables: Array<Record<string, string | number>>;
+    };
+  };
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'ac-t0-unresolved-'));
+    mkdirSync(join(root, 'src/db'), { recursive: true });
+    mkdirSync(join(root, 'src/services'), { recursive: true });
+    mkdirSync(join(root, 'src/routes'), { recursive: true });
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'src/db/schema.ts'), SCHEMA_MIN);
+    write(CLEAN);
+    acceptCurrentAsBaseline();
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('is empty on a clean tree, so the gate starts armed at zero', () => {
+    const s = statsOf(CLEAN);
+    expect(s.unresolvedWriteTables).toEqual([]);
+    expect(gate().status).toBe(0);
+  });
+
+  // ADDITION. The counters the two existing pins read are byte-identical to
+  // CLEAN, which is exactly why this escaped before -- assert that explicitly,
+  // or the test passes for the wrong reason if the classification ever moves.
+  it('fails on a NEW ungated write whose table is a helper parameter', () => {
+    const clean = statsOf(CLEAN);
+    const s = statsOf(`${CLEAN}
+export async function touch(tbl: any, id: string) {
+  await db.update(tbl).set({ label: 'x' }).where(eq(tbl.id, id));
+}
+`);
+    expect(s.writeSites).toBe(clean.writeSites);
+    expect(s.ungated).toEqual(clean.ungated);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('could not be resolved to any table in the schema');
+    expect(r.stderr).toContain("update 'tbl'");
+  });
+
+  // CONVERSION. The mirror image: the ungated pin does see the write leave, and
+  // deliberately reports rather than fails. Without this gate that is an exit 0.
+  it('fails when an EXISTING counted write is rewritten into parameter shape', () => {
+    const clean = statsOf(CLEAN);
+    const s = statsOf(`${HEAD}
+export async function removeWidget(id: string, userId: string) {
+  const tbl = widgets;
+  await db.delete(tbl).where(and(eq(tbl.id, id), eq(tbl.userId, userId)));
+}
+`);
+    expect(s.writeSites).toBe(clean.writeSites - 1);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+    expect(gate().status).toBe(1);
+  });
+
+  // Negative controls. The gate is at zero with no baseline to absorb a false
+  // positive, so noise here is not a nuisance -- it is a permanently red main.
+  // These are the four real shapes that tripped the first draft on `baca0685`:
+  // Map.delete, R2Bucket.delete (scalar and array), createHash().update.
+  it('ignores non-drizzle .update/.delete calls', () => {
+    const s = statsOf(`${CLEAN}
+import { createHash } from 'node:crypto';
+declare const r2: { delete(k: string | string[]): Promise<void> };
+
+export function evict(buckets: Map<string, number>, key: string) {
+  buckets.delete(key);
+}
+export function hash(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+export async function removeObject(key: string, keys: string[]) {
+  await r2.delete(key);
+  await r2.delete(keys.slice(0, 100));
+}
+`);
+    expect(s.unresolvedWriteTables).toEqual([]);
+    expect(gate().status).toBe(0);
+  });
+
+  // A write against a real table that simply has no owner column is a decision
+  // the guard is entitled to make, and must stay silent -- this is the whole
+  // reason the check tests membership in ALL_TABLES rather than OWNER_TABLES.
+  it('ignores a write against a declared but owner-free table', () => {
+    const s = statsOf(`${CLEAN}
+export async function relabel(id: string) {
+  await db.update(globals).set({ label: 'x' }).where(eq(globals.id, id));
+}
+`);
+    expect(s.unresolvedWriteTables).toEqual([]);
+    expect(gate().status).toBe(0);
+  });
+
+  // The receiver list cannot enumerate every name a db handle might take, so
+  // the chain shape has to carry it alone. Kill the receiver signal and the
+  // site must still be caught.
+  it('catches a parameter-shaped write through a differently-named handle', () => {
+    const s = statsOf(`${CLEAN}
+declare const database: any;
+export async function touch(tbl: any, id: string) {
+  await database.update(tbl).set({ label: 'x' }).where(eq(tbl.id, id));
+}
+`);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+    expect(gate().status).toBe(1);
+  });
+
+  // ...and symmetrically, a chainless write has no shape to match, so the
+  // receiver signal has to carry that one. Neither signal alone is sufficient.
+  it('catches a chainless parameter-shaped write via the receiver', () => {
+    const s = statsOf(`${CLEAN}
+export async function wipe(tbl: any) {
+  await db.delete(tbl);
+}
+`);
+    expect(s.unresolvedWriteTables).toHaveLength(1);
+    expect(gate().status).toBe(1);
+  });
+
+  it('names the unresolved gate in the failure summary, not the ungated pin', () => {
+    write(`${CLEAN}
+export async function touch(tbl: any, id: string) {
+  await db.update(tbl).set({ label: 'x' }).where(eq(tbl.id, id));
+}
+`);
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('failed on an unresolvable write table');
+    expect(r.stderr).not.toContain('failed on the ungated population');
   });
 });

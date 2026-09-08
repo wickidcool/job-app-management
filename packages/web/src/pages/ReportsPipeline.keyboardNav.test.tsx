@@ -43,7 +43,11 @@ function report(): PipelineReportResponse {
             company: 'Acme',
             location: 'Remote',
             nextAction: 'Await response',
-            nextActionDue: '2026-09-20T00:00:00Z',
+            // WIC-2267: bare `YYYY-MM-DD`, not a datetime. `next_action_due` is a Postgres
+            // `date` column (`schema.ts:52`, `mode: 'string'`) the service passes through
+            // unformatted, so the `...T00:00:00Z` this used to carry is a shape the endpoint
+            // never sends — and `parseDateOnly` now declines it rather than guessing.
+            nextActionDue: '2026-09-20',
             updatedAt: '2026-09-04T00:00:00Z',
             createdAt: '2026-08-01T00:00:00Z',
           },

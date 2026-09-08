@@ -24,6 +24,8 @@ import { useNavigate } from 'react-router-dom';
 import { useReportsPipeline } from '../hooks/useReports';
 import type { PipelineApplication, ActiveStatus } from '../services/api';
 import { DEFAULT_STALE_THRESHOLD_DAYS, isStale } from '../constants/stale';
+import { parseDateOnly } from '../utils/parseDateOnly';
+import { calendarDaysBetween } from '../utils/interviewCountdown';
 
 const STATUS_LABELS: Record<ActiveStatus, string> = {
   saved: 'Saved',
@@ -46,20 +48,52 @@ const STATUS_HEADER_COLORS: Record<ActiveStatus, string> = {
   interview: 'bg-purple-100 text-purple-800',
 };
 
+/**
+ * Whole calendar days from today until `nextActionDue`, or `null` when there is no
+ * parseable due date. Negative is overdue, `0` is due today.
+ *
+ * WIC-2267: this file held **three** hand-rolled variants of this arithmetic, each
+ * starting from `new Date('YYYY-MM-DD')` — which ECMAScript parses as **UTC midnight** —
+ * and comparing it against **local** midnight. The mismatch is exactly one calendar day
+ * in every negative-offset zone, so a row due today was badged "Overdue" throughout the
+ * Americas, and a row due in exactly 3 days lost its "Due soon" badge in positive-offset
+ * zones. Measured 8,640/120,960 and 24,480/120,960 samples wrong in `America/New_York`,
+ * on all 1440 start minutes — all day, every day, not a narrow window.
+ *
+ * Both halves of the fix are load-bearing. `parseDateOnly` reads the string as the local
+ * wall date it denotes (the parse was the bug), and `calendarDaysBetween` collapses both
+ * operands to their own local midnight before subtracting, so the result counts date
+ * boundaries crossed rather than 24-hour blocks elapsed. Routing the old parse through
+ * `calendarDaysBetween` alone would still have been off by one.
+ *
+ * That pairing also settles the `floor`-vs-`ceil` disagreement with the server rather than
+ * picking a side: both ends now count *date boundaries crossed*, so the old `Math.ceil` here
+ * and the service's `Math.floor` (`reports.service.ts:214`) no longer describe different
+ * quantities on the same row.
+ *
+ * ⚠️ Do NOT read that as "there is no fraction left to round." The quotient inside
+ * `calendarDaysBetween` is whole only on DST-free intervals. A local day spanning a
+ * transition is 23 or 25 hours, so the quotient is 0.9583 or 1.0417 — measured, in
+ * `America/New_York`, on 2026-03-08 and 2026-11-01. That `Math.round` is **load-bearing**,
+ * and is pinned by a mutant in each direction: `ceil` reds the fall-back test and `floor`
+ * reds the spring-forward one (`parseDateOnly.test.ts`). Replacing it with truncation, or
+ * with "the quotient is whole now, just divide", reintroduces this bug class on exactly two
+ * days a year.
+ */
+function daysUntilDue(nextActionDue: string | null | undefined): number | null {
+  const due = parseDateOnly(nextActionDue);
+  if (!due) return null;
+  return calendarDaysBetween(new Date(), due);
+}
+
 function isDueSoon(nextActionDue: string | null | undefined): boolean {
-  if (!nextActionDue) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(nextActionDue);
-  const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  return diffDays <= 3;
+  const days = daysUntilDue(nextActionDue);
+  return days !== null && days <= 3;
 }
 
 function isOverdue(nextActionDue: string | null | undefined): boolean {
-  if (!nextActionDue) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return new Date(nextActionDue) < today;
+  const days = daysUntilDue(nextActionDue);
+  return days !== null && days < 0;
 }
 
 // WIC-1479: this page held two more copies of the stale rule — a local
@@ -139,9 +173,6 @@ export function ReportsPipeline() {
   const stats = useMemo(() => {
     if (!data) return { overdue: 0, dueToday: 0, dueSoon: 0, stale: 0 };
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     let overdue = 0;
     let dueToday = 0;
     let dueSoon = 0;
@@ -149,10 +180,12 @@ export function ReportsPipeline() {
 
     for (const group of data.groups) {
       for (const app of group.applications) {
-        if (app.nextActionDue) {
-          const due = new Date(app.nextActionDue);
-          due.setHours(0, 0, 0, 0);
-          const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        // NOTE: this tile counts `dueSoon` at <= 7 days while the per-row badge above uses
+        // <= 3, so a row 5 days out is in the "Due soon" total with no "Due soon" badge.
+        // That predates WIC-2267 and is left alone deliberately — it is a product question
+        // about which window this report means, not a timezone defect.
+        const diffDays = daysUntilDue(app.nextActionDue);
+        if (diffDays !== null) {
           if (diffDays < 0) overdue++;
           else if (diffDays === 0) dueToday++;
           else if (diffDays <= 7) dueSoon++;

@@ -40,7 +40,18 @@ function ProjectFileEditorHeading({
 
 export function ProjectFileEditor() {
   const { projectId, fileName } = useParams<{ projectId: string; fileName: string }>();
-  const { data: content, isLoading } = useProjectFile(projectId!, fileName!);
+  // ⚠️ `isPending` + `isError`, NOT `isLoading` with a `|| ''` default at the render site —
+  // see `ProjectsList.tsx` for the mechanism (WIC-2227/WIC-2229). `projectService`
+  // `getProjectFile` does NOT map 404 to `null` the way `applicationService.getById` does,
+  // so a missing or unreadable file arrives here as `isError` with `data` undefined and
+  // `isLoading` false. This page then rendered the filename from the URL param, a
+  // breadcrumb naming it, and an empty content card: an affirmative claim that the file
+  // exists and is blank.
+  //
+  // The Edit → Save path is what makes it more than a cosmetic false claim. `Edit` seeded
+  // `setEditedContent(content || '')` and `handleSave` PUTs that string back, so a user who
+  // opened a file whose contents never loaded was one click from overwriting it with `''`.
+  const { data: content, isPending, isError } = useProjectFile(projectId!, fileName!);
   const updateFile = useUpdateProjectFile();
 
   // Mirrors the page <h1> (`fileName`). Taken from the URL param, so unlike the other
@@ -76,11 +87,33 @@ export function ProjectFileEditor() {
     setEditMode(false);
   };
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <ProjectFileEditorHeading name={heading} projectName={projectName} />
         <div className="h-96 animate-pulse rounded-lg bg-neutral-200"></div>
+      </div>
+    );
+  }
+
+  // An early return rather than an error banner inside the editor, deliberately: it makes
+  // BOTH the empty content card and the `Edit` button unreachable on the error path. A
+  // banner would leave the save-over-nothing hazard one click away, which is the half of
+  // this defect that costs data rather than trust.
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <Breadcrumb
+          trail={[
+            { label: 'Dashboard', href: '/' },
+            { label: 'Projects', href: '/projects' },
+            { label: projectName, href: `/projects/${projectId}` },
+          ]}
+        />
+        <ProjectFileEditorHeading name={heading} projectName={projectName} />
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <p className="text-red-700">Failed to load this file. Please try again.</p>
+        </div>
       </div>
     );
   }
@@ -121,7 +154,9 @@ export function ProjectFileEditor() {
             ) : (
               <button
                 onClick={() => {
-                  setEditedContent(content || '');
+                  // No `|| ''`: the two early returns above narrow `content` to `string`,
+                  // so there is no longer an undefined to launder into an empty file.
+                  setEditedContent(content);
                   setEditMode(true);
                 }}
                 className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
@@ -182,7 +217,7 @@ export function ProjectFileEditor() {
             </Link>
             <div className="rounded-lg border border-neutral-200 bg-white p-6">
               <div className="prose prose-sm max-w-none">
-                <Markdown remarkPlugins={[remarkFrontmatter, remarkGfm]}>{content || ''}</Markdown>
+                <Markdown remarkPlugins={[remarkFrontmatter, remarkGfm]}>{content}</Markdown>
               </div>
             </div>
           </div>

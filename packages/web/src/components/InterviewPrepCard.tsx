@@ -1,4 +1,5 @@
 import type { InterviewPrep, ApplicationSummary } from '../types/interviewPrep';
+import { interviewCountdown } from '../utils/interviewCountdown';
 
 interface InterviewPrepCardProps {
   application: ApplicationSummary & {
@@ -24,46 +25,9 @@ export function InterviewPrepCard({
   onExportQuickRef,
   onPractice,
 }: InterviewPrepCardProps) {
-  const getCountdownInfo = () => {
-    if (!application.interviewDate) {
-      return null;
-    }
-
-    const interviewDate = new Date(application.interviewDate);
-    const now = new Date();
-    const diffMs = interviewDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-    const diffHours = Math.ceil(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.ceil(diffMs / (1000 * 60));
-
-    if (diffMs < 0) {
-      return { text: 'Interview completed', urgency: 'past' as const };
-    }
-
-    if (diffMinutes < 120) {
-      return { text: `In ${diffMinutes} minutes`, urgency: 'critical' as const };
-    }
-
-    if (diffHours < 24) {
-      return { text: `In ${diffHours} hours`, urgency: 'high' as const };
-    }
-
-    if (diffDays === 1) {
-      return { text: 'Tomorrow', urgency: 'medium' as const };
-    }
-
-    if (diffDays === 2) {
-      return { text: 'In 2 days', urgency: 'medium' as const };
-    }
-
-    if (diffDays <= 7) {
-      return { text: `In ${diffDays} days`, urgency: 'low' as const };
-    }
-
-    return { text: `In ${diffDays} days`, urgency: 'neutral' as const };
-  };
-
-  const countdown = getCountdownInfo();
+  // Calendar-day arithmetic, and a null on an unparseable date, both live in the util —
+  // see `interviewCountdown.ts` for why neither belongs inline here.
+  const countdown = interviewCountdown(application.interviewDate);
 
   const urgencyStyles = {
     critical: 'border-red-500 bg-red-50',
