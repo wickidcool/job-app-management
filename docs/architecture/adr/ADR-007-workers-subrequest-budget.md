@@ -351,9 +351,11 @@ still needs the deploy.
 
 **Credit where it is due: the credential branch was already closed by WIC-2214**
 (2026-09-06), and by a *stronger* method than anything below — `deploy.yml`
-builds `DATABASE_URL` in one shell block used both for migrations and for the
-Worker secret push, so run `34065995060` doing real DDL in under 3 s **is** a
-direct test of the string the Worker receives. The rows below re-derive that
+builds `DATABASE_URL` from `SUPABASE_DATABASE_PASSWORD` by **byte-identical
+logic in two steps of the same `deploy-production` job** — the one that runs the
+migrations (`:982`) and the one that exports it to the Worker (`:1032`) — so run
+`34065995060` doing real DDL in under 3 s **is** a direct test of the string the
+Worker receives. The rows below re-derive that
 result independently from outside CI; they corroborate it and do not replace it.
 
 What they add is a **stronger form of the claim**. WIC-2214 established that the
