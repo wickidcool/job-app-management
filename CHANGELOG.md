@@ -109,6 +109,21 @@ The control is therefore the SQL half, which asserts the emitted ORDER BY ends i
 
 
 
+### Documentation — ADR-007's TLS hypothesis is half measured, and a bad database secret is now excluded as a cause of the prod outage (2026-09-08)
+
+ADR-007's *Candidate mechanism* was flagged as **unverified inference** and carried a falsification test that required a production deploy to run. Half of it has now been measured without one, by probing the endpoint production actually dials (`aws-1-us-west-2.pooler.supabase.com:6543`) over the real `SSLRequest` → TLS → startup sequence.
+
+**Established.** The pooler's chain fails verification against the public WebPKI store — **verify code 19, `self-signed certificate in certificate chain`** — while the same handshake completes with verification disabled. `Supabase Root 2021 CA` is confirmed absent from the public trust store *on production's own path*, so certificate verification is the only variable separating a completed handshake from a failed one on that endpoint.
+
+**Still inference, and labelled as such.** Nothing here observes what the Workers TLS stack does with postgres-js's `rejectUnauthorized: false`. These probes ran from a general-purpose Linux host, so they characterise the *endpoint*, not the Workers runtime — which is why the CA finding transfers and the handshake-behaviour finding does not.
+
+**The credential branch was already closed by WIC-2214** (2026-09-06), by a stronger method than anything here: `deploy.yml` builds `DATABASE_URL` from `SUPABASE_DATABASE_PASSWORD` by byte-identical logic in two steps of the same `deploy-production` job — the one that runs the migrations (`:982`) and the one that exports it to the Worker (`:1032`) — so a migration run doing real DDL in under 3 s *is* a direct test of the string the Worker receives. The probes below corroborate that from outside CI and do not replace it.
+
+What they add is a stronger form of the claim — not that the credential is good, but that a bad one **could not have produced this signature even if it were wrong**, which forecloses the branch without depending on any secret's current value. A tenant-less username returns `XX000 ENOIDENTIFIER`; a deliberately wrong password completes SCRAM-SHA-256 and returns **`28P01`** in 591 ms. Every credential-shaped failure is a *server-generated* `ErrorResponse`, which reaches postgres-js's `errored()` and ends the dial loop after a **single** dial. It cannot produce the accept-then-close that `connect-bound.ts` documents as the spin trigger. Two further branches stay closed by the same probes: the project is live (`postgres.fnmuvgnkxdeupprcyvdt` reaches `AuthenticationSASL` in 81 ms) and the host is reachable (3 A records, 21–29 ms TCP connect, 0 AAAA).
+
+Documentation only. No code, no tests, no behaviour change.
+
+
 ### Tooling — a CI tripwire now fails the build if a `date` column is handed to `new Date(...)`
 
 The `nextActionDue` timezone bug shipped to production **twice**, in mirror-image halves — the SQL-bound side (WIC-2268) and the label side (WIC-2267) — because both are silent under `TZ=UTC`, which is what CI runs. Nothing in the suite fails when a *new* call site reintroduces the same parse: the behavioural test on `reports.service.needsAction` covers the call sites that exist, not the one someone adds next week. `scripts/date-only-guard.py` gates that hazard directly, and runs in the `Lint & Test` job.
