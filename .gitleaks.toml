@@ -1,7 +1,27 @@
-# Addendum A Rev 5 — fleet rule extension.
+# Addendum A Rev 6 — fleet rule extension. (Rev 6: WIC-2367 — tuned allowlists.)
 # Extends the gitleaks default rule set; does NOT replace it.
 [extend]
 useDefault = true
+
+# WIC-2367: global structural allowlist for default rules that cannot be extended
+# per-rule in the extend.useDefault model.  regexTarget="match" runs against the
+# full Match field (key=value context), not just the secret.  Entries here are
+# STRUCTURAL ONLY (Rev 6.2 §A.2.2) — patterns that are never a real credential
+# by construction, not by corpus inspection.
+[allowlist]
+description = "Structural suppression for default rules (WIC-2367)"
+regexTarget = "match"
+regexes = [
+  # JWT HS256 header constant followed by a literal ellipsis.  Decodes to
+  # {"alg":"HS256","typ":"JWT"} — the public header segment, no payload, no
+  # signature.  Every HS256 token shares this prefix; the ellipsis means the
+  # author intentionally truncated the example.  Zero entropy per construction.
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.{3}''',
+  # JSON "_key" field whose value is an alphanumeric identifier (metric / dashboard key).
+  # The field name "_key" is a HogQL/PostHog convention for naming a metric series;
+  # its value is never an API key — it is always a short snake_case label.
+  '''^_key":\s*"[A-Za-z][A-Za-z0-9_]+"$''',
+]
 
 # WIC-1070: a Google OAuth *refresh* token sat in public git history from 2020.
 # GitHub's scanner flags it (google_oauth_refresh_token); gitleaks' default set does NOT.
@@ -40,7 +60,15 @@ tags = ["adr-0001", "db-credential"]
   regexTarget = "match"
   regexes = [
     # Userinfo half is a placeholder, so no credential is named.
-    '''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{8,}|redacted|your[-_]?password|changeme|placeholder)[^@\s]*@''',
+    # Rev 6 (WIC-2367): loosened x{8,} → x{3,} to cover "xxx"-style placeholders;
+    # added bare "password" (matches "password"/"PASSWORD" but NOT "Passw0rd" variants
+    # since '0' ≠ 'o', making this structurally safe — no real deployment credential
+    # uses the literal word "password" as its value).
+    '''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{3,}|redacted|your[-_]?password|password|changeme|placeholder)[^@\s]*@''',
+    # Rev 6 (WIC-2367): SCREAMING_CASE token (e.g. PROJECT, PASSWORD) in userinfo.
+    # Uses (?-i:...) to restore case-sensitivity inside the outer (?i) context,
+    # ensuring only all-uppercase tokens suppress (not camelCase like "Passw0rd").
+    '''(?i)://[^@\s]*(?-i:[A-Z][A-Z0-9_]{3,})[^@\s]*@''',
     # WIC-2243: host half is provably non-routable, so the string cannot name a live
     # credential no matter what the userinfo says. Structural (host class), not
     # corpus-derived, so it belongs here rather than in the baseline (Rev 6.2 §A.2.2).
@@ -50,4 +78,9 @@ tags = ["adr-0001", "db-credential"]
     '''(?i)@[^@\s]*\.(?:invalid|test|example|localhost)(?::\d+)?$''',
     # RFC 2606 §3 reserved second-level example domains.
     '''(?i)@(?:[^@\s]*\.)?example\.(?:com|net|org)(?::\d+)?$''',
+    # Rev 6 (WIC-2367): single-label dotless hostname — no dot means the name cannot
+    # resolve in public DNS (must be a local /etc/hosts or Docker network alias).
+    # Same structural argument WIC-2243 accepted for loopback and RFC 2606 names.
+    # Pattern anchors at $ so it cannot match the host-portion of a multi-label name.
+    '''(?i)@[a-z0-9][a-z0-9_-]*(:[a-z0-9]+)?$''',
   ]
