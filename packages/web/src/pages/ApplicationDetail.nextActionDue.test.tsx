@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApplicationDetail } from './ApplicationDetail';
+import { seedAuthSession } from '../test/session';
 
 /**
  * WIC-2267 — the "Next Action Due" date, asserted through the rendered page.
@@ -60,6 +61,7 @@ function stubFetch(application: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  seedAuthSession();
   stubFetch(APPLICATION);
 });
 

@@ -48,6 +48,19 @@ A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `ne
 
 
 
+
+### Fixed — a request sent before the auth token was written signed the user straight back out (2026-09-13)
+
+`APIClient.request` attached the Authorization header only `if (token)` and sent the request either way. Every endpoint reachable through that client is behind the Worker's JWT middleware — `/auth/*` is the app's one unauthenticated surface and `AuthContext` calls it with bare `fetch`, never through the client — so a tokenless request could only come back 401. The 401 branch dispatches `auth:unauthorized`, which `AuthContext` handles by clearing storage and nulling the session. A protected query that mounted or refetched in the window before the token was written therefore destroyed the session the user had just established.
+
+`request()` now refuses locally when there is no token, and the Authorization header is attached unconditionally. It deliberately does **not** dispatch `auth:unauthorized`: no server said the session was invalid, and `AuthContext` documents that file as the event's only dispatch site. Fixing it in the client rather than as an `enabled:` guard on one hook closes the window for every service at once.
+
+Found as five failing specs in `multi-user-isolation.spec.ts` with a single cause — a bare `GET /applications?limit=100` racing login. Four were 30s waits for UI that never arrived because the app had signed itself out; the fast one is the `:554` assertion that no API request goes out without an Authorization header.
+
+The complementary half is **not** in this change: a protected query that runs while signed out now surfaces an error state instead of silently 401ing, so the hooks should still gain an `enabled:` predicate driven by auth state. That is tracked on WIC-2384 and is a separate, wider edit.
+
+Four existing suites needed a session seeded (`test/session.ts`) rather than an assertion changed. They render authenticated surfaces through the real `apiClient` with a stubbed `fetch`, and never set a token — the client's old permissiveness was masking incomplete setup, not proving a signed-out behaviour. `ResumeUpload`'s XHR upload and `interviewPrepService.downloadQuickReference` keep their conditional header: both are user-initiated, so neither can race login, and neither dispatches `auth:unauthorized`.
+
 ### Fixed — `GET /api/auth/me` called a GoTrue **admin** endpoint with the **anon** key, so every session died on page load (2026-09-13)
 
 The route built a Supabase client from `SUPABASE_ANON_KEY` and called
