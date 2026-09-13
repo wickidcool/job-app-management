@@ -22,7 +22,7 @@ import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
 import { describeDbFailure, isDatabaseUnreachable } from './db/connect-bound.js';
 import { getRequestContext } from './db/context.js';
-import { probeDirectEgress } from './db/egress-probe.js';
+import { BUDGET_NOTE, CANDIDATE_PORTS, probeDirectEgress, realDeps } from './db/egress-probe.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
 
 /**
@@ -134,14 +134,31 @@ export function buildApp() {
   // unauthenticated, exactly like `/health`; the gate means the one environment
   // where that text could describe a real customer database never serves it.
   // Preview and dev both set NODE_ENV=development in `wrangler.jsonc`.
+  // `?port=` probes a single candidate. This is not a convenience: the
+  // subrequest budget is **per invocation**, and the first measured run showed
+  // the direct dial exhausting all 1000 of it in 3.5s, so the second candidate
+  // reported `elapsedMs: 0` with a budget error it inherited rather than
+  // earned. Two ports in one request cannot both be measurements — only the
+  // first is. Probe one port per request to give each a fresh budget.
   const egressHandler = async (c: Context<AppEnv>) => {
     if (c.env?.NODE_ENV === 'production') return c.notFound();
     const databaseUrl = c.env?.DATABASE_URL;
     if (!databaseUrl) {
       return c.json({ status: 'not_applicable', reason: 'no DATABASE_URL binding' }, 200);
     }
-    const report = await probeDirectEgress(databaseUrl);
-    return c.json({ status: 'ok', ...report }, 200);
+    const requested = c.req.query('port');
+    let ports: readonly number[] = CANDIDATE_PORTS;
+    if (requested !== undefined) {
+      const port = Number(requested);
+      // Allowlist rather than parse: this dials whatever it is handed, so an
+      // arbitrary caller-supplied port would make the endpoint a port scanner.
+      if (!CANDIDATE_PORTS.includes(port as (typeof CANDIDATE_PORTS)[number])) {
+        return c.json({ status: 'invalid_port', allowed: CANDIDATE_PORTS, requested }, 400);
+      }
+      ports = [port];
+    }
+    const report = await probeDirectEgress(databaseUrl, realDeps(), ports);
+    return c.json({ status: 'ok', budgetNote: BUDGET_NOTE, ...report }, 200);
   };
   app.get('/health/egress', egressHandler);
   app.get('/api/health/egress', egressHandler);

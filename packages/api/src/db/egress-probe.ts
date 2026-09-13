@@ -48,6 +48,27 @@ export const CANDIDATE_PORTS = [6543, 5432] as const;
  */
 export const PROBE_DEADLINE_MS = 4000;
 
+/**
+ * ⚠️ Measured 2026-09-13 on preview `fa43e15d`: the 4s deadline above **does
+ * not bind first**. The direct dial exhausts the invocation's entire
+ * 1000-subrequest budget in ~3.5s and fails with *"Too many subrequests by
+ * single Worker invocation"* — the same string production carried before #364
+ * renamed it.
+ *
+ * The consequence is a reporting trap, and it caught this module's own first
+ * run. The budget is **per invocation**, not per dial, so once the first
+ * candidate has spent it every later candidate in the same request fails
+ * instantly on a budget error it inherited rather than earned: the second probe
+ * returned `elapsedMs: 0` with a verdict that measured nothing. A multi-port
+ * response is therefore **one measurement and N-1 artifacts**.
+ *
+ * `?port=` exists so each candidate gets a fresh invocation. Prefer it, and
+ * distrust any `no_server_response` whose `elapsedMs` is ~0 — that is the
+ * signature of an inherited budget error, not of a refusing host.
+ */
+export const BUDGET_NOTE =
+  'the subrequest budget is per invocation: in a multi-port response only the first probe is a measurement. Use ?port= for the rest.';
+
 export type EgressOutcome = 'ok' | 'server_response' | 'no_server_response';
 
 export interface EgressProbeResult {

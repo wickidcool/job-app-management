@@ -240,6 +240,17 @@ describe('GET /health/egress', () => {
     await expect(res.json()).resolves.toMatchObject({ status: 'not_applicable' });
   });
 
+  // The `?port=` success path is covered at module level (`probeDirectEgress`
+  // with an explicit `ports` argument, above) rather than through the handler:
+  // the handler builds `realDeps()`, so asserting it here would open a real
+  // socket to the pooler from the test runner.
+  it('rejects a port outside the allowlist rather than dialling it', async () => {
+    // This handler dials what it is handed; an open port would be a scanner.
+    const res = await buildApp().request('/health/egress?port=22', {}, base);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ status: 'invalid_port' });
+  });
+
   it('is served on the /api path too, ahead of the auth-guarded sub-app', async () => {
     // `/api/*` otherwise 401s before reaching a handler, which is the trap
     // `/api/health` already documents.
