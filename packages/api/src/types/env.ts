@@ -93,6 +93,25 @@ export interface HonoVariables {
    * correct under this narrowing.
    */
   userId: string;
+
+  /**
+   * The authenticated caller's `email` claim, when the verified token carried one
+   * (WIC-2383).
+   *
+   * Deliberately optional, and deliberately NOT used for authorization. Two paths
+   * through `middleware/auth.ts` reach a guarded route without it: the local-dev
+   * bypass (no token at all) and a verified token that simply omits `email`, which
+   * is legal — `requireSubject` mandates `sub` and nothing else. Identity is
+   * `userId`; this is a display attribute, and `/auth/me` reports it as `null`
+   * rather than inventing one when it is absent.
+   *
+   * It exists so `/auth/me` can answer from the token the middleware already
+   * verified. The previous implementation called `supabase.auth.admin.getUserById`
+   * with the **anon** key, which no deployment can satisfy — this repo provisions
+   * no service-role key anywhere — so that call 401'd at GoTrue and the route
+   * always 404'd. Do not reintroduce an admin call here to populate this.
+   */
+  userEmail?: string;
 }
 
 export type AppEnv = { Bindings: Env; Variables: HonoVariables };
