@@ -45,6 +45,22 @@ The last four are killed by **disjoint** tests, which is what shows the boundari
 A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `nextActionDue` to `'2026-09-20T00:00:00Z'`, a datetime shape the endpoint never sends for a `date` column.
 
 
+
+### Tooling — the prod restore's second option had no consumer, so half the board's choices led nowhere (2026-09-13)
+
+Board ask `0af79c26` offers two ways to clear the P1 prod outage, and only one of them could ever have worked.
+
+Option `grant_scope` — add `Account | Hyperdrive | Edit` to `CLOUDFLARE_API_TOKEN`, then let CI provision — is served by `provision-prod-hyperdrive.yml`. Option `console_create` — create the Hyperdrive config by hand in the dashboard and hand over its id — was not served by anything. Every code path in that workflow opened with a Hyperdrive *list* call, so it returned `403` on exactly the token the option was designed to leave alone. Taking the option the board was offered would have produced a red run and no binding.
+
+`provision-prod-hyperdrive.yml` now takes `existing_config_id` (with `origin_project_ref`). Supplying it short-circuits the credential check, the scope preflight, the list and the create — the step makes **no Cloudflare API call at all** — and goes straight to the `wrangler.jsonc` edit, the `prod != preview` guard and the binding PR. So that path runs against the token exactly as it is scoped today; nothing about the shared production credential has to change to use it.
+
+Because this path cannot read the config's origin back (that would need the `Hyperdrive:Read` scope it exists to avoid), it cross-checks the operator-supplied project ref against the repo's own production `SUPABASE_URL` and refuses on a mismatch. That is not a proof the config is correct, and it is not offered as one — it catches the single realistic error, which is creating the config against the **dev** project and thereby pointing production at dev data while it reports itself healthy. The literal preview id committed under `env.preview` is refused by a separate tripwire, and a paste that is not a 32-char lowercase hex id is refused before it can reach `wrangler.jsonc`.
+
+Nine guard cases were run offline against the extracted step — valid id, the preview id, a dev project ref, a missing ref, a dashed uuid, uppercase hex, the config *name* pasted instead of the id, a truncated id, and the empty-input control that must fall through to the existing provisioning path. The downstream edit was exercised end-to-end with a path-B id: insert, verify (all four assertions), and a re-run proving idempotency, with the `env.preview` binding untouched.
+
+Neither path deploys. Merging the binding PR remains the deploy trigger and remains gated under approval `d61d200b`.
+
+
 ### Tooling — nothing was watching for the one human action the P1 prod restore waits on (2026-09-13)
 
 Production's API has answered `503` for every logged-in user since 2026-08-26
