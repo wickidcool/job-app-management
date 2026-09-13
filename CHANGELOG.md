@@ -44,6 +44,43 @@ The last four are killed by **disjoint** tests, which is what shows the boundari
 
 A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `nextActionDue` to `'2026-09-20T00:00:00Z'`, a datetime shape the endpoint never sends for a `date` column.
 
+
+### Tooling — nothing was watching for the one human action the P1 prod restore waits on (2026-09-13)
+
+Production's API has answered `503` for every logged-in user since 2026-08-26
+(`/api/health` → `hyperdrive:false`, `connect deadline exceeded ... :6543`). The
+remedy is ADR-007 option 1 and the deploy is board-approved under `d61d200b`;
+the only blocker is that `CLOUDFLARE_API_TOKEN` carries no Hyperdrive scope.
+
+`provision-prod-hyperdrive.yml` (PR #493) built the half that provisions the
+config and opens the binding PR once that scope exists. But it is
+`workflow_dispatch` only, and so is `cf-token-capability-probe.yml` — so every
+scope measurement to date has been an agent firing the probe by hand (runs
+`33989113004`, `33990724383`, `34723088668`, `34728485222`, `34736945349`, all
+`HYPERDRIVE_READ=no`). Board ask `0af79c26` option `grant_scope` promises "No
+further human step" after the grant; with nothing watching, what actually
+followed a grant was a wait for someone to think to re-probe — and the seat that
+would have (DevOps) was paused on 2026-09-10.
+
+`prod-hyperdrive-scope-watch.yml` closes that. It polls the token read-only,
+stays silent while the answer is no, and on the first tick where the scope is
+present it calls the provisioning workflow via `workflow_call` — one run, so the
+decision and the action it authorises cannot drift apart. Three fences:
+
+- It **does not deploy and does not push to `main`.** Merging the binding PR is
+  still the deploy trigger and still board-gated under `d61d200b`.
+- It **self-disarms** — before spending the credential it checks whether prod
+  already reports `db == ok` and whether the binding PR already exists, so a
+  restored prod costs one `GET` per tick rather than a provisioning attempt.
+- An unexpected HTTP code **fails the run** instead of being classified as
+  "scope absent". Reading a 5xx as a denial would be a silent false negative on
+  the single signal the file exists to catch.
+
+`schedule:` fires only from the default branch, so merging this is what arms the
+watch; it registers nothing on a feature branch. The cron interval is a best
+case, not a detection time — GitHub delays and drops scheduled runs under load —
+which is why `workflow_dispatch` is also wired up.
+
 ### Tooling — the ban on an `environment:` key in the `e2e-tests` job is now mechanical, not a comment (2026-09-08)
 
 Adding `environment: dev` to `deploy.yml`'s `e2e-tests` job has broken production deploys twice (WIC-2201 / WIC-2204): the dev-scoped `E2E_TEST_USER*` secrets resolve, wake ~29 backend-dependent Playwright specs against a backend CI never starts, the job blows its 15-minute timeout, and `deploy-production` (which `needs: e2e-tests`) is skipped — so `main` silently ships nothing. Until now the only thing stopping a re-add was an in-file comment, which did not stop it the first time. A new `pull_request_target` workflow, `e2e-environment-guard.yml`, now fails the build when the `e2e-tests` job declares any `environment:` key, running `scripts/deploy-e2e-environment-guard.py`. The check **parses** the YAML and asserts on `jobs['e2e-tests']` only, so the legitimate `environment: dev` on `e2e-isolation-coverage` (WIC-2122 route 2, not in `deploy-production.needs`) and on `deploy-preview` is untouched — a grep would red-line `main`, since three of the five `environment: dev` lines on `main` are prose. `pull_request_target` is used, and the check lives outside `deploy.yml`, for the same reason as `skip-ci-guard.yml`: the change it guards can break `deploy.yml`'s own ability to run, and `[skip ci]` must not suppress it (WIC-2262).
@@ -67,6 +104,29 @@ WIC-2299 gave the byte formatter one home in `utils/formatFileSize.ts` and route
 - **Test files are excluded**, so a byte render inside a fixture is not caught. That is the same call `stale.drift.test.ts` makes, and it is required here — the guard's own negative controls contain hazard bodies.
 
 **The migration had no coverage in either direction, which is the second finding.** All **50** tests across the 5 pre-existing suites that touch these two components pass identically before *and* after the swap, because `ProjectDetail.unsettled.test.tsx:44` builds its fixture with `size: 1024` — the single value where the inline expression and the helper agree (512 → `0.5 KB` vs `512 B`; 7340032 → `7168.0 KB` vs `7.0 MB`). A fixture parked on the one value where both arms agree makes a two-sided green meaningless. `ProjectDetail.fileSize.test.tsx` adds sizes off that boundary and was run against the unmigrated components to confirm it can fail: **2 assertions red, with a KB-band control green on both sides.**
+
+
+### Tooling — the changelog union guard read `clean` on a head whose committed tree held the weld, because syncing the branch is what blinded it (2026-09-08)
+
+`scripts/changelog-union-check.py` replayed `merge-tree(head, base)` and reported what the union *introduces*. Once a branch merges its base in there is no differing hunk left at the seam, so the replay reproduces the head and correctly reports that a no-op introduced nothing — while the weld the sync just wrote sits committed in the tree, invisible, and ships green.
+
+That is the standard remedy, not a corner case. Merge-first / sync-on-refusal is what this file prescribes for a `CONFLICTING` PR, so **the act that clears the conflict is the act that commits the corruption and silences the detector.**
+
+Measured on PR #469 against base `20d7c1a5` — same script, same invocation, three heads:
+
+| head | committed welds | before | now |
+|---|---|---|---|
+| `b8857373` pre-sync | 0 | `WELD`, rc 1 | `WELD`, rc 1 |
+| `2ebd99f0` synced | **1** | **`clean`, rc 0** | `COMMITTED_WELD`, rc 1 |
+| `e5a62c37` repaired | 0 | `clean`, rc 0 | `clean`, rc 0 |
+
+Rows 2 and 3 were one verdict for two opposite trees. `committed()` adds a second, orthogonal axis that reads the head's own tree, subtracted against the base so an inherited weld stays the base's problem rather than the branch's. It reports only the two classes with no benign reading: `MISFILED` is undefined without two parents, and committed duplicate bullets have known-benign pairs on `main`. **Syncing moves a finding from one axis to the other rather than resolving it; only repairing the file clears both.**
+
+Three fixtures added, and two existing expectations corrected rather than worked around — `misfiled-bullet` and `weld-already-on-branch` both build a committed weld on `ours`, so both now report one. That pairing is this repo's documented "a weld you commit is a misfile you have armed for whoever branches off you next", visible as cause and consequence on a single input for the first time.
+
+Both mutants were run, because a passing fixture proves nothing on its own: disabling the axis reds 4 fixtures (both new positives collapse to `clean`, which is the blindness), and removing the base subtraction reds `weld-inherited-from-base` alone — so that negative control is live and not vacuous. `replay` gains two `COMMITTED_WELD`s on PR #115 at `7890a2c`, verified against the trees before being accepted (head 2 welds, base 0, repaired head 0) and therefore true positives the introduced axis structurally could not see.
+
+Zero delta on the live queue: all three open PRs read `clean` before and after, so this adds capability without re-flagging existing work.
 
 ### Fixed — five surfaces told the user "you have none" when the request had FAILED or was offline-paused (2026-09-07)
 
@@ -107,6 +167,21 @@ The ORDER BY construction moved to an exported pure `buildApplicationOrderBy(sor
 The control is therefore the SQL half, which asserts the emitted ORDER BY ends in the unique id tiebreaker for every key in `APPLICATION_SORT_KEYS` in both directions. It goes red on all four branches when the tiebreaker is removed, on the two where the paging test stays green as well as the two where it does not; a suite resting on the behavioural half alone would have certified `createdAt`, `updatedAt` and `interviewDate` while all three were still broken. Seven mutants, each dying to its intended assertion: one per branch, plus tiebreaker-moved-to-first and tiebreaker-replaced-with-a-non-unique-column. Every mutant run was gated on `passed + failed == 11` so that a mutant which failed to compile could not read as green.
 
 
+
+
+### Documentation — ADR-007's TLS hypothesis is half measured, and a bad database secret is now excluded as a cause of the prod outage (2026-09-08)
+
+ADR-007's *Candidate mechanism* was flagged as **unverified inference** and carried a falsification test that required a production deploy to run. Half of it has now been measured without one, by probing the endpoint production actually dials (`aws-1-us-west-2.pooler.supabase.com:6543`) over the real `SSLRequest` → TLS → startup sequence.
+
+**Established.** The pooler's chain fails verification against the public WebPKI store — **verify code 19, `self-signed certificate in certificate chain`** — while the same handshake completes with verification disabled. `Supabase Root 2021 CA` is confirmed absent from the public trust store *on production's own path*, so certificate verification is the only variable separating a completed handshake from a failed one on that endpoint.
+
+**Still inference, and labelled as such.** Nothing here observes what the Workers TLS stack does with postgres-js's `rejectUnauthorized: false`. These probes ran from a general-purpose Linux host, so they characterise the *endpoint*, not the Workers runtime — which is why the CA finding transfers and the handshake-behaviour finding does not.
+
+**The credential branch was already closed by WIC-2214** (2026-09-06), by a stronger method than anything here: `deploy.yml` builds `DATABASE_URL` from `SUPABASE_DATABASE_PASSWORD` by byte-identical logic in two steps of the same `deploy-production` job — the one that runs the migrations (`:982`) and the one that exports it to the Worker (`:1032`) — so a migration run doing real DDL in under 3 s *is* a direct test of the string the Worker receives. The probes below corroborate that from outside CI and do not replace it.
+
+What they add is a stronger form of the claim — not that the credential is good, but that a bad one **could not have produced this signature even if it were wrong**, which forecloses the branch without depending on any secret's current value. A tenant-less username returns `XX000 ENOIDENTIFIER`; a deliberately wrong password completes SCRAM-SHA-256 and returns **`28P01`** in 591 ms. Every credential-shaped failure is a *server-generated* `ErrorResponse`, which reaches postgres-js's `errored()` and ends the dial loop after a **single** dial. It cannot produce the accept-then-close that `connect-bound.ts` documents as the spin trigger. Two further branches stay closed by the same probes: the project is live (`postgres.fnmuvgnkxdeupprcyvdt` reaches `AuthenticationSASL` in 81 ms) and the host is reachable (3 A records, 21–29 ms TCP connect, 0 AAAA).
+
+Documentation only. No code, no tests, no behaviour change.
 
 
 ### Tooling — a CI tripwire now fails the build if a `date` column is handed to `new Date(...)`
