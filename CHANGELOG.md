@@ -52,6 +52,80 @@ A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `ne
 
 
 
+
+
+### Fixed — `GET /api/auth/me` called a GoTrue **admin** endpoint with the **anon** key, so every session died on page load (2026-09-13)
+
+The route built a Supabase client from `SUPABASE_ANON_KEY` and called
+`supabase.auth.admin.getUserById(userId)`. GoTrue's admin API rejects an anon/publishable key
+outright — measured against the live dev tenant, `GET /auth/v1/admin/users/<id>` with that key
+returns `401 no_authorization` — so the call failed on **every** request, and the `if (error) -> 404`
+below it turned a caller whose JWT had just verified cleanly into a flat `404 User not found`.
+
+It was never fixable by configuration. This repo provisions no service-role key anywhere — not in
+`types/env.ts`, not in `config.ts`, not in any workflow — and it should not start: a service-role key
+bypasses RLS, so shipping one to the Worker to satisfy a session-hydration endpoint would trade
+ADR-005's isolation guarantee for a field the token already carries. Broken since `19e38ca`
+(WIC-193, "move Supabase auth to backend only"), which introduced the admin call.
+
+`/auth/me` now answers from the token `authMiddleware` has already verified — no Supabase round trip
+at all. `middleware/auth.ts` records the `email` claim on both verified paths (ES256/JWKS and HS256)
+as the new optional `userEmail` Hono variable; identity remains `sub`, and `email` is reported as
+`null` when the claim is absent rather than invented. Two paths legitimately have no claim: the
+local-dev bypass (no token) and a verified token that simply omits `email`, which `requireSubject`
+permits.
+
+**The user-visible cost was a session that did not survive a page load.**
+`AuthContext.fetchCurrentUser` calls this on mount with the stored token and treats any non-2xx as
+"session invalid", so it cleared `auth_token` and bounced to `/login` on every refresh and every
+full navigation — in production and in local dev alike.
+
+**Why nothing caught it: every E2E spec in the repo mocks `/api/auth/me`** (`page.route`), and the
+backend suite had no case for the route at all. The WIC-2122 live-backend isolation tier is the first
+test in the repo's history to call it for real, and it failed there immediately.
+
+⭐ **This corrects the diagnosis recorded for those failures.** They were read as "the dev Supabase
+E2E test users are not usable", which made the remaining work a human credential gate. The log says
+otherwise: `logout invalidates session and redirects protected routes` times out at `logOut()`'s
+*second* line, having already clicked the **user menu** — a control that only exists once signed in —
+and `session persists across page navigation` fails at the first `page.goto` *after* `loginAs()`
+returned. Sign-in was succeeding; the session was being destroyed by the next navigation. The
+credentials are valid and no human action is required to run these specs.
+
+Six regression cases in `packages/api/test/auth.test.ts`, all of which fail against the old handler
+(5 of 6 — the sixth pins the middleware's 401, which is correct either way). The load-bearing one
+spies on `fetch` and asserts the route makes **no** outbound request, so reinstating the admin call
+goes red even if it somehow returned a 200. `SUPABASE_URL`/`SUPABASE_ANON_KEY` are set in those
+cases deliberately: the old code returned `503 NOT_CONFIGURED` when they were absent, so a suite that
+left them unset would have passed against the broken code and pinned nothing.
+
+### Fixed — the isolation spec counted vite's own TypeScript modules as unauthenticated API calls
+
+`API Auth Token Propagation > all API requests include Bearer token after login`
+collected request URLs with `req.url().includes('/api/')` — a substring test over the
+whole URL. Under `npm run dev` vite serves this app's API service modules off the same
+origin at `/src/services/api/...`, and that path contains the substring `/api/`. So the
+module fetch was counted as an API request, and since a TypeScript source module carries
+no `Authorization` header by design, the test's `expect(unauthenticatedRequest)
+.toBeUndefined()` failed on it. Observed in the spec's first real execution (run
+`34768343152`): `{"auth": undefined, "url": ".../src/services/api/index.ts"}`.
+
+This is the same vite-module-shadowing hazard the `apiRoute` helper already documents for
+route *interception*, in the observation direction. The filter now matches on the URL's
+pathname prefix (`new URL(url).pathname.startsWith('/api/')`), as `personal-info.spec.ts`
+already did. That is correct for both deployments: `VITE_API_BASE_URL` defaults to `/api`
+same-origin, and when set to an absolute origin the path component is still `/api/...` —
+while `/src/services/api/index.ts` cannot satisfy it.
+
+Applied at all three request filters in the file. The two token-capture sites (`:705`,
+`:820`) additionally require an `Authorization` header, so they never mismatched in
+practice; they are tightened so the predicate cannot drift back. `auth.spec.ts:168` uses
+the same loose form but asserts an authenticated request *exists* rather than that none
+lacks auth, so an extra unauthenticated entry cannot fail it — left alone deliberately,
+as it sits in the deploy-gating `e2e-tests` suite.
+
+Test-only. No application code, no deploy.
+
 ### Fixed — the E2E isolation specs waited on a `<dialog>` the app has never rendered, so they could only ever time out (2026-09-13)
 
 `packages/web/e2e/multi-user-isolation.spec.ts` and `application-form-errors.spec.ts` both opened a dialog and then awaited `dialog[open]` — a **native `<dialog>`** selector. Every dialog in this app is Radix (`@radix-ui/react-dialog`), which renders `[role="dialog"]` and never a native `<dialog>` element; `git grep '<dialog[ >]' -- packages/web/src` returns **zero**. The selector therefore could not match under any circumstance, and because it is the first await after the click, each affected test died at Playwright's default 30s timeout rather than failing on its assertion.

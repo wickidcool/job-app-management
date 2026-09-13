@@ -105,6 +105,31 @@ const MOCK_USER = {
 // exactly this reason — see the positive anchor added to it below.
 const apiRoute = (path: string) => new RegExp(`/api/${path}(\\?.*)?$`);
 
+// WIC-2381: the same vite-module-shadowing hazard as `apiRoute` above, in the
+// other direction — OBSERVING requests rather than intercepting them.
+//
+// `req.url().includes('/api/')` is a substring test over the whole URL, and under
+// `npm run dev` vite serves this app's own API service modules off the same origin
+// at `/src/services/api/...`. That path contains the substring `/api/`, so the
+// module fetch is counted as an API request. Measured in the first real run of
+// this spec (run 34768343152): `{"auth": undefined, "url":
+// "http://localhost:5173/src/services/api/index.ts"}` — a TypeScript source module,
+// carrying no Authorization header by design, indistinguishable from an
+// unauthenticated API call.
+//
+// Match on the PATHNAME's prefix instead. `VITE_API_BASE_URL` defaults to `/api`
+// (same-origin; the CI isolation job leaves it unset), and when it is set to an
+// absolute origin the path component is still `/api/...` — so this is correct for
+// both deployments, while `/src/services/api/index.ts` cannot satisfy it.
+// `personal-info.spec.ts` already matches this way.
+const isApiRequest = (url: string) => {
+  try {
+    return new URL(url).pathname.startsWith('/api/');
+  } catch {
+    return false;
+  }
+};
+
 const json = (body: unknown) => ({
   status: 200,
   contentType: 'application/json',
@@ -517,7 +542,7 @@ test.describe('API Auth Token Propagation', () => {
 
     const apiRequests: Array<{ url: string; auth: string | undefined }> = [];
     page.on('request', (req) => {
-      if (req.url().includes('/api/')) {
+      if (isApiRequest(req.url())) {
         apiRequests.push({ url: req.url(), auth: req.headers()['authorization'] });
       }
     });
@@ -677,7 +702,7 @@ test.describe('Real Multi-User Data Isolation', () => {
       // User 2: log in and capture their token
       await loginAs(page2, user2Email, user2Password);
       page2.on('request', (req) => {
-        if (req.url().includes('/api/') && req.headers()['authorization']) {
+        if (isApiRequest(req.url()) && req.headers()['authorization']) {
           user2Token = req.headers()['authorization']!;
         }
       });
@@ -792,7 +817,7 @@ test.describe('Real Multi-User Data Isolation', () => {
       // User 2: log in and capture token
       await loginAs(page2, user2Email, user2Password);
       page2.on('request', (req) => {
-        if (req.url().includes('/api/') && req.headers()['authorization']) {
+        if (isApiRequest(req.url()) && req.headers()['authorization']) {
           user2Token = req.headers()['authorization']!;
         }
       });
