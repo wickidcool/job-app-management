@@ -589,7 +589,13 @@ describe('Auth Middleware', () => {
 
     function configureAuth() {
       process.env.SUPABASE_URL = REAL_URL;
-      process.env.SUPABASE_ANON_KEY = 'sb_publishable_anon_key_for_testing';
+      // Deliberately not shaped like a real `sb_publishable_...` key: the in-house
+      // scanner (`npm run scan:secrets`, inside `Lint & Test`) matches on the
+      // prefix, and a realistic-looking fixture here would need an allowlist entry
+      // that then blinds the scanner to that shape. Only truthiness matters — the
+      // old handler's `!supabaseAnonKey -> 503` branch is what these cases must get
+      // past, and it does not inspect the value.
+      process.env.SUPABASE_ANON_KEY = 'anon-key-unused-by-this-route';
       process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
     }
 
