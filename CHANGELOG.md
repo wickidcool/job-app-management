@@ -46,6 +46,34 @@ A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `ne
 
 
 
+
+### Fixed — the isolation spec counted vite's own TypeScript modules as unauthenticated API calls
+
+`API Auth Token Propagation > all API requests include Bearer token after login`
+collected request URLs with `req.url().includes('/api/')` — a substring test over the
+whole URL. Under `npm run dev` vite serves this app's API service modules off the same
+origin at `/src/services/api/...`, and that path contains the substring `/api/`. So the
+module fetch was counted as an API request, and since a TypeScript source module carries
+no `Authorization` header by design, the test's `expect(unauthenticatedRequest)
+.toBeUndefined()` failed on it. Observed in the spec's first real execution (run
+`34768343152`): `{"auth": undefined, "url": ".../src/services/api/index.ts"}`.
+
+This is the same vite-module-shadowing hazard the `apiRoute` helper already documents for
+route *interception*, in the observation direction. The filter now matches on the URL's
+pathname prefix (`new URL(url).pathname.startsWith('/api/')`), as `personal-info.spec.ts`
+already did. That is correct for both deployments: `VITE_API_BASE_URL` defaults to `/api`
+same-origin, and when set to an absolute origin the path component is still `/api/...` —
+while `/src/services/api/index.ts` cannot satisfy it.
+
+Applied at all three request filters in the file. The two token-capture sites (`:705`,
+`:820`) additionally require an `Authorization` header, so they never mismatched in
+practice; they are tightened so the predicate cannot drift back. `auth.spec.ts:168` uses
+the same loose form but asserts an authenticated request *exists* rather than that none
+lacks auth, so an extra unauthenticated entry cannot fail it — left alone deliberately,
+as it sits in the deploy-gating `e2e-tests` suite.
+
+Test-only. No application code, no deploy.
+
 ### Fixed — the E2E isolation specs waited on a `<dialog>` the app has never rendered, so they could only ever time out (2026-09-13)
 
 `packages/web/e2e/multi-user-isolation.spec.ts` and `application-form-errors.spec.ts` both opened a dialog and then awaited `dialog[open]` — a **native `<dialog>`** selector. Every dialog in this app is Radix (`@radix-ui/react-dialog`), which renders `[role="dialog"]` and never a native `<dialog>` element; `git grep '<dialog[ >]' -- packages/web/src` returns **zero**. The selector therefore could not match under any circumstance, and because it is the first await after the click, each affected test died at Playwright's default 30s timeout rather than failing on its assertion.
