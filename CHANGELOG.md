@@ -44,6 +44,43 @@ The last four are killed by **disjoint** tests, which is what shows the boundari
 
 A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `nextActionDue` to `'2026-09-20T00:00:00Z'`, a datetime shape the endpoint never sends for a `date` column.
 
+
+### Tooling — nothing was watching for the one human action the P1 prod restore waits on (2026-09-13)
+
+Production's API has answered `503` for every logged-in user since 2026-08-26
+(`/api/health` → `hyperdrive:false`, `connect deadline exceeded ... :6543`). The
+remedy is ADR-007 option 1 and the deploy is board-approved under `d61d200b`;
+the only blocker is that `CLOUDFLARE_API_TOKEN` carries no Hyperdrive scope.
+
+`provision-prod-hyperdrive.yml` (PR #493) built the half that provisions the
+config and opens the binding PR once that scope exists. But it is
+`workflow_dispatch` only, and so is `cf-token-capability-probe.yml` — so every
+scope measurement to date has been an agent firing the probe by hand (runs
+`33989113004`, `33990724383`, `34723088668`, `34728485222`, `34736945349`, all
+`HYPERDRIVE_READ=no`). Board ask `0af79c26` option `grant_scope` promises "No
+further human step" after the grant; with nothing watching, what actually
+followed a grant was a wait for someone to think to re-probe — and the seat that
+would have (DevOps) was paused on 2026-09-10.
+
+`prod-hyperdrive-scope-watch.yml` closes that. It polls the token read-only,
+stays silent while the answer is no, and on the first tick where the scope is
+present it calls the provisioning workflow via `workflow_call` — one run, so the
+decision and the action it authorises cannot drift apart. Three fences:
+
+- It **does not deploy and does not push to `main`.** Merging the binding PR is
+  still the deploy trigger and still board-gated under `d61d200b`.
+- It **self-disarms** — before spending the credential it checks whether prod
+  already reports `db == ok` and whether the binding PR already exists, so a
+  restored prod costs one `GET` per tick rather than a provisioning attempt.
+- An unexpected HTTP code **fails the run** instead of being classified as
+  "scope absent". Reading a 5xx as a denial would be a silent false negative on
+  the single signal the file exists to catch.
+
+`schedule:` fires only from the default branch, so merging this is what arms the
+watch; it registers nothing on a feature branch. The cron interval is a best
+case, not a detection time — GitHub delays and drops scheduled runs under load —
+which is why `workflow_dispatch` is also wired up.
+
 ### Tooling — the ban on an `environment:` key in the `e2e-tests` job is now mechanical, not a comment (2026-09-08)
 
 Adding `environment: dev` to `deploy.yml`'s `e2e-tests` job has broken production deploys twice (WIC-2201 / WIC-2204): the dev-scoped `E2E_TEST_USER*` secrets resolve, wake ~29 backend-dependent Playwright specs against a backend CI never starts, the job blows its 15-minute timeout, and `deploy-production` (which `needs: e2e-tests`) is skipped — so `main` silently ships nothing. Until now the only thing stopping a re-add was an in-file comment, which did not stop it the first time. A new `pull_request_target` workflow, `e2e-environment-guard.yml`, now fails the build when the `e2e-tests` job declares any `environment:` key, running `scripts/deploy-e2e-environment-guard.py`. The check **parses** the YAML and asserts on `jobs['e2e-tests']` only, so the legitimate `environment: dev` on `e2e-isolation-coverage` (WIC-2122 route 2, not in `deploy-production.needs`) and on `deploy-preview` is untouched — a grep would red-line `main`, since three of the five `environment: dev` lines on `main` are prose. `pull_request_target` is used, and the check lives outside `deploy.yml`, for the same reason as `skip-ci-guard.yml`: the change it guards can break `deploy.yml`'s own ability to run, and `[skip ci]` must not suppress it (WIC-2262).

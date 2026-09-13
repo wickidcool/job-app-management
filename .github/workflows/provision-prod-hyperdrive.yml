@@ -78,6 +78,37 @@ on:
         default: 'jobtrail-prod'
         type: string
 
+  # WIC-1386: the same job, callable from prod-hyperdrive-scope-watch.yml.
+  #
+  # WHY workflow_call RATHER THAN the watcher shelling out to `gh workflow run`:
+  #   * the provisioning runs INSIDE the watcher's own run, so the decision and
+  #     the action it authorises cannot drift apart — one run, one log, and the
+  #     watcher's `concurrency` group covers both halves;
+  #   * a failed provision turns the watcher's run red directly, instead of
+  #     succeeding while a separately-dispatched run fails somewhere else;
+  #   * it sidesteps the whole question of what the default GITHUB_TOKEN is and
+  #     is not allowed to re-trigger, which is a nuance nobody should have to
+  #     re-derive to reason about whether this watch works.
+  #
+  # `inputs.*` is populated identically by either trigger, so every step below
+  # is unchanged and the manual dispatch path keeps working exactly as before.
+  workflow_call:
+    inputs:
+      confirm:
+        description: 'Must be the string PROVISION.'
+        required: true
+        type: string
+      origin_port:
+        description: 'Supabase pooler port (6543 transaction / 5432 session).'
+        required: false
+        default: '6543'
+        type: string
+      config_name:
+        description: 'Hyperdrive config name'
+        required: false
+        default: 'jobtrail-prod'
+        type: string
+
 permissions:
   contents: write
   pull-requests: write
