@@ -551,4 +551,161 @@ describe('Auth Middleware', () => {
       expect(config.supabaseJwtSecret).toBe(TEST_JWT_SECRET);
     });
   });
+
+  /**
+   * WIC-2383 — `GET /auth/me` answers from the verified token, never the GoTrue admin API.
+   *
+   * The route used to build a Supabase client from `SUPABASE_ANON_KEY` and call
+   * `supabase.auth.admin.getUserById(userId)`. GoTrue's admin API rejects an
+   * anon/publishable key outright (`401 no_authorization`), and this repo
+   * provisions no service-role key anywhere, so that call could not succeed in any
+   * deployment — the `if (error) -> 404` below it made a cleanly-authenticated
+   * caller a flat `404 User not found`, on every request, forever.
+   *
+   * Nothing caught it because **every** E2E spec in the repo mocks `/api/auth/me`
+   * (`page.route`), and this suite had no case for the route at all. The WIC-2122
+   * live-backend isolation tier is the first test to call it for real, and it
+   * failed there immediately: `AuthContext.fetchCurrentUser` treats a non-2xx as
+   * "session invalid", so it cleared `auth_token` and bounced to `/login` on every
+   * full page load. That is the bug behind the 7 red isolation specs — the two dev
+   * test users were valid the whole time.
+   *
+   * `SUPABASE_URL`/`SUPABASE_ANON_KEY` are deliberately set on the cases below. The
+   * old implementation returned `503 NOT_CONFIGURED` when they were absent, so a
+   * suite that left them unset would pass against the broken code and pin nothing.
+   */
+  describe('WIC-2383 — GET /auth/me is token-derived', () => {
+    const REAL_URL = 'https://project.supabase.co';
+
+    async function signTokenWithEmail(secret: string, sub: string, email?: string) {
+      const claims: Record<string, unknown> = { sub };
+      if (email !== undefined) claims.email = email;
+      return new SignJWT(claims)
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(new TextEncoder().encode(secret));
+    }
+
+    function configureAuth() {
+      process.env.SUPABASE_URL = REAL_URL;
+      // Deliberately not shaped like a real `sb_publishable_...` key: the in-house
+      // scanner (`npm run scan:secrets`, inside `Lint & Test`) matches on the
+      // prefix, and a realistic-looking fixture here would need an allowlist entry
+      // that then blinds the scanner to that shape. Only truthiness matters — the
+      // old handler's `!supabaseAnonKey -> 503` branch is what these cases must get
+      // past, and it does not inspect the value.
+      process.env.SUPABASE_ANON_KEY = 'anon-key-unused-by-this-route';
+      process.env.SUPABASE_JWT_SECRET = TEST_JWT_SECRET;
+    }
+
+    it('returns the id and email carried by the verified token', async () => {
+      configureAuth();
+      const app = buildApp();
+      const token = await signTokenWithEmail(
+        TEST_JWT_SECRET,
+        'user-abc-123',
+        'e2e-user@example.com'
+      );
+
+      const res = await app.request('/api/auth/me', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        user: { id: 'user-abc-123', email: 'e2e-user@example.com' },
+      });
+    });
+
+    /**
+     * The regression guard proper. The old route reached GoTrue over the network;
+     * the new one must not make an outbound request at all. Spying on `fetch` is
+     * what makes this a *mutation* test rather than a restatement of the case
+     * above — reinstating the admin call turns this red even if it somehow
+     * returned a 200.
+     */
+    it('makes NO outbound request — the admin API is never dialled', async () => {
+      configureAuth();
+      const app = buildApp();
+      const token = await signTokenWithEmail(
+        TEST_JWT_SECRET,
+        'user-abc-123',
+        'e2e-user@example.com'
+      );
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      try {
+        const res = await app.request('/api/auth/me', {
+          method: 'GET',
+          headers: { authorization: `Bearer ${token}` },
+        });
+
+        expect(res.status).toBe(200);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    /**
+     * `email` is not a registered JWT claim and `requireSubject` mandates only
+     * `sub`, so a verified token may legally omit it. That must not 401, 404 or
+     * invent an address — the web client renders a falsy email as "User".
+     */
+    it('reports email: null when the verified token carries no email claim', async () => {
+      configureAuth();
+      const app = buildApp();
+      const token = await signTokenWithEmail(TEST_JWT_SECRET, 'user-no-email');
+
+      const res = await app.request('/api/auth/me', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ user: { id: 'user-no-email', email: null } });
+    });
+
+    it('folds an empty-string email claim to null rather than shipping ""', async () => {
+      configureAuth();
+      const app = buildApp();
+      const token = await signTokenWithEmail(TEST_JWT_SECRET, 'user-blank-email', '');
+
+      const res = await app.request('/api/auth/me', {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ user: { id: 'user-blank-email', email: null } });
+    });
+
+    it('is still guarded: no Authorization header is 401, not an anonymous 200', async () => {
+      configureAuth();
+      const app = buildApp();
+
+      const res = await app.request('/api/auth/me', { method: 'GET' });
+
+      expect(res.status).toBe(401);
+    });
+
+    /**
+     * The local-dev bypass supplies an owner but no token, so there is no claim to
+     * read. It must still answer — under the old code this path 503'd or 404'd, so
+     * session restore was broken in local dev too.
+     */
+    it('local-dev bypass: answers with the sentinel owner and a null email', async () => {
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_JWT_SECRET;
+      delete process.env.SUPABASE_ANON_KEY;
+      const app = buildApp();
+
+      const res = await app.request('/api/auth/me', { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ user: { id: DEV_OWNER, email: null } });
+    });
+  });
 });

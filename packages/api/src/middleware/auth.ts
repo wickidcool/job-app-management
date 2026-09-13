@@ -1,5 +1,11 @@
 import { createMiddleware } from 'hono/factory';
-import { createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
+import {
+  createRemoteJWKSet,
+  decodeJwt,
+  decodeProtectedHeader,
+  jwtVerify,
+  type JWTPayload,
+} from 'jose';
 import type { AppEnv } from '../types/env.js';
 import { getConfig } from '../config.js';
 
@@ -52,6 +58,30 @@ function requireSubject(payload: { sub?: unknown }): string {
     throw new Error('Missing sub claim');
   }
   return payload.sub;
+}
+
+/**
+ * WIC-2383 — the verified token's `email` claim, or `undefined`.
+ *
+ * Unlike `requireSubject` this never throws: `email` is a display attribute, not
+ * an identity. A Supabase access token carries it for a password-grant session,
+ * but nothing in this middleware's contract requires it, and a token that omits
+ * it is still perfectly authenticated. Returning `undefined` lets `/auth/me`
+ * report `email: null` honestly instead of failing a request over a claim no
+ * authorization decision reads.
+ *
+ * Empty-string is folded into `undefined` for the same reason `requireSubject`
+ * rejects it — `''` is falsy and degrades identically at every consumer, so
+ * admitting it just moves the ambiguity downstream.
+ *
+ * Typed as `JWTPayload` rather than `{ email?: unknown }` deliberately: `email`
+ * is not a registered claim, so it reaches us through jose's index signature and
+ * a structural literal would trip TypeScript's weak-type check (TS2559) — the
+ * shape shares no declared property with `JWTPayload`. `requireSubject` gets away
+ * with a literal only because `sub` *is* registered.
+ */
+function emailClaim(payload: JWTPayload): string | undefined {
+  return typeof payload.email === 'string' && payload.email !== '' ? payload.email : undefined;
 }
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
@@ -134,12 +164,16 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         audience: 'authenticated',
       });
       c.set('userId', requireSubject(payload));
+      const email = emailClaim(payload);
+      if (email) c.set('userEmail', email);
     } else {
       // HS256 / symmetric path
       if (!jwtSecret) throw new Error('No JWT secret configured for HS256 token');
       const secret = new TextEncoder().encode(jwtSecret);
       const { payload } = await jwtVerify(token, secret);
       c.set('userId', requireSubject(payload));
+      const email = emailClaim(payload);
+      if (email) c.set('userEmail', email);
     }
   } catch {
     return c.json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } }, 401);
