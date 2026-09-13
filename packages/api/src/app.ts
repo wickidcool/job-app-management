@@ -22,6 +22,7 @@ import { AppError } from './types/index.js';
 import type { AppEnv } from './types/env.js';
 import { describeDbFailure, isDatabaseUnreachable } from './db/connect-bound.js';
 import { getRequestContext } from './db/context.js';
+import { probeDirectEgress } from './db/egress-probe.js';
 import { isHyperdriveTimeout, isSubrequestExhaustion } from './db/hyperdrive.js';
 
 /**
@@ -122,6 +123,28 @@ export function buildApp() {
   };
   app.get('/health', healthHandler);
   app.get('/api/health', healthHandler);
+
+  // WIC-1386 diagnostic: force the **direct** dial that `getDb()` only takes
+  // when `HYPERDRIVE` is absent, so a preview Worker (which has the binding,
+  // and so never reaches that branch) can measure the leg production dies on.
+  // See `db/egress-probe.ts` for why this cell is the one the existing A/B
+  // cannot supply. Temporary scaffolding — remove when WIC-1386 closes.
+  //
+  // Gated off in production. The handler reports upstream error text and runs
+  // unauthenticated, exactly like `/health`; the gate means the one environment
+  // where that text could describe a real customer database never serves it.
+  // Preview and dev both set NODE_ENV=development in `wrangler.jsonc`.
+  const egressHandler = async (c: Context<AppEnv>) => {
+    if (c.env?.NODE_ENV === 'production') return c.notFound();
+    const databaseUrl = c.env?.DATABASE_URL;
+    if (!databaseUrl) {
+      return c.json({ status: 'not_applicable', reason: 'no DATABASE_URL binding' }, 200);
+    }
+    const report = await probeDirectEgress(databaseUrl);
+    return c.json({ status: 'ok', ...report }, 200);
+  };
+  app.get('/health/egress', egressHandler);
+  app.get('/api/health/egress', egressHandler);
 
   const api = new Hono<AppEnv>();
   api.use('*', authMiddleware);

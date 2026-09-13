@@ -46,6 +46,22 @@ A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `ne
 
 
 
+
+### Diagnostics — the evidence that production needs Hyperdrive varied two things at once (2026-09-13)
+
+The standing diagnosis for the P1 prod outage is that root `wrangler.jsonc` declares `hyperdrive` under `env.preview` only, so the production Worker takes `client.ts`'s `DATABASE_URL` branch and dies at `connect deadline exceeded`. The evidence is a two-cell comparison — preview **with** Hyperdrive reaches a database and answers `password authentication failed`, production **without** it never gets a reply — and a server-side error does prove the connect completed where a deadline trip proves only that we gave up.
+
+But "Hyperdrive present" and "which database" move together across those two rows. The comparison cannot separate *a Worker cannot direct-dial a Supabase pooler at all* from *this particular production dial fails*, and the two have different fixes. The missing cell is a preview Worker dialling **directly**, which has never run: `getDb()` checks `HYPERDRIVE` first, so the environment that has the binding never reaches the branch production is stuck on.
+
+Preview already receives a `DATABASE_URL` secret it never uses — `deploy.yml` pushes the same key set to both environments — so that cell is measurable with no Cloudflare scope and no production deploy. `GET /health/egress` forces the direct dial and classifies the outcome structurally: a `PostgresError` carries `severity` alongside a SQLSTATE, postgres-js connection errors carry neither, and presence of `severity` is positive proof the far end spoke Postgres. Matching on message text would not do — the string for this one outage has moved three times (`Too many subrequests` → `write CONNECTION_DESTROYED` → `connect deadline exceeded`), and each move was a reporting fix landing rather than the fault changing.
+
+It probes 6543 and 5432 both, because `deploy.yml:641` rewrites `:5432` to `:6543` on every path, so the direct dial has only ever been attempted against the transaction pooler. If the session pooler answers where the transaction pooler does not, production is restorable by a port change and needs no Hyperdrive config at all.
+
+The endpoint is unauthenticated like `/health`, reports upstream error text, and is gated off when `NODE_ENV === 'production'` — so the one environment where that text could describe a real customer database never serves it. Credentials are redacted in both raw and percent-encoded form, longest match first so no fragment survives; the dial is torn down on a 4s deadline, because postgres-js re-arms its connect timer on every iteration and an unbounded probe would spend the invocation's subrequest budget instead of reporting. Diagnostic scaffolding — delete it with WIC-1386.
+
+
+
+
 ### Tooling — the prod restore's second option had no consumer, so half the board's choices led nowhere (2026-09-13)
 
 Board ask `0af79c26` offers two ways to clear the P1 prod outage, and only one of them could ever have worked.
