@@ -529,11 +529,23 @@ jobs:
 
       # WIC-2122 route 2 — the actual coverage. Boot the Node API (`dev:api`,
       # Hono on :3000) against the shared `dev` Supabase, health-gate it, then run
-      # ONLY the two backend-tier isolation spec files with E2E_LIVE_BACKEND=1.
+      # ONLY `multi-user-isolation.spec.ts` with E2E_LIVE_BACKEND=1.
       # Playwright's own webServer (`npm run dev`) starts the Vite frontend on
       # :5173, which proxies /api -> :3000. `e2e-tests` is untouched and still
       # skips these (E2E_LIVE_BACKEND unset there), so the deploy-gating suite is
       # unaffected.
+      #
+      # ⛔ `application-form-errors.spec.ts` is deliberately NOT run here (WIC-2361
+      # rec #2). Its `beforeEach` mocks `**/api/applications*`, and that glob
+      # swallows the POST create whose live server-side validation its 7 tests
+      # assert against — so against a real backend they are dishonest, not merely
+      # red. Narrowing the glob to GET is not enough either: `setupMockAuth`
+      # installs a fake `auth_token`, so a real backend rejects the POST 401
+      # before it ever validates. Making those tests honest means driving the real
+      # sign-in flow (`loginAs`, as multi-user-isolation.spec.ts does) and dropping
+      # the mock entirely — that needs live credentials to verify and is tracked
+      # separately. Adding the file back before that lands re-reds this job for a
+      # reason that has nothing to do with RLS isolation.
       #
       # We deliberately do NOT run `db:migrate`/`db:rls` here: the shared `dev`
       # schema+RLS are kept current by `deploy-preview` (every PR) and
@@ -602,11 +614,12 @@ jobs:
           if [ -z "$up" ]; then
             echo "::error::backend /health never became ready within ~120s"; cat "$RUNNER_TEMP/dev-api.log"; exit 1
           fi
-          echo "Backend healthy on :3000 — running the two isolation spec files."
+          echo "Backend healthy on :3000 — running the isolation spec file."
 
           # Playwright starts the Vite frontend (:5173) via its webServer; run only
-          # the two backend-tier isolation specs.
-          npx playwright test multi-user-isolation.spec.ts application-form-errors.spec.ts
+          # the backend-tier isolation spec (see the ⛔ note above for why
+          # application-form-errors.spec.ts is excluded).
+          npx playwright test multi-user-isolation.spec.ts
           status=$?
           exit $status
 
