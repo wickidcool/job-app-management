@@ -16,7 +16,7 @@ regexes = [
   # {"alg":"HS256","typ":"JWT"} — the public header segment, no payload, no
   # signature.  Every HS256 token shares this prefix; the ellipsis means the
   # author intentionally truncated the example.  Zero entropy per construction.
-  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.{3}''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.{3}''',  # secret-scan:allow — this IS the suppression pattern for the public JWT HS256 header; the literal is the header constant itself (decodes to {"alg":"HS256","typ":"JWT"}), not a credential (WIC-2367)
   # JSON "_key" field whose value is an alphanumeric identifier (metric / dashboard key).
   # The field name "_key" is a HogQL/PostHog convention for naming a metric series;
   # its value is never an API key — it is always a short snake_case label.
