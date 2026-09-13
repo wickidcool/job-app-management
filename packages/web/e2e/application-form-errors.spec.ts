@@ -63,6 +63,21 @@ async function setupBasicMocks(page: Page) {
     })
   );
 
+  // ⚠️ WIC-2361 defect 2 — KNOWN, UNFIXED, and it will keep this file red under
+  // `E2E_LIVE_BACKEND=1`. This glob matches the **POST create** as well as the GET
+  // list, and answers it `200` with no validation errors, so a server validation
+  // error can never reach the UI — yet that is exactly what the describe block
+  // below asserts. The block simultaneously demands a live backend and intercepts
+  // the endpoint whose live behaviour is the assertion.
+  //
+  // Narrowing this route to GET is NOT sufficient on its own: `setupMockAuth`
+  // installs a fake `auth_token`, so a real backend would reject the POST 401
+  // before it ever validated. Making these tests honest means driving the real
+  // sign-in flow (see `loginAs` in multi-user-isolation.spec.ts) and dropping this
+  // mock entirely — a rewrite that needs live credentials to verify, so it is
+  // deliberately NOT attempted here.
+  //
+  // Until then, keep this file OUT of any job that sets `E2E_LIVE_BACKEND=1`.
   await page.route('**/api/applications*', (route) =>
     route.fulfill({
       status: 200,
@@ -93,7 +108,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
     await page.click('button:has-text("Add Application")');
 
     // Wait for the dialog to open
-    await page.waitForSelector('dialog[open]');
+    await page.waitForSelector('[role="dialog"]');
 
     // Fill in the form with invalid data that will trigger server validation
     await page.fill('input[id="jobTitle"]', 'A'); // Too short (< 2 chars)
@@ -120,7 +135,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
     await page.click('button:has-text("Add Application")');
 
     // Wait for the dialog to open
-    await page.waitForSelector('dialog[open]');
+    await page.waitForSelector('[role="dialog"]');
 
     // Fill in the form with valid required fields but invalid URL
     await page.fill('input[id="jobTitle"]', 'Software Engineer');
@@ -147,7 +162,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
     await page.click('button:has-text("Add Application")');
 
     // Wait for the dialog to open
-    await page.waitForSelector('dialog[open]');
+    await page.waitForSelector('[role="dialog"]');
 
     // The error banner should not be visible initially
     const errorBanner = page.locator('div[role="alert"]');
@@ -159,7 +174,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
     await page.click('button:has-text("Add Application")');
 
     // Wait for the dialog to open
-    await page.waitForSelector('dialog[open]');
+    await page.waitForSelector('[role="dialog"]');
 
     // Fill in the form with invalid data
     await page.fill('input[id="jobTitle"]', 'A'); // Too short
@@ -183,7 +198,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
     await page.waitForTimeout(1000);
 
     // The dialog should be closed on success
-    const dialog = page.locator('dialog[open]');
+    const dialog = page.locator('[role="dialog"]');
     await expect(dialog).not.toBeVisible();
   });
 
@@ -192,7 +207,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
     await page.click('button:has-text("Add Application")');
 
     // Wait for the dialog to open
-    await page.waitForSelector('dialog[open]');
+    await page.waitForSelector('[role="dialog"]');
 
     // Fill in the form with invalid data
     await page.fill('input[id="jobTitle"]', 'A'); // Too short
@@ -210,7 +225,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
 
     // Re-open the dialog
     await page.click('button:has-text("Add Application")');
-    await page.waitForSelector('dialog[open]');
+    await page.waitForSelector('[role="dialog"]');
 
     // The error should not be visible anymore
     await expect(jobTitleError).not.toBeVisible();
@@ -221,7 +236,7 @@ test.describe('ApplicationForm - Server Validation Errors', () => {
     await page.click('button:has-text("Add Application")');
 
     // Wait for the dialog to open
-    await page.waitForSelector('dialog[open]');
+    await page.waitForSelector('[role="dialog"]');
 
     // Fill in required fields correctly
     await page.fill('input[id="jobTitle"]', 'Software Engineer');
@@ -284,7 +299,7 @@ test.describe('ApplicationForm - Edit Mode Errors', () => {
       await editButton.click();
 
       // Wait for the edit dialog to open
-      await page.waitForSelector('dialog[open]');
+      await page.waitForSelector('[role="dialog"]');
 
       // Clear the job title field and enter invalid data
       await page.fill('input[id="jobTitle"]', '');

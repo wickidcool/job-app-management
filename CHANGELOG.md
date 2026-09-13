@@ -46,6 +46,21 @@ A fixture correction rides along: `ReportsPipeline.keyboardNav.test.tsx` set `ne
 
 
 
+### Fixed — the E2E isolation specs waited on a `<dialog>` the app has never rendered, so they could only ever time out (2026-09-13)
+
+`packages/web/e2e/multi-user-isolation.spec.ts` and `application-form-errors.spec.ts` both opened a dialog and then awaited `dialog[open]` — a **native `<dialog>`** selector. Every dialog in this app is Radix (`@radix-ui/react-dialog`), which renders `[role="dialog"]` and never a native `<dialog>` element; `git grep '<dialog[ >]' -- packages/web/src` returns **zero**. The selector therefore could not match under any circumstance, and because it is the first await after the click, each affected test died at Playwright's default 30s timeout rather than failing on its assertion.
+
+That signature is exactly what `E2E Isolation Coverage` recorded on run `34274755676`: 19 attempts, every one at 30.0s or 30.1s, zero variance, until the step hit its 10-minute budget.
+
+**The correction this entry exists to make:** WIC-2361 root-caused that red to `application-form-errors.spec.ts` alone and stated that spec was "the sole outlier in the repo". It is not. `multi-user-isolation.spec.ts` — the file the isolation-coverage job exists to run — carries the same defect at three sites, all three inside `test.describe('Real Multi-User Data Isolation')`, i.e. in 3 of the 4 backend-tier tests. So the recommendation to simply drop the co-bundled file from the job's invocation would **not** have turned the job green; it would have traded seven 30s timeouts for three, and the ADR-005 RLS isolation coverage would still never have been validated.
+
+12 occurrences replaced with `[role="dialog"]` (9 + 3). `modal-focus.spec.ts` is the control: it is ungated, runs in the standard `e2e-tests` job today, drives the same Radix components, and has always used `getByRole('dialog')` — so the replacement selector is already proven against this app in CI. `ApplicationForm.test.tsx` independently asserts the same thing at unit level via `screen.getByRole('dialog')`.
+
+**Blast radius is nil on the currently-green suite.** All 12 sites sit inside describe blocks gated behind `E2E_LIVE_BACKEND`, which is unset everywhere except the isolation-coverage job, so every one of them is skipped in CI today.
+
+This is a necessary condition for that job to pass, not a sufficient one. `application-form-errors.spec.ts` carries a second, independent defect — its `beforeEach` mocks `**/api/applications*`, which swallows the POST whose live server-side validation the block asserts against, while `setupMockAuth` supplies a fake JWT a real backend would reject outright. That one needs live credentials to verify and is left unfixed, documented at the mock site, with the standing instruction to keep that file out of any `E2E_LIVE_BACKEND=1` job.
+
+
 ### Tooling — the prod restore's second option had no consumer, so half the board's choices led nowhere (2026-09-13)
 
 Board ask `0af79c26` offers two ways to clear the P1 prod outage, and only one of them could ever have worked.
