@@ -33,6 +33,31 @@
 # actor who can dispatch a workflow can complete the CI half — no specific
 # agent seat required.
 #
+# TWO PATHS, ONE FOR EACH OPTION THE BOARD WAS OFFERED (WIC-2376)
+# ---------------------------------------------------------------
+# Ask 0af79c26 offers Allan two options. Until now only the first had a
+# consumer, so the second silently led nowhere:
+#
+#   PATH A - "grant_scope"    : add Account|Hyperdrive|Edit to CLOUDFLARE_API_TOKEN,
+#                               then this workflow creates the config itself.
+#                               Dispatch with no `existing_config_id`.
+#
+#   PATH B - "console_create" : create the Hyperdrive config by hand in the
+#                               dashboard and pass its id as `existing_config_id`
+#                               (plus `origin_project_ref`). This path makes NO
+#                               Cloudflare API call whatsoever, so it works with
+#                               the token exactly as it is scoped today - nothing
+#                               about the shared CI credential has to change.
+#
+# Both paths converge on the same wrangler edit, the same prod!=preview guard and
+# the same binding PR. Neither deploys.
+#
+# PATH B cannot verify the config's origin (reading it back would need the very
+# Hyperdrive:Read scope this path exists to avoid), so it cross-checks the
+# operator-supplied project ref against this repo's production SUPABASE_URL.
+# That catches the one realistic mistake - creating the config against the dev
+# project - without pretending to be a proof.
+#
 # WHAT IT DOES / DOES NOT DO
 # --------------------------
 #   * It DOES create (or reuse) a Hyperdrive config for production and open a
@@ -77,6 +102,26 @@ on:
         required: false
         default: 'jobtrail-prod'
         type: string
+      existing_config_id:
+        description: >-
+          OPTIONAL. Id of a Hyperdrive config that ALREADY EXISTS (created by
+          hand in the Cloudflare dashboard). Supplying it skips every Cloudflare
+          API call, so this path needs NO Hyperdrive scope on the token — it is
+          option "console_create" of board ask 0af79c26. Leave blank to use the
+          normal provisioning path. Requires origin_project_ref.
+        required: false
+        default: ''
+        type: string
+      origin_project_ref:
+        description: >-
+          REQUIRED WITH existing_config_id. The Supabase project ref you pointed
+          that config at (the "<ref>" in postgres.<ref>, visible on the config's
+          origin in the dashboard). Checked against this repo's production
+          SUPABASE_URL so a config built against the DEV project is refused
+          rather than silently shipped to production.
+        required: false
+        default: ''
+        type: string
 
   # WIC-1386: the same job, callable from prod-hyperdrive-scope-watch.yml.
   #
@@ -107,6 +152,16 @@ on:
         description: 'Hyperdrive config name'
         required: false
         default: 'jobtrail-prod'
+        type: string
+      existing_config_id:
+        description: 'Pre-created Hyperdrive config id; skips all Cloudflare API calls.'
+        required: false
+        default: ''
+        type: string
+      origin_project_ref:
+        description: 'Supabase project ref the pre-created config points at.'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -149,12 +204,101 @@ jobs:
           SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
           ORIGIN_PORT: ${{ inputs.origin_port }}
           CONFIG_NAME: ${{ inputs.config_name }}
+          EXISTING_CONFIG_ID: ${{ inputs.existing_config_id }}
+          ORIGIN_PROJECT_REF: ${{ inputs.origin_project_ref }}
         run: |
           set -euo pipefail
           # NOTE: deliberately no `set -x` — secrets are in scope for this step.
 
           API="https://api.cloudflare.com/client/v4"
 
+          # The DEV/preview config id committed in wrangler.jsonc. Used as a
+          # tripwire on BOTH paths so we can never hand production the dev
+          # database. Defined up here because the bring-your-own-id path below
+          # returns before the provisioning path's copy would be reached.
+          PREVIEW_ID="374db58fe1014823a9e54ba393125676"
+
+          # ================================================================
+          # PATH B - "console_create": caller supplied an id, so there is
+          # nothing to provision and NO Cloudflare credential is required.
+          # ================================================================
+          #
+          # This exists because ask 0af79c26 offers Allan two options and only
+          # one of them had a consumer. Option "grant_scope" (add Hyperdrive:Edit
+          # to the CI token, then CI provisions) is PATH A below. Option
+          # "console_create" (create the config in the dashboard and hand over
+          # the id) previously stranded: every code path here began with a
+          # Hyperdrive list call, so it 403'd on exactly the token the option
+          # was designed to avoid touching. This branch closes that.
+          #
+          # It is deliberately the FIRST thing the step does: no token check, no
+          # preflight, no API call. A repo whose CLOUDFLARE_API_TOKEN carries no
+          # Hyperdrive scope at all - which is the state today - can still reach
+          # the wrangler edit and open the binding PR.
+          if [ -n "${EXISTING_CONFIG_ID:-}" ]; then
+            echo "=============================================================="
+            echo "PATH B - using a pre-created Hyperdrive config (no CF API call)"
+            echo "=============================================================="
+
+            # Format guard. A Hyperdrive config id is a 32-character hex uuid
+            # with the dashes stripped. Anything else is a paste error, and we
+            # would otherwise commit it verbatim into wrangler.jsonc and only
+            # find out at deploy time.
+            if ! printf '%s' "$EXISTING_CONFIG_ID" | grep -qE '^[0-9a-f]{32}$'; then
+              echo "::error::existing_config_id is not a 32-char lowercase hex id."
+              echo "  got: '$EXISTING_CONFIG_ID'"
+              echo "  Copy the id from the Cloudflare dashboard: Storage & Databases"
+              echo "  -> Hyperdrive -> your config. Strip any dashes; do not paste the"
+              echo "  connection string or the config NAME."
+              exit 1
+            fi
+
+            # Same tripwire the provisioning path carries, applied to a value a
+            # human typed - which is the case that actually needs it.
+            if [ "$EXISTING_CONFIG_ID" = "$PREVIEW_ID" ]; then
+              echo "::error::That is the PREVIEW (dev) Hyperdrive id already committed"
+              echo "  under env.preview in wrangler.jsonc. Binding production to it would"
+              echo "  point production at the DEV database while reporting itself healthy."
+              echo "  Create a SEPARATE config against the production Supabase project."
+              exit 1
+            fi
+
+            # Origin cross-check. We cannot read the config's origin back without
+            # Hyperdrive:Read - that is the whole premise of this path - so we
+            # ask the operator which project they pointed it at and check that
+            # answer against ground truth from this repo's own production vars.
+            # It does not prove the config is correct; it does catch the one
+            # realistic error, which is creating it against the dev project.
+            if [ -z "${ORIGIN_PROJECT_REF:-}" ]; then
+              echo "::error::origin_project_ref is required with existing_config_id."
+              echo "  Re-dispatch with the Supabase project ref the config points at."
+              exit 1
+            fi
+            EXPECTED_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+            if [ "$ORIGIN_PROJECT_REF" != "$EXPECTED_REF" ]; then
+              echo "::error::origin_project_ref does not match this repo's PRODUCTION Supabase project."
+              echo "  you entered: $ORIGIN_PROJECT_REF"
+              echo ""
+              echo "  The config appears to point at a different Supabase project - most"
+              echo "  likely dev. Binding production to it would silently serve dev data."
+              echo "  Check which project you selected when creating the Hyperdrive config;"
+              echo "  the production ref is the one in:"
+              echo "    gh variable list -R wickidcool/job-app-management -e production"
+              echo "  (variable SUPABASE_URL). Note the environment is 'production', not 'prod'."
+              exit 1
+            fi
+
+            echo "  config id   : $EXISTING_CONFIG_ID"
+            echo "  origin ref  : matches production SUPABASE_URL"
+            echo "  cloudflare  : no API call made (no Hyperdrive scope required)"
+            echo "HYPERDRIVE_CONFIG_ID=$EXISTING_CONFIG_ID" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ================================================================
+          # PATH A - "grant_scope": provision the config ourselves. Requires
+          # the token to carry Account | Hyperdrive | Edit.
+          # ================================================================
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
             echo "They are 'production' ENVIRONMENT secrets — check this job still"
@@ -209,9 +353,7 @@ jobs:
           EXISTING_ID=$(jq -r --arg n "$CONFIG_NAME" \
             '[.result[]? | select(.name==$n) | .id] | first // ""' "$BODY")
 
-          # The DEV/preview config id committed in wrangler.jsonc. Used below as
-          # a tripwire so we can never hand production the dev database.
-          PREVIEW_ID="374db58fe1014823a9e54ba393125676"
+          # (PREVIEW_ID is defined at the top of this step — it guards both paths.)
 
           if [ -n "$EXISTING_ID" ]; then
             echo "  reusing existing config '$CONFIG_NAME' -> $EXISTING_ID"
@@ -396,7 +538,13 @@ jobs:
             echo "| field | value |"
             echo "| --- | --- |"
             echo "| config id | \`${CONFIG_ID:-(not provisioned)}\` |"
-            echo "| origin port | \`${{ inputs.origin_port }}\` |"
+            if [ -n "${{ inputs.existing_config_id }}" ]; then
+              echo "| path | \`console_create\` — pre-created id, no Cloudflare API call |"
+              echo "| origin port | n/a (origin was set when the config was created) |"
+            else
+              echo "| path | \`grant_scope\` — provisioned via the Cloudflare API |"
+              echo "| origin port | \`${{ inputs.origin_port }}\` |"
+            fi
             echo
             echo "This workflow does **not** deploy. Merging the PR it opens is the deploy trigger,"
             echo "and that remains board-gated under approval \`d61d200b\`."
