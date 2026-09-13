@@ -1,0 +1,372 @@
+# WIC-1386 / WIC-2200: the missing CI half of the P1 prod restore.
+#
+# CONTEXT
+# -------
+# Production's API has been 503 for every logged-in user since 2026-08-26:
+# `/api/health` reports `hyperdrive:false` and
+# `connect deadline exceeded: no connection within 1500ms
+#  (aws-1-us-west-2.pooler.supabase.com:6543)`.
+#
+# The root `wrangler.jsonc` — which is what prod deploys from — has NO top-level
+# `hyperdrive` block. The only one in the file lives under `env.preview` and
+# points at the DEV database. That preview id must NEVER be lifted to the top
+# level: doing so would silently point production at dev data. This workflow
+# asserts that it does not (see "Guard" below).
+#
+# The remedy is ADR-007 option 1 (give prod its own Hyperdrive binding) and the
+# production deploy is ALREADY board-approved under approval `d61d200b`
+# (approved 2026-09-05). The single remaining blocker is a Cloudflare
+# credential: `CLOUDFLARE_API_TOKEN` carries no Hyperdrive scope at all
+# (`HYPERDRIVE_READ=no`, re-measured 2026-09-13 by cf-token-capability-probe.yml
+# run 34728485222 — the same verdict as runs 33989113004 / 33990724383).
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# Board ask `0af79c26` (WIC-1386) offers Allan two options, and option 1 —
+# "grant the token Hyperdrive:Edit, then DevOps provisions from CI" — promised
+# "No further human step". That promise was true when it was written on
+# 2026-09-06 and is NOT true today: the DevOps seat was paused on 2026-09-10,
+# and no provisioning workflow had ever been written. So granting the scope
+# would have unblocked nothing.
+#
+# This workflow closes that gap. Once the token carries Hyperdrive:Edit, ANY
+# actor who can dispatch a workflow can complete the CI half — no specific
+# agent seat required.
+#
+# WHAT IT DOES / DOES NOT DO
+# --------------------------
+#   * It DOES create (or reuse) a Hyperdrive config for production and open a
+#     PR adding the top-level binding to `wrangler.jsonc`.
+#   * It DOES NOT deploy, and it DOES NOT push to `main`. The prod deploy stays
+#     exactly as gated as it is today: merging the PR is the deploy trigger,
+#     and that remains a deliberate human/board act under `d61d200b`.
+#   * It is idempotent: if a config named `jobtrail-prod` already exists it is
+#     reused rather than duplicated.
+#
+# SAFETY FENCE (mirrors cf-token-capability-probe.yml, which is the house
+# pattern for spending this credential):
+#   * the token never appears in argv — curl reads it from a 0600 config file;
+#   * no `set -x` anywhere a secret is in scope;
+#   * the DB password is URL-encoded and never echoed, and the assembled
+#     connection string is never printed;
+#   * the only mutating call is the single Hyperdrive config POST.
+name: Provision Prod Hyperdrive
+
+# Manual only, and deliberately awkward to fire by accident. This spends a
+# production-scoped credential and creates real Cloudflare infrastructure.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type PROVISION to confirm (creates a real Hyperdrive config)'
+        required: true
+        type: string
+      origin_port:
+        description: >-
+          Supabase pooler port. 6543 = transaction pooler (matches the string in
+          approval d61d200b and what the Worker uses today). 5432 = session
+          pooler, which is what Cloudflare recommends behind Hyperdrive because
+          Hyperdrive does its own pooling. Try 6543 first; if connections fail
+          after deploy, re-run with 5432.
+        required: false
+        default: '6543'
+        type: choice
+        options: ['6543', '5432']
+      config_name:
+        description: 'Hyperdrive config name'
+        required: false
+        default: 'jobtrail-prod'
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  provision:
+    name: Provision Hyperdrive config + open binding PR
+    runs-on: ubuntu-latest
+    # WIC-1095 house rule: every job is bounded.
+    timeout-minutes: 15
+    # REQUIRED: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID / the Supabase
+    # credentials exist ONLY as `production` environment secrets. Without this
+    # line they all interpolate to empty and every call below fails in a way
+    # that reads exactly like a dead token.
+    environment: production
+
+    steps:
+      - name: Refuse an unconfirmed dispatch
+        if: inputs.confirm != 'PROVISION'
+        run: |
+          echo "::error::Refusing to run. Re-dispatch with confirm=PROVISION."
+          exit 1
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Provision Hyperdrive config
+        id: provision
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
+          ORIGIN_PORT: ${{ inputs.origin_port }}
+          CONFIG_NAME: ${{ inputs.config_name }}
+        run: |
+          set -euo pipefail
+          # NOTE: deliberately no `set -x` — secrets are in scope for this step.
+
+          API="https://api.cloudflare.com/client/v4"
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
+            echo "They are 'production' ENVIRONMENT secrets — check this job still"
+            echo "declares 'environment: production'."
+            exit 1
+          fi
+          if [ -z "${SUPABASE_DATABASE_PASSWORD:-}" ] || [ -z "${SUPABASE_URL:-}" ]; then
+            echo "::error::SUPABASE_DATABASE_PASSWORD / SUPABASE_URL are empty."
+            exit 1
+          fi
+
+          # Keep the token out of argv (and therefore out of `ps`) exactly the
+          # way cf-token-capability-probe.yml does.
+          CURLRC="$(mktemp)"; chmod 600 "$CURLRC"
+          printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" > "$CURLRC"
+          trap 'rm -f "$CURLRC" "${BODY:-}"' EXIT
+          BODY="$(mktemp)"
+
+          req() { # req METHOD URL [JSON]
+            local m="$1" u="$2" d="${3:-}"
+            if [ -n "$d" ]; then
+              curl -sS -K "$CURLRC" -X "$m" -H 'Content-Type: application/json' \
+                   --data "$d" -o "$BODY" -w '%{http_code}' "$u"
+            else
+              curl -sS -K "$CURLRC" -X "$m" -o "$BODY" -w '%{http_code}' "$u"
+            fi
+          }
+
+          # ---- Preflight: does the token actually carry Hyperdrive scope? ----
+          echo "=============================================================="
+          echo "PREFLIGHT - Hyperdrive scope"
+          echo "=============================================================="
+          READ_HTTP=$(req GET "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs")
+          echo "  hyperdrive list -> HTTP $READ_HTTP"
+          if [ "$READ_HTTP" = "401" ] || [ "$READ_HTTP" = "403" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN has NO Hyperdrive scope (HTTP $READ_HTTP)."
+            echo ""
+            echo "REMEDIATION (one human action, ~30 seconds, Cloudflare dashboard):"
+            echo "  My Profile -> API Tokens -> edit the token used by CI"
+            echo "  Add permission:  Account | Hyperdrive | Edit"
+            echo "  Save, then re-dispatch this workflow. Nothing else changes."
+            echo ""
+            echo "This is option 'grant_scope' of board ask 0af79c26 on WIC-1386."
+            exit 1
+          fi
+          if [ "$READ_HTTP" != "200" ]; then
+            echo "::error::Unexpected HTTP $READ_HTTP listing Hyperdrive configs; refusing to continue."
+            exit 1
+          fi
+
+          # ---- Idempotency: reuse an existing config of the same name ----
+          EXISTING_ID=$(jq -r --arg n "$CONFIG_NAME" \
+            '[.result[]? | select(.name==$n) | .id] | first // ""' "$BODY")
+
+          # The DEV/preview config id committed in wrangler.jsonc. Used below as
+          # a tripwire so we can never hand production the dev database.
+          PREVIEW_ID="374db58fe1014823a9e54ba393125676"
+
+          if [ -n "$EXISTING_ID" ]; then
+            echo "  reusing existing config '$CONFIG_NAME' -> $EXISTING_ID"
+            CONFIG_ID="$EXISTING_ID"
+          else
+            echo "=============================================================="
+            echo "CREATE - Hyperdrive config '$CONFIG_NAME'"
+            echo "=============================================================="
+
+            # Same derivation deploy.yml uses for DATABASE_URL, split into the
+            # discrete fields the Hyperdrive API wants. Nothing here is echoed.
+            PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+            REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+            PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+            ORIGIN_HOST="${PREFIX}-${REGION}.pooler.supabase.com"
+            ORIGIN_USER="postgres.${PROJECT_REF}"
+            echo "  origin host : $ORIGIN_HOST"
+            echo "  origin port : $ORIGIN_PORT"
+            echo "  origin user : postgres.<project-ref>"
+            echo "  database    : postgres"
+
+            PAYLOAD=$(jq -nc \
+              --arg name "$CONFIG_NAME" \
+              --arg host "$ORIGIN_HOST" \
+              --argjson port "$ORIGIN_PORT" \
+              --arg user "$ORIGIN_USER" \
+              --arg password "$SUPABASE_DATABASE_PASSWORD" \
+              '{name:$name, origin:{scheme:"postgres", host:$host, port:$port,
+                                    database:"postgres", user:$user, password:$password}}')
+
+            CREATE_HTTP=$(req POST "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs" "$PAYLOAD")
+            unset PAYLOAD
+            echo "  create -> HTTP $CREATE_HTTP"
+            if [ "$CREATE_HTTP" != "200" ] && [ "$CREATE_HTTP" != "201" ]; then
+              echo "::error::Hyperdrive config creation failed (HTTP $CREATE_HTTP)."
+              # Error messages are safe to surface; the payload is not echoed.
+              jq -r '.errors[]? | "  - [\(.code)] \(.message)"' "$BODY" 2>/dev/null || true
+              if [ "$CREATE_HTTP" = "403" ]; then
+                echo "  Token can READ but not EDIT Hyperdrive. Add Account|Hyperdrive|Edit."
+              fi
+              exit 1
+            fi
+            CONFIG_ID=$(jq -r '.result.id // ""' "$BODY")
+            if [ -z "$CONFIG_ID" ]; then
+              echo "::error::Create returned HTTP $CREATE_HTTP but no config id."
+              exit 1
+            fi
+            echo "  created config id: $CONFIG_ID"
+          fi
+
+          # ---- Guard: never hand production the dev database ----
+          if [ "$CONFIG_ID" = "$PREVIEW_ID" ]; then
+            echo "::error::Resolved config id equals the PREVIEW (dev) id. Refusing."
+            exit 1
+          fi
+
+          echo "HYPERDRIVE_CONFIG_ID=$CONFIG_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Add the top-level hyperdrive binding to wrangler.jsonc
+        env:
+          CONFIG_ID: ${{ steps.provision.outputs.HYPERDRIVE_CONFIG_ID }}
+        run: |
+          set -euxo pipefail   # no secrets in scope from here on
+          python3 - <<'PY'
+          import json, os, re, sys
+
+          cfg_id = os.environ["CONFIG_ID"]
+          path = "wrangler.jsonc"
+          src = open(path, encoding="utf-8").read()
+
+          if re.search(r'^\t"hyperdrive"', src, re.M):
+              print("top-level hyperdrive block already present; nothing to do")
+              sys.exit(0)
+
+          block = (
+              '\t// WIC-1386: production Hyperdrive binding (ADR-007 opt 1). Without this the\n'
+              '\t// Worker cannot reach the Supabase pooler and every authenticated route 503s.\n'
+              '\t// NOTE: this id is the PRODUCTION config. The one under env.preview points at\n'
+              '\t// the DEV database - the two must never be the same value.\n'
+              '\t"hyperdrive": [\n'
+              '\t\t{\n'
+              '\t\t\t"binding": "HYPERDRIVE",\n'
+              f'\t\t\t"id": "{cfg_id}"\n'
+              '\t\t}\n'
+              '\t],\n'
+          )
+
+          # Stable anchor: the top-level "observability" key, at one tab of indent.
+          anchor = '\t"observability": {'
+          if anchor not in src:
+              sys.exit("anchor '\\t\"observability\": {' not found in wrangler.jsonc")
+          src = src.replace(anchor, block + anchor, 1)
+          open(path, "w", encoding="utf-8").write(src)
+          print("inserted top-level hyperdrive block")
+          PY
+
+      - name: Verify the edit (parse JSONC, assert prod != preview)
+        env:
+          CONFIG_ID: ${{ steps.provision.outputs.HYPERDRIVE_CONFIG_ID }}
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import json, os, re, sys
+
+          src = open("wrangler.jsonc", encoding="utf-8").read()
+          # Strip // comments (none of this file's string values contain "//"
+          # except the https:// POSTHOG_HOST, so only strip at line starts).
+          stripped = "\n".join(
+              "" if l.lstrip().startswith("//") else l for l in src.splitlines()
+          )
+          cfg = json.loads(stripped)
+
+          prod = cfg["hyperdrive"][0]
+          prev = cfg["env"]["preview"]["hyperdrive"][0]
+
+          assert prod["binding"] == "HYPERDRIVE", prod
+          assert prod["id"] == os.environ["CONFIG_ID"], (prod, os.environ["CONFIG_ID"])
+          # The load-bearing assertion: production must NOT point at the dev DB.
+          assert prod["id"] != prev["id"], "prod hyperdrive id equals the preview (dev) id!"
+          # And preview must be untouched.
+          assert prev["id"] == "374db58fe1014823a9e54ba393125676", prev
+
+          print("OK: prod id", prod["id"], "!= preview id", prev["id"])
+          PY
+
+      - name: Open the binding PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG_ID: ${{ steps.provision.outputs.HYPERDRIVE_CONFIG_ID }}
+        run: |
+          set -euxo pipefail
+          BRANCH="fix/wic1386-prod-hyperdrive-binding"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add wrangler.jsonc
+
+          if git diff --cached --quiet; then
+            echo "wrangler.jsonc already carries the binding — no PR needed."
+            exit 0
+          fi
+
+          git commit -m "fix(WIC-1386): add production Hyperdrive binding
+
+          Production has had no top-level \`hyperdrive\` block, so the Worker could
+          not reach the Supabase pooler and every authenticated route returned 503
+          (\`/api/health\` -> \`hyperdrive:false\`, connect deadline exceeded).
+
+          Adds the production Hyperdrive binding per ADR-007 option 1. The config
+          was provisioned by .github/workflows/provision-prod-hyperdrive.yml.
+
+          The env.preview binding is untouched and still points at the dev
+          database; CI asserts the two ids differ.
+
+          Deploy is board-approved under approval d61d200b."
+
+          git push -u origin "$BRANCH" --force-with-lease
+
+          gh pr create \
+            --base main --head "$BRANCH" \
+            --title "fix(WIC-1386): add production Hyperdrive binding — restores prod API" \
+            --body "Provisioned Hyperdrive config \`$CONFIG_ID\` and bound it at the top level of \`wrangler.jsonc\`.
+
+          **Merging this PR deploys production** (\`deploy.yml\` fires on push to \`main\`). That deploy is already board-approved under approval \`d61d200b\`.
+
+          Acceptance, per board ask \`0af79c26\`: recovery is accepted only when \`https://app.careerpin.app/api/health\` reports \`db == \"ok\"\` (today it reports \`hyperdrive:false\` + \`connect deadline exceeded\`).
+
+          If connections still fail after deploy, re-dispatch the provisioning workflow with \`origin_port=5432\` (session pooler) — Cloudflare recommends session mode behind Hyperdrive because Hyperdrive pools on its own.
+
+          Refs WIC-1386, WIC-2200, ADR-007." \
+            || echo "PR already exists for $BRANCH"
+
+      - name: Summary
+        if: always()
+        env:
+          CONFIG_ID: ${{ steps.provision.outputs.HYPERDRIVE_CONFIG_ID }}
+        run: |
+          {
+            echo "## Provision Prod Hyperdrive (WIC-1386)"
+            echo
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| config id | \`${CONFIG_ID:-(not provisioned)}\` |"
+            echo "| origin port | \`${{ inputs.origin_port }}\` |"
+            echo
+            echo "This workflow does **not** deploy. Merging the PR it opens is the deploy trigger,"
+            echo "and that remains board-gated under approval \`d61d200b\`."
+          } >> "$GITHUB_STEP_SUMMARY"
