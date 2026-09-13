@@ -136,8 +136,46 @@ function readCommits(deployedSha, headSha) {
       const files = git('diff', '--name-only', `${sha}^`, sha)
         .split('\n')
         .filter(Boolean);
-      return { sha, committedAt: Number(committedAt) * 1000, subject, files };
+      // Body is read separately rather than folded into the `%x1f` record above:
+      // it is multi-line by definition, and a newline inside a record would
+      // desynchronise the line-oriented split. One extra call per commit, same
+      // shape as the `git diff` already made here (WIC-2386).
+      const body = git('log', '-1', '--format=%b', sha);
+      return { sha, committedAt: Number(committedAt) * 1000, subject, body, files };
     });
+}
+
+// ── WIC-2386: why the deploy lane was suppressed, not just that it was ───────
+// `deploy.yml` gates `deploy-production` on
+// `!contains(github.event.head_commit.message, '[skip deploy]')`, and
+// `head_commit.message` is SUBJECT + BODY. GitHub's squash merge synthesises that
+// message from the PR title plus one bullet per branch commit — so a marker on any
+// WIP commit's subject lands in the merge commit's BODY and silently suppresses a
+// production deploy that nobody opted out of.
+//
+// Measured on `main` 2026-08-01..2026-09-13: 17 commits carry the marker, 3 carry
+// it in the body only, and 2 of those 3 changed runtime code. One is `6ce89e8f`
+// (PR #499) — the `/auth/me` fix for a bug that bounced every authenticated page
+// load to `/login` — which sat undeployed while this detector alarmed without ever
+// naming the cause. The alarm text said "check whether the deploy lane is
+// suppressed" and left the reader to go and find out; this answers it.
+//
+// Diagnostic ONLY — deliberately NOT wired into `triggers`. The thresholds are
+// tuned (WIC-2098) and were already correct here: T1/T2 fired on exactly the right
+// window. What was missing was the explanation, so that is all this adds.
+const SKIP_DEPLOY = /\[\s*skip[ _-]?deploy\s*\]/i;
+
+/**
+ * @param {{subject?: string, body?: string}} commit
+ * @returns {'subject'|'body-only'|null} how this commit opted out of deploying,
+ *   or null if it did not. `'subject'` is a deliberate opt-out by whoever merged;
+ *   `'body-only'` is the inherited-from-a-squashed-sub-commit shape above, which
+ *   is suppression nobody asked for.
+ */
+export function classifySkipDeploy({ subject = '', body = '' }) {
+  if (SKIP_DEPLOY.test(subject)) return 'subject';
+  if (SKIP_DEPLOY.test(body)) return 'body-only';
+  return null;
 }
 
 /**
@@ -159,9 +197,19 @@ export function evaluate({
   diffPaths,
 }) {
   const runtimeDiffPaths = runtimePaths(diffPaths);
-  const annotated = commits.map((c) => ({ ...c, runtimeFiles: runtimePaths(c.files) }));
+  const annotated = commits.map((c) => ({
+    ...c,
+    runtimeFiles: runtimePaths(c.files),
+    skipDeploy: classifySkipDeploy(c),
+  }));
   const runtimeCommits = annotated.filter((c) => c.runtimeFiles.length > 0);
   const quietCommits = annotated.filter((c) => c.runtimeFiles.length === 0);
+
+  // WIC-2386. Scoped to runtime-bearing commits on purpose: a docs-only commit
+  // whose body happens to carry the marker suppressed a deploy that had nothing
+  // to ship, which is not worth a word. Only runtime code that silently failed to
+  // deploy is a finding.
+  const unintendedSuppressions = runtimeCommits.filter((c) => c.skipDeploy === 'body-only');
 
   // The tree is what actually matters. If every runtime change in the window was
   // reverted before the window closed, the deployed tree is already correct in
@@ -202,6 +250,7 @@ export function evaluate({
     totalCommits: commits.length,
     runtimeCommits,
     quietCommits,
+    unintendedSuppressions,
     runtimeDiffPaths,
     treeHasUndeployedRuntimeCode,
     oldestAgeMinutes,
@@ -268,8 +317,39 @@ function render(result, health) {
     lines.push('### Undeployed runtime-bearing commits');
     lines.push('');
     for (const c of result.runtimeCommits) {
+      // WIC-2386: say which of these opted out on purpose. Without this the list
+      // reads as one undifferentiated backlog, and the deliberate `[skip deploy]`
+      // CI-only merges (which are most of it) bury the one that did not.
+      const tag =
+        c.skipDeploy === 'subject'
+          ? ' — **deliberate `[skip deploy]`**'
+          : c.skipDeploy === 'body-only'
+            ? ' — ⚠️ **`[skip deploy]` in BODY only**'
+            : '';
+      lines.push(`- \`${short(c.sha)}\` ${c.subject} — ${c.runtimeFiles.length} runtime path(s)${tag}`);
+    }
+    lines.push('');
+  }
+
+  if (result.unintendedSuppressions.length) {
+    lines.push('### ⚠️ Likely UNINTENDED deploy suppression');
+    lines.push('');
+    lines.push(
+      'These commits changed runtime code and carry `[skip deploy]` **in the commit body but not ' +
+        'the subject**. `deploy.yml` matches the marker anywhere in `head_commit.message` ' +
+        '(subject + body), and a squash merge builds that body from one bullet per branch commit — ' +
+        'so a marker on a WIP commit suppresses the whole PR\'s production deploy, silently.'
+    );
+    lines.push('');
+    for (const c of result.unintendedSuppressions) {
       lines.push(`- \`${short(c.sha)}\` ${c.subject} — ${c.runtimeFiles.length} runtime path(s)`);
     }
+    lines.push('');
+    lines.push(
+      'If the opt-out was not intended, this code has never reached production. Redeploy with the ' +
+        'one-click lever below; to prevent a recurrence, keep `[skip deploy]` out of branch-commit ' +
+        'subjects and put it on the merge commit subject instead.'
+    );
     lines.push('');
   }
   if (result.quietCommits.length) {
@@ -315,11 +395,12 @@ function render(result, health) {
 function selftest() {
   const NOW = 1_757_000_000_000;
   const minsAgo = (m) => NOW - m * 60000;
-  const c = (sha, files, ageMin, subject = 'x') => ({
+  const c = (sha, files, ageMin, subject = 'x', body = '') => ({
     sha: sha.padEnd(40, '0'),
     files,
     committedAt: minsAgo(ageMin),
     subject,
+    body,
   });
   const cases = [
     {
@@ -384,6 +465,59 @@ function selftest() {
       alarm: true,
       trigger: 'T1',
     },
+    // ── WIC-2386: body-only `[skip deploy]` on runtime code ──────────────────
+    // Modelled on the real `6ce89e8f` (PR #499): clean subject, and a body built
+    // by squash merge from branch-commit subjects, one of which carried the
+    // marker. The detector must still alarm (it always did) AND name the cause.
+    {
+      name: 'WIC-2386 — body-only [skip deploy] on runtime code — FIRES and is flagged',
+      input: {
+        commits: [
+          c(
+            'j1',
+            ['packages/api/src/routes/auth.ts'],
+            500,
+            'fix(WIC-2383): /auth/me called a GoTrue admin endpoint with the anon key (#499)',
+            '* fix(WIC-2383): /auth/me called a GoTrue admin endpoint [skip deploy]\n* test(WIC-2383): fixture anon key [skip deploy]'
+          ),
+        ],
+        diffPaths: ['packages/api/src/routes/auth.ts'],
+      },
+      alarm: true,
+      trigger: 'T1',
+      suppressions: 1,
+    },
+    {
+      name: 'WIC-2386 — subject-marked [skip deploy] is a deliberate opt-out, NOT flagged',
+      input: {
+        commits: [
+          c('k1', ['.github/scripts/runtime-paths.cjs'], 500, 'ci(WIC-1064): content-policy gate [skip deploy]'),
+        ],
+        diffPaths: ['.github/scripts/runtime-paths.cjs'],
+      },
+      alarm: true,
+      trigger: 'T1',
+      suppressions: 0,
+    },
+    {
+      name: 'WIC-2386 — body-only marker on a DOCS-only commit is not a finding',
+      input: {
+        commits: [c('l1', ['README.md'], 500, 'docs: tidy', '* docs: tidy [skip deploy]')],
+        diffPaths: ['README.md'],
+      },
+      alarm: false,
+      suppressions: 0,
+    },
+    {
+      name: 'WIC-2386 — no marker anywhere — not flagged',
+      input: {
+        commits: [c('m1', ['packages/api/src/app.ts'], 500, 'feat: thing', 'ordinary body prose')],
+        diffPaths: ['packages/api/src/app.ts'],
+      },
+      alarm: true,
+      trigger: 'T1',
+      suppressions: 0,
+    },
   ];
 
   let failed = 0;
@@ -391,6 +525,14 @@ function selftest() {
     const r = evaluate({ deployedSha: 'dead'.padEnd(40, '0'), headSha: 'beef'.padEnd(40, '0'), nowMs: NOW, ...t.input });
     const okAlarm = r.alarm === t.alarm;
     const okTrigger = !t.trigger || r.triggers.some((x) => x.startsWith(t.trigger));
+    if (t.suppressions !== undefined && r.unintendedSuppressions.length !== t.suppressions) {
+      failed++;
+      console.error(
+        `FAIL  ${t.name}\n      expected unintendedSuppressions=${t.suppressions}, ` +
+          `got ${r.unintendedSuppressions.length}`
+      );
+      continue;
+    }
     if (okAlarm && okTrigger) {
       console.log(`PASS  ${t.name}`);
     } else {
@@ -438,6 +580,60 @@ function selftest() {
     } else {
       failed++;
       console.error('FAIL  alarm does not carry the one-click deploy lever link (WIC-1271 point 4)');
+    }
+  }
+
+  // WIC-2386: the suppression diagnosis must reach the RENDERED summary, for the
+  // same reason the one-click lever is asserted there — a field on the result
+  // object that `render()` drops satisfies a field check and helps nobody. Also
+  // pins the discrimination: the deliberate opt-out must NOT appear in the
+  // warning section, or the signal is buried in the noise it exists to separate.
+  {
+    const r = evaluate({
+      deployedSha: 'a'.repeat(40),
+      headSha: 'b'.repeat(40),
+      nowMs: NOW,
+      commits: [
+        c('n1', ['packages/api/src/routes/auth.ts'], 500, 'fix: real fix (#499)', '* fix: wip [skip deploy]'),
+        c('n2', ['.github/scripts/x.cjs'], 400, 'ci: gate [skip deploy]'),
+      ],
+      diffPaths: ['packages/api/src/routes/auth.ts', '.github/scripts/x.cjs'],
+    });
+    const md = render(r, { status: 'ok', httpStatus: 200 });
+    const warn = md.slice(md.indexOf('### ⚠️ Likely UNINTENDED deploy suppression'));
+    const ok =
+      r.unintendedSuppressions.length === 1 &&
+      md.includes('### ⚠️ Likely UNINTENDED deploy suppression') &&
+      warn.includes('n1') &&
+      !warn.includes('n2') &&
+      md.includes('deliberate `[skip deploy]`');
+    if (ok) {
+      console.log('PASS  body-only suppression is rendered and separated from deliberate opt-outs (WIC-2386)');
+    } else {
+      failed++;
+      console.error('FAIL  body-only suppression missing from rendered summary, or not separated (WIC-2386)');
+    }
+  }
+
+  // The marker classifier itself, including the precedence that matters: a commit
+  // with the marker in BOTH places is a deliberate opt-out, not an accident.
+  {
+    const cls = [
+      [{ subject: 'ci: x [skip deploy]', body: '' }, 'subject'],
+      [{ subject: 'fix: x', body: '* wip [skip deploy]' }, 'body-only'],
+      [{ subject: 'ci: x [skip deploy]', body: '* wip [skip deploy]' }, 'subject'],
+      [{ subject: 'fix: x', body: 'prose' }, null],
+      [{ subject: 'fix: x', body: '* wip [skip-deploy]' }, 'body-only'],
+      [{ subject: 'fix: x', body: '* wip [ skip deploy ]' }, 'body-only'],
+    ];
+    for (const [input, want] of cls) {
+      const got = classifySkipDeploy(input);
+      if (got !== want) {
+        failed++;
+        console.error(`FAIL  classifySkipDeploy(${JSON.stringify(input)}) = ${got}, expected ${want}`);
+      } else {
+        console.log(`PASS  classifySkipDeploy -> ${want}`);
+      }
     }
   }
 
