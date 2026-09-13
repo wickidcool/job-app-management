@@ -135,6 +135,33 @@ That signature is exactly what `E2E Isolation Coverage` recorded on run `3427475
 This is a necessary condition for that job to pass, not a sufficient one. `application-form-errors.spec.ts` carries a second, independent defect — its `beforeEach` mocks `**/api/applications*`, which swallows the POST whose live server-side validation the block asserts against, while `setupMockAuth` supplies a fake JWT a real backend would reject outright. That one needs live credentials to verify and is left unfixed, documented at the mock site, with the standing instruction to keep that file out of any `E2E_LIVE_BACKEND=1` job.
 
 
+
+### Tooling — the drift detector saw a suppressed production deploy but could not say what suppressed it (2026-09-13)
+
+`deploy.yml` gates `deploy-production` on `!contains(github.event.head_commit.message, '[skip deploy]')`. GitHub's `head_commit.message` is **subject + body**, and a squash merge synthesises that body from one bullet per branch commit — so a `[skip deploy]` on any WIP commit lands in the merge commit's body and silently suppresses a production deploy nobody opted out of.
+
+That is not hypothetical. `6ce89e8f` (PR #499) is the `/api/auth/me` fix for a bug that bounced **every authenticated page load to `/login`**. Its subject is clean; its squash body carries the marker twice, inherited from the two branch commits. `Deploy Production` skipped, and the fix has never reached production — it is undeployed as of this entry.
+
+Measured over `main`, 2026-08-01..2026-09-13: **17** commits carry `[skip deploy]`, **3** carry it in the body only, and **2 of those 3 changed runtime code** — `6ce89e8f` above, and `8f1c1978` (a vitest version guard, CI-only in practice). So the shape is rare, real, and has already cost a production fix.
+
+The detector was not wrong and its thresholds are untouched — T1 and T2 both fired on exactly the right window. What it could not do was **explain** itself: it said "check whether the deploy lane is suppressed" and left the reader to go and find out which of eight undeployed commits did it, and why. Four of the five runtime-bearing commits in that window carry a deliberate subject-level `[skip deploy]`, so the one that did not was buried in a list that gave every entry equal weight.
+
+`deploy-drift.mjs` now reads each commit's body alongside its subject and classifies the marker as `subject` (a deliberate opt-out by whoever merged) or `body-only` (inherited from a squashed sub-commit). The rendered summary tags every undeployed runtime commit with which it is, and adds a **Likely UNINTENDED deploy suppression** section naming the body-only ones, the mechanism, and the remedy. Diagnostic only — deliberately **not** wired into `triggers`, because the alarm logic was already correct and the thresholds are tuned (WIC-2098).
+
+Scoped to runtime-bearing commits: a docs-only commit whose body happens to carry the marker suppressed a deploy that had nothing to ship, which is not worth a word.
+
+Four evaluator cases and two rendered-output assertions, all driving the same `evaluate()` the scheduled run uses. The rendered assertions pin the discrimination, not just the detection — a deliberate opt-out must **not** appear in the warning section, or the signal is buried in the noise the section exists to separate. Each is a measured mutant, not a reading of the diff:
+
+| mutant | self-test failures |
+|---|---|
+| `body-only` classified as `null` — detector goes blind | **5** |
+| warning section dropped from `render()` (field set, never shown) | **1** |
+| `subject` marker also classified unintended — no discrimination | **3** |
+
+`classifySkipDeploy` is exported and unit-checked on six inputs, including the precedence that matters: a commit carrying the marker in **both** places is a deliberate opt-out, not an accident.
+
+Detection only — this changes no deploy behaviour and no thresholds, and the shared `runtime-paths.cjs` predicate is untouched (its WIC-2101/WIC-2113 decision is deliberately tuned to the stricter `skip-ci-guard` consumer and is not this change's to relitigate).
+
 ### Tooling — the prod restore's second option had no consumer, so half the board's choices led nowhere (2026-09-13)
 
 Board ask `0af79c26` offers two ways to clear the P1 prod outage, and only one of them could ever have worked.
