@@ -14,6 +14,7 @@
     "build:api": "npm run build --workspace=@wic/api",
     "lint": "npm run lint --workspaces --if-present",
     "scan:secrets": "npm run scan:secrets --workspace=@wic/api",
+    "lint:content-policy": "python3 tools/secrets-access-lint/secrets_access_lint.py --base origin/main",
     "typecheck": "tsc -b packages/web packages/api --noEmit",
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write \"packages/**/*.{ts,tsx,css,md}\"",
