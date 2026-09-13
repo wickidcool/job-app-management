@@ -457,7 +457,10 @@ jobs:
     name: E2E Isolation Coverage
     needs: lint-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    # WIC-2122 route 2: this job now boots an in-job backend and RUNS the two
+    # backend-tier isolation spec files, so it needs the E2E budget, not the
+    # 2-minute preflight budget. Baseline ~= e2e-tests (~3-4m) + backend boot.
+    timeout-minutes: 15
     environment: dev
     steps:
       - name: Assert isolation-test credentials are present
@@ -482,9 +485,138 @@ jobs:
             exit 1
           fi
           echo "All isolation-test credentials present and known-good."
-          echo "Isolation coverage is OFF: the specs gate on E2E_LIVE_BACKEND (WIC-2201), which is unset, so they SKIP."
-          echo "This job asserts credential presence only — it is NOT evidence of RLS isolation coverage."
-          echo "Enabling coverage needs a backend in CI, not a credential: WIC-2122 route 2 boots an in-job dev:api and sets E2E_LIVE_BACKEND=1 here."
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Mirror e2e-tests: apt has no default network timeout, so a degraded
+      # mirror can hang `playwright install-deps` forever. This file is read by
+      # every apt invocation, including Playwright's internal one.
+      - name: Harden apt against a degraded mirror
+        timeout-minutes: 2
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          Acquire::ftp::Timeout "30";
+          EOF
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright system dependencies
+        timeout-minutes: 6
+        run: npx playwright install-deps chromium
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 6
+        run: npx playwright install chromium
+
+      # WIC-2122 route 2 — the actual coverage. Boot the Node API (`dev:api`,
+      # Hono on :3000) against the shared `dev` Supabase, health-gate it, then run
+      # ONLY the two backend-tier isolation spec files with E2E_LIVE_BACKEND=1.
+      # Playwright's own webServer (`npm run dev`) starts the Vite frontend on
+      # :5173, which proxies /api -> :3000. `e2e-tests` is untouched and still
+      # skips these (E2E_LIVE_BACKEND unset there), so the deploy-gating suite is
+      # unaffected.
+      #
+      # We deliberately do NOT run `db:migrate`/`db:rls` here: the shared `dev`
+      # schema+RLS are kept current by `deploy-preview` (every PR) and
+      # `deploy-production` (every push to main). Adding a DDL step here would
+      # either race those or, if folded into their `preview-db-migrate`
+      # concurrency group, risk silently dropping preview deploys under load. On
+      # the rare PR that changes schema/RLS ahead of its own preview migration,
+      # these specs may go transiently red — which is acceptable BECAUSE this job
+      # is non-gating (see the guard block above): it is NOT in
+      # `deploy-production.needs` and NOT a required merge context (ruleset
+      # 21489705). A red here is visible-but-harmless and never blocks a deploy.
+      - name: Run isolation specs against a live in-job backend
+        timeout-minutes: 10
+        env:
+          # --- backend (dev:api) ---
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
+          # --- frontend (Vite) + Playwright specs ---
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
+          TEST_USER2_EMAIL: ${{ secrets.E2E_TEST_USER2_EMAIL }}
+          TEST_USER2_PASSWORD: ${{ secrets.E2E_TEST_USER2_PASSWORD }}
+          # Turn the backend-tier isolation specs ON (they self-skip otherwise).
+          E2E_LIVE_BACKEND: '1'
+        run: |
+          set -u
+          # Reconstruct the transaction-pooler DATABASE_URL from parts exactly as
+          # the deploy-preview / deploy-production migration steps do, so a stale
+          # SUPABASE_DATABASE_URL cannot misdirect the backend.
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+          if [ -n "${SUPABASE_DATABASE_PASSWORD:-}" ]; then
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "${SUPABASE_DATABASE_URL:-}" == postgresql://* ]]; then
+            DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            echo "::error::No usable Supabase DB credentials — set SUPABASE_DATABASE_PASSWORD (dev env secret) or a postgresql:// SUPABASE_DATABASE_URL"
+            exit 1
+          fi
+          export DATABASE_URL PORT=3000 HOST=127.0.0.1 PREFLIGHT_ON_BOOT=false
+
+          # Boot the backend in the background; keep it alive for the whole test run.
+          npm run dev:api > "$RUNNER_TEMP/dev-api.log" 2>&1 &
+          API_PID=$!
+          cleanup() { kill "$API_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          # Health-gate: /health returns 200 once the server is listening.
+          up=""
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then up=1; break; fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::dev:api exited before becoming healthy"; cat "$RUNNER_TEMP/dev-api.log"; exit 1
+            fi
+            sleep 2
+          done
+          if [ -z "$up" ]; then
+            echo "::error::backend /health never became ready within ~120s"; cat "$RUNNER_TEMP/dev-api.log"; exit 1
+          fi
+          echo "Backend healthy on :3000 — running the two isolation spec files."
+
+          # Playwright starts the Vite frontend (:5173) via its webServer; run only
+          # the two backend-tier isolation specs.
+          npx playwright test multi-user-isolation.spec.ts application-form-errors.spec.ts
+          status=$?
+          exit $status
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-isolation
+          path: playwright-report/
+          retention-days: 14
 
   # WIC-1203: does this PR change anything that writes to the shared dev
   # database? Only such PRs need to serialize against each other (see the
