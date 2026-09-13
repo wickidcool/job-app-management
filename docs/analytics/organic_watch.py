@@ -152,9 +152,10 @@ REGISTRY_SEARCH_PATH = (
 )
 
 # Exclusion keys must be literal-safe before they are interpolated into HogQL. Every
-# identifier the convention permits (uuids, auth uuids, `wic967-devops-1787717978`,
-# `smoke-wic996-user-...`) matches this. Anything that does not is dropped WITH A WARNING
-# rather than quoted -- dropping only ever makes the watcher noisier, never blinder.
+# identifier the convention permits (uuids, auth-context uuids, smoke-test ids, and
+# similar — e.g. `wic967-devops-1787717978`, `smoke-wic996-user-...`) matches this.
+# Anything that does not is dropped WITH A WARNING rather than quoted -- dropping only
+# ever makes the watcher noisier, never blinder.
 _SAFE_KEY = re.compile(r"^[A-Za-z0-9._:@+-]{1,200}$")
 
 
