@@ -60,15 +60,38 @@ tags = ["adr-0001", "db-credential"]
   regexTarget = "match"
   regexes = [
     # Userinfo half is a placeholder, so no credential is named.
-    # Rev 6 (WIC-2367): loosened x{8,} → x{3,} to cover "xxx"-style placeholders;
-    # added bare "password" (matches "password"/"PASSWORD" but NOT "Passw0rd" variants
-    # since '0' ≠ 'o', making this structurally safe — no real deployment credential
-    # uses the literal word "password" as its value).
-    '''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{3,}|redacted|your[-_]?password|password|changeme|placeholder)[^@\s]*@''',
-    # Rev 6 (WIC-2367): SCREAMING_CASE token (e.g. PROJECT, PASSWORD) in userinfo.
-    # Uses (?-i:...) to restore case-sensitivity inside the outer (?i) context,
-    # ensuring only all-uppercase tokens suppress (not camelCase like "Passw0rd").
-    '''(?i)://[^@\s]*(?-i:[A-Z][A-Z0-9_]{3,})[^@\s]*@''',
+    #
+    # These tokens are distinctive enough that a substring ("contains") match is
+    # safe — no real credential contains `${`, `<foo>`, `redacted` or `changeme`.
+    # ⛔ `x{8,}` stays at 8: Rev 6 loosened it to `x{3,}`, which suppresses any
+    # real password containing "xxx" (e.g. `Rxxxq7ZmNt4w`). Short/ambiguous
+    # placeholders belong in the ANCHORED entry below, not in this alternation.
+    '''(?i)://[^@\s]*(?:\$\{|\$\(|\{\{|%\(|%s|<[a-z_][a-z0-9_-]*>|\[[a-z_][a-z0-9_-]*\]|\*{3,}|x{8,}|redacted|your[-_]?password|changeme|placeholder)[^@\s]*@''',
+    # Rev 6.1 (WIC-2367): short placeholder tokens (`password`, `xxx`) are only
+    # safe when they are the WHOLE component, never as a substring — otherwise
+    # `mypassword123` and `Rxxxq7ZmNt4w` are silently suppressed.
+    # Whole password component. `pw`/`pass` are 2-4 chars — too short to be a real
+    # credential, but only safe anchored (`Rxxxq7ZmNt4w` contains neither as a
+    # whole component). Covers the CHANGELOG prose example `postgres://user:pw@host/db`.
+    '''(?i)://[^@\s]*:(?:password|passwd|pass|pw|x{3,})@''',
+    # Whole username component (or its dot-suffixed tail, e.g. `postgres.xxx`):
+    '''(?i)://(?:[^@\s:]*\.)?(?:password|x{3,})(?::[^@\s]*)?@''',
+    # Rev 6.1 (WIC-2367): SCREAMING_CASE placeholder in userinfo, e.g.
+    # `://postgres.PROJECT:PASSWORD@`.  The token must BE the whole component,
+    # anchored between the `:`/`://` and the `@` — it is NOT enough for the
+    # component to merely CONTAIN an uppercase run.
+    #
+    # ⛔ Do not relax this back to `[^@\s]*(?-i:[A-Z][A-Z0-9_]{3,})[^@\s]*@`.
+    # That form suppressed any userinfo containing a 4+ char uppercase run
+    # ANYWHERE, which is 67.6% of random 24-char alphanumeric passwords
+    # (measured, 20k samples) — including the real prod pooler credential shape
+    # `postgres.<ref>:Xk7PQRSTuvw2ndL@`.  It disarmed the rule it was tuning.
+    # The MUST_CATCH cases in scripts/gitleaks-selftest.py pin this.
+    #
+    # Whole password component is a SCREAMING_CASE token.
+    '''(?i)://[^@\s]*:(?-i:[A-Z][A-Z0-9_]{2,})@''',
+    # No-password form: whole userinfo is a SCREAMING_CASE token.
+    '''(?i)://(?-i:[A-Z][A-Z0-9_]{2,})@''',
     # WIC-2243: host half is provably non-routable, so the string cannot name a live
     # credential no matter what the userinfo says. Structural (host class), not
     # corpus-derived, so it belongs here rather than in the baseline (Rev 6.2 §A.2.2).
@@ -78,9 +101,15 @@ tags = ["adr-0001", "db-credential"]
     '''(?i)@[^@\s]*\.(?:invalid|test|example|localhost)(?::\d+)?$''',
     # RFC 2606 §3 reserved second-level example domains.
     '''(?i)@(?:[^@\s]*\.)?example\.(?:com|net|org)(?::\d+)?$''',
-    # Rev 6 (WIC-2367): single-label dotless hostname — no dot means the name cannot
-    # resolve in public DNS (must be a local /etc/hosts or Docker network alias).
-    # Same structural argument WIC-2243 accepted for loopback and RFC 2606 names.
-    # Pattern anchors at $ so it cannot match the host-portion of a multi-label name.
-    '''(?i)@[a-z0-9][a-z0-9_-]*(:[a-z0-9]+)?$''',
+    # Rev 6.1 (WIC-2367): well-known container/compose service aliases only.
+    #
+    # ⛔ Do not widen this back to the generic single-label form
+    # `@[a-z0-9][a-z0-9_-]*(:[a-z0-9]+)?$`.  "Dotless" is NOT the same structural
+    # guarantee as loopback or an RFC 2606 reserved name: those can never name a
+    # real host, whereas a dotless name resolves fine inside a private network,
+    # so the credential beside it is a REAL credential.  The generic form
+    # suppressed `postgresql://svc_user:aB3xQRSTuvWX9z@prod-db` — a genuine leak.
+    # This enumerated list keeps the compose-fixture false positives suppressed
+    # without granting every internal hostname a free pass.
+    '''(?i)@(?:db|database|postgres|postgresql|mysql|mariadb|redis|mongo|mongodb|cache|queue)(?::\d+)?$''',
   ]

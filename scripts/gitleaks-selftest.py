@@ -50,6 +50,26 @@ DB_MUST_CATCH = [
     ("real supabase pooler", "postgres", "u:p@aws-1-us-west-2.pooler.supabase.com:6543/postgres"),
     ("RFC1918 private host", "postgresql", "admin:hunter2hunter2@10.0.0.5:5432/main"),
     ("mongodb+srv cluster", "mongodb+srv", "root:Tr0ub4dor@cluster0.abcd.mongodb.net/db"),
+    # Rev 6.1 (WIC-2367): adversarial cases for the Rev 6 allowlist additions.
+    #
+    # WHY THESE EXIST: Rev 6 shipped a SCREAMING_CASE rule that suppressed any
+    # userinfo *containing* a 4+ char uppercase run, and a dotless-host rule that
+    # suppressed every single-label hostname. Both passed the then-current 12/12
+    # corpus -- because not one MUST_CATCH password happened to contain an
+    # uppercase run, and not one used an internal host. The corpus, not the
+    # reasoning, was the gap. Measured: the SCREAMING_CASE form swallowed 67.6%
+    # of random 24-char alphanumeric passwords.
+    #
+    # Keep at least one MUST_CATCH per allowlist entry, shaped like the thing the
+    # entry is meant to allow but with a REAL secret in it.
+    ("real pw w/ embedded uppercase run", "postgresql",
+     "postgres.fnmuvgnkxdeupprcyvdt:Xk7PQRSTuvw2ndL@aws-1-us-west-2.pooler.supabase.com:6543/postgres"),
+    ("real pw, leading uppercase run", "postgres",
+     "admin:SECRETKEY9f2a@db.internal.acmecorp.org:5432/app"),
+    ("real pw on dotless internal host", "postgresql",
+     "svc_user:aB3xQRSTuvWX9z@prod-db"),
+    ("real pw containing 'xxx' substring", "postgres",
+     "svc:Rxxxq7ZmNt4w@db.prod.acmecorp.io:5432/app"),
 ]
 
 DB_MUST_ALLOW = [
