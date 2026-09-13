@@ -128,9 +128,9 @@ describe('classifyDialError', () => {
   });
 
   it('treats a Supabase tenant rejection as a server response', () => {
-    expect(classifyDialError(serverError('XX000', 'Tenant or user not found')).connectCompleted).toBe(
-      true
-    );
+    expect(
+      classifyDialError(serverError('XX000', 'Tenant or user not found')).connectCompleted
+    ).toBe(true);
   });
 
   it.each(['CONNECT_TIMEOUT', 'CONNECTION_CLOSED', 'CONNECTION_DESTROYED', 'ECONNREFUSED'])(
@@ -145,7 +145,9 @@ describe('classifyDialError', () => {
   it('does not classify on message text', () => {
     // Every string in this outage has moved at least three times; a message
     // that merely mentions a password must not count as a server response.
-    const r = classifyDialError(connectionError('CONNECT_TIMEOUT', 'password authentication failed'));
+    const r = classifyDialError(
+      connectionError('CONNECT_TIMEOUT', 'password authentication failed')
+    );
     expect(r.connectCompleted).toBe(false);
   });
 
@@ -241,11 +243,9 @@ describe('GET /health/egress', () => {
   it('is served on the /api path too, ahead of the auth-guarded sub-app', async () => {
     // `/api/*` otherwise 401s before reaching a handler, which is the trap
     // `/api/health` already documents.
-    const res = await buildApp().request(
-      '/api/health/egress',
-      {},
-      { NODE_ENV: 'production' } as Env
-    );
+    const res = await buildApp().request('/api/health/egress', {}, {
+      NODE_ENV: 'production',
+    } as Env);
     expect(res.status).toBe(404);
     expect(res.status).not.toBe(401);
   });
