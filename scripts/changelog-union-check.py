@@ -54,6 +54,33 @@ measured 2026-08-29, the raw union output flagged 36 PRs where only 20 were the 
 doing. So every check is `checks(union) - checks(ours) - checks(theirs)`, subtracted by
 content key.
 
+TWO AXES (WIC-2326)
+
+That INTRODUCED axis is necessary and it is not sufficient, because it measures the merge
+rather than the tree. Once a branch merges its base in, there is no differing hunk left at
+the seam: the simulation reproduces the head, correctly reports that a no-op introduced
+nothing, and a weld the sync just committed ships green.
+
+That is the standard remedy, not a corner case. Merge-first / sync-on-refusal is what
+CLAUDE.md and the fleet changelog rule both prescribe for a CONFLICTING PR, so **the act
+that clears the conflict is the act that commits the corruption and silences the
+detector.** Measured on PR #469 against base 20d7c1a5 -- pre-sync b8857373 reported the
+WELD, the synced head 2ebd99f0 carried that same weld in its committed tree and reported
+`clean`, and the hand-repaired e5a62c37 also reported `clean`. One verdict, two opposite
+trees, and no way to tell them apart.
+
+So `committed` is a second, orthogonal axis: corruption present in the HEAD'S OWN TREE,
+subtracted against the BASE so an inherited weld stays the base's problem (CLAUDE.md's
+"passenger vs owner"). It reports only WELD and DUPLICATE_HEADING, the two classes with no
+benign reading -- see `committed` for why the bullet classes are excluded. Findings from it
+are prefixed `COMMITTED_`.
+
+  INTRODUCED (`analyse`)  what merging the base in WOULD add   -> WELD, DUPLICATE, ...
+  COMMITTED (`committed`) what is ALREADY in the head's tree   -> COMMITTED_WELD, ...
+
+Syncing MOVES a finding from the first axis to the second rather than resolving it. Only
+repairing the file clears both.
+
 WHAT IT DELIBERATELY DOES NOT DO
 
 It never reads GitHub's `mergeable` / `mergeStateStatus` flag, and never fetches
@@ -279,8 +306,79 @@ def analyse(ours: str, theirs: str, union: str) -> list[dict]:
     return found
 
 
+def committed(ours: str, theirs: str) -> list[dict]:
+    """Findings already COMMITTED in the head's own tree, subtracted from the base.
+
+    THE BLIND SPOT THIS CLOSES (WIC-2326). `analyse` reports what the merge *introduces*,
+    which is the right question right up until the branch merges its base in. After that
+    sync there is no differing hunk left at the seam, so `union_merge` reproduces the head
+    and `analyse` correctly reports that a no-op introduced nothing -- while the weld the
+    sync just wrote sits committed in the tree, invisible, and ships green.
+
+    That is not a corner case, it is the standard remedy: merge-first / sync-on-refusal is
+    what CLAUDE.md and the fleet's changelog-mergeability rule both prescribe for a
+    CONFLICTING PR, so **the act that fixes the conflict is the same act that commits the
+    corruption and silences the detector.** Measured on PR #469 against base 20d7c1a5:
+
+        head        committed welds   `analyse` verdict
+        b8857373    0                 1 WELD      <- pre-sync: correct
+        2ebd99f0    1                 clean       <- post-sync: BLIND, the weld is in the tree
+        e5a62c37    0                 clean       <- repaired: correct
+
+    Rows 2 and 3 are the same verdict for opposite trees. Only reading the committed file
+    tells them apart, which is what this does.
+
+    WHY THE BASE SUBTRACTION IS NOT OPTIONAL. A weld sitting on the base branch is
+    inherited, not authored here -- CLAUDE.md's "passenger vs owner" distinction, and the
+    reason `weld-already-on-branch` is a negative control for the other axis. Blaming a PR
+    for its base's weld is how a detector earns the ignore it eventually gets. Keyed on
+    normalised heading text, so it is merge-base independent (constraint 3).
+
+    WHY ONLY WELD AND DUPLICATE_HEADING. These are the two classes CLAUDE.md certifies as
+    having no benign reading, so a hit is a defect with no threshold to argue about.
+    MISFILED is undefined on a single file -- "a heading neither parent filed it under"
+    needs two parents. Committed duplicate BULLETS are deliberately excluded: `main` itself
+    carries known-benign pairs (the "Documentation only..." boilerplate opener, the paired
+    RLS "App runtime is unaffected..." bullets), so that check only holds precision with a
+    parent to subtract, which is exactly what this axis lacks.
+    """
+    found: list[dict] = []
+
+    w_o, w_t = welds(ours), welds(theirs)
+    for key, line in sorted(w_o.items(), key=lambda kv: (kv[1], kv[0])):
+        if key in w_t:
+            continue  # inherited from the base: a passenger, not this branch's doing
+        found.append(
+            {
+                "kind": "COMMITTED_WELD",
+                "key": key,
+                "line": line,
+                "detail": "`### ` heading welded to the previous entry's last line, in the committed tree",
+            }
+        )
+
+    h_o, h_t = heading_counts(ours), heading_counts(theirs)
+    for key, n in sorted(h_o.items()):
+        if n > 1 and n > h_t[key]:
+            found.append(
+                {
+                    "kind": "COMMITTED_DUPLICATE_HEADING",
+                    "key": key,
+                    "line": None,
+                    "detail": f"entry appears {n}x in the committed tree (base has {h_t[key]})",
+                }
+            )
+    return found
+
+
 def check_pair(ours: str, theirs: str, path: str = CHANGELOG, cwd: str | None = None) -> list[dict]:
     """Simulate `git merge <theirs>` on branch `ours` and report what union introduced.
+
+    TWO AXES, AND THEY ARE NOT REDUNDANT. `committed` reads the head's own tree; `analyse`
+    reads what merging the base into it would add. A pre-sync branch trips the second, a
+    post-sync branch trips only the first, and the whole point of WIC-2326 is that syncing
+    moves a finding from one axis to the other rather than resolving it. Reporting only the
+    second is what let a weld reach a green head. See `committed` for the measurement.
 
     RESOLVE BEFORE READING. `git show <rev>:<path>` fails identically for "the path is
     absent at that rev" and "that rev does not exist", and `blob()` returns None for both.
@@ -317,11 +415,20 @@ def check_pair(ours: str, theirs: str, path: str = CHANGELOG, cwd: str | None = 
 
     ours_text = blob(ours, path, cwd=cwd)
     theirs_text = blob(theirs, path, cwd=cwd)
-    if ours_text is None or theirs_text is None:
-        return []  # the file does not exist on one side; nothing for the driver to do
-    if ours_text == theirs_text:
-        return []  # identical: the merge cannot introduce anything
-    return analyse(ours_text, theirs_text, union_merge(ours, theirs, path, cwd=cwd))
+    if ours_text is None:
+        return []  # no file on the head: nothing committed and nothing for the driver to do
+
+    # The committed axis runs first and runs unconditionally, because the two early returns
+    # below are precisely the states in which the merge introduces nothing -- which is the
+    # blindness, not the absence of a defect. With `theirs_text` absent the base contributes
+    # no file, so nothing on the head is inherited and the subtraction is against empty.
+    found = committed(ours_text, theirs_text or "")
+
+    if theirs_text is None or ours_text == theirs_text:
+        # Identical (typically: the head has already merged the base in) means the driver
+        # has nothing left to resolve. `committed` above has already read the real tree.
+        return found
+    return found + analyse(ours_text, theirs_text, union_merge(ours, theirs, path, cwd=cwd))
 
 
 # --------------------------------------------------------------------------------------
@@ -389,7 +496,7 @@ def report(label: str, findings: list[dict]) -> None:
     emit(f"  {label}: {len(findings)} finding(s)")
     for f in findings:
         where = f" (line {f['line']})" if f["line"] else ""
-        emit(f"    {f['kind']:<18} {f['key'][:70]}{where}\n        {f['detail']}")
+        emit(f"    {f['kind']:<27} {f['key'][:70]}{where}\n        {f['detail']}")
 
 
 # --------------------------------------------------------------------------------------
@@ -420,6 +527,12 @@ _CHARLIE = [
     "### WIC-0003: Charlie subsystem learns to page",
     "- Charlie pages the on-call rotation when the queue depth exceeds the cap.",
 ]
+_DELTA = [
+    "### WIC-0004: Delta subsystem gains a cache",
+    "- Delta caches the resolved tenant row for the lifetime of one request.",
+    "",
+]
+_DELTA_BULLET = "- Delta caches the resolved tenant row for the lifetime of one request."
 
 
 def _splice(anchor: str, block: list[str], after: bool = False) -> str:
@@ -470,12 +583,17 @@ def fixtures() -> list[dict]:
             # WELDED heading -- an entry neither parent filed it under.
             #
             # This fixture is also the control for content-keyed subtraction: the weld is
-            # present in `ours` AND in the union, so it must NOT be reported. A
-            # line-number subtraction would report it, because the merge moves it.
+            # present in `ours` AND in the union, so the INTRODUCED axis must NOT report it
+            # as `WELD`. A line-number subtraction would, because the merge moves it.
+            #
+            # The committed axis does claim it, as `COMMITTED_WELD` -- correctly, and the
+            # two findings together are the mechanism CLAUDE.md names in the heading above:
+            # the committed weld is the precondition, the misfile is what it arms. One
+            # input, one cause, two axes, and the pair is the point rather than noise.
             "name": "misfiled-bullet",
             "ours": _splice(_A2, _CHARLIE + [""], after=True),
             "theirs": _splice(_A2, [_CORRECTION], after=True),
-            "expect": ["MISFILED"],
+            "expect": ["COMMITTED_WELD", "MISFILED"],
         },
         {
             # WIC-1692. One side moves a whole entry, the other edits inside it; the two
@@ -505,15 +623,23 @@ def fixtures() -> list[dict]:
             "expect": ["DUPLICATE_HEADING"],
         },
         {
-            # NEGATIVE CONTROL for constraint 3 (content-addressing). `ours` has ALREADY
-            # committed a weld low in the file; `theirs` adds a clean entry at the top,
-            # which shifts that weld three lines down in the merge result. The merge is
-            # innocent, so nothing may be reported.
+            # NEGATIVE CONTROL for constraint 3 (content-addressing), on the INTRODUCED
+            # axis. `ours` has ALREADY committed a weld low in the file; `theirs` adds a
+            # clean entry at the top, which shifts that weld three lines down in the merge
+            # result. The merge is innocent, so no bare `WELD` may be reported.
             #
             # This is the fixture that fails if the parent subtraction is ever rewritten
             # to compare LINE NUMBERS instead of normalised heading text. That exact
             # regression was live until 2026-08-30 and reported 17 welding PRs where 10
             # were real -- all 7 extras were pre-existing welds the merge merely moved.
+            # Asserting the exact kind list still pins that: a line-number regression adds
+            # `WELD` to the expectation below and fails.
+            #
+            # The expectation is `COMMITTED_WELD` rather than clean because the weld really
+            # is committed on this branch and absent from its base -- innocent merge, guilty
+            # branch, which is exactly CLAUDE.md's "the fix belongs to the branch" case.
+            # Before WIC-2326 that distinction had nowhere to be reported and this read as
+            # a clean bill of health.
             "name": "weld-already-on-branch",
             "ours": FIXTURE_BASE.replace(
                 "\n\n### WIC-0002: Bravo", "\n### WIC-0002: Bravo"
@@ -525,6 +651,69 @@ def fixtures() -> list[dict]:
                     "- Foxtrot threads the inbound trace id through every downstream call.",
                     "",
                 ],
+            ),
+            "expect": ["COMMITTED_WELD"],
+        },
+        {
+            # WIC-2326, THE REGRESSION FIXTURE. The head has already merged its base in --
+            # `ours` is a strict superset of `theirs` -- so the driver has nothing left to
+            # resolve and the INTRODUCED axis correctly reports nothing. The weld that the
+            # sync wrote is sitting in the committed tree the whole time.
+            #
+            # This is the shape that ships green without the committed axis, and it is the
+            # NORMAL shape, not an exotic one: merge-first / sync-on-refusal is the
+            # prescribed remedy for a CONFLICTING PR, so the fix for the conflict is what
+            # commits the weld and silences the detector. Reproduced on PR #469, head
+            # 2ebd99f0 -- one committed weld, `clean`, exit 0.
+            #
+            # Asserting exactly ["COMMITTED_WELD"] pins BOTH axes: the committed one must
+            # fire, and the introduced one must stay silent (a merge that adds nothing must
+            # not be blamed for what it found already there).
+            "name": "weld-committed-after-sync",
+            "ours": _splice(_H1, _DELTA).replace(
+                _DELTA_BULLET + "\n\n", _DELTA_BULLET + "\n" + "\n".join(_CHARLIE) + "\n\n"
+            ),
+            "theirs": _splice(_H1, _DELTA),
+            "expect": ["COMMITTED_WELD"],
+        },
+        {
+            # WIC-2326. The second class with no benign reading, in the same post-sync
+            # blind spot: a whole entry committed twice on the head. Blank-padded, so it is
+            # a duplicate WITHOUT a weld -- the two committed checks must be independently
+            # reachable, or one of them is riding on the other's fixture.
+            #
+            # `ours` is again a strict superset of `theirs`, so the union introduces
+            # nothing; note `analyse` would not report this even if it ran, since the head
+            # already carries both copies (n > pmax is false). Only the committed axis
+            # can see it.
+            #
+            # `theirs` must differ from the fixture base or there is no commit to make and
+            # the harness dies with "nothing to commit" -- which surfaces as UNEVALUATED,
+            # not as a failing assertion.
+            "name": "duplicate-heading-committed-after-sync",
+            "ours": _splice(_H1, _DELTA).replace(
+                "## [1.0.0] - 2026-01-01",
+                "\n".join([_H1, _A2, "", "## [1.0.0] - 2026-01-01"]),
+            ),
+            "theirs": _splice(_H1, _DELTA),
+            "expect": ["COMMITTED_DUPLICATE_HEADING"],
+        },
+        {
+            # NEGATIVE CONTROL for the committed axis's base subtraction -- the "passenger
+            # vs owner" distinction CLAUDE.md draws. The SAME weld sits on the head and on
+            # the base, so the branch inherited it and owes nothing. Reporting it here is
+            # how a detector earns the ignore it eventually gets, and it would fire on
+            # every branch cut from a base that has one.
+            #
+            # This is also the fixture that fails if the committed subtraction is ever
+            # rewritten to key on LINE NUMBER: the head carries an extra entry above the
+            # weld, so the same weld sits at different lines on the two sides.
+            "name": "weld-inherited-from-base",
+            "ours": FIXTURE_BASE.replace(
+                "\n\n### WIC-0002: Bravo", "\n### WIC-0002: Bravo"
+            ).replace("## [1.0.0] - 2026-01-01", "\n".join(_DELTA + ["## [1.0.0] - 2026-01-01"])),
+            "theirs": FIXTURE_BASE.replace(
+                "\n\n### WIC-0002: Bravo", "\n### WIC-0002: Bravo"
             ),
             "expect": [],
         },
@@ -829,11 +1018,23 @@ REPLAY_CASES = [
         # The worked example the misfiling check was written for (WIC-1786). Pinned to
         # SHAs on both sides, including the base, so the answer cannot drift when a branch
         # tip moves.
+        #
+        # The two COMMITTED_WELDs are WIC-2326's axis, and they are the CAUSE of the
+        # MISFILED beside them -- CLAUDE.md's "a weld you commit is a misfile you have
+        # armed for whoever branches off you next", visible on one input for the first
+        # time. Verified against the trees rather than inferred: head 7890a2c carries two
+        # welds (lines 511 and 535), its base 0fa58ee7 carries zero, and the repaired head
+        # f75d483e carries zero. True positives, and the old detector could see only the
+        # consequence.
+        #
+        # This does NOT contradict the sourced answer below. That measurement was the
+        # misfiling check across the 2026-08-30 queue -- a different question, and the one
+        # this file could ask at the time.
         "name": "#115 at 7890a2c vs its own base",
         "ours": "7890a2c",
         "theirs": "0fa58ee7",  # fix/wic1141-modal-focus-pr2
-        "expect": ["MISFILED"],
-        "source": "CLAUDE.md: exactly one hit, #115, and no false positives",
+        "expect": ["COMMITTED_WELD", "COMMITTED_WELD", "MISFILED"],
+        "source": "CLAUDE.md: exactly one hit, #115, and no false positives (MISFILED axis)",
     },
     {
         "name": "#115 at today's head vs the same base",

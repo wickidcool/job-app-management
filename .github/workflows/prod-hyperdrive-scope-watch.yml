@@ -1,0 +1,247 @@
+# WIC-1386: the trigger half of the P1 prod restore.
+#
+# THE GAP THIS CLOSES
+# -------------------
+# Production's API has been 503 for every logged-in user since 2026-08-26
+# (`/api/health` -> `hyperdrive:false`, `connect deadline exceeded ... :6543`).
+#
+# Board ask `0af79c26` offers Allan two options. Option `grant_scope` reads:
+#
+#     "Edit the token in the CF console to add Account > Hyperdrive > Edit.
+#      Then DevOps provisions the config + deploys entirely from CI under
+#      d61d200b. No further human step."
+#
+# Two things have to be true for that last sentence to hold. As of today only
+# one of them is:
+#
+#   * the provisioning workflow must exist       -- TRUE since PR #493 (2026-09-13)
+#   * something must NOTICE the grant and FIRE it -- FALSE; this file is that
+#
+# `provision-prod-hyperdrive.yml` is `workflow_dispatch` only, and so is
+# `cf-token-capability-probe.yml`. Every scope measurement so far was an agent
+# firing the probe by hand -- runs 33989113004, 33990724383, 34723088668,
+# 34728485222, 34736945349, all returning `HYPERDRIVE_READ=no`. So the grant is
+# currently detected only if someone happens to probe again afterwards, and the
+# seat that would have done that (DevOps) was paused on 2026-09-10.
+#
+# Without this file, "no further human step" means: Allan grants the scope, and
+# then prod stays down until an agent thinks to re-probe. That is not a
+# restoration path, it is a coincidence.
+#
+# WHAT IT DOES / DOES NOT DO
+# --------------------------
+#   * It DOES poll the token for Hyperdrive scope, read-only, and stay silent
+#     while the answer is no.
+#   * On the first poll where the scope IS present, it DOES call
+#     provision-prod-hyperdrive.yml, which creates the config and opens the
+#     binding PR.
+#   * It DOES NOT deploy, and it DOES NOT push to `main`. Merging the binding PR
+#     remains the deploy trigger and remains board-gated under approval
+#     `d61d200b` -- unchanged by this file.
+#   * It disarms itself once the work is done (see "Self-disarm").
+#
+# ⚠️ `schedule:` FIRES ONLY FROM THE DEFAULT BRANCH. On a feature branch this
+# file registers nothing at all (the WIC-1113 trap). It is inert until merged to
+# `main`, so merging it is what arms the watch.
+#
+# ⚠️ Do NOT quote the cron interval as a detection time. GitHub delays and drops
+# scheduled runs under load -- this fleet has measured delivery far below the
+# nominal rate -- so the interval is a *best case* and nothing more. The
+# `workflow_dispatch` trigger is here so a human or agent can always force the
+# check immediately rather than waiting on the scheduler.
+name: Prod Hyperdrive Scope Watch
+
+on:
+  schedule:
+    # Every 15 minutes while prod is down. Offset off :00 to dodge GitHub's
+    # top-of-hour scheduler congestion, same reasoning as docs-audit.yml.
+    # The job is ~20s and purely read-only on the overwhelmingly common path
+    # (scope still absent -> one GET -> exit), so a tight interval is cheap.
+    # Revisit the cadence once prod is healthy; the self-disarm below means a
+    # restored prod costs one GET per tick, not a provisioning attempt.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      origin_port:
+        description: >-
+          Pooler port to provision with if the scope is found. 6543 =
+          transaction pooler (matches approval d61d200b). 5432 = session pooler.
+        required: false
+        default: '6543'
+        type: choice
+        options: ['6543', '5432']
+
+# Least privilege for the watch job itself. The reusable provisioning workflow
+# needs contents:write + pull-requests:write to open its PR, and a called
+# workflow cannot hold MORE permission than its caller -- so these are granted
+# here on the caller's behalf, not for the probe step's use.
+permissions:
+  contents: write
+  pull-requests: write
+
+# Never let two ticks provision concurrently. Without this, a delayed scheduled
+# run overlapping the next one could race on the same branch push.
+concurrency:
+  group: prod-hyperdrive-provision
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Has the Hyperdrive scope been granted yet?
+    runs-on: ubuntu-latest
+    # WIC-1095 house rule: every job is bounded.
+    timeout-minutes: 10
+    # REQUIRED: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID exist ONLY as
+    # `production` environment secrets. Without this line they interpolate to
+    # empty and the probe fails in a way that reads exactly like a dead token.
+    # (Verified 2026-09-13: the `production` environment has no protection
+    # rules, so a scheduled job enters it without waiting on a reviewer.)
+    environment: production
+    outputs:
+      provision: ${{ steps.decide.outputs.provision }}
+    steps:
+      # ---- Self-disarm, cheapest checks first, no credential needed ----------
+      #
+      # Two ways this watch is already finished. Checking them before spending
+      # the Cloudflare credential keeps a restored prod at zero API calls
+      # against CF and zero chance of a stray provisioning attempt.
+      - name: Is production already healthy?
+        id: health
+        run: |
+          set -euo pipefail
+          # `|| true` so a transient network failure reads as "not healthy yet"
+          # and the watch simply continues, rather than failing the run red.
+          BODY=$(curl -sS --max-time 20 https://app.careerpin.app/api/health || true)
+          echo "  /api/health -> ${BODY:-<no response>}"
+          DB=$(printf '%s' "$BODY" | jq -r '.db // ""' 2>/dev/null || echo "")
+          if [ "$DB" = "ok" ]; then
+            echo "  prod reports db==ok — the WIC-1386 restore is COMPLETE."
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Is the binding PR already open or merged?
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The branch provision-prod-hyperdrive.yml pushes to.
+          BRANCH="fix/wic1386-prod-hyperdrive-binding"
+          N=$(gh pr list --repo "$GITHUB_REPOSITORY" --state all --head "$BRANCH" \
+                --json number --jq 'length' 2>/dev/null || echo 0)
+          echo "  PRs on $BRANCH: $N"
+          if [ "${N:-0}" -gt 0 ]; then
+            echo "  the binding PR already exists — provisioning has run."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ---- The actual question -----------------------------------------------
+      - name: Probe Hyperdrive scope (read-only)
+        id: scope
+        if: steps.health.outputs.healthy == 'false' && steps.pr.outputs.exists == 'false'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # NOTE: deliberately no `set -x` — a secret is in scope for this step.
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
+            echo "They are 'production' ENVIRONMENT secrets — check this job still"
+            echo "declares 'environment: production'. Refusing to report a verdict"
+            echo "from empty credentials (an empty token also returns 403, and"
+            echo "would read as 'scope still not granted' forever)."
+            exit 1
+          fi
+
+          # Keep the token out of argv (and therefore out of `ps`), the house
+          # pattern from cf-token-capability-probe.yml.
+          CURLRC="$(mktemp)"; chmod 600 "$CURLRC"
+          printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" > "$CURLRC"
+          trap 'rm -f "$CURLRC"' EXIT
+
+          HTTP=$(curl -sS -K "$CURLRC" -o /dev/null -w '%{http_code}' \
+                   "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs")
+          echo "  hyperdrive list -> HTTP $HTTP"
+
+          case "$HTTP" in
+            200)
+              echo "  ✅ SCOPE PRESENT — the board grant has landed."
+              echo "granted=true" >> "$GITHUB_OUTPUT"
+              ;;
+            401|403)
+              echo "  scope still absent (HTTP $HTTP) — nothing to do this tick."
+              echo "granted=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              # An unexpected code is NOT "no scope". Treating a 5xx as a denial
+              # would be a silent false negative on the one signal this file
+              # exists to catch, so fail loudly instead.
+              echo "::error::Unexpected HTTP $HTTP from the Hyperdrive list endpoint."
+              echo "Refusing to classify this as either granted or denied."
+              exit 1
+              ;;
+          esac
+
+      - name: Decide
+        id: decide
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.scope.outputs.granted }}" = "true" ]; then
+            echo "provision=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "provision=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Prod Hyperdrive Scope Watch (WIC-1386)"
+            echo
+            echo "| check | value |"
+            echo "| --- | --- |"
+            echo "| prod \`db == ok\` | \`${{ steps.health.outputs.healthy }}\` |"
+            echo "| binding PR exists | \`${{ steps.pr.outputs.exists }}\` |"
+            echo "| Hyperdrive scope granted | \`${{ steps.scope.outputs.granted || 'not probed' }}\` |"
+            echo "| provisioning this run | \`${{ steps.decide.outputs.provision }}\` |"
+            echo
+            if [ "${{ steps.decide.outputs.provision }}" = "true" ]; then
+              echo "**Scope found — calling \`provision-prod-hyperdrive.yml\`.**"
+              echo "It creates the Hyperdrive config and opens the binding PR."
+              echo "It does **not** deploy: merging that PR is the deploy trigger,"
+              echo "and that stays board-gated under approval \`d61d200b\`."
+            elif [ "${{ steps.health.outputs.healthy }}" = "true" ]; then
+              echo "Production reports \`db == ok\`. This watch has nothing left to do —"
+              echo "**delete this workflow** (it is single-purpose scaffolding)."
+            elif [ "${{ steps.pr.outputs.exists }}" = "true" ]; then
+              echo "The binding PR already exists, so provisioning has already run."
+              echo "The remaining step is a human/board merge under \`d61d200b\`."
+            else
+              echo "Hyperdrive scope is still **not** granted on \`CLOUDFLARE_API_TOKEN\`."
+              echo
+              echo "One human action clears this, ~30s in the Cloudflare dashboard:"
+              echo "  My Profile → API Tokens → edit the token CI uses"
+              echo "  add \`Account | Hyperdrive | Edit\`, Save."
+              echo
+              echo "This is option \`grant_scope\` of board ask \`0af79c26\` on WIC-1386."
+              echo "Nothing else is needed from a human until the binding PR appears."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Fires on the first tick where the scope is present, and only then.
+  provision:
+    name: Provision (scope granted)
+    needs: watch
+    if: needs.watch.outputs.provision == 'true'
+    uses: ./.github/workflows/provision-prod-hyperdrive.yml
+    secrets: inherit
+    with:
+      confirm: PROVISION
+      origin_port: ${{ inputs.origin_port || '6543' }}
+      config_name: jobtrail-prod

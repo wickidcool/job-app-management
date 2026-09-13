@@ -64,22 +64,30 @@ name: Supabase keep-alive & prod auth canary
 #   a measured 67h window that had no canary at all. Every delivered run succeeded and
 #   none were cancelled, so the loss is GitHub never *creating* the run — not this
 #   workflow's `concurrency` group and not any `[skip ci]`/`[skip deploy]` marker (those
-#   affect push/PR triggers only, never `schedule`). The offset cron below is a partial
-#   mitigation, NOT a guarantee. Effective MTTD for a prod outage is HOURS, not 15 min.
-#   The durable fix (a Cloudflare Worker Cron Trigger, immune to Actions throttling) is
-#   tracked separately and is human-gated on a credential no agent holds. Do not restate
-#   "every 15 minutes" as fact anywhere without re-measuring delivery first.
+#   affect push/PR triggers only, never `schedule`). The minute offset on the cron below
+#   gave NO measurable improvement in delivery: 7.0% post-offset vs an 8.3% pre-offset
+#   matched-window median (WIC-2320, measured 2026-09-08), because GitHub throttles
+#   `schedule` per-repo regardless of which minutes the cron names. It is retained only as
+#   a harmless cosmetic no-op, NOT a mitigation. Effective MTTD for a prod outage is HOURS,
+#   not 15 min. The durable fix (a Cloudflare Worker Cron Trigger, immune to Actions
+#   throttling) is tracked separately (WIC-2127) and is human-gated on a credential no
+#   agent holds. Do not restate "every 15 minutes" as fact anywhere without re-measuring
+#   delivery first.
 
 on:
   schedule:
-    # 06:17 UTC, every third day. Offset off the hour to avoid the
-    # top-of-hour scheduling congestion that delays GitHub cron runs.
+    # 06:17 UTC, every third day. The minute offset off the top of the hour is a
+    # cosmetic no-op with no measurable delivery benefit (WIC-2320); kept as-is only
+    # to avoid a churny diff.
     # -> keepalive job only.
     - cron: '17 6 */3 * *'
-    # auth-canary job only. Nominal 15-min interval, OFFSET off the top of the hour
-    # (7,22,37,52 instead of 0,15,30,45) to dodge GitHub's worst scheduling congestion
-    # (WIC-2125). This is a best-effort mitigation: GitHub still drops most high-frequency
-    # ticks (measured 5% delivery), so treat the real cadence as hours, not 15 min.
+    # auth-canary job only. Nominal 15-min interval. The offset (7,22,37,52 instead of
+    # 0,15,30,45) gave NO measurable delivery improvement: 7.0% post-offset vs an 8.3%
+    # pre-offset matched-window median (WIC-2320). GitHub throttles `schedule` per-repo
+    # regardless of which minutes the cron names, so the offset is a harmless cosmetic
+    # no-op, kept only to avoid a churny diff; the real remedy is the Cloudflare Worker
+    # Cron Trigger (WIC-2127). GitHub still drops most high-frequency ticks (measured
+    # ~5-7% delivery), so treat the real cadence as hours, not 15 min.
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
 

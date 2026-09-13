@@ -604,7 +604,7 @@ test.describe('Real Multi-User Data Isolation', () => {
 
       await page1.goto('/applications');
       await page1.getByRole('button', { name: /add application/i }).click();
-      await page1.waitForSelector('dialog[open]');
+      await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'User A Exclusive Role');
       await page1.fill('input[id="company"]', 'User A Corp');
       await page1.getByRole('button', { name: /save application/i }).click();
@@ -668,7 +668,7 @@ test.describe('Real Multi-User Data Isolation', () => {
 
       await page1.goto('/applications');
       await page1.getByRole('button', { name: /add application/i }).click();
-      await page1.waitForSelector('dialog[open]');
+      await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Cross-User Test Role');
       await page1.fill('input[id="company"]', 'Isolation Corp');
       await page1.getByRole('button', { name: /save application/i }).click();
@@ -783,7 +783,7 @@ test.describe('Real Multi-User Data Isolation', () => {
 
       await page1.goto('/applications');
       await page1.getByRole('button', { name: /add application/i }).click();
-      await page1.waitForSelector('dialog[open]');
+      await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Status Isolation Role');
       await page1.fill('input[id="company"]', 'Status Corp');
       await page1.getByRole('button', { name: /save application/i }).click();

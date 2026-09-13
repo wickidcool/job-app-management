@@ -326,6 +326,66 @@ Note the discriminator is the **`db` field**, not the HTTP status: `/health`
 returns 503 both before and after this change, so accept recovery only on
 `db == "ok"`.
 
+#### Measured 2026-09-08, without a deploy: the CA half is now fact, and every credential-shaped cause is excluded
+
+The hypothesis above has two halves — *"the pooler presents a chain the public
+trust store rejects"* and *"the Workers TLS stack therefore fails the
+handshake"*. **The first half is no longer an inference.** Probed directly
+against the production endpoint `aws-1-us-west-2.pooler.supabase.com:6543` from
+a general-purpose host, over the real Postgres `SSLRequest` → TLS → startup
+sequence:
+
+| probe | result |
+|---|---|
+| TLS with the **public WebPKI** store | **fails — verify code 19, `self-signed certificate in certificate chain`** |
+| TLS with verification **disabled** | completes; full startup handshake proceeds |
+
+So `Supabase Root 2021 CA` is confirmed absent from the public trust store
+against the host production actually dials, and **certificate verification is
+the only variable that separates a completed handshake from a failed one on
+this endpoint.**
+
+**The second half remains unverified and is still inference.** Nothing here
+observes what Cloudflare's TLS stack does with `rejectUnauthorized: false`; that
+still needs the deploy.
+
+**Credit where it is due: the credential branch was already closed by WIC-2214**
+(2026-09-06), and by a *stronger* method than anything below — `deploy.yml`
+builds `DATABASE_URL` from `SUPABASE_DATABASE_PASSWORD` by **byte-identical
+logic in two steps of the same `deploy-production` job** — the one that runs the
+migrations (`:982`) and the one that exports it to the Worker (`:1032`) — so run
+`34065995060` doing real DDL in under 3 s **is** a direct test of the string the
+Worker receives. The rows below re-derive that
+result independently from outside CI; they corroborate it and do not replace it.
+
+What they add is a **stronger form of the claim**. WIC-2214 established that the
+credential *is* good. The probes below establish that a bad credential could not
+have produced this signature *even if it were wrong* — which is the part that
+actually forecloses the branch, because it holds without depending on any
+particular secret's current value:
+
+| candidate cause | probe | verdict |
+|---|---|---|
+| project paused / tenant gone | `postgres.fnmuvgnkxdeupprcyvdt` → `AuthenticationSASL` in **81 ms** | **excluded** — tenant resolves, project live |
+| host unreachable from the internet | 3 A records, TCP connect **21–29 ms**, 0 AAAA | **excluded** |
+| username missing the pooler's tenant suffix | bare `postgres` → `ErrorResponse` `XX000 ENOIDENTIFIER` in 78 ms | **excluded as a spin cause** |
+| wrong `SUPABASE_DATABASE_PASSWORD` | full SCRAM-SHA-256 with a deliberately wrong password → `ErrorResponse` **`28P01`** in 591 ms | **excluded as a spin cause** |
+
+**The load-bearing observation is the shape of those last two rows, not their
+labels.** Every credential-shaped failure returns a *server-generated
+`ErrorResponse`*, fast and clean. A server-generated error reaches postgres-js's
+`errored()` (`connection.js:390-394`), which nulls `initial` and **ends the dial
+loop after a single dial**. It cannot produce the accept-then-close that
+`connect-bound.ts` documents as the spin trigger, and therefore cannot produce
+the confirmed spin. **A bad secret is not a candidate explanation for this
+outage** — which retires the cheapest "try this first" alternative to option (1)
+below, and is the practical reason this section is worth its length.
+
+*Honest scope.* These probes were run from a general-purpose Linux host, not
+from a Worker, so they characterise the **endpoint**, not the Workers runtime.
+That is exactly why the CA finding transfers (it is a property of the chain the
+server presents to anyone) and the handshake-behaviour finding does not.
+
 ### The decision left for the board
 
 1. **Give prod a Hyperdrive binding, as preview has.** Hyperdrive terminates the

@@ -1075,5 +1075,29 @@
     "_rationale": "FALSE POSITIVE - not a credential. `generic-api-key` fired on a Python COMMENT enumerating example PostHog distinct-id identifiers (`wic967-devops-1787717978`) that the adjacent `_SAFE_KEY` regex must accept. An identifier in explanatory prose, not a secret. Same class as the WIC-1161 `insight-payloads.json` entries. Triaged WIC-2116 2026-09-05. Nothing to revoke.",
     "_triaged": "2026-09-05 WIC-2116 (Backend Developer) - full-history re-scan; 3 findings from the 2026-08-31 RED run + 3 landed since",
     "_resolved": "N/A - false positive, no credential to revoke"
+  },
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+    "StartLine": 155,
+    "EndLine": 155,
+    "StartColumn": 46,
+    "EndColumn": 83,
+    "Match": "auth uuids, `REDACTED`",
+    "Secret": "REDACTED",
+    "File": "docs/analytics/organic_watch.py",
+    "SymlinkFile": "",
+    "Commit": "",
+    "Link": "",
+    "Entropy": 3.6053886,
+    "Author": "",
+    "Email": "",
+    "Date": "",
+    "Message": "",
+    "Tags": [],
+    "Fingerprint": "docs/analytics/organic_watch.py:generic-api-key:155",
+    "_triaged": true,
+    "_rationale": "WIC-2367: corpus-derived FP \u2014 a Python comment about identifier naming convention that mentions 'auth uuids' adjacent to a sample WIC ticket ID. Not a credential; added to per-repo baseline per Rev 6.2 \u00a7A.2.2.",
+    "_resolved": false
   }
 ]

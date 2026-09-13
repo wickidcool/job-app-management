@@ -1,0 +1,128 @@
+name: content-policy
+# ADR-0001 Addendum A (Rev 4 §5) — content-policy gate for wickidcool/job-app-management.
+#
+# Layer 1: gitleaks (literal secret values).
+# Layer 2: secrets-access content linter (prose-only access-recipe class, WIC-985)
+#   — the class Layer 1 provably cannot catch: a document with no secret *value*,
+#   only the recipe for retrieving and decrypting live ones.
+#
+# Enforcement: unlike wickidcool/second-brain, this repo HAS branch protection on
+# `main` (free on public repos). The Rev 2/3 `merge-guard` job — the fallback for a
+# repo that cannot block — is deliberately NOT ported. The enforcement of record here
+# is these jobs registered as REQUIRED STATUS CHECKS on `main`; without that
+# registration this gate is advisory only. See WIC-1064.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  layer1-gitleaks:
+    name: Layer 1 — literal secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # NOTE (porting delta vs the Rev 3 bundle): the Rev 3 workflow used
+      # `gitleaks/gitleaks-action@v2`, which requires a paid GITLEAKS_LICENSE for
+      # repositories owned by an ORGANISATION and fails without one. `wickidcool` is
+      # an org, so the action would hard-fail here. The upstream binary is the same
+      # scanner under the same licence and needs no key.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.28.0
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Scan for literal secret values
+        run: |
+          set -euo pipefail
+          # --no-git scans the CURRENT TREE, not 433 commits of history. Full-history
+          # remediation for this repo is a separate open workstream (WIC-1076); gating
+          # merges on it would leave this required check permanently red for reasons no
+          # PR author can fix. Layer 2 is diff-scoped for the same reason.
+          # --redact so a finding never republishes the secret into CI logs
+          # (WIC-1076: an unredacted scan leaks the value it is reporting).
+          gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --no-git \
+            --redact \
+            --report-format sarif \
+            --report-path gitleaks.sarif \
+            --verbose
+      - name: Upload gitleaks report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: content-policy-gitleaks
+          path: gitleaks.sarif
+          if-no-files-found: ignore
+
+  layer2-secrets-access-lint:
+    name: Secrets-access content policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Determine diff base
+        id: base
+        # `github.event.before` is NOT always a reachable commit. It is all-zeros on a
+        # branch-create/first push, and after a FORCE-PUSH it names a commit that no
+        # longer exists. Either makes `git diff <before>...HEAD` abort with exit 2 —
+        # failing the gate on a clean tree. Resolve defensively and fall back to the
+        # empty tree, which scans the full tree as "added" (fail-closed, never
+        # fail-open). Retained verbatim from Rev 3 Defect 1 — not second-brain-specific.
+        env:
+          EMPTY_TREE: 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            ref="$PR_BASE_SHA"
+          else
+            ref="$PUSH_BEFORE"
+          fi
+          if [ -z "$ref" ] || ! git cat-file -e "${ref}^{commit}" 2>/dev/null; then
+            echo "::warning::base '$ref' is unreachable (branch create or force-push); falling back"
+            if git rev-parse -q --verify HEAD~1 >/dev/null 2>&1; then
+              ref="$(git rev-parse HEAD~1)"
+            else
+              ref="$EMPTY_TREE"
+            fi
+          fi
+          echo "resolved diff base: $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+      - name: Self-test the pattern set
+        run: python3 tools/secrets-access-lint/secrets_access_lint.py --self-test
+      - name: Run linter (diff-scoped, fail closed)
+        id: lint
+        env:
+          BASE_REF: ${{ steps.base.outputs.ref }}
+        run: |
+          set +e
+          python3 tools/secrets-access-lint/secrets_access_lint.py \
+            --base "$BASE_REF" --format json > lint.json
+          code=$?
+          set -e
+          # Human-readable rendering for the log; the JSON above is the artifact.
+          python3 tools/secrets-access-lint/secrets_access_lint.py --base "$BASE_REF" || true
+          exit $code
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: content-policy-findings
+          path: lint.json
+          if-no-files-found: ignore
