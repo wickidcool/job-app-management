@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApplicationDetail } from './ApplicationDetail';
+import { seedAuthSession } from '../test/session';
 
 /**
  * WIC-1533 — the page cap, asserted on user-visible output rather than on a
@@ -90,6 +91,7 @@ function respond(body: unknown) {
 }
 
 beforeEach(() => {
+  seedAuthSession();
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string) => {

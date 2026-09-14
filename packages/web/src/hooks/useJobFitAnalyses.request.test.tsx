@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useJobFitAnalyses } from './useJobFitAnalysis';
 import { apiClient } from '../services/api';
+import { seedAuthSession } from '../test/session';
 
 /**
  * WIC-1835 — the analyses filter, asserted on the request URL.
@@ -48,6 +49,7 @@ async function requestedUrl(): Promise<URL> {
 }
 
 beforeEach(() => {
+  seedAuthSession();
   fetchMock.mockReset();
   fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ analyses: [] }) });
   vi.stubGlobal('fetch', fetchMock);

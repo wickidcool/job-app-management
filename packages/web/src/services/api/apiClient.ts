@@ -27,6 +27,31 @@ export class APIClient {
   async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const token = await this.config.getAuthToken();
 
+    // Every endpoint reachable through this client is user-scoped and behind the
+    // Worker's JWT middleware — `/auth/*` is the one unauthenticated surface the app
+    // has, and `AuthContext` calls it with bare `fetch`, never through here. So "no
+    // token" is never a request worth sending: the server can only answer 401, and the
+    // 401 branch below tears down the session by design.
+    //
+    // That turns a harmless race into a sign-out. A component holding a protected
+    // query can mount (or refetch) in the window before `AuthContext` has written the
+    // token, or in the instant after a sign-out clears it; the request goes out bare,
+    // comes back 401, and `auth:unauthorized` wipes the session the user was in the
+    // middle of establishing. Measured as five failing isolation specs whose one cause
+    // was an unauthenticated `GET /applications?limit=100` racing login (WIC-2384).
+    //
+    // Failing locally keeps that window closed for every service at once, which is why
+    // this lives here rather than as an `enabled:` guard on one hook. It deliberately
+    // does NOT dispatch `auth:unauthorized`: no server said the session was invalid,
+    // and `AuthContext` documents this file as that event's only dispatch site.
+    if (!token) {
+      throw new APIError(
+        'UNAUTHENTICATED',
+        'No authentication token available; request not sent.',
+        401
+      );
+    }
+
     const headers: Record<string, string> = {
       ...(options.headers as Record<string, string>),
     };
@@ -36,9 +61,10 @@ export class APIClient {
       headers['Content-Type'] = 'application/json';
     }
 
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    // Unconditional: the early return above is what makes this total. Every request
+    // this client sends carries an Authorization header, which is the invariant
+    // `multi-user-isolation.spec.ts` asserts on the wire.
+    headers['Authorization'] = `Bearer ${token}`;
 
     const url = `${this.config.baseURL}${endpoint}`;
 
