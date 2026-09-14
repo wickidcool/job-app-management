@@ -666,18 +666,26 @@ test.describe('Real Multi-User Data Isolation', () => {
         }
       });
 
-      await page1.goto('/applications');
+      // `/applications/new` is itself a Radix dialog rendered as the entire route
+      // (ApplicationNew.tsx) — there is no "Add application" button to click on
+      // `/applications` at a desktop viewport. The only such control there is a
+      // `md:hidden` floating action button, and even that one's accessible name
+      // is "Create new job application" (its `aria-label`), not "Add application".
+      await page1.goto('/applications/new');
       // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
       // see OnboardingContext), so a fresh full navigation re-fetches
       // `should-show` from the server and the modal can cover the page again
       // even though `loginAs` already cleared it once right after sign-in.
       await dismissOnboardingIfPresent(page1);
-      await page1.getByRole('button', { name: /add application/i }).click();
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'User A Exclusive Role');
       await page1.fill('input[id="company"]', 'User A Corp');
       await page1.getByRole('button', { name: /save application/i }).click();
-      await page1.waitForTimeout(1000);
+
+      // Saving opens an "Application Saved!" confirmation dialog rather than
+      // returning to the list in place; "View Applications" is what navigates
+      // back to `/applications`, where the new card actually renders.
+      await page1.getByRole('button', { name: /view applications/i }).click();
 
       // Verify User 1 can see their application
       await expect(page1.getByText('User A Exclusive Role')).toBeVisible({ timeout: 5000 });
@@ -735,13 +743,17 @@ test.describe('Real Multi-User Data Isolation', () => {
         }
       });
 
-      await page1.goto('/applications');
+      // `/applications/new` is itself a Radix dialog rendered as the entire route
+      // (ApplicationNew.tsx) — there is no "Add application" button to click on
+      // `/applications` at a desktop viewport. The only such control there is a
+      // `md:hidden` floating action button, and even that one's accessible name
+      // is "Create new job application" (its `aria-label`), not "Add application".
+      await page1.goto('/applications/new');
       // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
       // see OnboardingContext), so a fresh full navigation re-fetches
       // `should-show` from the server and the modal can cover the page again
       // even though `loginAs` already cleared it once right after sign-in.
       await dismissOnboardingIfPresent(page1);
-      await page1.getByRole('button', { name: /add application/i }).click();
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Cross-User Test Role');
       await page1.fill('input[id="company"]', 'Isolation Corp');
@@ -855,13 +867,17 @@ test.describe('Real Multi-User Data Isolation', () => {
         }
       });
 
-      await page1.goto('/applications');
+      // `/applications/new` is itself a Radix dialog rendered as the entire route
+      // (ApplicationNew.tsx) — there is no "Add application" button to click on
+      // `/applications` at a desktop viewport. The only such control there is a
+      // `md:hidden` floating action button, and even that one's accessible name
+      // is "Create new job application" (its `aria-label`), not "Add application".
+      await page1.goto('/applications/new');
       // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
       // see OnboardingContext), so a fresh full navigation re-fetches
       // `should-show` from the server and the modal can cover the page again
       // even though `loginAs` already cleared it once right after sign-in.
       await dismissOnboardingIfPresent(page1);
-      await page1.getByRole('button', { name: /add application/i }).click();
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Status Isolation Role');
       await page1.fill('input[id="company"]', 'Status Corp');
