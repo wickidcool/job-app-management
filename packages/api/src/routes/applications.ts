@@ -27,8 +27,22 @@ const createApplicationSchema = z.object({
   jobTitle: z.string().min(1).max(200),
   company: z.string().min(1).max(200),
   url: z.string().url().or(z.literal('')).optional(),
-  location: z.string().min(1).max(100).optional(),
-  salaryRange: z.string().min(1).max(50).optional(),
+  // Every sibling optional string field here treats `''` as "not provided" and
+  // the frontend always sends `''` for a field the user left blank (it never
+  // omits the key) — `location`/`salaryRange` used to be the only two that
+  // instead rejected it via a bare `.min(1)`, so creating an application
+  // without either one 400'd on every submission (WIC-2122, caught by
+  // multi-user-isolation.spec.ts's live-backend tier).
+  location: z
+    .string()
+    .max(100)
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  salaryRange: z
+    .string()
+    .max(50)
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
   status: applicationStatusEnum.optional(),
   coverLetterId: z.string().optional(),
   resumeVersionId: z.string().optional(),
@@ -73,8 +87,20 @@ const updateApplicationSchema = z.object({
   jobTitle: z.string().min(1).max(200).optional(),
   company: z.string().min(1).max(200).optional(),
   url: z.string().url().or(z.literal('')).nullable().optional(),
-  location: z.string().min(1).max(100).nullable().optional(),
-  salaryRange: z.string().min(1).max(50).nullable().optional(),
+  // See the create schema above (WIC-2122): `''` means "not provided" for
+  // every sibling field here, and these two used to be the exception.
+  location: z
+    .string()
+    .max(100)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  salaryRange: z
+    .string()
+    .max(50)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
   coverLetterId: z.string().nullable().optional(),
   resumeVersionId: z.string().nullable().optional(),
   contact: z
