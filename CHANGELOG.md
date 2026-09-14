@@ -9,6 +9,20 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — a `[skip deploy]` on a squashed WIP commit silently suppressed production deploys (2026-09-14)
+
+`deploy.yml` gated `deploy-production` and `e2e-tests` on `!contains(github.event.head_commit.message, '[skip deploy]')`. That message is **subject + body**, and a squash merge builds the body from one bullet per branch commit — so a `[skip deploy]` left on any work-in-progress commit suppressed the whole PR's production deploy, behind a clean subject line, with a fully green run. The deploy job just reads as "skipped", which is indistinguishable from a deliberate no-deploy merge.
+
+**This shipped a real outage-extending defect.** `6ce89e8f` (PR #499) is the fix for `GET /api/auth/me` calling a GoTrue **admin** endpoint with the **anon** key — a bug that killed every user session on page load. Its subject carries no marker; two squashed sub-commits did. The fix sat on `main` undeployed. `1bd96ddb` (PR #500) states the intended convention explicitly — the marker "is in the SUBJECT, not inherited from a squashed sub-commit" — so the gate had drifted from the repo's own stated rule.
+
+The decision now resolves in `lint-and-test` (which already runs on every event and is already a dependency of both gated jobs, so this adds no runner and does not change the dependency graph): a `skip-deploy-gate` step reads line 1 of `head_commit.message` and publishes a `skip_deploy` output that `e2e-tests` and `deploy-production` consume. `head_commit` exists only on `push`, so `pull_request` and `workflow_dispatch` resolve to `false` and stay un-skip-gated exactly as before — `workflow_dispatch` remains the manual production lever and is never marker-gated.
+
+Replayed against the last 15 commits on `main`, **exactly one** changes behaviour: `6ce89e8f`, the accidental suppression. Every deliberate subject marker (`1bd96ddb`, `ddeb8325`, `a2fb7f32`, `8b7253c8`, `563161c7`) still skips, and every unmarked merge still deploys.
+
+`scripts/skip-deploy-gate-check.py` keeps it that way, and runs in `Lint & Test`. It asserts the wiring (no whole-message read survives, the resolver step exists, both jobs consume its output) and, in `--selftest`, the decision itself on seven cases drawn from real commits. The selftest is the load-bearing half: a file scan reporting zero findings is byte-indistinguishable from a scanner that matches nothing, so the behavioural cases are the only reason to believe a clean run. Verified as a negative control — the guard returns rc=1 with all six findings against the pre-fix `deploy.yml`, and rc=0 after.
+
+This change is itself `[skip deploy]` and deploys nothing. **Note for the next merge to `main`:** an unmarked merge will now deploy production, as it always should have. `main` currently carries 11 commits that production has never run (prod is pinned at `35eaabc7`, 2026-09-10), so the first such deploy will ship all of them together.
+
 ### Fixed — a date-only `nextActionDue` was parsed as UTC midnight, so the Americas saw the wrong day (2026-09-07)
 
 `next_action_due` is a Postgres `date` column (`schema.ts:52`, `mode: 'string'`), so the API serves a bare `YYYY-MM-DD` denoting a **wall calendar day**. Per ECMAScript, `new Date('2026-09-10')` parses the date-only form as **UTC midnight**, while every comparison in `packages/web` is against **local** midnight. The two disagree by exactly one calendar day in any negative-offset zone — the whole Americas — and break a different boundary in positive-offset zones. UTC is clean, which is why this survived CI (WIC-2267).

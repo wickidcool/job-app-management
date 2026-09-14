@@ -43,7 +43,67 @@ jobs:
     # so a wedged network call becomes a permanently-pending required check that
     # occupies a runner slot instead of failing visibly. Baseline ~1m15s.
     timeout-minutes: 20
+    # WIC-2386: the `[skip deploy]` decision is computed here, from the commit
+    # SUBJECT only, and consumed by `e2e-tests` and `deploy-production`. This job
+    # already runs on every event and is already a dependency of both, so hosting
+    # the gate here costs no extra runner and does not change the dependency graph.
+    outputs:
+      skip_deploy: ${{ steps.skip-deploy-gate.outputs.skip_deploy }}
     steps:
+      # WIC-2386: read `[skip deploy]` from the commit SUBJECT, never the body.
+      #
+      # The previous gate was `contains(github.event.head_commit.message, ...)`,
+      # and that message is SUBJECT + BODY. A squash merge builds the body from one
+      # bullet per branch commit, so a `[skip deploy]` left on any WIP commit
+      # silently suppressed the whole PR's production deploy behind a clean subject
+      # line. That is not hypothetical: `6ce89e8f` (PR #499) is the `/api/auth/me`
+      # fix for a bug that killed every session on page load, and it sat undeployed
+      # because a squashed sub-commit carried the marker. Its subject never did.
+      #
+      # The repo's own convention already treats the SUBJECT as the intentional
+      # location — see `1bd96ddb`, which states the marker "is in the SUBJECT, not
+      # inherited from a squashed sub-commit". This step makes the gate match the
+      # convention, so the marker means what its author meant.
+      #
+      # `head_commit` exists only on `push`; on `pull_request` and
+      # `workflow_dispatch` the variable is empty and this resolves to `false`,
+      # preserving the existing behaviour that those events are never skip-gated.
+      #
+      # The message goes through `env:`, never interpolated into the shell body: a
+      # `${{ }}` expansion inside `run:` is substituted before bash parses the
+      # script, so a commit subject containing `;` or `$(...)` would execute here.
+      # `grep -F` keeps `[skip deploy]` a literal rather than a bracket expression.
+      - name: Resolve the [skip deploy] marker from the commit subject
+        id: skip-deploy-gate
+        env:
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          subject="$(printf '%s\n' "${HEAD_COMMIT_MESSAGE:-}" | head -n 1)"
+          if printf '%s' "$subject" | grep -qF '[skip deploy]'; then
+            skip_deploy=true
+          else
+            skip_deploy=false
+          fi
+          echo "skip_deploy=${skip_deploy}" >> "$GITHUB_OUTPUT"
+          # `|` would break the markdown table, so render the subject as a fenced
+          # block rather than a cell. Expansion results are never re-parsed by the
+          # shell, so a subject containing backticks cannot substitute a command.
+          {
+            echo "## \`[skip deploy]\` gate"
+            echo
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| event | \`${EVENT_NAME}\` |"
+            echo "| skip_deploy | \`${skip_deploy}\` |"
+            echo
+            echo "Subject read:"
+            echo '```'
+            printf '%s\n' "${subject:-(no head_commit — not a push)}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -231,6 +291,21 @@ jobs:
       - name: Audit wrangler config resolution
         run: python3 scripts/wrangler-config-resolution-check.py
 
+      # WIC-2386: keep the `[skip deploy]` gate reading the commit SUBJECT. The
+      # whole-message form suppressed PR #499's `/api/auth/me` fix for days because
+      # a squashed WIP commit carried the marker in the body, and the failure is
+      # invisible: the run is green, the deploy job is simply "skipped".
+      #
+      # The selftest runs first and is the load-bearing half — the file scan asserts
+      # the WIRING, but only the behavioural cases assert the DECISION, and a scan
+      # that silently matches nothing prints the same thing as a clean tree. Both
+      # directions are covered: the deliberate subject marker must still skip, and
+      # the inherited body marker must not. Pure-stdlib python3, no network, ~20ms.
+      - name: Check the [skip deploy] gate reads the commit subject
+        run: |
+          python3 scripts/skip-deploy-gate-check.py --selftest
+          python3 scripts/skip-deploy-gate-check.py
+
       # WIC-2124: a hard-coded `test.describe.skip(...)` is invisible to every
       # signal this pipeline already has. It is not a failure, so the E2E job stays
       # green; the file still exists, so any filename-level audit reads it as
@@ -309,9 +384,12 @@ jobs:
     # job is gated. On `pull_request` and `workflow_dispatch` E2E always runs
     # (`head_commit` exists only on `push`; dispatch is a real production deploy and
     # its E2E gates `deploy-production`).
+    #
+    # WIC-2386: the marker is now read from the commit SUBJECT only, by
+    # `lint-and-test`'s `skip-deploy-gate` step. See that step for why.
     if: >-
       github.event_name != 'push' ||
-      !contains(github.event.head_commit.message, '[skip deploy]')
+      needs.lint-and-test.outputs.skip_deploy != 'true'
     runs-on: ubuntu-latest
     # WIC-1095: baseline for this job is ~2m45s. 15 minutes is ~5x headroom and
     # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
@@ -896,10 +974,15 @@ jobs:
     # measured on 2026-08-30). `head_commit` exists only on `push`, so the marker
     # is read there; `workflow_dispatch` is the manual production lever and is
     # never skip-gated.
+    #
+    # WIC-2386: the marker is now read from the commit SUBJECT only, by
+    # `lint-and-test`'s `skip-deploy-gate` step — a `[skip deploy]` inherited from a
+    # squashed WIP commit body no longer suppresses a production deploy. See that
+    # step for the instance (`6ce89e8f`, PR #499) that motivated it.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' &&
-       !contains(github.event.head_commit.message, '[skip deploy]'))
+       needs.lint-and-test.outputs.skip_deploy != 'true')
     runs-on: ubuntu-latest
     # WIC-1095: generous on purpose — this job runs DB migrations and a wrangler
     # deploy, and a timeout that fires mid-migration is worse than a slow run.
