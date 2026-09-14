@@ -663,6 +663,11 @@ test.describe('Real Multi-User Data Isolation', () => {
         if (res.url().includes('/api/applications') && res.request().method() === 'POST') {
           const body = await res.json().catch(() => null);
           if (body?.application?.id) createdAppId = body.application.id;
+          // TEMP DEBUG (WIC-2122): surface the Zod validation failure this test
+          // is hitting deterministically — remove once root-caused.
+          if (!res.ok()) {
+            console.log('DEBUG create-application failure', res.status(), JSON.stringify(body));
+          }
         }
       });
 
