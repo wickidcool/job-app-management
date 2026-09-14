@@ -743,8 +743,9 @@ test.describe('Real Multi-User Data Isolation', () => {
       // asserted: this runs on the failure path too, and a cleanup that can fail
       // the test would report a teardown problem as an isolation defect.
       if (createdAppId && user1Token) {
-        await page1.context().request
-          .delete(`/api/applications/${createdAppId}`, {
+        await page1
+          .context()
+          .request.delete(`/api/applications/${createdAppId}`, {
             headers: { Authorization: user1Token },
           })
           .catch(() => undefined);
