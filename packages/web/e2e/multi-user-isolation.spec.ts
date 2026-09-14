@@ -130,6 +130,21 @@ const isApiRequest = (url: string) => {
   }
 };
 
+// WIC-2384: endpoints that are unauthenticated BY DESIGN, and therefore must be
+// excluded from the "every API request carries a Bearer token" assertion below.
+// `POST /api/auth/login` cannot carry one — the token does not exist until it
+// responds with it — and `/api/health` is deliberately public. This is NOT a
+// relaxation of that assertion: it still fails on any PROTECTED endpoint called
+// without a token, which is the defect it was written to catch.
+const isPublicApiRequest = (url: string) => {
+  try {
+    const { pathname } = new URL(url);
+    return pathname.startsWith('/api/auth/') || pathname === '/api/health';
+  } catch {
+    return false;
+  }
+};
+
 const json = (body: unknown) => ({
   status: 200,
   contentType: 'application/json',
@@ -550,7 +565,9 @@ test.describe('API Auth Token Propagation', () => {
     await loginAs(page, email, password);
     await page.waitForTimeout(1500);
 
-    const unauthenticatedRequest = apiRequests.find((r) => !r.auth);
+    // Exclude by-design-public endpoints (see `isPublicApiRequest`): this listener is
+    // attached BEFORE `loginAs`, so it always records the unauthenticated login POST.
+    const unauthenticatedRequest = apiRequests.find((r) => !r.auth && !isPublicApiRequest(r.url));
     expect(unauthenticatedRequest).toBeUndefined();
 
     const authenticatedRequests = apiRequests.filter((r) => r.auth?.startsWith('Bearer '));
