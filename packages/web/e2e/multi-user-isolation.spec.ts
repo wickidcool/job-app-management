@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Multi-User Data Isolation E2E Tests (WIC-201)
@@ -57,17 +58,39 @@ const requiresIsolationUi = () => !process.env.E2E_ISOLATION_UI;
 // this predicate as a proxy for "a backend is up", and a helper that is still
 // lying around is an invitation to reintroduce the fail-open.
 
+// A real test account can land on the "Welcome to Careerpin" onboarding modal
+// after login (its onboarding_status is server state, not something this file
+// mocks for the live tiers — only the UI tier stubs `should-show`). The modal
+// covers the page and blocks every subsequent click, so `loginAs` clears it
+// before returning rather than leaving each call site to notice it.
+async function dismissOnboardingIfPresent(page: Page) {
+  const trigger = page.getByRole('button', { name: /close onboarding/i });
+  const appeared = await trigger
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!appeared) return;
+
+  await trigger.click();
+  await page.getByRole('button', { name: /save & exit/i }).click();
+}
+
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.locator('input[type="email"]').fill(email);
   await page.locator('input[type="password"]').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(page).toHaveURL('/', { timeout: 10000 });
+  await dismissOnboardingIfPresent(page);
 }
 
 async function logOut(page: Page) {
   await page.getByRole('button', { name: /user menu/i }).click();
-  await page.getByRole('button', { name: /sign out/i }).click();
+  // Radix's `DropdownMenu.Item asChild` overrides the child `<button>`'s
+  // implicit role with an explicit `menuitem` — the accessible role is
+  // `menuitem` even though the DOM tag is `<button>` (confirmed via a
+  // Playwright ARIA snapshot at the point this previously timed out).
+  await page.getByRole('menuitem', { name: /sign out/i }).click();
   await expect(page).toHaveURL('/login', { timeout: 5000 });
 }
 
@@ -125,6 +148,21 @@ const apiRoute = (path: string) => new RegExp(`/api/${path}(\\?.*)?$`);
 const isApiRequest = (url: string) => {
   try {
     return new URL(url).pathname.startsWith('/api/');
+  } catch {
+    return false;
+  }
+};
+
+// WIC-2384: endpoints that are unauthenticated BY DESIGN, and therefore must be
+// excluded from the "every API request carries a Bearer token" assertion below.
+// `POST /api/auth/login` cannot carry one — the token does not exist until it
+// responds with it — and `/api/health` is deliberately public. This is NOT a
+// relaxation of that assertion: it still fails on any PROTECTED endpoint called
+// without a token, which is the defect it was written to catch.
+const isPublicApiRequest = (url: string) => {
+  try {
+    const { pathname } = new URL(url);
+    return pathname.startsWith('/api/auth/') || pathname === '/api/health';
   } catch {
     return false;
   }
@@ -550,7 +588,9 @@ test.describe('API Auth Token Propagation', () => {
     await loginAs(page, email, password);
     await page.waitForTimeout(1500);
 
-    const unauthenticatedRequest = apiRequests.find((r) => !r.auth);
+    // Exclude by-design-public endpoints (see `isPublicApiRequest`): this listener is
+    // attached BEFORE `loginAs`, so it always records the unauthenticated login POST.
+    const unauthenticatedRequest = apiRequests.find((r) => !r.auth && !isPublicApiRequest(r.url));
     expect(unauthenticatedRequest).toBeUndefined();
 
     const authenticatedRequests = apiRequests.filter((r) => r.auth?.startsWith('Bearer '));
@@ -609,17 +649,33 @@ test.describe('Real Multi-User Data Isolation', () => {
     const user2Email = process.env.TEST_USER2_EMAIL!;
     const user2Password = process.env.TEST_USER2_PASSWORD!;
 
+    // WIC-2122: this job runs against the SHARED `dev` Supabase project (deploy.yml
+    // deliberately skips `db:migrate` there), and until the `finally` block below
+    // nothing ever deleted what this test created. So every past execution left
+    // another application titled 'User A Exclusive Role' on User A's account, and
+    // the strict-mode `getByText` at the "User A can see it" precondition began
+    // resolving to 2, then 3, then 4 elements — one more on every attempt.
+    //
+    // Cleanup alone cannot fix that: the rows already leaked into the shared dev
+    // database are not removed by anything in this repo. The title must therefore
+    // be unique per execution so the assertion is independent of that residue.
+    const appTitle = `User A Exclusive Role ${randomUUID().slice(0, 8)}`;
+
     // Create isolated browser contexts for each user
     const context1 = await browser.newContext();
     const context2 = await browser.newContext();
     const page1 = await context1.newPage();
     const page2 = await context2.newPage();
 
+    // Declared out here, not in the `try`: the `finally` block needs both to
+    // delete the created application.
+    let createdAppId: string | null = null;
+    let user1Token: string | null = null;
+
     try {
       // User 1: log in and create an application
       await loginAs(page1, user1Email, user1Password);
 
-      let createdAppId: string | null = null;
       page1.on('response', async (res) => {
         if (res.url().includes('/api/applications') && res.request().method() === 'POST') {
           const body = await res.json().catch(() => null);
@@ -627,16 +683,37 @@ test.describe('Real Multi-User Data Isolation', () => {
         }
       });
 
-      await page1.goto('/applications');
-      await page1.getByRole('button', { name: /add application/i }).click();
+      // Capture User 1's bearer token so the `finally` block can delete the
+      // application it created (see the cleanup note there).
+      page1.on('request', (req) => {
+        if (isApiRequest(req.url()) && req.headers()['authorization']) {
+          user1Token = req.headers()['authorization']!;
+        }
+      });
+
+      // `/applications/new` is itself a Radix dialog rendered as the entire route
+      // (ApplicationNew.tsx) — there is no "Add application" button to click on
+      // `/applications` at a desktop viewport. The only such control there is a
+      // `md:hidden` floating action button, and even that one's accessible name
+      // is "Create new job application" (its `aria-label`), not "Add application".
+      await page1.goto('/applications/new');
+      // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
+      // see OnboardingContext), so a fresh full navigation re-fetches
+      // `should-show` from the server and the modal can cover the page again
+      // even though `loginAs` already cleared it once right after sign-in.
+      await dismissOnboardingIfPresent(page1);
       await page1.waitForSelector('[role="dialog"]');
-      await page1.fill('input[id="jobTitle"]', 'User A Exclusive Role');
+      await page1.fill('input[id="jobTitle"]', appTitle);
       await page1.fill('input[id="company"]', 'User A Corp');
       await page1.getByRole('button', { name: /save application/i }).click();
-      await page1.waitForTimeout(1000);
+
+      // Saving opens an "Application Saved!" confirmation dialog rather than
+      // returning to the list in place; "View Applications" is what navigates
+      // back to `/applications`, where the new card actually renders.
+      await page1.getByRole('button', { name: /view applications/i }).click();
 
       // Verify User 1 can see their application
-      await expect(page1.getByText('User A Exclusive Role')).toBeVisible({ timeout: 5000 });
+      await expect(page1.getByText(appTitle)).toBeVisible({ timeout: 5000 });
 
       // User 2: log in and verify they cannot see User 1's application
       await loginAs(page2, user2Email, user2Password);
@@ -644,7 +721,7 @@ test.describe('Real Multi-User Data Isolation', () => {
       await page2.waitForTimeout(1000);
 
       // User 2's application list should NOT contain User 1's application
-      const user1AppVisible = await page2.getByText('User A Exclusive Role').isVisible();
+      const user1AppVisible = await page2.getByText(appTitle).isVisible();
       expect(user1AppVisible).toBe(false);
 
       // If we captured the application ID, try direct URL access from User 2
@@ -655,12 +732,25 @@ test.describe('Real Multi-User Data Isolation', () => {
         const isOnProtectedPage = page2.url().includes(createdAppId);
         if (isOnProtectedPage) {
           // The page rendered — verify it shows not-found, not the application data
-          const showsAppData = await page2.getByText('User A Exclusive Role').isVisible();
+          const showsAppData = await page2.getByText(appTitle).isVisible();
           expect(showsAppData).toBe(false);
         }
         // Otherwise the app redirected away from the foreign resource — also correct
       }
     } finally {
+      // Delete what this test created, so it stops adding a row to the shared
+      // `dev` database on every execution. Best-effort and deliberately not
+      // asserted: this runs on the failure path too, and a cleanup that can fail
+      // the test would report a teardown problem as an isolation defect.
+      if (createdAppId && user1Token) {
+        await page1
+          .context()
+          .request.delete(`/api/applications/${createdAppId}`, {
+            headers: { Authorization: user1Token },
+          })
+          .catch(() => undefined);
+      }
+
       await context1.close();
       await context2.close();
     }
@@ -691,8 +781,17 @@ test.describe('Real Multi-User Data Isolation', () => {
         }
       });
 
-      await page1.goto('/applications');
-      await page1.getByRole('button', { name: /add application/i }).click();
+      // `/applications/new` is itself a Radix dialog rendered as the entire route
+      // (ApplicationNew.tsx) — there is no "Add application" button to click on
+      // `/applications` at a desktop viewport. The only such control there is a
+      // `md:hidden` floating action button, and even that one's accessible name
+      // is "Create new job application" (its `aria-label`), not "Add application".
+      await page1.goto('/applications/new');
+      // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
+      // see OnboardingContext), so a fresh full navigation re-fetches
+      // `should-show` from the server and the modal can cover the page again
+      // even though `loginAs` already cleared it once right after sign-in.
+      await dismissOnboardingIfPresent(page1);
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Cross-User Test Role');
       await page1.fill('input[id="company"]', 'Isolation Corp');
@@ -806,8 +905,17 @@ test.describe('Real Multi-User Data Isolation', () => {
         }
       });
 
-      await page1.goto('/applications');
-      await page1.getByRole('button', { name: /add application/i }).click();
+      // `/applications/new` is itself a Radix dialog rendered as the entire route
+      // (ApplicationNew.tsx) — there is no "Add application" button to click on
+      // `/applications` at a desktop viewport. The only such control there is a
+      // `md:hidden` floating action button, and even that one's accessible name
+      // is "Create new job application" (its `aria-label`), not "Add application".
+      await page1.goto('/applications/new');
+      // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
+      // see OnboardingContext), so a fresh full navigation re-fetches
+      // `should-show` from the server and the modal can cover the page again
+      // even though `loginAs` already cleared it once right after sign-in.
+      await dismissOnboardingIfPresent(page1);
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Status Isolation Role');
       await page1.fill('input[id="company"]', 'Status Corp');

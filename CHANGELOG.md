@@ -9,6 +9,35 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — `User A application is not visible to User B` leaked a row into the shared `dev` database on every run, and its own precondition then broke on the residue (WIC-2122) (2026-09-14)
+
+The test created an application titled `User A Exclusive Role` and **never deleted it** — its `finally` block only closed the two browser contexts. The `e2e-isolation-coverage` job runs against the **shared `dev` Supabase project** (`deploy.yml` deliberately skips `db:migrate` there rather than race the preview migration), so nothing else removed those rows either. Every execution since the job went live has therefore added one more.
+
+The visible symptom was the precondition at line 691 — `expect(page1.getByText('User A Exclusive Role')).toBeVisible()` — failing Playwright strict mode with `resolved to 2 elements`, then `3`, then `4` across the three attempts of a single run. That monotonic count is the signature: each attempt left behind what the previous one created.
+
+Note what was *not* failing. The test died on the "User A can see their own application" setup step, several lines **before** the isolation assertions at 699–711. The security property this test exists to verify was therefore **unverified, not violated** — a red that looked like an isolation defect and was in fact a fixture leak.
+
+Two changes, and both are needed:
+
+- **Cleanup** — the `finally` block now issues `DELETE /api/applications/:id` with User A's captured bearer token, best-effort and unasserted (it runs on the failure path too, and a throwing teardown would report itself as an isolation defect).
+- **A per-execution unique title** — `User A Exclusive Role <uuid8>`. Cleanup alone cannot fix this: the rows already leaked into the shared `dev` database are not removed by anything in this repo, so a plain-title assertion would keep matching that residue and stay red forever.
+
+### Fixed — the "all API requests include Bearer token" isolation assertion was structurally unsatisfiable: it recorded its own login POST (WIC-2384) (2026-09-14)
+
+`multi-user-isolation.spec.ts:539` attaches its `page.on('request')` listener **before** calling `loginAs`, so the very first thing it records is `POST /api/auth/login` — a request that cannot carry a `Bearer` token, because the token does not exist until that call responds with it. The assertion then failed on `expect(unauthenticatedRequest).toBeUndefined()`. **No application change could ever have made this green**; the failure was in the assertion's own success condition, not in the app.
+
+It went unnoticed because it was masked. `Array.prototype.find` returns the *first* match, and until `1bd96ddb` that was a genuine defect — `useApplicationCollection` firing `GET /api/applications?limit=100` before `AuthContext` had written the token. With that fixed, the login POST underneath it surfaced, and the reported URL changed from `/api/applications?limit=100` to `/api/auth/login`. Same assertion, same red, different and now-spurious cause.
+
+The fix adds an `isPublicApiRequest` predicate and excludes by-design-public endpoints (`/api/auth/*`, `/api/health`) from that one `find`. This is **not** a relaxation, and the distinction matters because WIC-2384 explicitly warned against loosening this line: the assertion still fails on any *protected* endpoint requested without a token, which is exactly the defect it was written to catch. Verified with a negative control — `/api/applications?limit=100` is still flagged — plus near-miss cases (`/api/healthz` and a bare `/api/auth` stay asserted, so the prefix match cannot over-exclude).
+
+This clears one of the six failures in `e2e-isolation-coverage`. The remaining four 30-second timeouts (`logout invalidates session`, `User A application is not visible to User B`, `User B cannot update User A application status via API`, `status transitions are scoped to authenticated user`) are a separate, still-undiagnosed cause and this job stays red; it is non-gating by design.
+
+### Added — multi-user data-isolation coverage now actually runs in CI: `e2e-isolation-coverage` boots an in-job backend and executes the isolation specs (WIC-2122 route 2) (2026-09-07)
+
+The `e2e-isolation-coverage` job was a 2-minute credential preflight that ran zero tests; the RLS/multi-user isolation specs self-skip unless `E2E_LIVE_BACKEND` is set, and it was set nowhere, so ADR-005's isolation guarantee had no live coverage. This job now checks out, installs Playwright, boots the Node API (`dev:api`, Hono on :3000) against the shared `dev` Supabase, health-gates it on `/health`, and runs `multi-user-isolation.spec.ts` with `E2E_LIVE_BACKEND=1`. `e2e-tests` is untouched (the specs still skip there), and the job stays out of `deploy-production.needs` and the required-merge ruleset, so a red here is visible-but-harmless and never blocks a deploy. It deliberately does not migrate the dev DB (deploy-preview/deploy-production keep it current); a schema-changing PR may see transient red here, which is acceptable precisely because the job is non-gating.
+
+`application-form-errors.spec.ts` is deliberately excluded (WIC-2361 rec #2). Its `beforeEach` mocks `**/api/applications*`, and that glob swallows the POST create whose live server-side validation its 7 tests assert against, so against a real backend they are dishonest rather than merely red; narrowing the glob to GET does not help either, because `setupMockAuth` installs a fake `auth_token` that a real backend rejects 401 before it ever validates. Making them honest means driving the real sign-in flow and dropping the mock, which needs live credentials to verify and is tracked separately.
+
 ### Fixed — a `[skip deploy]` on a squashed WIP commit silently suppressed production deploys (2026-09-14)
 
 `deploy.yml` gated `deploy-production` and `e2e-tests` on `!contains(github.event.head_commit.message, '[skip deploy]')`. That message is **subject + body**, and a squash merge builds the body from one bullet per branch commit — so a `[skip deploy]` left on any work-in-progress commit suppressed the whole PR's production deploy, behind a clean subject line, with a fully green run. The deploy job just reads as "skipped", which is indistinguishable from a deliberate no-deploy merge.

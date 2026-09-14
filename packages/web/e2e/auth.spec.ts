@@ -1,4 +1,19 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+// A real test account can land on the "Welcome to Careerpin" onboarding modal
+// after login (server-side onboarding_status, not something this file mocks).
+// The modal covers the page and blocks every subsequent click.
+async function dismissOnboardingIfPresent(page: Page) {
+  const trigger = page.getByRole('button', { name: /close onboarding/i });
+  const appeared = await trigger
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!appeared) return;
+
+  await trigger.click();
+  await page.getByRole('button', { name: /save & exit/i }).click();
+}
 
 /**
  * Authentication E2E Tests
@@ -120,6 +135,7 @@ test.describe('Authentication - Auth Flow', () => {
     await page.getByRole('button', { name: /sign in/i }).click();
 
     await expect(page).toHaveURL('/', { timeout: 5000 });
+    await dismissOnboardingIfPresent(page);
     await expect(page.getByText(testEmail)).toBeVisible();
   });
 
@@ -133,11 +149,14 @@ test.describe('Authentication - Auth Flow', () => {
     await page.getByRole('button', { name: /sign in/i }).click();
 
     await expect(page).toHaveURL('/');
+    await dismissOnboardingIfPresent(page);
 
     await expect(page.getByText(testEmail)).toBeVisible();
 
     await page.getByRole('button', { name: /user menu/i }).click();
-    await expect(page.getByRole('button', { name: /sign out/i })).toBeVisible();
+    // Radix's `DropdownMenu.Item asChild` overrides the child `<button>`'s
+    // implicit role with an explicit `menuitem`.
+    await expect(page.getByRole('menuitem', { name: /sign out/i })).toBeVisible();
   });
 
   test('should logout and redirect to login', async ({ page }) => {
@@ -149,9 +168,10 @@ test.describe('Authentication - Auth Flow', () => {
     await page.locator('input[type="password"]').fill(testPassword);
     await page.getByRole('button', { name: /sign in/i }).click();
     await expect(page).toHaveURL('/');
+    await dismissOnboardingIfPresent(page);
 
     await page.getByRole('button', { name: /user menu/i }).click();
-    await page.getByRole('button', { name: /sign out/i }).click();
+    await page.getByRole('menuitem', { name: /sign out/i }).click();
 
     await expect(page).toHaveURL('/login');
 
