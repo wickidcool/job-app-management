@@ -9,6 +9,7 @@ import { ApplicationsList } from '../pages/ApplicationsList';
 import { FilterPanel, type FilterOptions } from './FilterPanel';
 import { FILTER_SHORTCUT_LABELS } from '../constants/filterShortcuts';
 import type { ApplicationStatus } from '../types/application';
+import { seedAuthSession } from '../test/session';
 
 /**
  * WIC-1612 — `/applications` has two writers for one piece of filter state.
@@ -149,6 +150,7 @@ async function openPanelThenApplyShortcut(user: ReturnType<typeof userEvent.setu
 describe('/applications filter panel, driven by the real page (WIC-1612)', () => {
   beforeEach(() => {
     localStorage.clear();
+    seedAuthSession();
   });
 
   afterEach(() => {
@@ -551,6 +553,7 @@ describe('/applications filters by date, end to end (WIC-1613)', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    seedAuthSession();
   });
 
   afterEach(() => {
