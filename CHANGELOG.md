@@ -9,6 +9,19 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — `User A application is not visible to User B` leaked a row into the shared `dev` database on every run, and its own precondition then broke on the residue (WIC-2122) (2026-09-14)
+
+The test created an application titled `User A Exclusive Role` and **never deleted it** — its `finally` block only closed the two browser contexts. The `e2e-isolation-coverage` job runs against the **shared `dev` Supabase project** (`deploy.yml` deliberately skips `db:migrate` there rather than race the preview migration), so nothing else removed those rows either. Every execution since the job went live has therefore added one more.
+
+The visible symptom was the precondition at line 691 — `expect(page1.getByText('User A Exclusive Role')).toBeVisible()` — failing Playwright strict mode with `resolved to 2 elements`, then `3`, then `4` across the three attempts of a single run. That monotonic count is the signature: each attempt left behind what the previous one created.
+
+Note what was *not* failing. The test died on the "User A can see their own application" setup step, several lines **before** the isolation assertions at 699–711. The security property this test exists to verify was therefore **unverified, not violated** — a red that looked like an isolation defect and was in fact a fixture leak.
+
+Two changes, and both are needed:
+
+- **Cleanup** — the `finally` block now issues `DELETE /api/applications/:id` with User A's captured bearer token, best-effort and unasserted (it runs on the failure path too, and a throwing teardown would report itself as an isolation defect).
+- **A per-execution unique title** — `User A Exclusive Role <uuid8>`. Cleanup alone cannot fix this: the rows already leaked into the shared `dev` database are not removed by anything in this repo, so a plain-title assertion would keep matching that residue and stay red forever.
+
 ### Fixed — the "all API requests include Bearer token" isolation assertion was structurally unsatisfiable: it recorded its own login POST (WIC-2384) (2026-09-14)
 
 `multi-user-isolation.spec.ts:539` attaches its `page.on('request')` listener **before** calling `loginAs`, so the very first thing it records is `POST /api/auth/login` — a request that cannot carry a `Bearer` token, because the token does not exist until that call responds with it. The assertion then failed on `expect(unauthenticatedRequest).toBeUndefined()`. **No application change could ever have made this green**; the failure was in the assertion's own success condition, not in the app.

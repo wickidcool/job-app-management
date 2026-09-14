@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Multi-User Data Isolation E2E Tests (WIC-201)
@@ -648,21 +649,45 @@ test.describe('Real Multi-User Data Isolation', () => {
     const user2Email = process.env.TEST_USER2_EMAIL!;
     const user2Password = process.env.TEST_USER2_PASSWORD!;
 
+    // WIC-2122: this job runs against the SHARED `dev` Supabase project (deploy.yml
+    // deliberately skips `db:migrate` there), and until the `finally` block below
+    // nothing ever deleted what this test created. So every past execution left
+    // another application titled 'User A Exclusive Role' on User A's account, and
+    // the strict-mode `getByText` at the "User A can see it" precondition began
+    // resolving to 2, then 3, then 4 elements — one more on every attempt.
+    //
+    // Cleanup alone cannot fix that: the rows already leaked into the shared dev
+    // database are not removed by anything in this repo. The title must therefore
+    // be unique per execution so the assertion is independent of that residue.
+    const appTitle = `User A Exclusive Role ${randomUUID().slice(0, 8)}`;
+
     // Create isolated browser contexts for each user
     const context1 = await browser.newContext();
     const context2 = await browser.newContext();
     const page1 = await context1.newPage();
     const page2 = await context2.newPage();
 
+    // Declared out here, not in the `try`: the `finally` block needs both to
+    // delete the created application.
+    let createdAppId: string | null = null;
+    let user1Token: string | null = null;
+
     try {
       // User 1: log in and create an application
       await loginAs(page1, user1Email, user1Password);
 
-      let createdAppId: string | null = null;
       page1.on('response', async (res) => {
         if (res.url().includes('/api/applications') && res.request().method() === 'POST') {
           const body = await res.json().catch(() => null);
           if (body?.application?.id) createdAppId = body.application.id;
+        }
+      });
+
+      // Capture User 1's bearer token so the `finally` block can delete the
+      // application it created (see the cleanup note there).
+      page1.on('request', (req) => {
+        if (isApiRequest(req.url()) && req.headers()['authorization']) {
+          user1Token = req.headers()['authorization']!;
         }
       });
 
@@ -678,7 +703,7 @@ test.describe('Real Multi-User Data Isolation', () => {
       // even though `loginAs` already cleared it once right after sign-in.
       await dismissOnboardingIfPresent(page1);
       await page1.waitForSelector('[role="dialog"]');
-      await page1.fill('input[id="jobTitle"]', 'User A Exclusive Role');
+      await page1.fill('input[id="jobTitle"]', appTitle);
       await page1.fill('input[id="company"]', 'User A Corp');
       await page1.getByRole('button', { name: /save application/i }).click();
 
@@ -688,7 +713,7 @@ test.describe('Real Multi-User Data Isolation', () => {
       await page1.getByRole('button', { name: /view applications/i }).click();
 
       // Verify User 1 can see their application
-      await expect(page1.getByText('User A Exclusive Role')).toBeVisible({ timeout: 5000 });
+      await expect(page1.getByText(appTitle)).toBeVisible({ timeout: 5000 });
 
       // User 2: log in and verify they cannot see User 1's application
       await loginAs(page2, user2Email, user2Password);
@@ -696,7 +721,7 @@ test.describe('Real Multi-User Data Isolation', () => {
       await page2.waitForTimeout(1000);
 
       // User 2's application list should NOT contain User 1's application
-      const user1AppVisible = await page2.getByText('User A Exclusive Role').isVisible();
+      const user1AppVisible = await page2.getByText(appTitle).isVisible();
       expect(user1AppVisible).toBe(false);
 
       // If we captured the application ID, try direct URL access from User 2
@@ -707,12 +732,24 @@ test.describe('Real Multi-User Data Isolation', () => {
         const isOnProtectedPage = page2.url().includes(createdAppId);
         if (isOnProtectedPage) {
           // The page rendered — verify it shows not-found, not the application data
-          const showsAppData = await page2.getByText('User A Exclusive Role').isVisible();
+          const showsAppData = await page2.getByText(appTitle).isVisible();
           expect(showsAppData).toBe(false);
         }
         // Otherwise the app redirected away from the foreign resource — also correct
       }
     } finally {
+      // Delete what this test created, so it stops adding a row to the shared
+      // `dev` database on every execution. Best-effort and deliberately not
+      // asserted: this runs on the failure path too, and a cleanup that can fail
+      // the test would report a teardown problem as an isolation defect.
+      if (createdAppId && user1Token) {
+        await page1.context().request
+          .delete(`/api/applications/${createdAppId}`, {
+            headers: { Authorization: user1Token },
+          })
+          .catch(() => undefined);
+      }
+
       await context1.close();
       await context2.close();
     }
