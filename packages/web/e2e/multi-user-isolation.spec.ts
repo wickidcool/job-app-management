@@ -667,6 +667,11 @@ test.describe('Real Multi-User Data Isolation', () => {
       });
 
       await page1.goto('/applications');
+      // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
+      // see OnboardingContext), so a fresh full navigation re-fetches
+      // `should-show` from the server and the modal can cover the page again
+      // even though `loginAs` already cleared it once right after sign-in.
+      await dismissOnboardingIfPresent(page1);
       await page1.getByRole('button', { name: /add application/i }).click();
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'User A Exclusive Role');
@@ -731,6 +736,11 @@ test.describe('Real Multi-User Data Isolation', () => {
       });
 
       await page1.goto('/applications');
+      // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
+      // see OnboardingContext), so a fresh full navigation re-fetches
+      // `should-show` from the server and the modal can cover the page again
+      // even though `loginAs` already cleared it once right after sign-in.
+      await dismissOnboardingIfPresent(page1);
       await page1.getByRole('button', { name: /add application/i }).click();
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Cross-User Test Role');
@@ -846,6 +856,11 @@ test.describe('Real Multi-User Data Isolation', () => {
       });
 
       await page1.goto('/applications');
+      // Onboarding's `dismissOnboarding` is in-memory only (no persisted flag —
+      // see OnboardingContext), so a fresh full navigation re-fetches
+      // `should-show` from the server and the modal can cover the page again
+      // even though `loginAs` already cleared it once right after sign-in.
+      await dismissOnboardingIfPresent(page1);
       await page1.getByRole('button', { name: /add application/i }).click();
       await page1.waitForSelector('[role="dialog"]');
       await page1.fill('input[id="jobTitle"]', 'Status Isolation Role');
