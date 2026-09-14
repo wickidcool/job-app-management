@@ -57,17 +57,39 @@ const requiresIsolationUi = () => !process.env.E2E_ISOLATION_UI;
 // this predicate as a proxy for "a backend is up", and a helper that is still
 // lying around is an invitation to reintroduce the fail-open.
 
+// A real test account can land on the "Welcome to Careerpin" onboarding modal
+// after login (its onboarding_status is server state, not something this file
+// mocks for the live tiers — only the UI tier stubs `should-show`). The modal
+// covers the page and blocks every subsequent click, so `loginAs` clears it
+// before returning rather than leaving each call site to notice it.
+async function dismissOnboardingIfPresent(page: Page) {
+  const trigger = page.getByRole('button', { name: /close onboarding/i });
+  const appeared = await trigger
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!appeared) return;
+
+  await trigger.click();
+  await page.getByRole('button', { name: /save & exit/i }).click();
+}
+
 async function loginAs(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.locator('input[type="email"]').fill(email);
   await page.locator('input[type="password"]').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(page).toHaveURL('/', { timeout: 10000 });
+  await dismissOnboardingIfPresent(page);
 }
 
 async function logOut(page: Page) {
   await page.getByRole('button', { name: /user menu/i }).click();
-  await page.getByRole('button', { name: /sign out/i }).click();
+  // Radix's `DropdownMenu.Item asChild` overrides the child `<button>`'s
+  // implicit role with an explicit `menuitem` — the accessible role is
+  // `menuitem` even though the DOM tag is `<button>` (confirmed via a
+  // Playwright ARIA snapshot at the point this previously timed out).
+  await page.getByRole('menuitem', { name: /sign out/i }).click();
   await expect(page).toHaveURL('/login', { timeout: 5000 });
 }
 
