@@ -51,6 +51,15 @@ ALLOW = {
     "README.md",
     "CHANGELOG.md",
     "MEMORY.md",
+    # Scratch working files produced by the changelog merge-simulation recipe in
+    # CHANGELOG_CONVENTIONS.md (`git show ... > ours.md`, `git merge-file -p
+    # --union ... > union.md`). The commands that create them sit in a fenced
+    # block and are stripped, but the prose discussing the three inputs is not —
+    # so they read as citations to documents that were never meant to exist.
+    "base.md",
+    "ours.md",
+    "theirs.md",
+    "union.md",
 }
 
 

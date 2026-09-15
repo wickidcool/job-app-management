@@ -1119,6 +1119,39 @@ Verified three ways, not one: the audit's own flags now report **0**; dropping `
 
 
 
+### Changed — `CLAUDE.md` no longer carries the changelog conventions inline; they moved to `docs/CHANGELOG_CONVENTIONS.md` (WIC-2395)
+
+The "Changelog conventions" section was **53,412 bytes — 77% of `CLAUDE.md`** — and `CLAUDE.md` is
+loaded into every agent's context on **every turn**. Measured over the most recent 1000 heartbeat
+runs (2026-09-07 → 2026-09-14): the fleet read **1.46 billion cached input tokens against 12.5
+million output tokens, a 116:1 ratio**. Static instructions were ~45k tokens of that floor per turn
+(`AGENTS.md` ~25k + `CLAUDE.md` ~17.4k + `.claude/CLAUDE.md` ~2.5k).
+
+The content is **unchanged and still authoritative** — every byte was verified present verbatim in
+the new file, which adds only a 353-character preamble. `CLAUDE.md` keeps a pointer plus the four
+rules that bite hardest (don't anchor at the top of `[Unreleased]`; pad both edges of an inserted
+block; never reformat a line you aren't otherwise changing; keep `merge=union` and keep the
+changelog out of Prettier's glob), so the load-bearing warnings still reach a reader who never
+opens the doc.
+
+`CLAUDE.md` drops ~17.3k → ~4.4k tokens, saving **~12.9k tokens per turn, per agent**. No
+convention changed; nothing was deleted.
+
+Moving the prose into `docs/` also moved it **under `doc-reference-audit.py`'s scope**, which
+scans `docs/**.md` only — so text that had sat unaudited inside `CLAUDE.md` was checked for the
+first time and failed with **7 dangling references**. All 7 are false positives of one kind:
+`ours.md`, `theirs.md` and `union.md` are the scratch working files the merge-simulation recipe
+writes (`git show ... > ours.md`, `git merge-file -p --union ... > union.md`), not documents.
+The commands that create them sit in a fenced block and are stripped by the audit; the prose
+*discussing* the three inputs is not. They join the audit's existing `ALLOW` set — the hatch
+already used for `README.md`/`CHANGELOG.md` — together with `base.md`, the fourth input of the
+same snippet, so a later sentence naming it cannot reopen the failure. `ALLOW` matches on exact
+filename, so this suppresses those four names and nothing else; a genuine dangling reference
+still fails, verified by injecting one.
+
+This cleared **both** red checks: the same audit runs in `Docs audits (PR)` and again in
+`Lint & Test`, so the single allowlist entry turned both green.
+
 ### Changed — `packages/api` runs vitest 4, `esbuild` nests under `drizzle-kit`, and the dependency-tree baseline is now EMPTY (2026-09-06)
 
 Both rows the WIC-2132 gate had to pin are **resolved rather than waived**, so `scripts/dependency-tree-baseline.json` ships with `"exempt": []` and a bare `npm ls --all` exits **0** on its own — the one clause of WIC-2129's acceptance that did not previously hold (WIC-2137).
