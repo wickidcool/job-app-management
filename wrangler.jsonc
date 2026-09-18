@@ -37,6 +37,16 @@
 		"ANALYTICS_SINK": "posthog",
 		"POSTHOG_HOST": "https://us.i.posthog.com"
 	},
+	// WIC-1386: production Hyperdrive binding (ADR-007 opt 1). Without this the
+	// Worker cannot reach the Supabase pooler and every authenticated route 503s.
+	// NOTE: this id is the PRODUCTION config. The one under env.preview points at
+	// the DEV database - the two must never be the same value.
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "e377f34016834bdab7f34ce2c629128d"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},
