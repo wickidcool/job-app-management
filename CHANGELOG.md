@@ -678,6 +678,10 @@ The prod canary ran two probes in one job and reported both through **one** inci
 #414 is deliberately left alone rather than retitled or closed from CI — the next failing tick opens a fresh, correctly-titled data-plane issue. The WIC-2123/WIC-2175 provenance notes are preserved verbatim: this workflow's pre-2026-09-05 green history predates the data-plane job entirely and still asserts nothing about `/api/health`.
 
 
+### Fixed — the Resume Manager tab bar highlighted no tab on `/resumes/:resumeId/exports` (WIC-1136) (2026-09-16)
+
+The tab bar decided "you are here" with `startsWith`, and no tab path is a prefix of the parameterized exports route, so a user arriving from Resume Manager's "View Exports" saw the Exports page under a tab bar with nothing selected — and a screen-reader user got no position in the tab set at all. The route became reachable when WIC-1044 (PR #87) shipped, so this was live rather than latent. `ResumeManagerTabs` now matches each tab against end-anchored route patterns (`matchPath`): `/resumes` stays exclusive to Master Resumes rather than prefixing every sub-route, both `/resumes/exports` and `/resumes/:resumeId/exports` light Exports, and exactly one tab carries `aria-current="page"` on every route. Covered by `ResumeManagerTabs.test.tsx`.
+
 ### Fixed — the tree-currency guard shipped with zero call sites, so it could never fire (2026-09-07)
 
 The guard added directly above was correct, fully tested, and **unreachable**. Outside its own test file the only reference to `scripts/tree-currency-guard.mjs` anywhere in the tree was the changelog entry announcing it: no npm script, no workflow step, no `globalSetup`, no git hook. Verified with `git grep` over every tracked file, and with a check of `.husky/` and `.git/hooks/` for an unversioned caller. Running it required knowing the path and typing `node scripts/tree-currency-guard.mjs` by hand.
