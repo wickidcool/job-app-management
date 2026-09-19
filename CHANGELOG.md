@@ -372,6 +372,12 @@ What they add is a stronger form of the claim — not that the credential is goo
 Documentation only. No code, no tests, no behaviour change.
 
 
+### Tooling — the route-integrity audit's link-extraction guard is now per-shape, so a single broken `LINK_PATTERNS` regex fails loudly instead of hiding behind the others (WIC-1074) (2026-09-16)
+
+`packages/web/src/test/route-integrity.test.ts` guarded its five link-extraction regexes with one aggregate floor (`linkSites.length > 20`). Those shapes contribute very unevenly — the object-prop shape alone carried ~80 of ~150 sites — so the aggregate stayed green even with four of the five extractors simultaneously broken; only a total wipeout tripped it. The `location.href`/`assign`/`replace` shape is the sharp edge: it is the only extractor watching for full-page redirects (it found `/resume-manager`), and as of WIC-1213 it matches **zero** live sites, so no floor over live sites could ever guard it.
+
+The guard now keys on a per-shape **fixture** rather than a count over live app source: each `LINK_PATTERNS` entry carries a synthetic snippet it must still extract, asserted independently via `it.each`. A regex that stops matching its own example fails regardless of whether the app currently authors a link in that shape — verified by mutation, breaking each of the five regexes reds exactly its own case (the `location.href` shape included, which the old aggregate and a naive `>= 1`-live-sites floor both miss). Also folds in a scope note on the doc comment: pattern 3's keyword set (`url`/`*Path`) can match non-navigation string props (`filePath:`, `storagePath:`, a `url:` at `/api/...`); these are latent today (zero such literals in `packages/web/src`) and out of scope — if one ever trips the audit, the fix is to narrow the pattern, not add a route.
+
 ### Tooling — a CI tripwire now fails the build if a `date` column is handed to `new Date(...)`
 
 The `nextActionDue` timezone bug shipped to production **twice**, in mirror-image halves — the SQL-bound side (WIC-2268) and the label side (WIC-2267) — because both are silent under `TZ=UTC`, which is what CI runs. Nothing in the suite fails when a *new* call site reintroduces the same parse: the behavioural test on `reports.service.needsAction` covers the call sites that exist, not the one someone adds next week. `scripts/date-only-guard.py` gates that hazard directly, and runs in the `Lint & Test` job.
