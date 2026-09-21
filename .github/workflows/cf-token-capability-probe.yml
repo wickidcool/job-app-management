@@ -40,21 +40,23 @@ jobs:
     # wedged network call into a runner slot held all day. Four curls; 10m is
     # already generous.
     timeout-minutes: 10
-    # REQUIRED, not decorative: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
-    # exist ONLY as `production` environment secrets (verified 2026-09-05 —
-    # the repo-level secret list holds just CLOUDFLARE_CAREERPIN_API). Without
-    # this line both interpolate to the empty string and every call below would
-    # 400 in a way that reads exactly like a dead token.
+    # REQUIRED, not decorative: CLOUDFLARE_ACCOUNT_ID exists ONLY as a
+    # `production` environment secret (verified 2026-09-05). Without this line
+    # it interpolates to the empty string and every call below would 400 in a
+    # way that reads exactly like a dead token.
     #
     # This does not add a human gate: the `production` environment has
     # `protection_rules: []`, so a dispatch reaches these secrets directly.
+    #
+    # The token itself (2026-09-20) is now the repo-level CLOUDFLARE_CAREERPIN_API
+    # and needs no environment — kept declared here for CLOUDFLARE_ACCOUNT_ID.
     environment: production
     steps:
       # One step, on purpose: the token is in scope for exactly this block and
       # nowhere else in the job.
       - name: Probe Hyperdrive scope
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
@@ -64,8 +66,10 @@ jobs:
 
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "FATAL: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
-            echo "They are 'production' ENVIRONMENT secrets — check this job still declares"
-            echo "'environment: production'. Refusing to report a verdict from empty creds."
+            echo "CLOUDFLARE_API_TOKEN reads from the repo-level CLOUDFLARE_CAREERPIN_API"
+            echo "secret (no environment needed); CLOUDFLARE_ACCOUNT_ID is a 'production'"
+            echo "ENVIRONMENT secret — check this job still declares 'environment: production'."
+            echo "Refusing to report a verdict from empty creds."
             exit 1
           fi
 
