@@ -9,6 +9,11 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — CI Cloudflare deploys now use a dedicated repo-level `CLOUDFLARE_JOBAPP_API_TOKEN`, ending the recurring dead-token outage (WIC-2473) (2026-09-21)
+
+The per-environment `CLOUDFLARE_API_TOKEN` (env `dev` and `production`) kept going invalid within ~24h of each re-mint — dead on 2026-09-16 and again 2026-09-19 despite a rotation on 2026-09-18 — 401'ing the account-scoped token-verify endpoint and cascading every wrangler call to `9109 / 10000 / 10502`. Because a job that declares `environment:` resolves an env secret ahead of a same-named repo secret, moving the value to the repo level under the same name would have been silently shadowed. `deploy.yml`'s 13 Cloudflare-token references (preview + production, including the WIC-1736 preview Hyperdrive-refresh step) now read a distinctly-named, shadow-proof repo secret `CLOUDFLARE_JOBAPP_API_TOKEN` — a dedicated deploy token for this repo, not the shared careerpin credential the branch was temporarily pointed at. The new token was verified `active` with `Hyperdrive:Edit` scope (read-only CF Token Capability Probe, 2026-09-21) before this landed.
+
+
 ### Fixed — `User A application is not visible to User B` leaked a row into the shared `dev` database on every run, and its own precondition then broke on the residue (WIC-2122) (2026-09-14)
 
 The test created an application titled `User A Exclusive Role` and **never deleted it** — its `finally` block only closed the two browser contexts. The `e2e-isolation-coverage` job runs against the **shared `dev` Supabase project** (`deploy.yml` deliberately skips `db:migrate` there rather than race the preview migration), so nothing else removed those rows either. Every execution since the job went live has therefore added one more.
@@ -37,6 +42,14 @@ This clears one of the six failures in `e2e-isolation-coverage`. The remaining f
 The `e2e-isolation-coverage` job was a 2-minute credential preflight that ran zero tests; the RLS/multi-user isolation specs self-skip unless `E2E_LIVE_BACKEND` is set, and it was set nowhere, so ADR-005's isolation guarantee had no live coverage. This job now checks out, installs Playwright, boots the Node API (`dev:api`, Hono on :3000) against the shared `dev` Supabase, health-gates it on `/health`, and runs `multi-user-isolation.spec.ts` with `E2E_LIVE_BACKEND=1`. `e2e-tests` is untouched (the specs still skip there), and the job stays out of `deploy-production.needs` and the required-merge ruleset, so a red here is visible-but-harmless and never blocks a deploy. It deliberately does not migrate the dev DB (deploy-preview/deploy-production keep it current); a schema-changing PR may see transient red here, which is acceptable precisely because the job is non-gating.
 
 `application-form-errors.spec.ts` is deliberately excluded (WIC-2361 rec #2). Its `beforeEach` mocks `**/api/applications*`, and that glob swallows the POST create whose live server-side validation its 7 tests assert against, so against a real backend they are dishonest rather than merely red; narrowing the glob to GET does not help either, because `setupMockAuth` installs a fake `auth_token` that a real backend rejects 401 before it ever validates. Making them honest means driving the real sign-in flow and dropping the mock, which needs live credentials to verify and is tracked separately.
+
+### Fixed — every PR preview had a dead database while the deploy reported green (2026-08-30)
+
+The Access-free per-version preview URLs all returned `503 {"status":"degraded","hyperdrive":true,"db":"password authentication failed for user \"postgres\""}`: `db/client.ts` resolves `HYPERDRIVE` -> `DATABASE_URL` -> Node, `wrangler.jsonc` declares `HYPERDRIVE` under `env.preview`, so preview's live credential lived only in Cloudflare Hyperdrive config `374db58fe1014823a9e54ba393125676` — which nothing in CI refreshed. A dev-DB password rotation updated the Actions and prod-Worker secrets and silently left Hyperdrive stale, and `deploy.yml`'s twice-run `wrangler secret bulk --env preview DATABASE_URL` push was inert because the code prefers the binding (WIC-1736).
+
+- **`deploy-preview` now refreshes the Hyperdrive config itself.** A new step reconstructs the same transaction-pooler URL the migration step uses and runs `wrangler hyperdrive update 374db58f… --connection-string … --sslmode require`, so preview credentials track the dev DB instead of drifting; the shared config heals every open PR's preview in one refresh. Advisory (needs `Hyperdrive:Edit` on the deploy token) — the health gate below is the authoritative signal.
+- **The pipeline now asserts the deployed Worker actually works.** A final `Assert preview database is live (/health)` step curls the Access-free URL and fails the job unless `db == "ok"` — asserting on `db`, never `status`/HTTP code, since a wrong-password Hyperdrive and a subrequest-exhausted prod both present as `503 degraded` (same trap as WIC-1386).
+- The inert `DATABASE_URL` push on preview is now annotated as such rather than reading like the mechanism that keeps preview fresh.
 
 ### Fixed — a `[skip deploy]` on a squashed WIP commit silently suppressed production deploys (2026-09-14)
 
@@ -1118,6 +1131,39 @@ Verified three ways, not one: the audit's own flags now report **0**; dropping `
 ⚠️ **A stale dev server made the fixed e2e spec fail.** `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, and a `vite` process left over from the WIC-2124 investigation was still serving port 5173 **out of a different checkout** — one that still had the broken nested zod. The spec ran green against the fix only after that process was killed. A local Playwright pass certifies whichever tree the listener on 5173 was started from, not the one you are sitting in; check the port before believing either a pass or a failure.
 
 
+
+### Changed — `CLAUDE.md` no longer carries the changelog conventions inline; they moved to `docs/CHANGELOG_CONVENTIONS.md` (WIC-2395)
+
+The "Changelog conventions" section was **53,412 bytes — 77% of `CLAUDE.md`** — and `CLAUDE.md` is
+loaded into every agent's context on **every turn**. Measured over the most recent 1000 heartbeat
+runs (2026-09-07 → 2026-09-14): the fleet read **1.46 billion cached input tokens against 12.5
+million output tokens, a 116:1 ratio**. Static instructions were ~45k tokens of that floor per turn
+(`AGENTS.md` ~25k + `CLAUDE.md` ~17.4k + `.claude/CLAUDE.md` ~2.5k).
+
+The content is **unchanged and still authoritative** — every byte was verified present verbatim in
+the new file, which adds only a 353-character preamble. `CLAUDE.md` keeps a pointer plus the four
+rules that bite hardest (don't anchor at the top of `[Unreleased]`; pad both edges of an inserted
+block; never reformat a line you aren't otherwise changing; keep `merge=union` and keep the
+changelog out of Prettier's glob), so the load-bearing warnings still reach a reader who never
+opens the doc.
+
+`CLAUDE.md` drops ~17.3k → ~4.4k tokens, saving **~12.9k tokens per turn, per agent**. No
+convention changed; nothing was deleted.
+
+Moving the prose into `docs/` also moved it **under `doc-reference-audit.py`'s scope**, which
+scans `docs/**.md` only — so text that had sat unaudited inside `CLAUDE.md` was checked for the
+first time and failed with **7 dangling references**. All 7 are false positives of one kind:
+`ours.md`, `theirs.md` and `union.md` are the scratch working files the merge-simulation recipe
+writes (`git show ... > ours.md`, `git merge-file -p --union ... > union.md`), not documents.
+The commands that create them sit in a fenced block and are stripped by the audit; the prose
+*discussing* the three inputs is not. They join the audit's existing `ALLOW` set — the hatch
+already used for `README.md`/`CHANGELOG.md` — together with `base.md`, the fourth input of the
+same snippet, so a later sentence naming it cannot reopen the failure. `ALLOW` matches on exact
+filename, so this suppresses those four names and nothing else; a genuine dangling reference
+still fails, verified by injecting one.
+
+This cleared **both** red checks: the same audit runs in `Docs audits (PR)` and again in
+`Lint & Test`, so the single allowlist entry turned both green.
 
 ### Changed — `packages/api` runs vitest 4, `esbuild` nests under `drizzle-kit`, and the dependency-tree baseline is now EMPTY (2026-09-06)
 
