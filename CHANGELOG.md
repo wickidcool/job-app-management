@@ -9,6 +9,11 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — CI Cloudflare deploys now use a dedicated repo-level `CLOUDFLARE_JOBAPP_API_TOKEN`, ending the recurring dead-token outage (WIC-2473) (2026-09-21)
+
+The per-environment `CLOUDFLARE_API_TOKEN` (env `dev` and `production`) kept going invalid within ~24h of each re-mint — dead on 2026-09-16 and again 2026-09-19 despite a rotation on 2026-09-18 — 401'ing the account-scoped token-verify endpoint and cascading every wrangler call to `9109 / 10000 / 10502`. Because a job that declares `environment:` resolves an env secret ahead of a same-named repo secret, moving the value to the repo level under the same name would have been silently shadowed. `deploy.yml`'s 13 Cloudflare-token references (preview + production, including the WIC-1736 preview Hyperdrive-refresh step) now read a distinctly-named, shadow-proof repo secret `CLOUDFLARE_JOBAPP_API_TOKEN` — a dedicated deploy token for this repo, not the shared careerpin credential the branch was temporarily pointed at. The new token was verified `active` with `Hyperdrive:Edit` scope (read-only CF Token Capability Probe, 2026-09-21) before this landed.
+
+
 ### Fixed — `User A application is not visible to User B` leaked a row into the shared `dev` database on every run, and its own precondition then broke on the residue (WIC-2122) (2026-09-14)
 
 The test created an application titled `User A Exclusive Role` and **never deleted it** — its `finally` block only closed the two browser contexts. The `e2e-isolation-coverage` job runs against the **shared `dev` Supabase project** (`deploy.yml` deliberately skips `db:migrate` there rather than race the preview migration), so nothing else removed those rows either. Every execution since the job went live has therefore added one more.

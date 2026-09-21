@@ -804,7 +804,7 @@ jobs:
           [ -z "$SUPABASE_ANON_KEY" ]    && missing="$missing SUPABASE_ANON_KEY"
           [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
           [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
-          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_CAREERPIN_API"
+          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_JOBAPP_API_TOKEN"
           [ -z "$CF_ACCOUNT_ID" ]        && missing="$missing CLOUDFLARE_ACCOUNT_ID"
           if [ -n "$missing" ]; then
             echo "::error::Required secrets/vars not configured:$missing"
@@ -816,7 +816,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # ADR-0001 Pillar 1 (WIC-878): authenticated pings, not just presence checks.
@@ -832,19 +832,21 @@ jobs:
       # already-failing preview deploy's failure earlier and could mask unrelated
       # PR feedback. Flip this one too once WIC-760 lands a live token.
       #
-      # Repointed to the repo-level CLOUDFLARE_CAREERPIN_API (2026-09-20): the
-      # per-environment CLOUDFLARE_API_TOKEN kept going invalid independently of
-      # any code change here (401 on the account-scoped token-verify endpoint,
-      # runs on 2026-09-16 and again 2026-09-19 despite a rotation in between on
-      # 2026-09-18). CLOUDFLARE_CAREERPIN_API is the same repo-level credential
-      # deploy-marketing.yml already uses, and is now the one canonical Cloudflare
-      # token for every workflow in this repo — CLOUDFLARE_ACCOUNT_ID is left
-      # exactly as it was, still read per-environment.
+      # Repointed to the repo-level CLOUDFLARE_JOBAPP_API_TOKEN (WIC-2473,
+      # 2026-09-21): the per-environment CLOUDFLARE_API_TOKEN kept going invalid
+      # independently of any code change here (401 on the account-scoped
+      # token-verify endpoint, runs on 2026-09-16 and again 2026-09-19 despite a
+      # rotation in between on 2026-09-18). CLOUDFLARE_JOBAPP_API_TOKEN is a
+      # DEDICATED repo-level deploy token for job-app-management (not the shared
+      # careerpin credential), verified active with Hyperdrive:Edit scope by the
+      # CF Token Capability Probe on 2026-09-21. Env secrets shadow same-named
+      # repo secrets, so a distinct name is shadow-proof. CLOUDFLARE_ACCOUNT_ID is
+      # left exactly as it was, still read per-environment.
       - name: Credential preflight (authenticated, advisory)
         continue-on-error: true
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
@@ -892,7 +894,7 @@ jobs:
         # Idempotent — exits 0 even if the bucket already exists.
         run: npx wrangler r2 bucket create jobtrail-documents-dev || true
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # WIC-1736: preview reads its DB connection from the HYPERDRIVE binding, not
@@ -922,7 +924,7 @@ jobs:
         id: hyperdrive_refresh
         continue-on-error: true
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
@@ -1038,7 +1040,7 @@ jobs:
           echo "::error::Preview Worker secrets failed to sync after ${ATTEMPTS} attempt(s)."
           exit 1
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ATTEMPTS: '1'
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -1051,12 +1053,12 @@ jobs:
         id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          apiToken: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           environment: preview
           command: deploy
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
@@ -1101,7 +1103,7 @@ jobs:
           echo "::error::Preview Worker secrets failed to sync after ${ATTEMPTS} attempt(s)."
           exit 1
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ATTEMPTS: '4'
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -1297,7 +1299,7 @@ jobs:
           [ -z "$SUPABASE_ANON_KEY" ]    && missing="$missing SUPABASE_ANON_KEY"
           [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
           [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
-          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_CAREERPIN_API"
+          [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_JOBAPP_API_TOKEN"
           if [ -n "$missing" ]; then
             echo "::error::Required secrets/vars not configured:$missing"
             echo "Set these in GitHub → Settings → Secrets and variables (repo or 'production' environment)."
@@ -1308,7 +1310,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
 
       # ADR-0001 Pillar 1 (WIC-878): authenticated pings, not just presence checks.
       # Catches a dead/mis-scoped Cloudflare token or stale Supabase creds loudly here
@@ -1325,15 +1327,16 @@ jobs:
       # prod token) was met in run 32191251045 (2026-08-18), where this step
       # concluded `success` against the live prod credentials.
       #
-      # Repointed to the repo-level CLOUDFLARE_CAREERPIN_API (2026-09-20) — see
-      # the identical note on the preview job's copy of this step above. The
-      # per-environment CLOUDFLARE_API_TOKEN is exactly the "present-but-invalid"
-      # case this hard gate exists to catch: it 401'd here on 2026-09-16 and again
-      # on 2026-09-19, each time after this same check had passed days earlier.
+      # Repointed to the repo-level CLOUDFLARE_JOBAPP_API_TOKEN (WIC-2473,
+      # 2026-09-21) — see the identical note on the preview job's copy of this
+      # step above. The per-environment CLOUDFLARE_API_TOKEN is exactly the
+      # "present-but-invalid" case this hard gate exists to catch: it 401'd here
+      # on 2026-09-16 and again on 2026-09-19, each time after this same check had
+      # passed days earlier.
       - name: Credential preflight (authenticated)
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
@@ -1422,14 +1425,14 @@ jobs:
       - name: Ensure production R2 bucket exists
         run: npx wrangler r2 bucket create jobtrail-documents || true
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           # Account-scoped tokens can't enumerate /memberships; pin the account so wrangler skips that lookup.
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare Workers (Production)
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          apiToken: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
           secrets: |
@@ -1440,7 +1443,7 @@ jobs:
             DATABASE_URL
             POSTHOG_API_KEY
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           # Account-scoped tokens can't enumerate /memberships; pin the account so `wrangler secret bulk` skips that lookup.
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
