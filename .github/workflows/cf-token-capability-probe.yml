@@ -48,15 +48,18 @@ jobs:
     # This does not add a human gate: the `production` environment has
     # `protection_rules: []`, so a dispatch reaches these secrets directly.
     #
-    # The token itself (2026-09-20) is now the repo-level CLOUDFLARE_CAREERPIN_API
-    # and needs no environment — kept declared here for CLOUDFLARE_ACCOUNT_ID.
+    # The token itself (WIC-2473, 2026-09-21) is now the dedicated repo-level
+    # CLOUDFLARE_JOBAPP_API_TOKEN and needs no environment — kept declared here
+    # for CLOUDFLARE_ACCOUNT_ID. (Briefly CLOUDFLARE_CAREERPIN_API on 2026-09-20;
+    # that shared careerpin credential didn't verify against this account either
+    # — this probe is what caught it, run 35658660464.)
     environment: production
     steps:
       # One step, on purpose: the token is in scope for exactly this block and
       # nowhere else in the job.
       - name: Probe Hyperdrive scope
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
@@ -66,7 +69,7 @@ jobs:
 
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "FATAL: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
-            echo "CLOUDFLARE_API_TOKEN reads from the repo-level CLOUDFLARE_CAREERPIN_API"
+            echo "CLOUDFLARE_API_TOKEN reads from the repo-level CLOUDFLARE_JOBAPP_API_TOKEN"
             echo "secret (no environment needed); CLOUDFLARE_ACCOUNT_ID is a 'production'"
             echo "ENVIRONMENT secret — check this job still declares 'environment: production'."
             echo "Refusing to report a verdict from empty creds."
