@@ -8,6 +8,15 @@ name: Backfill project storage keys (dry-run)
 # prints the migrator's tally to the run summary. The destructive `--apply` path
 # is intentionally NOT exposed here; it is a separate, later step once a dry-run
 # report is clean (see docs/runbooks/prod-data-operations.md).
+#
+# CREDENTIALS: the migrator speaks the S3 API, which needs an Access Key ID +
+# Secret Access Key. This workflow accepts either:
+#   (a) explicit R2 S3 secrets R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY, OR
+#   (b) the existing CLOUDFLARE_API_TOKEN — from which it DERIVES the S3 pair at
+#       runtime, per Cloudflare's documented scheme (Access Key ID = token id,
+#       Secret Access Key = SHA-256 of the token value,
+#       https://developers.cloudflare.com/r2/api/tokens/). Path (b) only works if
+#       that token carries R2 "Object Read & Write" permission.
 on:
   workflow_dispatch:
     inputs:
@@ -35,8 +44,8 @@ jobs:
     timeout-minutes: 20
     # Pinned to `production` so this inherits the environment's required-reviewer
     # protection (a human must approve each dispatch) AND resolves the production
-    # SUPABASE_DATABASE_URL / R2 secrets. Scanning the dev bucket still runs here;
-    # the creds are shared dev<->prod, only the `bucket` input differs.
+    # SUPABASE_DATABASE_URL / CLOUDFLARE_* / R2 secrets. Scanning the dev bucket
+    # still runs here; the creds are shared dev<->prod, only the `bucket` differs.
     environment: production
     steps:
       - name: Record dispatch
@@ -69,29 +78,76 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate required secrets
-        # Fail fast, naming exactly what is missing. R2_ACCESS_KEY_ID /
-        # R2_SECRET_ACCESS_KEY are the R2 *S3-API* key pair the migrator needs
-        # (S3Client / ListObjectsV2) — distinct from the wrangler CLOUDFLARE_*
-        # API token the app uses for its R2 *binding*. Mint one under
-        # Cloudflare -> R2 -> Manage R2 API Tokens (Object Read & Write) and add
-        # the pair to the `production` environment. One token covers dev+prod.
+      - name: Resolve R2 S3 credentials
+        # Prefer an explicit R2 S3 key pair; otherwise derive one from the
+        # Cloudflare API token per the documented scheme. Sets R2_ACCESS_KEY_ID /
+        # R2_SECRET_ACCESS_KEY into the job env for later steps. Secrets are
+        # auto-masked; the derived pair is masked explicitly.
+        env:
+          EXPLICIT_AK: ${{ secrets.R2_ACCESS_KEY_ID }}
+          EXPLICIT_SK: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${EXPLICIT_AK:-}" ] && [ -n "${EXPLICIT_SK:-}" ]; then
+            echo "Using explicit R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY secrets."
+            echo "::add-mask::$EXPLICIT_AK"
+            {
+              echo "R2_ACCESS_KEY_ID=$EXPLICIT_AK"
+              echo "R2_SECRET_ACCESS_KEY=$EXPLICIT_SK"
+              echo "CRED_SOURCE=explicit R2 S3 key pair"
+            } >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if [ -z "${CF_TOKEN:-}" ]; then
+            echo "::error::No credentials available. Set either an R2 S3 key pair (R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY) or CLOUDFLARE_API_TOKEN on the 'production' environment."
+            exit 1
+          fi
+          echo "Deriving R2 S3 credentials from CLOUDFLARE_API_TOKEN"
+          echo "(Cloudflare-documented: Access Key ID = token id, Secret Access Key = SHA-256(token value))."
+          # The token id (needed as the S3 Access Key ID) comes from the token
+          # verify endpoint. Try the user-scoped route, then the account-scoped one.
+          verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify || true)
+          ok=$(printf '%s' "$verify" | jq -r '.success // false')
+          tokid=$(printf '%s' "$verify" | jq -r '.result.id // empty')
+          if [ "$ok" != "true" ] || [ -z "$tokid" ]; then
+            if [ -n "${CF_ACCOUNT_ID:-}" ]; then
+              verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/tokens/verify" || true)
+              ok=$(printf '%s' "$verify" | jq -r '.success // false')
+              tokid=$(printf '%s' "$verify" | jq -r '.result.id // empty')
+            fi
+          fi
+          if [ "$ok" != "true" ] || [ -z "$tokid" ]; then
+            echo "::error::Could not verify CLOUDFLARE_API_TOKEN or read its id (the S3 Access Key ID). The token may be invalid or lack token-read scope."
+            printf '%s' "$verify" | jq '{success, errors, messages}' 2>/dev/null || echo "(verify response was not JSON)"
+            exit 1
+          fi
+          secret=$(printf '%s' "$CF_TOKEN" | sha256sum | cut -d' ' -f1)
+          echo "::add-mask::$tokid"
+          echo "::add-mask::$secret"
+          {
+            echo "R2_ACCESS_KEY_ID=$tokid"
+            echo "R2_SECRET_ACCESS_KEY=$secret"
+            echo "CRED_SOURCE=derived from CLOUDFLARE_API_TOKEN"
+          } >> "$GITHUB_ENV"
+          echo "Derived S3 credentials from the Cloudflare token (values masked)."
+
+      - name: Validate required inputs
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           missing=""
           [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
           [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && missing="$missing CLOUDFLARE_ACCOUNT_ID"
-          [ -z "$R2_ACCESS_KEY_ID" ]      && missing="$missing R2_ACCESS_KEY_ID"
-          [ -z "$R2_SECRET_ACCESS_KEY" ]  && missing="$missing R2_SECRET_ACCESS_KEY"
+          [ -z "${R2_ACCESS_KEY_ID:-}" ]  && missing="$missing R2_ACCESS_KEY_ID(resolved)"
+          [ -z "${R2_SECRET_ACCESS_KEY:-}" ] && missing="$missing R2_SECRET_ACCESS_KEY(resolved)"
           if [ -n "$missing" ]; then
-            echo "::error::Required secrets not configured on the 'production' environment:$missing"
-            echo "R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY are an R2 S3-API token pair — mint under Cloudflare -> R2 -> Manage R2 API Tokens (Object Read & Write) and add to the production environment. One token covers dev+prod."
+            echo "::error::Required inputs not available on the 'production' environment:$missing"
             exit 1
           fi
+          echo "Credentials resolved via: ${CRED_SOURCE:-unknown}"
 
       - name: Run backfill dry-run
         # The migrator's exit code is a verdict, not a failure:
@@ -99,12 +155,13 @@ jobs:
         #   dest-occupied slugs it refused to move — the script working
         #   correctly), 1 = env/connection error. Only 1 fails this job; 0 and 2
         #   both surface the tally for a human to read.
+        # R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY come from the resolve step via
+        # $GITHUB_ENV — deliberately NOT re-mapped here, or an empty secret would
+        # shadow the resolved value.
         working-directory: packages/api
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           R2_BUCKET: ${{ inputs.bucket }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           export R2_ENDPOINT="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
@@ -119,7 +176,7 @@ jobs:
             case "$rc" in
               0) echo "**exit 0** — clean; nothing ambiguous. Safe to proceed to \`--apply\` (separate step).";;
               2) echo "**exit 2** — the script found commingled / orphaned / destination-occupied slugs and refused to move them. This is correct behaviour; the report below enumerates the exact slugs and owner ids.";;
-              1) echo "**exit 1** — environment/connection error; see the log below.";;
+              1) echo "**exit 1** — environment/connection error; see the log below. If it is a 403/AccessDenied on the R2 listing, the Cloudflare token lacks R2 Object Read & Write on this bucket.";;
               *) echo "**exit $rc** — unexpected; see the log below.";;
             esac
             echo ""

@@ -9,6 +9,11 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Changed — backfill dry-run workflow now derives R2 S3 credentials from `CLOUDFLARE_API_TOKEN`, so no separate R2 token needs minting (WIC-1929) (2026-09-28)
+
+`.github/workflows/backfill-storage-keys.yml` gains a "Resolve R2 S3 credentials" step: it still prefers an explicit `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` pair if present, but otherwise derives one at runtime from the existing `CLOUDFLARE_API_TOKEN` per Cloudflare's documented scheme — Access Key ID = the token's `id` (read from the token-verify endpoint), Secret Access Key = SHA-256 of the token value (https://developers.cloudflare.com/r2/api/tokens/). This works only if that token carries R2 **Object Read & Write**; a 403 on the listing means it does not. Derived values are masked in logs. Still dry-run only; `--apply` remains unexposed.
+
+
 ### Added — board-gated `workflow_dispatch` to run the project-storage-key backfill dry-run in CI, so no operator copies prod credentials to a laptop (WIC-1929) (2026-09-24)
 
 `.github/workflows/backfill-storage-keys.yml` runs `packages/api/scripts/migrate-project-storage-keys.mjs` in **dry-run only** (one `SELECT slug, user_id FROM projects` + a read-only R2 bucket listing; it writes nothing). Pinned to the `production` environment so a human approves each dispatch and the run resolves `SUPABASE_DATABASE_URL` and the R2 secrets. The destructive `--apply` path is deliberately not exposed here — it remains a separate later step once a dry-run report is clean (`docs/runbooks/prod-data-operations.md`). Requires an R2 **S3-API** key pair (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`) on the `production` environment — distinct from the wrangler `CLOUDFLARE_*` API token the app uses for its R2 binding; the validate step fails fast naming exactly what to add.
