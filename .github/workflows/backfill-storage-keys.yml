@@ -1,0 +1,134 @@
+name: Backfill project storage keys (dry-run)
+
+# WIC-1929: a board-gated, one-click way to run the project-storage-key backfill
+# DRY-RUN against production, using the credentials that already live in GitHub —
+# so no operator ever has to copy a production DATABASE_URL or R2 key onto a
+# laptop. This workflow is DRY-RUN ONLY and writes nothing: it performs one
+# `SELECT slug, user_id FROM projects` and a read-only R2 bucket listing, then
+# prints the migrator's tally to the run summary. The destructive `--apply` path
+# is intentionally NOT exposed here; it is a separate, later step once a dry-run
+# report is clean (see docs/runbooks/prod-data-operations.md).
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you running the backfill dry-run? (recorded in the run summary)'
+        required: true
+        type: string
+      bucket:
+        description: 'R2 bucket to scan (prod = jobtrail-documents, dev = jobtrail-documents-dev)'
+        required: true
+        default: 'jobtrail-documents'
+        type: string
+
+env:
+  NODE_VERSION: '20'
+
+concurrency:
+  group: backfill-storage-keys
+  cancel-in-progress: false
+
+jobs:
+  dry-run:
+    name: Backfill dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Pinned to `production` so this inherits the environment's required-reviewer
+    # protection (a human must approve each dispatch) AND resolves the production
+    # SUPABASE_DATABASE_URL / R2 secrets. Scanning the dev bucket still runs here;
+    # the creds are shared dev<->prod, only the `bucket` input differs.
+    environment: production
+    steps:
+      - name: Record dispatch
+        # `reason`/`bucket` are user-controllable text — routed through `env:`,
+        # never interpolated into the shell body (a `${{ }}` expansion inside
+        # `run:` is substituted before bash parses the script).
+        env:
+          DISPATCH_ACTOR: ${{ github.actor }}
+          DISPATCH_REASON: ${{ inputs.reason }}
+          DISPATCH_BUCKET: ${{ inputs.bucket }}
+        run: |
+          {
+            echo "## Project storage-key backfill — DRY RUN"
+            echo ""
+            echo "- **Dispatched by:** @${DISPATCH_ACTOR}"
+            echo "- **Bucket:** \`${DISPATCH_BUCKET}\`"
+            echo "- **Reason:** ${DISPATCH_REASON}"
+            echo "- **Mode:** dry-run (no writes; \`--apply\` is not available in this workflow)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required secrets
+        # Fail fast, naming exactly what is missing. R2_ACCESS_KEY_ID /
+        # R2_SECRET_ACCESS_KEY are the R2 *S3-API* key pair the migrator needs
+        # (S3Client / ListObjectsV2) — distinct from the wrangler CLOUDFLARE_*
+        # API token the app uses for its R2 *binding*. Mint one under
+        # Cloudflare -> R2 -> Manage R2 API Tokens (Object Read & Write) and add
+        # the pair to the `production` environment. One token covers dev+prod.
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          missing=""
+          [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
+          [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          [ -z "$R2_ACCESS_KEY_ID" ]      && missing="$missing R2_ACCESS_KEY_ID"
+          [ -z "$R2_SECRET_ACCESS_KEY" ]  && missing="$missing R2_SECRET_ACCESS_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Required secrets not configured on the 'production' environment:$missing"
+            echo "R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY are an R2 S3-API token pair — mint under Cloudflare -> R2 -> Manage R2 API Tokens (Object Read & Write) and add to the production environment. One token covers dev+prod."
+            exit 1
+          fi
+
+      - name: Run backfill dry-run
+        # The migrator's exit code is a verdict, not a failure:
+        #   0 = clean (nothing ambiguous), 2 = unresolved (commingled/orphaned/
+        #   dest-occupied slugs it refused to move — the script working
+        #   correctly), 1 = env/connection error. Only 1 fails this job; 0 and 2
+        #   both surface the tally for a human to read.
+        working-directory: packages/api
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          R2_BUCKET: ${{ inputs.bucket }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          export R2_ENDPOINT="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          set +e
+          node scripts/migrate-project-storage-keys.mjs 2>&1 | tee "$RUNNER_TEMP/backfill-out.txt"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "migrator exit code: $rc"
+          {
+            echo ""
+            echo "### Dry-run result — exit code \`$rc\`"
+            case "$rc" in
+              0) echo "**exit 0** — clean; nothing ambiguous. Safe to proceed to \`--apply\` (separate step).";;
+              2) echo "**exit 2** — the script found commingled / orphaned / destination-occupied slugs and refused to move them. This is correct behaviour; the report below enumerates the exact slugs and owner ids.";;
+              1) echo "**exit 1** — environment/connection error; see the log below.";;
+              *) echo "**exit $rc** — unexpected; see the log below.";;
+            esac
+            echo ""
+            echo '```'
+            cat "$RUNNER_TEMP/backfill-out.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" = "1" ]; then
+            echo "::error::Backfill dry-run hit an environment/connection error (exit 1)."
+            exit 1
+          fi
+          exit 0
