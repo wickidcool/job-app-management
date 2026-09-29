@@ -135,11 +135,18 @@ jobs:
 
       - name: Validate required inputs
         env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           missing=""
-          [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
+          # DB creds are usable if we can reconstruct the pooler URL (SUPABASE_URL +
+          # password) OR a ready-made postgresql:// URL is present.
+          if [ -z "${SUPABASE_DATABASE_PASSWORD:-}" ] && [[ "${SUPABASE_DATABASE_URL:-}" != postgresql://* ]]; then
+            missing="$missing SUPABASE_DATABASE_PASSWORD-or-postgresql-SUPABASE_DATABASE_URL"
+          fi
+          [ -z "$SUPABASE_URL" ] && [ -z "${SUPABASE_DATABASE_URL:-}" ] && missing="$missing SUPABASE_URL"
           [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && missing="$missing CLOUDFLARE_ACCOUNT_ID"
           [ -z "${R2_ACCESS_KEY_ID:-}" ]  && missing="$missing R2_ACCESS_KEY_ID(resolved)"
           [ -z "${R2_SECRET_ACCESS_KEY:-}" ] && missing="$missing R2_SECRET_ACCESS_KEY(resolved)"
@@ -160,10 +167,31 @@ jobs:
         # shadow the resolved value.
         working-directory: packages/api
         env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          # DATABASE_URL is reconstructed below (SUPABASE_DATABASE_URL is a Supabase
+          # dashboard string with a placeholder password → `new URL` throws Invalid
+          # URL if used raw). Mirrors deploy.yml's transaction-pooler reconstruction.
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
+          SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
+          SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           R2_BUCKET: ${{ inputs.bucket }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          # Reconstruct the transaction-pooler DATABASE_URL from parts, exactly as
+          # deploy.yml's migration steps do (WIC-1929).
+          PROJECT_REF=$(echo "$SUPABASE_URL" | sed 's|https://||' | sed 's|\.supabase\.co.*||')
+          REGION="${SUPABASE_POOLER_REGION:-us-east-1}"
+          PREFIX="${SUPABASE_POOLER_PREFIX:-aws-1}"
+          if [ -n "${SUPABASE_DATABASE_PASSWORD:-}" ]; then
+            ENC_PW=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DATABASE_PASSWORD"], safe=""))')
+            export DATABASE_URL="postgresql://postgres.${PROJECT_REF}:${ENC_PW}@${PREFIX}-${REGION}.pooler.supabase.com:6543/postgres"
+          elif [[ "${SUPABASE_DATABASE_URL:-}" == postgresql://* ]]; then
+            export DATABASE_URL="${SUPABASE_DATABASE_URL/:5432\//:6543/}"
+          else
+            echo "::error::No usable Supabase DB credentials — set SUPABASE_DATABASE_PASSWORD or a postgresql:// SUPABASE_DATABASE_URL on the production environment."
+            exit 1
+          fi
           export R2_ENDPOINT="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
           set +e
           node scripts/migrate-project-storage-keys.mjs 2>&1 | tee "$RUNNER_TEMP/backfill-out.txt"
