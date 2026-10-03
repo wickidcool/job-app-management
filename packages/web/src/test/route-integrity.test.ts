@@ -258,13 +258,63 @@ interface LinkSite {
  * is out of reach of a static audit; those are covered by the object-literal shapes in
  * (3) wherever the value originates from a nav config, which is the case throughout
  * this app today.
+ *
+ * Scope note (WIC-1074): pattern (3)'s keyword set matches *navigation* path props. It also
+ * matches non-navigation string props that happen to end in `path`/`Path` or be named `url`
+ * — `filePath:`, `storagePath:`, a `url:` pointing at `/api/...` — and treats them as inbound
+ * links, so a hit on one fails the audit with a message telling the author to "add the missing
+ * <Route>", which misdirects. This is latent: there are currently zero `/api/`-shaped string
+ * literals in object props under `packages/web/src` (`apiClient.request(endpoint)` takes
+ * endpoints as function arguments, not object properties). Non-navigation path props are out
+ * of scope for this audit; if one ever trips it, the fix is to narrow (3), not to add a route.
+ *
+ * Each entry carries a `fixture` — a synthetic snippet that shape must match — so the
+ * extraction guard below can assert *every* shape is live independently (WIC-1074). A single
+ * aggregate floor over the live sites of all five was carried entirely by shape (3) (~80 of
+ * ~150 sites) and stayed green even with shapes (1), (2), (4) and (5) simultaneously broken —
+ * so a regressed regex "failed loudly" only if it wiped out all five at once.
+ *
+ * Shape (5) is the sharp edge, and it is why the guard keys on a fixture rather than a floor
+ * over live sites: it contributes just two sites at most, it is the one that found
+ * `/resume-manager` in `ProjectDetail.tsx`, and as of WIC-1213 (which deleted that link site)
+ * it matches ZERO sites in the app today. A `>= 1`-live-sites floor would therefore fail on a
+ * healthy `main` for shape (5), and — worse — could never guard a shape whose legitimate count
+ * is zero, which is exactly the shape most worth guarding. Matching each regex against its own
+ * `fixture` proves the extractor still works regardless of whether the app currently authors a
+ * link in that shape, the same "key the control on the hazard, not on a downstream consequence"
+ * principle the `stripComments` doc comment above settles on.
  */
-const LINK_PATTERNS: RegExp[] = [
-  /\b(?:to|href)="(\/[^"]*)"/g,
-  /\b(?:to|href)=\{\s*['"`](\/[^'"`]*)['"`]\s*\}/g,
-  /\b(?:to|href|url|link|[A-Za-z]*[Pp]ath)\s*:\s*['"`](\/[^'"`]*)['"`]/g,
-  /\bnavigate\(\s*['"`](\/[^'"`]*)['"`]/g,
-  /\blocation\.(?:href\s*=|assign\(|replace\()\s*['"`](\/[^'"`]*)['"`]/g,
+const LINK_PATTERNS: { name: string; re: RegExp; fixture: string; extracts: string }[] = [
+  {
+    name: 'to/href="/x" (JSX string attribute)',
+    re: /\b(?:to|href)="(\/[^"]*)"/g,
+    fixture: '<Link to="/dashboard" />',
+    extracts: '/dashboard',
+  },
+  {
+    name: 'to/href={"/x"} (JSX expression attribute)',
+    re: /\b(?:to|href)=\{\s*['"`](\/[^'"`]*)['"`]\s*\}/g,
+    fixture: "<Link to={'/applications'} />",
+    extracts: '/applications',
+  },
+  {
+    name: 'object prop: path/link/url/to/href (nav-config shapes)',
+    re: /\b(?:to|href|url|link|[A-Za-z]*[Pp]ath)\s*:\s*['"`](\/[^'"`]*)['"`]/g,
+    fixture: "const item = { actionPath: '/settings' };",
+    extracts: '/settings',
+  },
+  {
+    name: "navigate('/x') (programmatic router)",
+    re: /\bnavigate\(\s*['"`](\/[^'"`]*)['"`]/g,
+    fixture: "navigate('/resumes')",
+    extracts: '/resumes',
+  },
+  {
+    name: "location.href/assign/replace('/x') (full-page navigation)",
+    re: /\blocation\.(?:href\s*=|assign\(|replace\()\s*['"`](\/[^'"`]*)['"`]/g,
+    fixture: "window.location.href = '/resume-manager'",
+    extracts: '/resume-manager',
+  },
 ];
 
 /**
@@ -302,8 +352,8 @@ function collectLinkSites(sources: Record<string, string>): LinkSite[] {
 
   for (const [file, rawSource] of Object.entries(sources)) {
     const source = stripComments(rawSource);
-    for (const pattern of LINK_PATTERNS) {
-      for (const match of source.matchAll(pattern)) {
+    for (const { re } of LINK_PATTERNS) {
+      for (const match of source.matchAll(re)) {
         const raw = match[1];
         sites.push({ file, raw, path: toConcretePathname(raw) });
       }
@@ -392,6 +442,21 @@ describe('in-app navigation targets', () => {
   it('extracts link targets from across the app', () => {
     expect(linkSites.length).toBeGreaterThan(20);
     expect(Object.keys(appSources).length).toBeGreaterThan(20);
+  });
+
+  // WIC-1074: guard EACH `LINK_PATTERNS` shape independently, not one aggregate over all of
+  // them. The aggregate above is carried single-handedly by the object-prop shape (~80 of ~150
+  // sites), so a regex that stopped matching any of the other four — e.g. the `location.href`
+  // shape that is the only thing watching for full-page redirects like `/resume-manager` — left
+  // the audit green while silently going blind to that shape; only a total wipeout of all five
+  // tripped it. This keys on a per-shape fixture rather than a floor over live app sites,
+  // because `location.href` legitimately matches zero sites today (WIC-1213 removed its only
+  // one) — a live-sites floor would both red a healthy main and be structurally unable to guard
+  // the very shape most worth guarding. Each fixture proves its extractor still fires; a
+  // regressed regex that stops matching its own example fails here regardless of app content.
+  it.each(LINK_PATTERNS)('extractor for shape "$name" still matches its fixture', ({ re, fixture, extracts }) => {
+    const captured = [...fixture.matchAll(re)].map((m) => m[1]);
+    expect(captured).toEqual([extracts]);
   });
 
   // WIC-1551. Both directions, because either one alone is satisfied by a broken
