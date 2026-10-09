@@ -264,11 +264,17 @@ jobs:
           PW="wic1296-synthetic-canary-not-a-real-password" # secret-scan:allow — deliberately-invalid synthetic canary credential (WIC-1296); it can never authenticate and is not a real secret
 
           echo "Probing ${URL} with invalid canary credentials"
+          # Clear errexit around the curl + rc-capture so a curl failure (e.g. rc 28
+          # on an -m 25 timeout) reaches the handler below instead of aborting the
+          # step at the assignment. Do NOT use `|| true`: that forces the rc to 0 and
+          # a real timeout would be mis-reported as success (WIC-2603).
+          set +e
           RESP=$(curl -sS -m 25 -w $'\n%{http_code}' \
             -H 'Content-Type: application/json' \
             -X POST "$URL" \
             --data "{\"email\":\"${EMAIL}\",\"password\":\"${PW}\"}" 2>/tmp/curl.err)
           CURL_RC=$?
+          set -e
           CODE=$(printf '%s' "$RESP" | tail -n1)
           BODY=$(printf '%s' "$RESP" | sed '$d')
           echo "curl rc=${CURL_RC} http=${CODE}"
@@ -465,8 +471,14 @@ jobs:
           URL="${BASE%/}/api/health"
 
           echo "Probing ${URL} for data-plane liveness"
+          # Clear errexit around the curl + rc-capture so a curl failure (e.g. rc 28
+          # on an -m 25 timeout) reaches the handler below instead of aborting the
+          # step at the assignment. Do NOT use `|| true`: that forces the rc to 0 and
+          # a real timeout would be mis-reported as success (WIC-2603).
+          set +e
           RESP=$(curl -sS -m 25 -w $'\n%{http_code}' "$URL" 2>/tmp/health_curl.err)
           CURL_RC=$?
+          set -e
           CODE=$(printf '%s' "$RESP" | tail -n1)
           BODY=$(printf '%s' "$RESP" | sed '$d')
           echo "curl rc=${CURL_RC} http=${CODE}"
