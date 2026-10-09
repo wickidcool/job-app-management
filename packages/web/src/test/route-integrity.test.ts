@@ -454,10 +454,13 @@ describe('in-app navigation targets', () => {
   // one) — a live-sites floor would both red a healthy main and be structurally unable to guard
   // the very shape most worth guarding. Each fixture proves its extractor still fires; a
   // regressed regex that stops matching its own example fails here regardless of app content.
-  it.each(LINK_PATTERNS)('extractor for shape "$name" still matches its fixture', ({ re, fixture, extracts }) => {
-    const captured = [...fixture.matchAll(re)].map((m) => m[1]);
-    expect(captured).toEqual([extracts]);
-  });
+  it.each(LINK_PATTERNS)(
+    'extractor for shape "$name" still matches its fixture',
+    ({ re, fixture, extracts }) => {
+      const captured = [...fixture.matchAll(re)].map((m) => m[1]);
+      expect(captured).toEqual([extracts]);
+    }
+  );
 
   // WIC-1551. Both directions, because either one alone is satisfied by a broken
   // stripper: returning the source untouched passes the second cell, and returning an
