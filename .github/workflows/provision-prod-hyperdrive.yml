@@ -179,8 +179,9 @@ jobs:
     # to empty and every call below fails in a way that reads exactly like a
     # dead token.
     #
-    # The token itself (WIC-2473, 2026-09-21) is now the dedicated repo-level
-    # CLOUDFLARE_JOBAPP_API_TOKEN and needs no environment — kept declared here
+    # The token itself (WIC-2473 named it CLOUDFLARE_JOBAPP_API_TOKEN, 2026-09-21;
+    # repointed to CLOUDFLARE_CAREERPIN_API_TOKEN by WIC-2631, 2026-10-14) is now
+    # the dedicated repo-level secret and needs no environment — kept declared here
     # for the rest of this list. (Briefly CLOUDFLARE_CAREERPIN_API on 2026-09-20;
     # that shared careerpin credential didn't verify against this account either.)
     environment: production
@@ -201,7 +202,7 @@ jobs:
       - name: Provision Hyperdrive config
         id: provision
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_JOBAPP_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
@@ -306,7 +307,7 @@ jobs:
           # ================================================================
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are empty."
-            echo "CLOUDFLARE_API_TOKEN reads from the repo-level CLOUDFLARE_JOBAPP_API_TOKEN"
+            echo "CLOUDFLARE_API_TOKEN reads from the repo-level CLOUDFLARE_CAREERPIN_API_TOKEN"
             echo "secret (no environment needed); CLOUDFLARE_ACCOUNT_ID is a 'production'"
             echo "ENVIRONMENT secret — check this job still declares 'environment: production'."
             exit 1
