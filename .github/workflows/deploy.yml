@@ -805,7 +805,7 @@ jobs:
           [ -z "$SUPABASE_JWT_SECRET" ]  && missing="$missing SUPABASE_JWT_SECRET"
           [ -z "$SUPABASE_DATABASE_URL" ] && missing="$missing SUPABASE_DATABASE_URL"
           [ -z "$CF_API_TOKEN" ]         && missing="$missing CLOUDFLARE_CAREERPIN_API_TOKEN"
-          [ -z "$CF_ACCOUNT_ID" ]        && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          [ -z "$CF_ACCOUNT_ID" ]        && missing="$missing CLOUDFLARE_CAREERPIN_ACCOUNT_ID"
           if [ -n "$missing" ]; then
             echo "::error::Required secrets/vars not configured:$missing"
             echo "Set these in GitHub → Settings → Secrets and variables (repo or 'dev' environment)."
@@ -817,7 +817,7 @@ jobs:
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
 
       # ADR-0001 Pillar 1 (WIC-878): authenticated pings, not just presence checks.
       # Catches a dead/mis-scoped Cloudflare token or stale Supabase creds loudly here
@@ -842,13 +842,20 @@ jobs:
       # account-scoped Workers Scripts:Edit + R2 token into the repo-level
       # CLOUDFLARE_CAREERPIN_API_TOKEN, so this now reads that. Env secrets shadow
       # same-named repo secrets, so a distinct name is shadow-proof.
-      # CLOUDFLARE_ACCOUNT_ID is left exactly as it was, still read per-environment.
+      # WIC-2616 (2026-10-17): the account ID now reads the repo-level
+      # `vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID` variable instead of the
+      # per-environment `secrets.CLOUDFLARE_ACCOUNT_ID`. Prod and dev share one
+      # Cloudflare account, and the per-env account-ID secret kept drifting (a
+      # wrong value stored in the production env 401'd the account-scoped
+      # token-verify three times); one repo-level variable is a single source of
+      # truth that cannot diverge. An account ID is a non-secret identifier, so a
+      # plain variable is appropriate.
       - name: Credential preflight (authenticated, advisory)
         continue-on-error: true
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
@@ -896,7 +903,7 @@ jobs:
         run: npx wrangler r2 bucket create jobtrail-documents-dev || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
 
       # WIC-1736: preview reads its DB connection from the HYPERDRIVE binding, not
       # from any Worker secret — `db/client.ts` resolves HYPERDRIVE -> DATABASE_URL
@@ -926,7 +933,7 @@ jobs:
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           SUPABASE_DATABASE_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
@@ -1042,7 +1049,7 @@ jobs:
           exit 1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           ATTEMPTS: '1'
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
@@ -1055,7 +1062,7 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           environment: preview
           command: deploy
         env:
@@ -1105,7 +1112,7 @@ jobs:
           exit 1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           ATTEMPTS: '4'
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
@@ -1340,7 +1347,7 @@ jobs:
         run: npm run -w @wic/api preflight -- cloudflare supabase
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
@@ -1430,13 +1437,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
           # Account-scoped tokens can't enumerate /memberships; pin the account so wrangler skips that lookup.
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare Workers (Production)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           command: deploy
           secrets: |
             ANTHROPIC_API_KEY
@@ -1448,7 +1455,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
           # Account-scoped tokens can't enumerate /memberships; pin the account so `wrangler secret bulk` skips that lookup.
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
