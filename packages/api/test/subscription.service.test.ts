@@ -185,6 +185,31 @@ describe('handleStripeEvent', () => {
     expect(await getEntitlement(USER)).toBe('pro');
   });
 
+  it('does NOT resurrect a canceled subscription from a late invoice.paid (WIC-2649)', async () => {
+    // Out-of-order delivery: subscription.deleted lands, then a retried invoice.paid.
+    await upsertSubscription({ userId: USER, status: 'canceled', stripeCustomerId: CUSTOMER });
+    const handled = await handleStripeEvent(event('invoice.paid', { customer: CUSTOMER }));
+    expect(handled).toBe(false);
+    const row = await getSubscriptionByUser(USER);
+    expect(row?.status).toBe('canceled');
+    expect(await getEntitlement(USER)).toBe('free');
+  });
+
+  it('still lets customer.subscription.created move a canceled user back to pro (re-subscribe)', async () => {
+    await upsertSubscription({ userId: USER, status: 'canceled', stripeCustomerId: CUSTOMER });
+    await handleStripeEvent(
+      event('customer.subscription.created', {
+        id: SUBSCRIPTION,
+        customer: CUSTOMER,
+        status: 'trialing',
+        metadata: { userId: USER },
+      })
+    );
+    const row = await getSubscriptionByUser(USER);
+    expect(row?.status).toBe('trialing');
+    expect(await getEntitlement(USER)).toBe('pro');
+  });
+
   it('is a no-op for an unhandled event type', async () => {
     const handled = await handleStripeEvent(event('customer.created', { id: CUSTOMER }));
     expect(handled).toBe(false);

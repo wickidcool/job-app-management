@@ -222,6 +222,15 @@ export async function handleStripeEvent(event: StripeEvent): Promise<boolean> {
         resolveUserId(object) ??
         (customerId ? ((await getUserIdByStripeCustomerId(customerId)) ?? undefined) : undefined);
       if (!userId) return false;
+      // `canceled` is terminal for invoice events (WIC-2649 review note). Stripe
+      // does not guarantee event order, so a delayed/retried `invoice.paid` can
+      // arrive after `customer.subscription.deleted`; without this guard it would
+      // resurrect a canceled subscription back to `pro`. A genuine re-subscribe
+      // does NOT come through here — it arrives as `customer.subscription.created`
+      // (trialing/active), which is handled above and may legitimately move the
+      // row off `canceled`. So this guard is scoped to invoice events only.
+      const current = await getSubscriptionByUser(userId);
+      if (current?.status === 'canceled') return false;
       // Invoice events carry status indirectly: a paid invoice means the plan is
       // active, a failed payment means past_due. They do not carry period/cancel
       // fields, so those are left undefined and preserved.
