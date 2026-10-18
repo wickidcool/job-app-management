@@ -10,6 +10,8 @@ import { GAP_SEVERITY } from '../constants/gapSeverity';
 import { formatSkillCount } from '../constants/skillCount';
 import { formatRequirement, REQUIREMENT_SEPARATOR } from '../constants/requirementLabel';
 import { APIError } from '../services/api/apiClient';
+import { isUpgradeRequiredError, upgradePromptContent } from '../services/api/billingService';
+import { UpgradePrompt } from '../components/UpgradePrompt';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 interface JobFitFormData {
@@ -405,6 +407,18 @@ export function JobFitAnalysis() {
   }
 
   if (stage === 'error') {
+    // A Pro-gate rejection (Free user, job-fit is Pro-only) is not a failure to show
+    // as a red error — it is an upgrade affordance (WIC-2655 / WIC-2644).
+    if (isUpgradeRequiredError(mutationError)) {
+      return (
+        <JobFitAnalysisFrame>
+          <div className="mt-6">
+            <UpgradePrompt {...upgradePromptContent(mutationError)} />
+          </div>
+        </JobFitAnalysisFrame>
+      );
+    }
+
     // Extract detailed error information
     let errorMessage = 'An unexpected error occurred';
     let errorDetails: string | undefined;

@@ -10,6 +10,8 @@ import type {
 } from '../services/api/types';
 import { StarEntryPicker } from './StarEntryPicker';
 import { CoverLetterPreview } from './CoverLetterPreview';
+import { UpgradePrompt } from './UpgradePrompt';
+import { isUpgradeRequiredError, upgradePromptContent } from '../services/api/billingService';
 import { useGenerateCoverLetter, useUpdateCoverLetter } from '../hooks/useCoverLetters';
 import { countWords } from '../utils/countWords';
 
@@ -569,25 +571,32 @@ export function CoverLetterGenerator({
                   <p className="text-sm text-gray-600 mt-2">This usually takes 10-15 seconds</p>
                 </div>
               ) : generationError ? (
-                <div className="bg-white border border-red-200 rounded-lg p-8 text-center">
-                  <div className="text-red-600 text-5xl mb-4">⚠️</div>
-                  <p className="text-lg font-medium text-gray-900 mb-2">Generation Failed</p>
-                  <p className="text-sm text-gray-600 mb-6">{generationError}</p>
-                  <div className="flex gap-3 justify-center">
-                    <button
-                      onClick={() => setCurrentStep(3)}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Try Again
-                    </button>
-                    <button
-                      onClick={onCancel}
-                      className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      Cancel
-                    </button>
+                // A Pro-gate rejection (cover letters are Pro-only, WIC-2644) surfaces
+                // the upgrade affordance off the mutation's own error object rather than
+                // the generic red failure card (WIC-2655).
+                isUpgradeRequiredError(generateMutation.error) ? (
+                  <UpgradePrompt {...upgradePromptContent(generateMutation.error)} />
+                ) : (
+                  <div className="bg-white border border-red-200 rounded-lg p-8 text-center">
+                    <div className="text-red-600 text-5xl mb-4">⚠️</div>
+                    <p className="text-lg font-medium text-gray-900 mb-2">Generation Failed</p>
+                    <p className="text-sm text-gray-600 mb-6">{generationError}</p>
+                    <div className="flex gap-3 justify-center">
+                      <button
+                        onClick={() => setCurrentStep(3)}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Try Again
+                      </button>
+                      <button
+                        onClick={onCancel}
+                        className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )
               ) : (
                 <>
                   {/* Step 4's own section heading, and the reason the two panes below stay

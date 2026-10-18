@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { OutreachPlatform, OutreachMessage } from '../services/api/types';
 import { useGenerateOutreach } from '../hooks/useCoverLetters';
+import { UpgradePrompt } from './UpgradePrompt';
+import { isUpgradeRequiredError, upgradePromptContent } from '../services/api/billingService';
 
 interface OutreachComposerProps {
   /**
@@ -237,14 +239,19 @@ export function OutreachComposer({
         </div>
 
         {/* Generation Error */}
-        {generationError && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-800">
-              <span className="font-semibold">Error: </span>
-              {generationError}
-            </p>
-          </div>
-        )}
+        {generationError &&
+          (isUpgradeRequiredError(generateMutation.error) ? (
+            // Outreach messages are Pro-only (WIC-2644); surface the upgrade affordance
+            // instead of the generic error (WIC-2655).
+            <UpgradePrompt {...upgradePromptContent(generateMutation.error)} />
+          ) : (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-800">
+                <span className="font-semibold">Error: </span>
+                {generationError}
+              </p>
+            </div>
+          ))}
 
         {/* Generate Button */}
         {!body && (

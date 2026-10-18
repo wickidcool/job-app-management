@@ -63,19 +63,70 @@ export function createBillingService(client: APIClient): BillingService {
 }
 
 /**
+ * The two entitlement-rejection codes the backend raises (WIC-2644,
+ * `services/entitlement-gate.ts`), both as HTTP 402 Payment Required:
+ *
+ *   - `UPGRADE_REQUIRED`       — a Pro-only feature (job-fit, cover letter, outreach,
+ *                                interview prep); `details.feature` names which.
+ *   - `VARIANT_QUOTA_EXCEEDED` — the Free monthly resume-variant quota is spent;
+ *                                `details` adds `{ limit, used, period }`.
+ */
+export const UPGRADE_REQUIRED_CODES = ['UPGRADE_REQUIRED', 'VARIANT_QUOTA_EXCEEDED'] as const;
+
+/** The shape the entitlement layer puts in `APIError.details` (WIC-2644). */
+export interface UpgradeErrorDetails {
+  feature?: string;
+  requiredTier?: string;
+  limit?: number;
+  used?: number;
+  period?: string;
+}
+
+/**
  * Whether an error is a Pro-gate / Free-quota rejection that should surface an
  * upgrade prompt rather than a raw error (WIC-2645 item 5, gating from WIC-2644).
  *
- * WIC-2644 is the backend that produces this and, at time of writing, is still in
- * progress; its own description specifies "a clear, typed error/affordance (e.g.
- * `402`/entitlement error)" without pinning the final `code`. So this matches on the
- * HTTP status (`402 Payment Required`) first, and falls back to a small set of
- * code spellings an entitlement/quota rejection is likely to carry. Narrow enough
- * not to swallow unrelated failures; forward-compatible with WIC-2644's final choice.
- * Revisit once WIC-2644 lands to pin the exact `code`.
+ * WIC-2644 has now landed and pinned the contract, so this is pinned to it: an
+ * `APIError` at HTTP `402` carrying one of {@link UPGRADE_REQUIRED_CODES}. Requiring
+ * the 402 status keeps it from misfiring on an unrelated code at another status (the
+ * forward-compatible regex this used to carry could), and 402 is the app's only
+ * entitlement-rejection status.
  */
 export function isUpgradeRequiredError(error: unknown): error is APIError {
   if (!(error instanceof APIError)) return false;
-  if (error.status === 402) return true;
-  return /ENTITLEMENT|QUOTA|UPGRADE|PLAN_REQUIRED|PRO_REQUIRED|FREE_LIMIT/i.test(error.code);
+  return error.status === 402 && (UPGRADE_REQUIRED_CODES as readonly string[]).includes(error.code);
+}
+
+/** Narrow the untyped `APIError.details` to the entitlement payload (WIC-2644). */
+export function upgradeErrorDetails(error: APIError): UpgradeErrorDetails {
+  const { details } = error;
+  return details && typeof details === 'object' ? (details as UpgradeErrorDetails) : {};
+}
+
+/**
+ * The copy to show in {@link UpgradePrompt} for an upgrade-required error. Centralised
+ * here (rather than per-page) so every gated flow renders the same prompt and so the
+ * quota-vs-Pro-gate branch is unit-testable without rendering a page.
+ *
+ * The quota case spells out `used`/`limit`/`period` from `details`; the Pro-gate case
+ * reuses the server message, which already names the gated capability.
+ */
+export function upgradePromptContent(error: APIError): { title: string; message: string } {
+  if (error.code === 'VARIANT_QUOTA_EXCEEDED') {
+    const { limit, used, period } = upgradeErrorDetails(error);
+    const usage =
+      typeof limit === 'number'
+        ? `You've used ${used ?? limit} of ${limit} free resume variant generations${
+            period ? ` this period (${period})` : ' this month'
+          }. `
+        : '';
+    return {
+      title: 'Monthly limit reached',
+      message: `${usage}Upgrade to Pro for unlimited resume variant generations.`,
+    };
+  }
+  return {
+    title: 'Upgrade to Pro to continue',
+    message: error.message || 'This feature is part of Careerpin Pro. Upgrade to continue.',
+  };
 }
