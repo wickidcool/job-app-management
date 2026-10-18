@@ -21,6 +21,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // `cover-letter.routes.test.ts` blind to service-level guards.
 vi.mock('../src/db/client.js', () => ({ getDb: vi.fn() }));
 
+// Pro-bypass the entitlement gate so the route reaches the service under test
+// (this suite is about the jobFitAnalysisId guard, not billing). The real gate
+// would call getEntitlement on the mocked-empty getDb and throw before it.
+vi.mock('../src/services/entitlement-gate.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/entitlement-gate.js')>()),
+  assertProEntitlement: vi.fn(),
+  assertVariantQuotaAvailable: vi.fn(),
+  recordVariantGeneration: vi.fn(),
+}));
+
 import { buildApp } from '../src/app.js';
 import { getDb } from '../src/db/client.js';
 

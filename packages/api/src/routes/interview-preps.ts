@@ -11,6 +11,7 @@ import {
   deleteInterviewPrep,
 } from '../services/interviewPrep.service.js';
 import { requireOwner } from './require-owner.js';
+import { assertProEntitlement } from '../services/entitlement-gate.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
 
@@ -134,7 +135,9 @@ export const interviewPrepsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateInterviewPrep(parsed.data, requireOwner(c));
+    const userId = requireOwner(c);
+    await assertProEntitlement(userId, 'interview_prep');
+    const result = await generateInterviewPrep(parsed.data, userId);
     return c.json(result, 201);
   })
   .get('/interview-preps/:id', async (c) => {

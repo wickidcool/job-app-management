@@ -84,6 +84,16 @@ vi.mock('../src/middleware/auth.js', async (importOriginal) => {
  * a query that merely happened to match no rows.
  */
 
+// Pro-bypass the entitlement gate so the "caller with a sub still reaches the
+// service" cases get past it to the owner-threading assertion. This suite is
+// about requireOwner, not billing; the real gate would hit the DB.
+vi.mock('../src/services/entitlement-gate.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/entitlement-gate.js')>()),
+  assertProEntitlement: vi.fn(),
+  assertVariantQuotaAvailable: vi.fn(),
+  recordVariantGeneration: vi.fn(),
+}));
+
 vi.mock('../src/services/catalog.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/catalog.service.js')>()),
   listDiffs: vi.fn(),
