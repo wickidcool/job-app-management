@@ -25,6 +25,7 @@ import { ProjectFileEditor } from './pages/ProjectFileEditor';
 import { DialogueCapture } from './pages/DialogueCapture';
 import { CatalogPage } from './pages/CatalogPage';
 import { Settings } from './pages/Settings';
+import { BillingSettings } from './pages/BillingSettings';
 import { Reports } from './pages/Reports';
 import { ReportsNeedsAction } from './pages/ReportsNeedsAction';
 import { ReportsStale } from './pages/ReportsStale';
@@ -164,6 +165,7 @@ function AppShell() {
                           element={<ProjectFileEditor />}
                         />
                         <Route path="/settings" element={<Settings />} />
+                        <Route path="/settings/billing" element={<BillingSettings />} />
                         {/* Must stay last: catches every in-app path with no route
                             so an unmatched URL shows a 404 page, not an empty <main>. */}
                         <Route path="*" element={<NotFound />} />

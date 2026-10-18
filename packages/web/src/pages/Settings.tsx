@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { PersonalInfoForm } from '../components/PersonalInfoForm';
 import { usePersonalInfo, useUpdatePersonalInfo } from '../hooks/usePersonalInfo';
@@ -43,6 +44,19 @@ export function Settings() {
           <p className="text-sm text-error-800">Failed to load personal information</p>
         </div>
       )}
+
+      <div className="mb-6 rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-2 text-xl font-semibold text-neutral-900">Billing</h2>
+        <p className="mb-4 text-sm text-neutral-600">
+          View your current plan, upgrade to Pro, or manage your subscription.
+        </p>
+        <Link
+          to="/settings/billing"
+          className="inline-flex items-center rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-base hover:bg-neutral-50"
+        >
+          Manage billing &amp; plan
+        </Link>
+      </div>
 
       <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
         <h2 className="mb-6 text-xl font-semibold text-neutral-900">Personal Information</h2>
