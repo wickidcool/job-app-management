@@ -89,7 +89,8 @@ export async function upsertSubscription(change: SubscriptionChange): Promise<Su
     updateSet.stripeSubscriptionId = change.stripeSubscriptionId;
   }
   if (change.currentPeriodEnd !== undefined) updateSet.currentPeriodEnd = change.currentPeriodEnd;
-  if (change.cancelAtPeriodEnd !== undefined) updateSet.cancelAtPeriodEnd = change.cancelAtPeriodEnd;
+  if (change.cancelAtPeriodEnd !== undefined)
+    updateSet.cancelAtPeriodEnd = change.cancelAtPeriodEnd;
 
   const [row] = await db
     .insert(subscriptions)
