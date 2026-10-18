@@ -13,6 +13,7 @@ import {
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
 import { requireOwner } from './require-owner.js';
+import { assertProEntitlement } from '../services/entitlement-gate.js';
 
 const toneValues = ['professional', 'conversational', 'enthusiastic', 'technical'] as const;
 const lengthValues = ['concise', 'standard', 'detailed'] as const;
@@ -107,7 +108,9 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateCoverLetter(parsed.data, requireOwner(c));
+    const userId = requireOwner(c);
+    await assertProEntitlement(userId, 'cover_letter');
+    const result = await generateCoverLetter(parsed.data, userId);
     return c.json(result, 201);
   })
   .post('/cover-letters/outreach', async (c) => {
@@ -115,7 +118,9 @@ export const coverLettersRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateOutreach(parsed.data, requireOwner(c));
+    const userId = requireOwner(c);
+    await assertProEntitlement(userId, 'outreach_message');
+    const result = await generateOutreach(parsed.data, userId);
     return c.json(result, 201);
   })
   .get('/cover-letters', async (c) => {

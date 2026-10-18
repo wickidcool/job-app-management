@@ -219,7 +219,7 @@ export function buildApp() {
     if (err instanceof AppError) {
       return c.json(
         { error: { code: err.code, message: err.message, details: err.details } },
-        err.statusCode as 400 | 401 | 403 | 404 | 409 | 415 | 429 | 500 | 501 | 503
+        err.statusCode as 400 | 401 | 402 | 403 | 404 | 409 | 415 | 429 | 500 | 501 | 503
       );
     }
 

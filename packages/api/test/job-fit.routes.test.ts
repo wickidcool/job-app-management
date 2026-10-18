@@ -3,6 +3,15 @@ import { SignJWT } from 'jose';
 import { buildApp } from '../src/app.js';
 import { _resetConfig } from '../src/config.js';
 
+// Pro-bypass the entitlement gate (its own suite covers the Free path); the real
+// gate reads entitlement from the DB, so the pass-through keeps these offline.
+vi.mock('../src/services/entitlement-gate.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/entitlement-gate.js')>()),
+  assertProEntitlement: vi.fn(),
+  assertVariantQuotaAvailable: vi.fn(),
+  recordVariantGeneration: vi.fn(),
+}));
+
 vi.mock('../src/services/job-fit.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/job-fit.service.js')>()),
   analyzeJobFit: vi.fn(),

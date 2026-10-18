@@ -902,3 +902,35 @@ export type Subscription = typeof subscriptions.$inferSelect;
 export type NewSubscription = typeof subscriptions.$inferInsert;
 export type SubscriptionStatus = (typeof subscriptionStatusEnum.enumValues)[number];
 export type PlanTier = (typeof planTierEnum.enumValues)[number];
+
+// Variant generation usage counter (Careerpin Free quota — WIC-2644, parent WIC-2570).
+//
+// Enforces the Free plan's "3 resume variant generations per month" (live
+// `packages/marketing/pricing.html`). One row per (user, calendar month): `period`
+// is the UTC month key `YYYY-MM`, `count` the number of successful variant
+// generations in that month. The entitlement gate reads this for Free users and
+// blocks the 4th generation; Pro is unlimited and never consults it. A surrogate
+// `id` PK with a UNIQUE (user_id, period) index matches the repo convention (every
+// table here keys on a `text` id) and is the conflict target the per-generation
+// increment upserts onto.
+//
+// Counting generation *events* here rather than live `resume_variants` rows is
+// deliberate: deleting a variant must not refund a used quota slot, and a revise is
+// not a new generation. The two are therefore tracked independently.
+export const variantUsage = pgTable(
+  'variant_usage',
+  {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id').notNull(),
+    period: text('period').notNull(),
+    count: integer('count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userPeriodUniq: uniqueIndex('idx_variant_usage_user_period').on(t.userId, t.period),
+  })
+);
+
+export type VariantUsageRow = typeof variantUsage.$inferSelect;
+export type NewVariantUsage = typeof variantUsage.$inferInsert;

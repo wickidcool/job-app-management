@@ -7,6 +7,16 @@ import {
   type AuthedApp,
 } from './helpers/authed-app.js';
 
+// Pro-bypass the entitlement gate so these route tests exercise the handlers,
+// not the quota (which has its own suite, entitlement-gate.test.ts). The real
+// gate would hit the DB via getEntitlement; the pass-through keeps these offline.
+vi.mock('../src/services/entitlement-gate.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/entitlement-gate.js')>()),
+  assertVariantQuotaAvailable: vi.fn(),
+  recordVariantGeneration: vi.fn(),
+  assertProEntitlement: vi.fn(),
+}));
+
 vi.mock('../src/services/resume-variant.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/resume-variant.service.js')>()),
   generateResumeVariant: vi.fn(),

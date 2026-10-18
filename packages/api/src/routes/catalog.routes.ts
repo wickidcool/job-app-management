@@ -26,6 +26,7 @@ import {
   listJobFitAnalyses,
 } from '../services/job-fit.service.js';
 import { requireOwner } from './require-owner.js';
+import { assertProEntitlement } from '../services/entitlement-gate.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
 
@@ -346,6 +347,11 @@ export const catalogRoutes = new Hono<AppEnv>()
     if (!parsed.success)
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
 
+    const userId = requireOwner(c);
+    // AI job-fit analysis is a Pro feature (pricing.html). Gate before the
+    // rate-limit bucket and the LLM call so a Free caller is turned away cheaply.
+    await assertProEntitlement(userId, 'ai_job_fit');
+
     const clientIp =
       c.req.header('cf-connecting-ip') ||
       c.req.header('x-forwarded-for')?.split(',')[0] ||
@@ -353,11 +359,7 @@ export const catalogRoutes = new Hono<AppEnv>()
     // `clientIp` is the rate-limit bucket key, not an identity. The catalog reads
     // are scoped by the caller id, which every sibling route on this router
     // already threads (WIC-1435).
-    const { response, rateLimitHeaders } = await analyzeJobFit(
-      parsed.data,
-      clientIp,
-      requireOwner(c)
-    );
+    const { response, rateLimitHeaders } = await analyzeJobFit(parsed.data, clientIp, userId);
 
     return new Response(JSON.stringify(response), {
       status: 200,
