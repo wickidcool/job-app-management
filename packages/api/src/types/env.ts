@@ -53,6 +53,27 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  /**
+   * Stripe test-mode secret key (`sk_test_…`) used to call the Stripe REST API
+   * for Checkout and Customer Portal sessions (WIC-2643, parent WIC-2570).
+   * Billing degrades to "not configured" (503) when absent. Pushed to the
+   * preview Worker by `deploy.yml`; set once on prod via `wrangler secret put`.
+   */
+  STRIPE_SECRET_KEY?: string;
+  /**
+   * Stripe webhook signing secret (`whsec_…`). The `/api/stripe/webhook` handler
+   * verifies the `Stripe-Signature` header against it; the webhook is rejected
+   * (400) when a request is unsigned or mis-signed, and the whole endpoint is
+   * "not configured" (503) when this is absent.
+   */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * Stripe Price id for the Pro plan (`price_…`), the single line item on the
+   * Checkout Session. Non-secret: lives in `wrangler.jsonc` `vars` (test price
+   * under `env.preview`, live price at top level). AI/billing features treat an
+   * empty value as "not configured".
+   */
+  STRIPE_PRICE_PRO?: string;
   NODE_ENV?: string;
   /** Opt in to trusting `x-forwarded-proto` for the HTTPS redirect (WIC-1011). */
   TRUST_PROXY_PROTO?: string;

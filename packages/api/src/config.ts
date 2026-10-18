@@ -17,6 +17,9 @@ export interface Config {
   posthogApiKey: string | null;
   posthogHost: string;
   localDevUserId: string;
+  stripeSecretKey: string | null;
+  stripeWebhookSecret: string | null;
+  stripePricePro: string | null;
 }
 
 /**
@@ -146,6 +149,17 @@ export function getConfig(): Config {
       // `??` here would turn a blank env var into a 401 on every dev request —
       // reintroducing the owner-absent outcome D3 exists to remove.
       localDevUserId: process.env.LOCAL_DEV_USER_ID?.trim() || LOCAL_DEV_USER_ID_DEFAULT,
+      // `?.trim() || null` matches the Anthropic/PostHog key handling above: a
+      // present-but-blank Stripe var means "not configured" (the billing routes
+      // 503), never the empty string. Unlike `supabaseJwtSecret` these are not
+      // byte-sensitive key material — `whsec_…`/`sk_…`/`price_…` are ASCII tokens,
+      // and surrounding whitespace from an env expansion is spurious, so trimming
+      // is safe and desirable here. The webhook secret is HMAC key material, but
+      // Stripe emits it without leading/trailing whitespace, so a trim only ever
+      // strips an env-injection artifact.
+      stripeSecretKey: process.env.STRIPE_SECRET_KEY?.trim() || null,
+      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET?.trim() || null,
+      stripePricePro: process.env.STRIPE_PRICE_PRO?.trim() || null,
     };
   }
   return _config;
