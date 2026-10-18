@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Breadcrumb } from '../components/Breadcrumb';
+import { UpgradePrompt } from '../components/UpgradePrompt';
+import { isUpgradeRequiredError, upgradePromptContent } from '../services/api/billingService';
 import { useGenerateResumeVariant } from '../hooks/useResumeVariants';
 import { useApplication } from '../hooks/useApplications';
 import type {
@@ -86,7 +88,12 @@ export function ResumeVariantNew() {
       navigate(`/resume-variants/${response.variant.id}`);
     } catch (error) {
       console.error('Failed to generate variant:', error);
-      setErrors({ submit: 'Failed to generate resume variant. Please try again.' });
+      // A quota rejection (Free monthly variant limit, WIC-2644) is rendered as an
+      // upgrade prompt below off the mutation's own error object, so don't also set
+      // the generic submit error for that case (WIC-2655).
+      if (!isUpgradeRequiredError(error)) {
+        setErrors({ submit: 'Failed to generate resume variant. Please try again.' });
+      }
     }
   };
 
@@ -309,10 +316,14 @@ export function ResumeVariantNew() {
           </div>
         </div>
 
-        {errors.submit && (
-          <div className="rounded-md bg-red-50 p-4">
-            <p className="text-sm text-red-800">{errors.submit}</p>
-          </div>
+        {isUpgradeRequiredError(generateVariant.error) ? (
+          <UpgradePrompt {...upgradePromptContent(generateVariant.error)} />
+        ) : (
+          errors.submit && (
+            <div className="rounded-md bg-red-50 p-4">
+              <p className="text-sm text-red-800">{errors.submit}</p>
+            </div>
+          )
         )}
 
         <div className="flex items-center justify-end gap-3">

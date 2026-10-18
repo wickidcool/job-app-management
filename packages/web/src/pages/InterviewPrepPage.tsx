@@ -11,6 +11,8 @@ import {
   useUpdateInterviewPrep,
   useLogPracticeSession,
 } from '../hooks/useInterviewPrep';
+import { UpgradePrompt } from '../components/UpgradePrompt';
+import { isUpgradeRequiredError, upgradePromptContent } from '../services/api/billingService';
 import type {
   MitigationStrategy,
   ConfidenceLevel,
@@ -197,13 +199,18 @@ export function InterviewPrepPage() {
             >
               {generateMutation.isPending ? 'Generating...' : 'Generate Interview Prep'}
             </button>
-            {generateMutation.isError && (
-              <p className="text-sm text-red-600 mb-3">
-                {generateMutation.error instanceof Error
-                  ? generateMutation.error.message
-                  : 'Generation failed. Please try again.'}
-              </p>
-            )}
+            {generateMutation.isError &&
+              (isUpgradeRequiredError(generateMutation.error) ? (
+                <div className="mb-3 text-left">
+                  <UpgradePrompt {...upgradePromptContent(generateMutation.error)} />
+                </div>
+              ) : (
+                <p className="text-sm text-red-600 mb-3">
+                  {generateMutation.error instanceof Error
+                    ? generateMutation.error.message
+                    : 'Generation failed. Please try again.'}
+                </p>
+              ))}
             <button
               onClick={() => navigate(`/applications/${applicationId}`)}
               className="text-sm text-gray-500 hover:text-gray-700"
