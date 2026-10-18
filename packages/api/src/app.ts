@@ -16,6 +16,8 @@ import { interviewPrepsRoutes } from './routes/interview-preps.js';
 import { onboardingRoutes } from './routes/onboarding.js';
 import { personalInfoRoutes } from './routes/personal-info.js';
 import { authRoutes } from './routes/auth.js';
+import { billingRoutes } from './routes/billing.js';
+import { stripeWebhookRoutes } from './routes/stripe-webhook.js';
 import { authMiddleware } from './middleware/auth.js';
 import { httpsRedirect, securityHeaders } from './middleware/security.js';
 import { AppError } from './types/index.js';
@@ -123,9 +125,17 @@ export function buildApp() {
   app.get('/health', healthHandler);
   app.get('/api/health', healthHandler);
 
+  // Stripe webhook (WIC-2643). Registered on the top-level app BEFORE the
+  // auth-guarded `/api` sub-app mounts, so — like `/api/health` above — it wins
+  // the match for `/api/stripe/webhook` and is never shadowed by `authMiddleware`.
+  // It is authenticated by its Stripe-Signature header, not a Supabase JWT, and
+  // must read the raw request body for signature verification.
+  app.route('/', stripeWebhookRoutes);
+
   const api = new Hono<AppEnv>();
   api.use('*', authMiddleware);
   api.route('/', authRoutes);
+  api.route('/', billingRoutes);
   api.route('/', applicationsRoutes);
   api.route('/', dashboardRoutes);
   api.route('/', coverLettersRoutes);

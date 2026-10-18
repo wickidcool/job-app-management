@@ -15,6 +15,19 @@ import { subscriptions, type PlanTier, type SubscriptionStatus } from '../db/sch
 const PRO_STATUSES = new Set<SubscriptionStatus>(['trialing', 'active']);
 
 /**
+ * The entitlement band a given subscription `status` grants.
+ *
+ * Returns `'pro'` iff `status` is in {@link PRO_STATUSES}; otherwise `'free'`.
+ * Exported so the Stripe webhook writer (`subscription.service.ts`) derives the
+ * stored `plan_tier` column from the same rule `getEntitlement` reads it back
+ * with — the two must never disagree, so there is exactly one place that maps
+ * lifecycle status to tier.
+ */
+export function planTierForStatus(status: SubscriptionStatus): PlanTier {
+  return PRO_STATUSES.has(status) ? 'pro' : 'free';
+}
+
+/**
  * Resolve the entitlement band for a user.
  *
  * Returns `'pro'` iff a `subscriptions` row exists for the user whose `status` is
@@ -33,9 +46,5 @@ export async function getEntitlement(userId: string): Promise<PlanTier> {
     .where(eq(subscriptions.userId, userId))
     .limit(1);
 
-  if (row && PRO_STATUSES.has(row.status)) {
-    return 'pro';
-  }
-
-  return 'free';
+  return row ? planTierForStatus(row.status) : 'free';
 }
