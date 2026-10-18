@@ -14,6 +14,10 @@ import {
 import { requireOwner } from './require-owner.js';
 import type { AppEnv } from '../types/env.js';
 import { readJsonBody } from '../lib/request.js';
+import {
+  assertVariantQuotaAvailable,
+  recordVariantGeneration,
+} from '../services/entitlement-gate.js';
 
 const formatValues = ['chronological', 'functional', 'hybrid'] as const;
 const emphasisValues = ['experience_heavy', 'skills_heavy', 'balanced'] as const;
@@ -123,7 +127,13 @@ export const resumeVariantsRoutes = new Hono<AppEnv>()
     if (!parsed.success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } }, 400);
     }
-    const result = await generateResumeVariant(parsed.data, requireOwner(c));
+    const userId = requireOwner(c);
+    // Free plan: 3 variant generations/month (pricing.html); Pro: unlimited.
+    // Gate before generating so a denied request creates nothing, and record the
+    // usage only once the generation has actually succeeded.
+    await assertVariantQuotaAvailable(userId);
+    const result = await generateResumeVariant(parsed.data, userId);
+    await recordVariantGeneration(userId);
     return c.json(result, 201);
   })
   .post('/resume-variants/suggest-bullets', async (c) => {

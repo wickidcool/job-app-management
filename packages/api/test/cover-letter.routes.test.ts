@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildApp } from '../src/app.js';
 
+// Pro-bypass the entitlement gate (its own suite covers the Free path); the real
+// gate reads entitlement from the DB, so the pass-through keeps these offline.
+vi.mock('../src/services/entitlement-gate.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/entitlement-gate.js')>()),
+  assertProEntitlement: vi.fn(),
+  assertVariantQuotaAvailable: vi.fn(),
+  recordVariantGeneration: vi.fn(),
+}));
+
 vi.mock('../src/services/cover-letter.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/cover-letter.service.js')>()),
   generateCoverLetter: vi.fn(),

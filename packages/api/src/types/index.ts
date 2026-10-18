@@ -301,6 +301,27 @@ export class ConflictError extends AppError {
   }
 }
 
+/**
+ * Raised when a Free-plan user hits a Pro-only gate or exhausts a Free quota
+ * (Careerpin tiered signup — WIC-2644). HTTP 402 Payment Required: the request
+ * is well-formed and authenticated, it is the caller's *plan* that does not cover
+ * it. The frontend upgrade CTA branches on `code`:
+ *
+ *   - `UPGRADE_REQUIRED`       — the feature is Pro-only (job-fit, cover letters,
+ *                                interview prep); Free cannot use it at all.
+ *   - `VARIANT_QUOTA_EXCEEDED` — a Free limit was reached this month (resume
+ *                                variant generation); Pro is unlimited.
+ *
+ * `details` always carries `requiredTier: 'pro'` plus whatever the caller needs
+ * to render the prompt (the quota case adds `limit`, `used`, `period`).
+ */
+export class EntitlementError extends AppError {
+  constructor(code: string, message: string, details?: unknown) {
+    super(code, message, details, 402);
+    this.name = 'EntitlementError';
+  }
+}
+
 export class VersionConflictError extends AppError {
   constructor() {
     super('VERSION_CONFLICT', 'Application was modified by another request', undefined, 409);
