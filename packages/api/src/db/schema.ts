@@ -865,3 +865,40 @@ export const personalInfo = pgTable('personal_info', {
 
 export type PersonalInfo = typeof personalInfo.$inferSelect;
 export type NewPersonalInfo = typeof personalInfo.$inferInsert;
+
+// Subscriptions (Careerpin Stripe tiered signup — WIC-2641, parent WIC-2570).
+//
+// One row per user (`user_id` is UNIQUE), mirroring the Stripe subscription that
+// backs the account. `status` carries the Stripe subscription lifecycle verbatim;
+// `plan_tier` is the entitlement band the rest of the app reads through
+// `getEntitlement` (services/entitlement.service.ts). Enums rather than TEXT+CHECK:
+// both value sets are closed and owned by us, and the typed `SubscriptionStatus` /
+// `PlanTier` exports are what make the entitlement mapping exhaustively checkable.
+export const subscriptionStatusEnum = pgEnum('subscription_status', [
+  'trialing',
+  'active',
+  'past_due',
+  'paused',
+  'canceled',
+]);
+
+export const planTierEnum = pgEnum('plan_tier', ['free', 'pro']);
+
+export const subscriptions = pgTable('subscriptions', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull().unique(),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  status: subscriptionStatusEnum('status').notNull(),
+  planTier: planTierEnum('plan_tier').notNull(),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;
+export type SubscriptionStatus = (typeof subscriptionStatusEnum.enumValues)[number];
+export type PlanTier = (typeof planTierEnum.enumValues)[number];
