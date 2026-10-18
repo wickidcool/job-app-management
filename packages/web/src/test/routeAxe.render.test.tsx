@@ -122,8 +122,8 @@ describe('every route is axe-clean on every branch, against a frozen baseline', 
    * Same reasoning, and same numbers, as `routeOutline.render.test.tsx`.
    */
   function pairs() {
-    expect(ROUTES).toHaveLength(31);
-    expect(measured, 'the sweep did not render every (route, branch) pair').toHaveLength(124);
+    expect(ROUTES).toHaveLength(32);
+    expect(measured, 'the sweep did not render every (route, branch) pair').toHaveLength(128);
     return measured;
   }
 
@@ -139,8 +139,8 @@ describe('every route is axe-clean on every branch, against a frozen baseline', 
     return counts;
   }
 
-  it('renders all four branches of all 31 routes', () => {
-    expect(pairs()).toHaveLength(124);
+  it('renders all four branches of all 32 routes', () => {
+    expect(pairs()).toHaveLength(128);
   });
 
   it('ran a full ruleset against a populated tree on every pair', () => {

@@ -27,6 +27,7 @@ import { createResumeVariantService } from './resumeVariantService';
 import { createInterviewPrepService } from './interviewPrepService';
 import { createOnboardingService } from './onboardingService';
 import { createPersonalInfoService } from './personalInfoService';
+import { createBillingService } from './billingService';
 
 // API Configuration
 // Local backend runs on port 3000
@@ -58,6 +59,7 @@ export const resumeVariantService = createResumeVariantService(apiClient);
 export const interviewPrepService = createInterviewPrepService(apiClient);
 export const onboardingService = createOnboardingService(apiClient);
 export const personalInfoService = createPersonalInfoService(apiClient);
+export const billingService = createBillingService(apiClient);
 
 // Re-export types for convenience
 export type { ApplicationService } from './applicationService';
@@ -97,4 +99,12 @@ export type {
   OnboardingProgress,
 } from './onboardingService';
 export type { PersonalInfoService } from './personalInfoService';
+export type {
+  BillingService,
+  PlanTier,
+  SubscriptionStatus,
+  SubscriptionStatusResponse,
+  HostedSessionResponse,
+} from './billingService';
+export { isUpgradeRequiredError } from './billingService';
 export type * from './types';

@@ -193,6 +193,7 @@ Strings are the current `<h1>` **verbatim, re-measured at `f457cc3` on 2026-08-2
 | `/projects/:projectId` | `{projectName}` | `ProjectDetail.tsx:46`, dynamic; fallback `Project` |
 | `/projects/:projectId/files/:fileName` | `{fileName}` | `ProjectFileEditor.tsx:73`, dynamic; fallback `Project File` |
 | `/settings` | `Settings` | `Settings.tsx:29` |
+| `/settings/billing` | `Billing & Plan` | `BillingSettings.tsx:83` |
 | `/login` | `Sign in` / `Create an account` | `Login.tsx:81`, varies by `mode` (§3, §6.1, WIC-1099) — ~~`Sign In`, **new copy** — page has only an `<h2>`, and it is the product name~~ |
 | `*` (NotFound) | `That page couldn't be found` | `NotFound.copy.ts:18` ← `NOT_FOUND_COPY.heading` — ~~`NotFound.tsx:94`~~ moved 2026-09-01 (§9); ~~`Page not found`~~, corrected 2026-08-27 |
 

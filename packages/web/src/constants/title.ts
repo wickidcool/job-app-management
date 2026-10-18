@@ -88,6 +88,7 @@ export const STATIC_ROUTE_TITLES: Readonly<Record<string, string>> = {
   '/resume-variants/new': 'Generate Resume Variant', //   ResumeVariantNew.tsx:114
   '/projects': 'Projects', //                             ProjectsList.tsx:107
   '/settings': 'Settings', //                             Settings.tsx:29
+  '/settings/billing': 'Billing & Plan', //               BillingSettings.tsx — the page <h1> "Billing & Plan"
   // Read from the page's own copy block, never retyped: the apostrophe in
   // "couldn't" is a straight U+0027, not the typographic U+2019 that the em-dash
   // separator above would lead you to expect. See ROUTE_TITLE_CONVENTION.md §7.

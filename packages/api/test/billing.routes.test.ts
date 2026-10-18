@@ -26,10 +26,15 @@ vi.mock('../src/db/client.js', () => ({
 }));
 
 // The webhook happy path must not touch the DB in this suite, so mock the writer.
+// `getSubscriptionByUser` is mocked too (default: no row) so GET /billing/subscription
+// can assert its read-model shape without the throwing `getDb` stub above firing.
 vi.mock('../src/services/subscription.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/services/subscription.service.js')>()),
   handleStripeEvent: vi.fn().mockResolvedValue(true),
+  getSubscriptionByUser: vi.fn().mockResolvedValue(null),
 }));
+
+import { getSubscriptionByUser } from '../src/services/subscription.service.js';
 
 const JWT_SECRET = 'super-secret-jwt-key-for-testing-only-32-chars!!';
 const WEBHOOK_SECRET = 'whsec_test_secret';
@@ -114,6 +119,85 @@ describe('billing + webhook route wiring (WIC-2643)', () => {
         headers: { authorization: `Bearer ${await signToken('user-1')}` },
       });
       expect(res.status).toBe(503);
+    });
+  });
+
+  describe('GET /api/billing/subscription (WIC-2645 read model)', () => {
+    it('with no Authorization → 401 (before any DB access)', async () => {
+      const app = buildApp();
+      const res = await app.request('/api/billing/subscription');
+      expect(res.status).toBe(401);
+      expect((await res.json()).error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('returns the default Free shape when the user has no subscription row', async () => {
+      vi.mocked(getSubscriptionByUser).mockResolvedValueOnce(null);
+      const app = buildApp();
+      const res = await app.request('/api/billing/subscription', {
+        headers: { authorization: `Bearer ${await signToken('user-1')}` },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        tier: 'free',
+        status: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        hasStripeCustomer: false,
+      });
+    });
+
+    it('maps a trialing row to tier=pro with the period end as an ISO string', async () => {
+      const periodEnd = new Date('2026-11-01T00:00:00.000Z');
+      vi.mocked(getSubscriptionByUser).mockResolvedValueOnce({
+        id: 'sub_row_1',
+        userId: 'user-1',
+        stripeCustomerId: 'cus_123',
+        stripeSubscriptionId: 'sub_123',
+        status: 'trialing',
+        planTier: 'pro',
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false,
+        createdAt: periodEnd,
+        updatedAt: periodEnd,
+        version: 1,
+      });
+      const app = buildApp();
+      const res = await app.request('/api/billing/subscription', {
+        headers: { authorization: `Bearer ${await signToken('user-1')}` },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        tier: 'pro',
+        status: 'trialing',
+        currentPeriodEnd: '2026-11-01T00:00:00.000Z',
+        cancelAtPeriodEnd: false,
+        hasStripeCustomer: true,
+      });
+    });
+
+    it('maps a canceled row to tier=free (status preserved for the UI badge)', async () => {
+      vi.mocked(getSubscriptionByUser).mockResolvedValueOnce({
+        id: 'sub_row_2',
+        userId: 'user-1',
+        stripeCustomerId: 'cus_123',
+        stripeSubscriptionId: 'sub_123',
+        status: 'canceled',
+        planTier: 'free',
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+        version: 2,
+      });
+      const app = buildApp();
+      const res = await app.request('/api/billing/subscription', {
+        headers: { authorization: `Bearer ${await signToken('user-1')}` },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.tier).toBe('free');
+      expect(body.status).toBe('canceled');
+      expect(body.hasStripeCustomer).toBe(true);
     });
   });
 

@@ -5,6 +5,29 @@ import { AppError } from '../types/index.js';
 import { getConfig } from '../config.js';
 import { createCheckoutSession, createPortalSession } from '../services/stripe.service.js';
 import { getSubscriptionByUser } from '../services/subscription.service.js';
+import { planTierForStatus } from '../services/entitlement.service.js';
+import type { PlanTier, SubscriptionStatus } from '../db/schema.js';
+
+/**
+ * The read model the SPA's billing settings page consumes (WIC-2645). Derived
+ * from the single `subscriptions` row the Stripe webhook maintains — never
+ * written here — so it stays in lock-step with `getEntitlement`:
+ *
+ *  - `tier` is `planTierForStatus(status)`, the same mapping the gate reads with;
+ *  - `status` is the Stripe lifecycle verbatim, or `null` when the user has no
+ *    subscription row yet (a brand-new Free user);
+ *  - `hasStripeCustomer` tells the client whether the Customer Portal is reachable
+ *    — `POST /billing/portal-session` 409s without a stored customer, so the
+ *    "Manage subscription" affordance keys off this rather than discovering the
+ *    409 after a click.
+ */
+export interface SubscriptionStatusResponse {
+  tier: PlanTier;
+  status: SubscriptionStatus | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  hasStripeCustomer: boolean;
+}
 
 /**
  * Billing routes (WIC-2643, parent WIC-2570) — Stripe **test mode** only.
@@ -42,6 +65,38 @@ function requireStripeSecretKey(c: Context<AppEnv>): string {
 
 export const billingRoutes = new Hono<AppEnv>()
   /**
+   * GET /api/billing/subscription
+   * Return the caller's current plan state for the billing settings page. A read
+   * of the single `subscriptions` row, with no Stripe call and no secret-key
+   * requirement — a Free user with no row gets the default Free shape rather than
+   * a 503, so the page renders for everyone whether or not billing is configured.
+   */
+  .get('/billing/subscription', async (c) => {
+    const userId = requireUserId(c);
+    const existing = await getSubscriptionByUser(userId);
+
+    const body: SubscriptionStatusResponse = existing
+      ? {
+          tier: planTierForStatus(existing.status),
+          status: existing.status,
+          currentPeriodEnd: existing.currentPeriodEnd
+            ? existing.currentPeriodEnd.toISOString()
+            : null,
+          cancelAtPeriodEnd: existing.cancelAtPeriodEnd,
+          hasStripeCustomer: Boolean(existing.stripeCustomerId),
+        }
+      : {
+          tier: 'free',
+          status: null,
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+          hasStripeCustomer: false,
+        };
+
+    return c.json(body, 200);
+  })
+
+  /**
    * POST /api/billing/checkout-session
    * Create a Stripe Checkout Session (subscription, 14-day trial, no card for
    * the trial) and return its hosted-page URL.
@@ -67,7 +122,7 @@ export const billingRoutes = new Hono<AppEnv>()
       customerEmail: c.get('userEmail') ?? null,
       trialPeriodDays: TRIAL_PERIOD_DAYS,
       successUrl: `${origin}/settings/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}/pricing?checkout=cancelled`,
+      cancelUrl: `${origin}/settings/billing?checkout=cancelled`,
     });
 
     return c.json({ url }, 200);

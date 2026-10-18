@@ -16,6 +16,7 @@ import type { Branch } from './routeOutlineApiMock';
 import { ApplicationDetail } from '../pages/ApplicationDetail';
 import { ApplicationNew } from '../pages/ApplicationNew';
 import { ApplicationsList } from '../pages/ApplicationsList';
+import { BillingSettings } from '../pages/BillingSettings';
 import { CatalogPage } from '../pages/CatalogPage';
 import { CoverLetterDetail } from '../pages/CoverLetterDetail';
 import { CoverLetterNew } from '../pages/CoverLetterNew';
@@ -196,5 +197,6 @@ export const ROUTES: RouteCase[] = [
     payload: (branch) => (branch === 'loaded' ? 'Body text, deliberately headingless.\n' : ''),
   },
   { path: '/settings', render: () => <Settings /> },
+  { path: '/settings/billing', render: () => <BillingSettings /> },
   { path: '/nope', pattern: '*', render: () => <NotFound /> },
 ];
