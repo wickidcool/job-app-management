@@ -31,6 +31,10 @@ export function useSubscription() {
  * the user here rather than skipping past the app.
  */
 function redirectTo(url: string): void {
+  // The target is a hosted Stripe page (Checkout / Customer Portal) on a different
+  // origin, so no router navigation can reach it — a full-document navigation is
+  // required and correct here (WIC-1097).
+  // eslint-disable-next-line local/no-reload-navigation
   window.location.assign(url);
 }
 
