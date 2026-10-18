@@ -105,7 +105,11 @@ export function BillingSettings() {
         <h2 className="mb-4 text-xl font-semibold text-neutral-900">Current plan</h2>
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-8" aria-label="Loading plan">
+          <div
+            role="status"
+            className="flex items-center justify-center py-8"
+            aria-label="Loading plan"
+          >
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent"></div>
           </div>
         ) : error ? (

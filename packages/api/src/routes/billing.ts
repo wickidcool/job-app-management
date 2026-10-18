@@ -122,7 +122,7 @@ export const billingRoutes = new Hono<AppEnv>()
       customerEmail: c.get('userEmail') ?? null,
       trialPeriodDays: TRIAL_PERIOD_DAYS,
       successUrl: `${origin}/settings/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}/pricing?checkout=cancelled`,
+      cancelUrl: `${origin}/settings/billing?checkout=cancelled`,
     });
 
     return c.json({ url }, 200);
