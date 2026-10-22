@@ -897,6 +897,10 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          # Stripe browser publishable key (WIC-2642), baked into the SPA bundle.
+          # Non-secret (pk_test_... on preview); sourced from a repo/env var, not a
+          # secret. Unset bakes empty, which the client treats as billing-disabled.
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
 
       - name: Ensure preview R2 bucket exists
         # Idempotent — exits 0 even if the bucket already exists.
@@ -1023,7 +1027,7 @@ jobs:
           # "Validate required secrets" step above.
           payload=$(python3 -c '
           import json, os, sys
-          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL")
+          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
           out = {k: os.environ[k] for k in keys if os.environ.get(k)}
           for k in keys:
               if k not in out:
@@ -1056,6 +1060,11 @@ jobs:
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          # Stripe (WIC-2642) — optional like ANTHROPIC_API_KEY: empty values are
+          # dropped from the payload with a warning rather than pushed, so preview
+          # stays green until a human adds these test-mode secrets to the GitHub env.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
 
       - name: Deploy preview to Cloudflare Workers
         id: deploy
@@ -1086,7 +1095,7 @@ jobs:
           # script would put this change outside the repo's own no-deploy path.
           payload=$(python3 -c '
           import json, os, sys
-          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL")
+          keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET", "ANTHROPIC_API_KEY", "DATABASE_URL", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
           out = {k: os.environ[k] for k in keys if os.environ.get(k)}
           for k in keys:
               if k not in out:
@@ -1119,6 +1128,11 @@ jobs:
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          # Stripe (WIC-2642) — optional like ANTHROPIC_API_KEY: empty values are
+          # dropped from the payload with a warning rather than pushed, so preview
+          # stays green until a human adds these test-mode secrets to the GitHub env.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
 
       # WIC-1022: the workers.dev route (jobtrail-preview.al-23f.workers.dev) sits behind
       # Cloudflare Access, so QA 302s to the login page and cannot verify a PR before it
@@ -1401,6 +1415,10 @@ jobs:
           VITE_ANALYTICS_SINK: posthog
           VITE_POSTHOG_HOST: https://us.i.posthog.com
           VITE_POSTHOG_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          # Stripe browser publishable key (WIC-2642), baked into the SPA bundle.
+          # Non-secret (pk_live_... in production); sourced from a repo/env var, not a
+          # secret. Unset bakes empty, which the client treats as billing-disabled.
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
 
       - name: Prepare DATABASE_URL (transaction pooler port 6543)
         run: |
