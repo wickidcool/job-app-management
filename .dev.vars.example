@@ -35,3 +35,31 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 
 # Note: R2_BUCKET is a native binding defined in wrangler.jsonc — no env var needed.
 # wrangler dev automatically provides a local R2 bucket emulation.
+
+# Stripe billing — "Careerpin Pro" tier (WIC-2642 / WIC-2570).
+# Use TEST-mode keys for local dev and preview. Get them from the Stripe
+# Dashboard in TEST mode: Developers → API keys. Full setup + go-live steps are
+# in docs/STRIPE_INTEGRATION.md. Leave all four unset to run with billing
+# disabled — the backend treats an absent STRIPE_SECRET_KEY / STRIPE_PRICE_PRO as
+# "billing not configured" and the Pro checkout is simply unavailable.
+#
+# Secret — Stripe test secret key (server-side). Never commit the real value.
+STRIPE_SECRET_KEY=sk_test_...
+# Secret — webhook signing secret. For local dev this is printed by the Stripe
+# CLI when you run `stripe listen` (see below); it starts with `whsec_`.
+STRIPE_WEBHOOK_SECRET=whsec_...
+# Non-secret — the recurring Price id for Careerpin Pro ($15/mo USD), captured
+# from the TEST-mode Product/Price. In preview/prod this lives in wrangler.jsonc
+# `vars`; locally it is read here. Starts with `price_`.
+STRIPE_PRICE_PRO=price_...
+# Non-secret — browser publishable key, baked into the web bundle at build time.
+# Vite only exposes vars prefixed with VITE_. Starts with `pk_test_` (test mode).
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...
+#
+# Local webhook forwarding (Stripe CLI):
+#   stripe login
+#   stripe listen --forward-to http://localhost:8787/api/stripe/webhook
+# `stripe listen` prints the `whsec_...` signing secret for this session — copy
+# it into STRIPE_WEBHOOK_SECRET above. Use :8787 for `npm run dev:worker`
+# (wrangler) or :3000 for `npm run dev:api` (Node). Trigger a test event with
+# e.g. `stripe trigger checkout.session.completed`.

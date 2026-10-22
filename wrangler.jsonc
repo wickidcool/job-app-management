@@ -35,7 +35,16 @@
 		// GitHub `production` environment. If that key is ever unset, config.ts +
 		// analytics.service.ts fall back to the noop sink with a warning.
 		"ANALYTICS_SINK": "posthog",
-		"POSTHOG_HOST": "https://us.i.posthog.com"
+		"POSTHOG_HOST": "https://us.i.posthog.com",
+		// Stripe recurring Price id for the "Careerpin Pro" tier (WIC-2642 / WIC-2570).
+		// Non-secret by design — a `price_...` id identifies a Product/Price, it is not
+		// a credential (the sk_/whsec_ keys are the secrets and go via `wrangler secret
+		// put`; see docs/STRIPE_INTEGRATION.md). This TOP-LEVEL value is the PRODUCTION
+		// (LIVE-mode) price; env.preview below carries the TEST-mode price. Left empty
+		// until a human mints the live Product/Price at go-live — the backend treats an
+		// empty STRIPE_PRICE_PRO as "billing not configured" and the Pro checkout is
+		// unavailable rather than erroring. Fill this in at go-live (see the checklist).
+		"STRIPE_PRICE_PRO": ""
 	},
 	// WIC-1386: production Hyperdrive binding (ADR-007 opt 1). Without this the
 	// Worker cannot reach the Supabase pooler and every authenticated route 503s.
@@ -55,7 +64,12 @@
 		"preview": {
 			"name": "jobtrail-preview",
 			"vars": {
-				"NODE_ENV": "development"
+				"NODE_ENV": "development",
+				// Stripe TEST-mode recurring Price id for "Careerpin Pro" on preview
+				// (WIC-2642). Non-secret. Set this to the `price_...` captured from the
+				// Stripe test-mode Product/Price (see docs/STRIPE_INTEGRATION.md). Empty
+				// here means preview billing is disabled until the test price is filled in.
+				"STRIPE_PRICE_PRO": ""
 			},
 			"hyperdrive": [
 				{
