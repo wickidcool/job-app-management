@@ -390,7 +390,7 @@ jobs:
     if: >-
       github.event_name != 'push' ||
       needs.lint-and-test.outputs.skip_deploy != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # WIC-2761: pin off ubuntu-latest(26.04) — Playwright 1.59 has no chromium support on 26.04 yet
     # WIC-1095: baseline for this job is ~2m45s. 15 minutes is ~5x headroom and
     # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
     # red check in 15 min rather than a pending one for 6h.
@@ -534,7 +534,7 @@ jobs:
   e2e-isolation-coverage:
     name: E2E Isolation Coverage
     needs: lint-and-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # WIC-2761: pin off ubuntu-latest(26.04) — Playwright 1.59 has no chromium support on 26.04 yet
     # WIC-2122 route 2: this job now boots an in-job backend and RUNS the two
     # backend-tier isolation spec files, so it needs the E2E budget, not the
     # 2-minute preflight budget. Baseline ~= e2e-tests (~3-4m) + backend boot.
