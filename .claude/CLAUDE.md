@@ -6,7 +6,7 @@ Multi-user job application tracking app running on **Cloudflare Workers + Supaba
 
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 3, TanStack Query 5, React Router 7, React Hook Form, Radix UI, @dnd-kit
 - **Backend**: Hono 4 on Cloudflare Workers (Node.js fallback via `@hono/node-server`), TypeScript, Drizzle ORM
-- **Database**: Supabase PostgreSQL via Drizzle ORM + postgres-js; migrations via drizzle-kit. Preview reaches it through a Cloudflare Hyperdrive pool; **production has no Hyperdrive binding** and connects to the Supabase transaction pooler (port 6543) via a `DATABASE_URL` secret
+- **Database**: Supabase PostgreSQL via Drizzle ORM + postgres-js; migrations via drizzle-kit. Both production and preview reach it through a Cloudflare Hyperdrive pool — **production has a top-level `HYPERDRIVE` binding** (config `e377f340…`) and preview a second one under `env.preview`. `DATABASE_URL` (Supabase transaction pooler, port 6543) is the fallback used only when no Hyperdrive binding is present, and is still read by the migration runner
 - **Storage**: Cloudflare R2 (`jobtrail-documents`) for resumes/cover letters, S3-compatible presigned URLs via the AWS SDK
 - **Auth**: Supabase Auth (multi-user); JWTs verified server-side with `jose`
 - **AI**: Anthropic Claude (`@anthropic-ai/sdk`); PDF/DOCX extraction via `pdfjs-dist`, `mammoth`, `docx`
@@ -52,7 +52,7 @@ packages/
   marketing/    Static marketing site (careerpin.app landing/pricing)
   infra/        Redirect Worker / Pages config
 
-wrangler.jsonc            Worker config: assets (SPA), R2, vars; Hyperdrive under env.preview only
+wrangler.jsonc            Worker config: assets (SPA), R2, vars; top-level HYPERDRIVE binding (production) + a second under env.preview
 docs/
   architecture/           ARCHITECTURE.md (current-state overview — start here),
                           CLOUDFLARE_WORKERS_ARCHITECTURE.md (migration record, historical),
@@ -68,17 +68,17 @@ The Worker prefers **Cloudflare bindings** over `process.env`. Because Workers a
 | Binding | Purpose |
 |---|---|
 | `ASSETS` | Built React SPA (`packages/web/dist`), `not_found_handling: "single-page-application"` |
-| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`). **Declared under `env.preview` only** — production has no Hyperdrive binding and uses the `DATABASE_URL` secret instead |
+| `HYPERDRIVE` | Pooled connection to Supabase Postgres (`.connectionString`). **Declared at the top level (production config `e377f340…`) and again under `env.preview`** (the dev config) — both environments reach Postgres through Hyperdrive; `DATABASE_URL` is only a fallback |
 | `R2_BUCKET` | Document storage bucket (`jobtrail-documents` in production, `jobtrail-documents-dev` in preview) |
 
-`db/client.ts` resolves in order: `HYPERDRIVE` → `DATABASE_URL` → Node singleton. Preview takes path 1; **production and bare `wrangler dev` take path 2** (`npm run dev:worker` passes no `--env`, so it loads the top-level config, which declares no Hyperdrive).
+`db/client.ts` resolves in order: `HYPERDRIVE` → `DATABASE_URL` → Node singleton. **Both production and preview take path 1** — the root `wrangler.jsonc` declares a top-level `HYPERDRIVE` binding (production config `e377f340…`) as well as the `env.preview` one, so production reaches Postgres through Hyperdrive, not `DATABASE_URL`. (Live prod `/api/health` reports `hyperdrive: true`.) The top-level binding carries no `localConnectionString`, so bare `npm run dev:worker` reads `DATABASE_URL` from `.dev.vars` for local DB access (see `.dev.vars.example`).
 
 ## Key Commands
 
 ```bash
 npm install                   # Install all workspace deps
 npm run dev                   # Frontend dev server (localhost:5173)
-npm run dev:worker            # API as a Worker via wrangler dev (top-level config: assets + R2, no Hyperdrive)
+npm run dev:worker            # API as a Worker via wrangler dev (top-level config: assets + R2 + HYPERDRIVE binding w/o localConnectionString; reads DATABASE_URL locally)
 npm run dev:api               # API on Node.js via tsx (localhost:3000) — faster iteration
 npm run build                 # Build all packages
 npm run typecheck             # tsc -b web + api --noEmit
@@ -94,7 +94,7 @@ npm run db:push               # Push schema changes directly (dev only)
 
 - **Edge-native, stateless**: DB client + env are per-request; no global singletons (`runWithEnv`)
 - **Hono over Fastify** for Workers compatibility (`ADR-006-hono-framework-workers`)
-- **Hyperdrive** pools the Supabase Postgres connection at the edge **in `preview` only**; production falls back to a `DATABASE_URL` pointed at the Supabase transaction pooler. The fetch handler retries up to 3 times on Hyperdrive connection timeouts, then returns `503`
+- **Hyperdrive** pools the Supabase Postgres connection at the edge for **both production and preview** (each has its own `HYPERDRIVE` config; production is `e377f340…`); `DATABASE_URL` is only the fallback when no binding is present. The fetch handler retries up to 3 times on Hyperdrive connection timeouts, then returns `503`
 - **R2 storage** for documents, keyed `{userId}/{type}/{filename}`; presigned URLs via AWS SDK (`ADR-004-cloudflare-r2-storage`)
 - **Multi-user auth**: all `/api/*` routes require a valid Supabase JWT as `Authorization: Bearer` (`userId` from the `sub` claim). Auth is bypassed only when **both** `SUPABASE_URL` **and** `SUPABASE_JWT_SECRET` are absent (`ADR-003-multi-user-auth`)
 - **ES modules** throughout (`"type": "module"`)
@@ -143,7 +143,7 @@ Object bindings are only reachable off the request `env`; text vars and secrets 
 | `POSTHOG_API_KEY` | Production Worker | PostHog write key, pushed as a **secret** by `deploy.yml`; unset ⇒ analytics degrades to the noop sink with a warning |
 | `ANALYTICS_SINK` / `POSTHOG_HOST` | Worker | Non-secret, set in `wrangler.jsonc` `vars` (`posthog` / `https://us.i.posthog.com`) |
 | `NODE_ENV` | Worker | Set in `wrangler.jsonc` |
-| `DATABASE_URL` | Production Worker + migrations | Supabase transaction-pooler URL (6543). Pushed as a production Worker secret by `deploy.yml` and read by `db:migrate`. Preview uses the `HYPERDRIVE` binding instead |
+| `DATABASE_URL` | Fallback + migrations | Supabase transaction-pooler URL (6543). Pushed as a production Worker secret by `deploy.yml` and read by `db:migrate`. At request time production uses the top-level `HYPERDRIVE` binding; `db/client.ts` falls back to `DATABASE_URL` only when no Hyperdrive binding is present (e.g. bare `wrangler dev`) |
 | `VITE_API_BASE_URL` | Web build | API base; defaults to `/api` (same-origin) |
 
 ## Design System
