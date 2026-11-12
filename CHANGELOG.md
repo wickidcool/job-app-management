@@ -9,6 +9,15 @@ All notable changes to the Job Application Manager are documented here.
 > **Backfill note (2026-08-04):** Entries below reconstruct the shipped increments between UC-2 (2026-04-24) and the production launch. Each is grounded in merged commits, database migrations, and existing `docs/`. Reviewer to confirm scope and decide whether to cut a tagged production release (current `package.json` version is `0.1.0`) — the production analytics go-live below is a natural candidate for that first tag.
 
 
+### Fixed — production `/api/health` 503 `password authentication failed for user "postgres"`: the prod Hyperdrive config carried a stale DB credential nothing refreshed (WIC-2753) (2026-11-12)
+
+Production connects to Postgres through the top-level `HYPERDRIVE` binding (config `e377f340…`), and `db/client.ts` prefers `env.HYPERDRIVE.connectionString` over the `DATABASE_URL` secret — so the credential the live Worker authenticates with is the one **embedded in the Hyperdrive config**, not the `DATABASE_URL` secret `deploy-production` pushes. When the Supabase prod DB password rotated, nothing refreshed that config: `deploy-production` refreshed only the *preview* Hyperdrive config, so prod kept the old password and every authenticated route 503'd, while CI migrations and the keep-alive `SELECT 1` (which dial the pooler directly with the fresh password) stayed green and hid it.
+
+Two changes, mirroring the `deploy-preview` pattern:
+
+- **`deploy-production` now refreshes the prod Hyperdrive config** (`wrangler hyperdrive update e377f340… --connection-string=<reconstructed prod pooler URL>`) on every deploy, so a rotated origin password self-heals instead of stranding prod.
+- **A hard post-deploy `Assert production database is live (/health)` gate** turns a broken prod DB path into a RED deploy instead of a green one that ships a 503. It asserts `db == "ok"` specifically (not `status == "ok"`, which `app.ts` also emits for a dropped `DATABASE_URL`), closing the blind spot that let this outage go unnoticed.
+
 ### Fixed — billing cancel banner now fires, and the route-axe a11y sweep covers `/settings/billing` (WIC-2645) (2026-10-18)
 
 Two follow-ups from QA of PR #521. The Stripe Checkout `cancelUrl` pointed at `${origin}/pricing?checkout=cancelled` — `/pricing` is the marketing site, not an SPA route, so the already-built `BillingSettings` cancel banner never rendered; it now points at `${origin}/settings/billing?checkout=cancelled`, symmetric with `successUrl`, keeping the user in-app and satisfying the cancel-return AC. Separately, `routeAxe.render.test.tsx` carried a stale route count (31 routes / 124 branch pairs) after `/settings/billing` was added, so its sweep under-counted the tree while the sibling `routeOutline.render.test.tsx` was already bumped; both now assert 32 routes / 128 pairs and the axe sweep covers the new page's four branches.
@@ -81,15 +90,6 @@ The WIC-2473 token in repo secret `CLOUDFLARE_JOBAPP_API_TOKEN` was revoked, fre
 
 The per-environment `CLOUDFLARE_API_TOKEN` (env `dev` and `production`) kept going invalid within ~24h of each re-mint — dead on 2026-09-16 and again 2026-09-19 despite a rotation on 2026-09-18 — 401'ing the account-scoped token-verify endpoint and cascading every wrangler call to `9109 / 10000 / 10502`. Because a job that declares `environment:` resolves an env secret ahead of a same-named repo secret, moving the value to the repo level under the same name would have been silently shadowed. `deploy.yml`'s 13 Cloudflare-token references (preview + production, including the WIC-1736 preview Hyperdrive-refresh step) now read a distinctly-named, shadow-proof repo secret `CLOUDFLARE_JOBAPP_API_TOKEN` — a dedicated deploy token for this repo, not the shared careerpin credential the branch was temporarily pointed at. The new token was verified `active` with `Hyperdrive:Edit` scope (read-only CF Token Capability Probe, 2026-09-21) before this landed.
 
-
-### Fixed — production `/api/health` 503 `password authentication failed for user "postgres"`: the prod Hyperdrive config carried a stale DB credential nothing refreshed (WIC-2753) (2026-11-12)
-
-Production connects to Postgres through the top-level `HYPERDRIVE` binding (config `e377f340…`), and `db/client.ts` prefers `env.HYPERDRIVE.connectionString` over the `DATABASE_URL` secret — so the credential the live Worker authenticates with is the one **embedded in the Hyperdrive config**, not the `DATABASE_URL` secret `deploy-production` pushes. When the Supabase prod DB password rotated, nothing refreshed that config: `deploy-production` refreshed only the *preview* Hyperdrive config, so prod kept the old password and every authenticated route 503'd, while CI migrations and the keep-alive `SELECT 1` (which dial the pooler directly with the fresh password) stayed green and hid it.
-
-Two changes, mirroring the `deploy-preview` pattern:
-
-- **`deploy-production` now refreshes the prod Hyperdrive config** (`wrangler hyperdrive update e377f340… --connection-string=<reconstructed prod pooler URL>`) on every deploy, so a rotated origin password self-heals instead of stranding prod.
-- **A hard post-deploy `Assert production database is live (/health)` gate** turns a broken prod DB path into a RED deploy instead of a green one that ships a 503. It asserts `db == "ok"` specifically (not `status == "ok"`, which `app.ts` also emits for a dropped `DATABASE_URL`), closing the blind spot that let this outage go unnoticed.
 
 ### Fixed — `User A application is not visible to User B` leaked a row into the shared `dev` database on every run, and its own precondition then broke on the residue (WIC-2122) (2026-09-14)
 
