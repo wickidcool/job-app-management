@@ -1450,6 +1450,38 @@ jobs:
           SUPABASE_POOLER_REGION: ${{ vars.SUPABASE_POOLER_REGION }}
           SUPABASE_POOLER_PREFIX: ${{ vars.SUPABASE_POOLER_PREFIX }}
 
+      # WIC-2753: production connects to Postgres through the top-level HYPERDRIVE
+      # binding (wrangler.jsonc config e377f34016834bdab7f34ce2c629128d), and
+      # `db/client.ts` prefers `env.HYPERDRIVE.connectionString` over the
+      # DATABASE_URL secret pushed below. So the credential the live Worker
+      # actually authenticates with is the one EMBEDDED IN THE HYPERDRIVE CONFIG,
+      # not the DATABASE_URL secret. Nothing in this job refreshed it, so when the
+      # Supabase prod DB password rotated the Hyperdrive config kept the old
+      # password and every authenticated route 503'd with `password authentication
+      # failed for user "postgres"` — while CI migrations (which dial the pooler
+      # directly with the fresh password) stayed green and hid it. This mirrors the
+      # `deploy-preview` "Refresh preview Hyperdrive config" step so production
+      # self-heals on every deploy. continue-on-error for the same reason preview
+      # is: the "Assert production database is live" gate below is the authoritative
+      # loud failure, and it reports the DB fault directly rather than a token-scope
+      # error one step early.
+      - name: Refresh prod Hyperdrive config
+        id: prod_hyperdrive_refresh
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CAREERPIN_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_CAREERPIN_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # DATABASE_URL was reconstructed from parts and exported to GITHUB_ENV by
+          # the "Prepare DATABASE_URL" step above — the same pooler URL the migration
+          # step just authenticated with. The URL carries the DB password: never echo
+          # it; wrangler reads it as an argument and redacts it to *** in its output.
+          npx wrangler hyperdrive update e377f34016834bdab7f34ce2c629128d \
+            --connection-string="$DATABASE_URL" \
+            --sslmode require
+          echo "::notice::Refreshed prod Hyperdrive config e377f34016834bdab7f34ce2c629128d from the current prod pooler credentials."
+
       - name: Ensure production R2 bucket exists
         run: npx wrangler r2 bucket create jobtrail-documents || true
         env:
@@ -1484,3 +1516,30 @@ jobs:
           # here from the GitHub `production` environment. If POSTHOG_API_KEY is unset the
           # API's config falls back to the noop sink with a warning, so this stays safe.
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+
+      # WIC-2753: authoritative post-deploy gate. Mirrors deploy-preview's "Assert
+      # preview database is live" — the preceding Hyperdrive refresh is best-effort,
+      # so THIS is what turns a broken prod DB path (stale Hyperdrive credential,
+      # paused project, pooler outage) into a RED deploy instead of a green one that
+      # ships a 503. It is `db == "ok"` specifically, not `status == "ok"`: app.ts
+      # emits `status:ok` when `db == "not_applicable"` too (a dropped DATABASE_URL),
+      # so asserting on `status` would pass straight through the exact outage class
+      # this gate exists to catch. Retries briefly because a fresh Hyperdrive config
+      # update takes a few seconds to propagate to the edge.
+      - name: Assert production database is live (/health)
+        run: |
+          set -uo pipefail
+          URL="https://app.careerpin.app/api/health"
+          db=""
+          for attempt in $(seq 1 10); do
+            BODY=$(curl -sS --max-time 20 "$URL" || true)
+            db=$(printf '%s' "$BODY" | jq -r '.db // ""' 2>/dev/null || echo "")
+            echo "attempt $attempt: /api/health db=\"${db}\""
+            if [ "$db" = "ok" ]; then
+              echo "::notice::Production data plane is live — /api/health reports db==ok."
+              exit 0
+            fi
+            sleep 12
+          done
+          echo "::error::Production data plane is NOT live after deploy — /api/health never reported db==ok (last db=\"${db}\"). The Hyperdrive origin credential refresh did not take, or the DB is otherwise unreachable. See WIC-2753."
+          exit 1
