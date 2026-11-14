@@ -12,7 +12,7 @@ packages/
   web/        @wic/web  — React 19 SPA (Vite, Tailwind)
   marketing/  — Static marketing site
   infra/      — Redirect Worker / Pages config
-wrangler.jsonc — Worker config (assets, R2, vars; Hyperdrive under `env.preview` only)
+wrangler.jsonc — Worker config (assets, R2, vars; a top-level `HYPERDRIVE` binding for production plus a second one under `env.preview`)
 supabase/      — Supabase project config
 ```
 
@@ -25,12 +25,12 @@ At the edge the Worker's preferred source of truth is **Cloudflare bindings** ra
 | Binding | Type | Purpose |
 |---|---|---|
 | `ASSETS` | Fetcher | Built React SPA (`packages/web/dist`), with `not_found_handling: "single-page-application"` |
-| `HYPERDRIVE` | Hyperdrive | Pooled connection to Supabase Postgres (`.connectionString`). **Declared under `env.preview` only** — production has no Hyperdrive binding. |
+| `HYPERDRIVE` | Hyperdrive | Pooled connection to Supabase Postgres (`.connectionString`). **Declared at the top level (production config `e377f340…`) and again under `env.preview`** (the dev config) — both environments reach Postgres through Hyperdrive. |
 | `R2_BUCKET` | R2Bucket | Document storage (`jobtrail-documents` in production, `jobtrail-documents-dev` in preview) |
 
-`packages/api/src/db/client.ts` picks a connection in this order: `HYPERDRIVE` binding → `DATABASE_URL` → Node singleton. Because the root `wrangler.jsonc` declares Hyperdrive only for `preview`, **preview takes path 1 and production takes path 2**, connecting to the Supabase transaction pooler on port 6543.
+`packages/api/src/db/client.ts` picks a connection in this order: `HYPERDRIVE` binding → `DATABASE_URL` → Node singleton. Because the root `wrangler.jsonc` declares a **top-level** `HYPERDRIVE` binding (production config `e377f340…`) in addition to the `env.preview` one, **both production and preview take path 1** — production reaches Supabase through Hyperdrive, not `DATABASE_URL`. (Live prod `/api/health` reports `hyperdrive: true`.) `DATABASE_URL` is the fallback used only when no Hyperdrive binding is present.
 
-`npm run dev:worker` is a bare `wrangler dev` with no `--env`, so it loads the *top-level* config — it gets `ASSETS` and `R2_BUCKET` but **no `HYPERDRIVE` binding**, and therefore also takes path 2, reading `DATABASE_URL` from `.dev.vars`.
+`npm run dev:worker` is a bare `wrangler dev` with no `--env`, so it loads the *top-level* config — `ASSETS`, `R2_BUCKET`, and the top-level `HYPERDRIVE` binding (which, unlike the preview one, carries no `localConnectionString`). For local database access it reads `DATABASE_URL` from `.dev.vars`; see the note in `.dev.vars.example`.
 
 ## Environment Variables & Secrets
 
@@ -78,7 +78,7 @@ approval recorded in the PR review — never by editing the pattern set to fit t
 | `SUPABASE_URL` | For auth | Supabase project URL. Also gates the auth bypass — see below. |
 | `SUPABASE_ANON_KEY` | For auth | Supabase anon key |
 | `SUPABASE_JWT_SECRET` | For auth | JWT secret (HS256 path). Auth is bypassed only when **both** this **and** `SUPABASE_URL` are absent (`middleware/auth.ts`) — setting just one leaves `/api/*` requiring a valid JWT. |
-| `DATABASE_URL` | Production | Supabase transaction-pooler URL (port 6543), pushed as a Worker secret by `deploy.yml`. Unused in `preview`, which has the `HYPERDRIVE` binding instead. |
+| `DATABASE_URL` | Fallback + migrations | Supabase transaction-pooler URL (port 6543), pushed as a production Worker secret by `deploy.yml` and read by the migration runner. Production now reaches Postgres through the top-level `HYPERDRIVE` binding; `DATABASE_URL` is the `db/client.ts` fallback, used only when no Hyperdrive binding is present (e.g. bare `wrangler dev`). |
 | `ANTHROPIC_API_KEY` | For AI | Anthropic Claude key for resume parsing, job-fit analysis, dialogue capture. AI features are disabled when unset. |
 | `LLM_MODEL` | No | Model id for the AI features. Defaults to `claude-sonnet-4-6` (`config.ts`). |
 | `POSTHOG_API_KEY` | For analytics | PostHog write key, pushed as a production Worker **secret** by `deploy.yml`. Unset ⇒ the analytics sink degrades to noop with a warning. |
@@ -87,7 +87,7 @@ approval recorded in the PR review — never by editing the pattern set to fit t
 | `NODE_ENV` | No | `production` in prod (set in `wrangler.jsonc`). |
 | `TRUST_PROXY_PROTO` | No | Opt in to trusting `x-forwarded-proto` for the HTTPS redirect. |
 
-> `DATABASE_URL` **is** used by the production Worker. `deploy.yml` builds the Supabase transaction-pooler URL (port 6543) and pushes it as a Worker secret, and `db/client.ts` falls back to it because production declares no `HYPERDRIVE` binding. It is also what the migration runner (`packages/api/src/db/migrate.ts`) reads. `R2_BUCKET` is a native binding, not an env var.
+> `DATABASE_URL` is still pushed to the production Worker. `deploy.yml` builds the Supabase transaction-pooler URL (port 6543) and pushes it as a Worker secret, and the migration runner (`packages/api/src/db/migrate.ts`) reads it. At request time, though, the production Worker reaches Postgres through the top-level `HYPERDRIVE` binding (config `e377f340…`); `db/client.ts` only falls back to `DATABASE_URL` when no Hyperdrive binding is present (bare `wrangler dev`). `R2_BUCKET` is a native binding, not an env var.
 
 ### Frontend (`@wic/web`, Vite build-time)
 
@@ -101,7 +101,7 @@ approval recorded in the PR review — never by editing the pattern set to fit t
 npm install                # Install all workspace deps
 
 npm run dev                # Frontend dev server (Vite, :5173)
-npm run dev:worker         # API as a Worker via `wrangler dev` (top-level config: assets + R2, no Hyperdrive)
+npm run dev:worker         # API as a Worker via `wrangler dev` (top-level config: assets + R2 + HYPERDRIVE binding w/o localConnectionString; reads DATABASE_URL locally)
 npm run dev:api            # API on Node.js via tsx (:3000) — faster iteration
 
 npm run build              # Build all packages — the type check that actually gates a PR
