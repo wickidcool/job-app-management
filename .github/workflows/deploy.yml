@@ -390,7 +390,13 @@ jobs:
     if: >-
       github.event_name != 'push' ||
       needs.lint-and-test.outputs.skip_deploy != 'true'
-    runs-on: ubuntu-latest
+    # WIC-2753: pinned to ubuntu-24.04. `ubuntu-latest` rolled to ubuntu-26.04,
+    # which Playwright 1.59.1 cannot install chromium on ("Playwright does not
+    # support chromium on ubuntu26.04-x64"), failing "Install Playwright browsers"
+    # and — because `deploy-production` needs this job — skipping every prod deploy
+    # (the P0 that kept careerpin 503 for 14 days). Revert to `ubuntu-latest` once
+    # @playwright/test is upgraded to a build that supports 26.04.
+    runs-on: ubuntu-24.04
     # WIC-1095: baseline for this job is ~2m45s. 15 minutes is ~5x headroom and
     # converts the apt/mirror hang that stranded 10 runs on 2026-08-19 into a
     # red check in 15 min rather than a pending one for 6h.
@@ -534,7 +540,9 @@ jobs:
   e2e-isolation-coverage:
     name: E2E Isolation Coverage
     needs: lint-and-test
-    runs-on: ubuntu-latest
+    # WIC-2753: pinned to ubuntu-24.04 for the same Playwright/ubuntu-26.04
+    # incompatibility as `e2e-tests` above. Revert once Playwright supports 26.04.
+    runs-on: ubuntu-24.04
     # WIC-2122 route 2: this job now boots an in-job backend and RUNS the two
     # backend-tier isolation spec files, so it needs the E2E budget, not the
     # 2-minute preflight budget. Baseline ~= e2e-tests (~3-4m) + backend boot.
